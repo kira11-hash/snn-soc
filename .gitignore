@@ -1,0 +1,24 @@
+﻿# --- EDA / simulation outputs ---
+sim/out/
+sim/work/
+sim/runs/
+sim/reports/
+sim/logs/
+sim/waves/
+
+# common generated files
+*.log
+*.jou
+*.rpt
+*.vcd
+*.vpd
+*.fsdb
+*.wlf
+*.tmp
+*.bak
+*.swp
+
+# --- editor / OS ---
+.vscode/
+Thumbs.db
+.DS_Store
