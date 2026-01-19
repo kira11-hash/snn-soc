@@ -13,6 +13,7 @@ module bus_interconnect (
   input  logic        m_valid,
   input  logic        m_write,
   input  logic [31:0] m_addr,
+  
   input  logic [31:0] m_wdata,
   input  logic [3:0]  m_wstrb,
   output logic        m_ready,
