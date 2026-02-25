@@ -1,9 +1,10 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: fifo_sync.sv
 // 描述: 同步 FIFO（单写单读）。
 //       - push/pop 同步到 clk
 //       - 提供 empty/full/count
-//       - 当满时 push 丢弃并置 overflow
+//       - 当满时允许 pop+push 同拍通过，否则 push 丢弃并置 overflow
 //       - 当空时 pop 不动作并置 underflow
 //======================================================================
 module fifo_sync #(
@@ -23,16 +24,28 @@ module fifo_sync #(
   output logic             underflow
 );
   localparam int ADDR_BITS = $clog2(DEPTH);
+  localparam int COUNT_W   = $clog2(DEPTH+1);
+  localparam logic [COUNT_W-1:0] DEPTH_VAL = COUNT_W'(DEPTH);
+
+`ifndef SYNTHESIS
+  initial begin
+    if ((DEPTH & (DEPTH - 1)) != 0)
+      $fatal(1, "[fifo_sync] DEPTH(%0d) must be power of 2 for pointer wrap-around", DEPTH);
+    if (DEPTH == 0)
+      $fatal(1, "[fifo_sync] DEPTH must be > 0");
+  end
+`endif
 
   logic [WIDTH-1:0] mem [0:DEPTH-1];
   logic [ADDR_BITS-1:0] rd_ptr;
   logic [ADDR_BITS-1:0] wr_ptr;
 
-  wire push_fire = push && !full;
+  // 允许 full+pop 同拍时的 push（保持吞吐）
+  wire push_fire = push && (!full || pop);
   wire pop_fire  = pop && !empty;
 
-  assign empty = (count == 0);
-  assign full  = (count == DEPTH);
+  assign empty = (count == '0);
+  assign full  = (count == DEPTH_VAL);
   assign rd_data = mem[rd_ptr];
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -43,8 +56,8 @@ module fifo_sync #(
       overflow <= 1'b0;
       underflow<= 1'b0;
     end else begin
-      overflow  <= push && full;
-      underflow <= pop && empty;
+      overflow  <= push && full && !pop;
+      underflow <= pop && empty && !push;
 
       if (push_fire) begin
         mem[wr_ptr] <= push_data;

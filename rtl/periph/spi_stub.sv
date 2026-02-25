@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: spi_stub.sv
 // 描述: SPI Flash 外设 stub。
@@ -31,6 +32,8 @@ module spi_stub (
 
   wire [7:0] addr_offset = req_addr[7:0];
   wire write_en = req_valid && req_write;
+  // 标记未使用信号（lint 友好）
+  wire _unused = &{1'b0, req_addr[31:8], req_wstrb, spi_miso};
 
   // stub 输出默认值
   always_ff @(posedge clk or negedge rst_n) begin

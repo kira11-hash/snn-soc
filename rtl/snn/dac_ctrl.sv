@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: dac_ctrl.sv
 // 描述: DAC 控制器。
@@ -54,7 +55,9 @@ module dac_ctrl (
         ST_WAIT: begin
           if (dac_ready) begin
             dac_valid <= 1'b0;
-            lat_cnt   <= DAC_LATENCY_CYCLES[7:0];
+            // 让“延迟 N 周期”的语义更直观：计数 N 个周期后 done
+            lat_cnt   <= (DAC_LATENCY_CYCLES == 0) ? 8'h0
+                                                   : (DAC_LATENCY_CYCLES[7:0] - 8'h1);
             state     <= ST_LAT;
           end
         end

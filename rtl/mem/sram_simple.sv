@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: sram_simple.sv
 // 描述: 简化单端口 SRAM 模型。
@@ -6,7 +7,7 @@
 //       - 地址以 byte 为单位，内部按 32-bit word 寻址
 //======================================================================
 module sram_simple #(
-  parameter int MEM_BYTES = 65536  // 例如 64KB
+  parameter int MEM_BYTES = 16384  // 例如 16KB
 ) (
   input  logic        clk,
   input  logic        rst_n,
@@ -23,6 +24,8 @@ module sram_simple #(
   logic [31:0] mem [0:WORDS-1];
 
   wire [ADDR_BITS-1:0] word_addr = req_addr[ADDR_BITS+1:2];
+  // 标记未使用信号位（lint 友好）
+  wire _unused = &{1'b0, rst_n, req_addr, req_wdata, req_wstrb};
 
   // 组合读：直接读当前地址
   assign rdata = mem[word_addr];

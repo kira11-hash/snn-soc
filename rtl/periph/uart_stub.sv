@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: uart_stub.sv
 // 描述: UART 外设 stub。
@@ -29,6 +30,8 @@ module uart_stub (
 
   wire [7:0] addr_offset = req_addr[7:0];
   wire write_en = req_valid && req_write;
+  // 标记未使用信号（lint 友好）
+  wire _unused = &{1'b0, req_addr[31:8], req_wstrb, uart_rx};
 
   assign uart_tx = 1'b1; // 空闲高电平
 

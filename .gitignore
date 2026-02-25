@@ -20,5 +20,16 @@ sim/waves/
 
 # --- editor / OS ---
 .vscode/
+.obsidian/
+.claude/
 Thumbs.db
 .DS_Store
+
+# local/generated
+obj_dir/
+nul
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+oldverision/

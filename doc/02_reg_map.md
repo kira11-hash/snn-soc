@@ -1,45 +1,60 @@
 # 02_reg_map
 
-## 寄存器语义说明（W1P / W1C）
-- W1P（Write-1 Pulse）：写 1 产生单拍脉冲，硬件自动清 0。
-- W1C（Write-1 Clear）：写 1 清除 sticky 位；读取不会清零。
+**参数口径**：寄存器默认值、位宽与地址映射以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 
 ## reg_bank（base = 0x4000_0000）
-| Offset | 名称 | 字段 | 位 | 读写 | 默认值 | 说明 |
-|---|---|---|---|---|---|---|
-| 0x00 | NEURON_THRESHOLD | threshold | [15:0] | RW | 16'd200 | LIF 阈值 |
-| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd20 | 推理时步数 |
-| 0x08 | NUM_INPUTS | num_inputs | [15:0] | RO | 16'd49 | 输入维度 |
+| OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
+|---:|---|---|---|---|---|---|
+| 0x00 | NEURON_THRESHOLD | threshold | [31:0] | RW | THRESHOLD_DEFAULT | LIF 阈值 |
+| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd1 | 推理帧数（每帧含 PIXEL_BITS 子时间步） |
+| 0x08 | NUM_INPUTS | num_inputs | [15:0] | RO | 16'd64 | 输入维度（8x8 离线投影后特征） |
 | 0x0C | NUM_OUTPUTS | num_outputs | [7:0] | RO | 8'd10 | 输出类别 |
 | 0x10 | RESET_MODE | reset_mode | [0] | RW | 1'b0 | 0=soft reset, 1=hard reset |
 | 0x14 | CIM_CTRL | START | [0] | W1P | 0 | 写 1 启动一次推理 |
-|  |  | RESET | [1] | W1P | 0 | 写 1 软复位内部状态 |
-|  |  | DONE | [7] | RO/W1C | 0 | 推理结束置 1，写 1 清零 |
+| 0x14 | CIM_CTRL | SOFT_RESET | [1] | W1P | 0 | 写 1 触发软复位脉冲 |
+| 0x14 | CIM_CTRL | DONE | [7] | W1C | 0 | 推理完成 sticky 标志，写 1 清零 |
 | 0x18 | STATUS | BUSY | [0] | RO | 0 | 控制器忙标志 |
-|  |  | IN_FIFO_EMPTY | [1] | RO | 0 | 输入 FIFO 空 |
-|  |  | IN_FIFO_FULL | [2] | RO | 0 | 输入 FIFO 满 |
-|  |  | OUT_FIFO_EMPTY | [3] | RO | 0 | 输出 FIFO 空 |
-|  |  | OUT_FIFO_FULL | [4] | RO | 0 | 输出 FIFO 满 |
-|  |  | timestep_counter | [15:8] | RO | 0 | 当前时步计数 |
+| 0x18 | STATUS | IN_FIFO_EMPTY | [1] | RO | 0 | 输入 FIFO 空 |
+| 0x18 | STATUS | IN_FIFO_FULL | [2] | RO | 0 | 输入 FIFO 满 |
+| 0x18 | STATUS | OUT_FIFO_EMPTY | [3] | RO | 0 | 输出 FIFO 空 |
+| 0x18 | STATUS | OUT_FIFO_FULL | [4] | RO | 0 | 输出 FIFO 满 |
+| 0x18 | STATUS | TIMESTEP_CNT | [15:8] | RO | 0 | 已完成帧计数 |
 | 0x1C | OUT_FIFO_DATA | spike_id | [3:0] | RO | 0 | 读一次弹出一个 spike_id，空则返回 0 |
-| 0x20 | OUT_FIFO_COUNT | count | [15:0] | RO | 0 | 输出 FIFO 当前计数 |
+| 0x20 | OUT_FIFO_COUNT | count | [8:0] | RO | 0 | 输出 FIFO 当前计数（有效位 [8:0]，其余为 0） |
+| 0x24 | THRESHOLD_RATIO | ratio | [7:0] | RW | 8'd102 | 阈值比例（102/255≈0.40），供固件计算绝对阈值 |
+| 0x28 | ADC_SAT_COUNT | sat_high | [15:0] | RO | 0 | ADC 采样 == MAX (0xFF) 累计次数，每次推理自动清零 |
+| 0x28 | ADC_SAT_COUNT | sat_low | [31:16] | RO | 0 | ADC 采样 == 0 累计次数，每次推理自动清零 |
+| 0x2C | CIM_TEST | test_mode | [0] | RW | 0 | CIM 测试模式使能（1=旁路模拟宏，用数字假响应） |
+| 0x2C | CIM_TEST | test_data | [15:8] | RW | 0 | 测试模式下 bl_data 返回值（8-bit） |
+| 0x30 | DBG_CNT_0 | dma_frame_cnt | [15:0] | RO | 0 | DMA 已完成 FIFO push 次数（16-bit 饱和） |
+| 0x30 | DBG_CNT_0 | cim_cycle_cnt | [31:16] | RO | 0 | CIM busy 累计周期数（16-bit 饱和） |
+| 0x34 | DBG_CNT_1 | spike_cnt | [15:0] | RO | 0 | LIF spike 总数（16-bit 饱和） |
+| 0x34 | DBG_CNT_1 | wl_stall_cnt | [31:16] | RO | 0 | WL mux 重入告警次数（16-bit 饱和） |
+
+说明：
+- THRESHOLD 和 THRESHOLD_RATIO 为双寄存器模式：固件可读取 ratio 计算绝对阈值后写入 THRESHOLD，或直接写入绝对阈值。
+- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 102 × 255 × 1 = 26010。
+- CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake DAC/CIM/ADC 响应（dac_ready=1, cim_done 延迟 2 拍, adc_done 延迟 1 拍），bl_data 返回 test_data 常量。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
+- 用途边界：CIM_TEST 仅用于握手/时序/通路自检，不用于分类数值链路正确性验证。
+- 原因：Scheme B 下 adc_ctrl 会做正负通道差分，test_data 常量通常会在差分后抵消，不能代表真实推理精度。
+- DBG_CNT_0/1：16-bit 饱和计数器，仅 rst_n 清零。用于运行时诊断 DMA 搬运量、推理耗时、spike 输出量、WL mux 协议违规。
 
 ## dma_regs（base = 0x4000_0100）
-| Offset | 名称 | 字段 | 位 | 读写 | 默认值 | 说明 |
-|---|---|---|---|---|---|---|
-| 0x00 | DMA_SRC_ADDR | addr | [31:0] | RW | 0 | DMA 源地址（byte） |
-| 0x04 | DMA_LEN_WORDS | len | [31:0] | RW | 0 | 以 32-bit word 计数，必须为偶数 |
+| OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
+|---:|---|---|---|---|---|---|
+| 0x00 | DMA_SRC_ADDR | addr | [31:0] | RW | 0 | DMA 源地址（byte 地址，SoC 物理地址，需 4B 对齐） |
+| 0x04 | DMA_LEN_WORDS | len | [31:0] | RW | 0 | 32-bit word 计数，必须为偶数且不越界 |
 | 0x08 | DMA_CTRL | START | [0] | W1P | 0 | 写 1 启动 DMA |
-|  |  | DONE | [1] | RO/W1C | 0 | 传输完成置 1，写 1 清零 |
-|  |  | ERR | [2] | RO/W1C | 0 | 长度为奇数时置 1，写 1 清零 |
-|  |  | BUSY | [3] | RO | 0 | DMA 正在运行 |
+| 0x08 | DMA_CTRL | DONE | [1] | W1C | 0 | DMA 完成 sticky 标志 |
+| 0x08 | DMA_CTRL | ERR | [2] | W1C | 0 | DMA 错误 sticky 标志 |
+| 0x08 | DMA_CTRL | BUSY | [3] | RO | 0 | DMA 忙标志（state != IDLE） |
 
 ## fifo_regs（base = 0x4000_0400）
-| Offset | 名称 | 字段 | 位 | 读写 | 默认值 | 说明 |
-|---|---|---|---|---|---|---|
-| 0x00 | IN_FIFO_COUNT | count | [15:0] | RO | 0 | 输入 FIFO 计数 |
-| 0x04 | OUT_FIFO_COUNT | count | [15:0] | RO | 0 | 输出 FIFO 计数 |
+| OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
+|---:|---|---|---|---|---|---|
+| 0x00 | IN_FIFO_COUNT | count | [8:0] | RO | 0 | 输入 FIFO 计数（有效位 [8:0]，其余为 0） |
+| 0x04 | OUT_FIFO_COUNT | count | [8:0] | RO | 0 | 输出 FIFO 计数（有效位 [8:0]，其余为 0） |
 | 0x08 | FIFO_STATUS | in_empty | [0] | RO | 0 | 输入 FIFO 空 |
-|  |  | in_full | [1] | RO | 0 | 输入 FIFO 满 |
-|  |  | out_empty | [2] | RO | 0 | 输出 FIFO 空 |
-|  |  | out_full | [3] | RO | 0 | 输出 FIFO 满 |
+| 0x08 | FIFO_STATUS | in_full | [1] | RO | 0 | 输入 FIFO 满 |
+| 0x08 | FIFO_STATUS | out_empty | [2] | RO | 0 | 输出 FIFO 空 |
+| 0x08 | FIFO_STATUS | out_full | [3] | RO | 0 | 输出 FIFO 满 |

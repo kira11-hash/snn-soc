@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: bus_interconnect.sv
 // 描述: 简化总线的地址译码与从设备路由。
@@ -13,7 +14,6 @@ module bus_interconnect (
   input  logic        m_valid,
   input  logic        m_write,
   input  logic [31:0] m_addr,
-  
   input  logic [31:0] m_wdata,
   input  logic [3:0]  m_wstrb,
   output logic        m_ready,
@@ -107,6 +107,7 @@ module bus_interconnect (
   logic [3:0]  req_sel;
   logic [31:0] req_rdata;
 
+  /* verilator lint_off UNUSEDSIGNAL */
   function automatic logic in_range(
     input logic [31:0] addr,
     input logic [31:0] base,
@@ -114,6 +115,7 @@ module bus_interconnect (
   );
     in_range = (addr >= base) && (addr <= last);
   endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   always_comb begin
     req_sel = SEL_NONE;

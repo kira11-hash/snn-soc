@@ -1,3 +1,4 @@
+﻿`timescale 1ns/1ps
 //======================================================================
 // 文件名: fifo_regs.sv
 // 描述: FIFO 状态寄存器窗口（地址基址：0x4000_0400）。
@@ -11,8 +12,8 @@ module fifo_regs (
   input  logic [3:0]  req_wstrb,
   output logic [31:0] rdata,
 
-  input  logic [$clog2(512+1)-1:0] in_fifo_count,
-  input  logic [$clog2(256+1)-1:0] out_fifo_count,
+  input  logic [$clog2(snn_soc_pkg::INPUT_FIFO_DEPTH+1)-1:0] in_fifo_count,
+  input  logic [$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count,
   input  logic in_fifo_empty,
   input  logic in_fifo_full,
   input  logic out_fifo_empty,
@@ -24,13 +25,15 @@ module fifo_regs (
   localparam logic [7:0] REG_STATUS    = 8'h08;
 
   wire [7:0] addr_offset = req_addr[7:0];
+  // 标记未使用信号（lint 友好）
+  wire _unused = &{1'b0, req_valid, req_write, req_addr[31:8], req_wdata, req_wstrb};
 
   // 只读寄存器，写入忽略
   always_comb begin
     rdata = 32'h0;
     case (addr_offset)
-      REG_IN_COUNT:  rdata = {16'h0, in_fifo_count};
-      REG_OUT_COUNT: rdata = {16'h0, out_fifo_count};
+      REG_IN_COUNT:  rdata = {{(32-$clog2(snn_soc_pkg::INPUT_FIFO_DEPTH+1)){1'b0}}, in_fifo_count};
+      REG_OUT_COUNT: rdata = {{(32-$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)){1'b0}}, out_fifo_count};
       REG_STATUS: begin
         rdata[0] = in_fifo_empty;
         rdata[1] = in_fifo_full;
@@ -41,3 +44,4 @@ module fifo_regs (
     endcase
   end
 endmodule
+

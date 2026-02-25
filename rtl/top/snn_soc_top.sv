@@ -1,3 +1,4 @@
+﻿`timescale 1ns/1ps
 //======================================================================
 // 文件名: snn_soc_top.sv
 // 描述: SNN SoC 顶层。
@@ -77,13 +78,20 @@ module snn_soc_top (
   logic [NUM_INPUTS-1:0] in_fifo_wdata;
   logic [NUM_INPUTS-1:0] in_fifo_rdata;
   logic        in_fifo_empty, in_fifo_full;
-  logic [$clog2(512+1)-1:0] in_fifo_count;
+  logic        in_fifo_overflow, in_fifo_underflow;
+  logic [$clog2(INPUT_FIFO_DEPTH+1)-1:0] in_fifo_count;
 
   logic        out_fifo_push, out_fifo_pop;
   logic [3:0]  out_fifo_wdata;
   logic [3:0]  out_fifo_rdata;
   logic        out_fifo_empty, out_fifo_full;
-  logic [$clog2(256+1)-1:0] out_fifo_count;
+  logic        out_fifo_overflow, out_fifo_underflow;
+  logic [$clog2(OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count;
+
+  // 标记未使用信号（lint 友好）
+  wire _unused_top = reg_resp_read_pulse ^ &reg_resp_addr ^
+                     in_fifo_overflow ^ in_fifo_underflow ^
+                     out_fifo_overflow ^ out_fifo_underflow;
 
   // DMA 与 data_sram
   logic        dma_rd_en;
@@ -93,6 +101,13 @@ module snn_soc_top (
   // SNN 子系统信号
   logic [NUM_INPUTS-1:0] wl_bitmap;
   logic                  wl_valid_pulse;
+  logic [NUM_INPUTS-1:0] wl_bitmap_wrapped;
+  logic                  wl_valid_pulse_wrapped;
+  // WL 复用协议原型信号（用于冻结字段/时序，后续可迁移到 chip_top）
+  logic [WL_GROUP_WIDTH-1:0] wl_data;
+  logic [$clog2(WL_GROUP_COUNT)-1:0] wl_group_sel;
+  logic                               wl_latch;
+  logic                               wl_mux_busy;
   logic [NUM_INPUTS-1:0] wl_spike;
   logic                  dac_valid;
   logic                  dac_ready;
@@ -104,13 +119,13 @@ module snn_soc_top (
   logic                  adc_kick_pulse;
   logic                  adc_start;
   logic                  adc_done;
-  logic [$clog2(NUM_OUTPUTS)-1:0] bl_sel;
-  logic [7:0]            bl_data;
+  logic [$clog2(ADC_CHANNELS)-1:0] bl_sel;
+  logic [ADC_BITS-1:0]   bl_data;
 
   logic                  neuron_in_valid;
-  logic [NUM_OUTPUTS-1:0][7:0] neuron_in_data;
+  logic [NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data;
 
-  logic [15:0] neuron_threshold;
+  logic [31:0] neuron_threshold;
   logic [7:0]  timesteps;
   logic        reset_mode;
   logic        snn_busy;
@@ -118,6 +133,36 @@ module snn_soc_top (
   logic        snn_start_pulse;
   logic        snn_soft_reset_pulse;
   logic [7:0]  timestep_counter;
+  logic [$clog2(PIXEL_BITS)-1:0] bitplane_shift;
+  // 仅为 lint 保留（协议信号当前未连到顶层 pad）
+  wire _unused_wl_mux = ^wl_data ^ ^wl_group_sel ^ wl_latch ^ wl_mux_busy;
+
+  // ADC 饱和监控信号（adc_ctrl → reg_bank）
+  logic [15:0] adc_sat_high;
+  logic [15:0] adc_sat_low;
+
+  // CIM Test Mode 信号（reg_bank → test MUX）
+  logic                cim_test_mode;
+  logic [ADC_BITS-1:0] cim_test_data;
+  // 硬件侧（cim_macro_blackbox 原始输出，test mode MUX 前）
+  logic                dac_ready_hw;
+  logic                cim_done_hw;
+  logic                adc_done_hw;
+  logic [ADC_BITS-1:0] bl_data_hw;
+  // 测试侧响应信号
+  logic                dac_ready_test;
+  logic                cim_done_test;
+  logic                adc_done_test;
+  logic [3:0]          test_cim_cnt;
+  logic                test_cim_busy;
+  logic [3:0]          test_adc_cnt;
+  logic                test_adc_busy;
+
+  // Debug 计数器（16-bit 饱和计数，仅 rst_n 清零）
+  logic [15:0] dbg_dma_frame_cnt;
+  logic [15:0] dbg_cim_cycle_cnt;
+  logic [15:0] dbg_spike_cnt;
+  logic [15:0] dbg_wl_stall_cnt;
 
   //======================
   // 总线互联
@@ -197,7 +242,7 @@ module snn_soc_top (
   //======================
   // SRAM 实例
   //======================
-  sram_simple #(.MEM_BYTES(65536)) u_instr_sram (
+  sram_simple #(.MEM_BYTES(INSTR_SRAM_BYTES)) u_instr_sram (
     .clk       (clk),
     .rst_n     (rst_n),
     .req_valid (instr_req_valid),
@@ -208,7 +253,7 @@ module snn_soc_top (
     .rdata     (instr_rdata)
   );
 
-  sram_simple_dp #(.MEM_BYTES(131072)) u_data_sram (
+  sram_simple_dp #(.MEM_BYTES(DATA_SRAM_BYTES)) u_data_sram (
     .clk       (clk),
     .rst_n     (rst_n),
     .req_valid (data_req_valid),
@@ -222,7 +267,7 @@ module snn_soc_top (
     .dma_rdata (dma_rd_data)
   );
 
-  sram_simple #(.MEM_BYTES(16384)) u_weight_sram (
+  sram_simple #(.MEM_BYTES(WEIGHT_SRAM_BYTES)) u_weight_sram (
     .clk       (clk),
     .rst_n     (rst_n),
     .req_valid (weight_req_valid),
@@ -256,7 +301,7 @@ module snn_soc_top (
   //======================
   // FIFO
   //======================
-  fifo_sync #(.WIDTH(NUM_INPUTS), .DEPTH(512)) u_input_fifo (
+  fifo_sync #(.WIDTH(NUM_INPUTS), .DEPTH(INPUT_FIFO_DEPTH)) u_input_fifo (
     .clk       (clk),
     .rst_n     (rst_n),
     .push      (in_fifo_push),
@@ -266,11 +311,11 @@ module snn_soc_top (
     .empty     (in_fifo_empty),
     .full      (in_fifo_full),
     .count     (in_fifo_count),
-    .overflow  (),
-    .underflow ()
+    .overflow  (in_fifo_overflow),
+    .underflow (in_fifo_underflow)
   );
 
-  fifo_sync #(.WIDTH(4), .DEPTH(256)) u_output_fifo (
+  fifo_sync #(.WIDTH(4), .DEPTH(OUTPUT_FIFO_DEPTH)) u_output_fifo (
     .clk       (clk),
     .rst_n     (rst_n),
     .push      (out_fifo_push),
@@ -280,8 +325,8 @@ module snn_soc_top (
     .empty     (out_fifo_empty),
     .full      (out_fifo_full),
     .count     (out_fifo_count),
-    .overflow  (),
-    .underflow ()
+    .overflow  (out_fifo_overflow),
+    .underflow (out_fifo_underflow)
   );
 
   //======================
@@ -305,11 +350,19 @@ module snn_soc_top (
     .out_fifo_full  (out_fifo_full),
     .out_fifo_rdata (out_fifo_rdata),
     .out_fifo_count (out_fifo_count),
+    .adc_sat_high   (adc_sat_high),
+    .adc_sat_low    (adc_sat_low),
+    .dbg_dma_frame_cnt(dbg_dma_frame_cnt),
+    .dbg_cim_cycle_cnt(dbg_cim_cycle_cnt),
+    .dbg_spike_cnt    (dbg_spike_cnt),
+    .dbg_wl_stall_cnt (dbg_wl_stall_cnt),
     .neuron_threshold(neuron_threshold),
     .timesteps      (timesteps),
     .reset_mode     (reset_mode),
     .start_pulse    (snn_start_pulse),
     .soft_reset_pulse(snn_soft_reset_pulse),
+    .cim_test_mode  (cim_test_mode),
+    .cim_test_data  (cim_test_data),
     .out_fifo_pop   (out_fifo_pop)
   );
 
@@ -349,14 +402,28 @@ module snn_soc_top (
     .neuron_in_valid (neuron_in_valid),
     .busy            (snn_busy),
     .done_pulse      (snn_done_pulse),
-    .timestep_counter(timestep_counter)
+    .timestep_counter(timestep_counter),
+    .bitplane_shift  (bitplane_shift)
+  );
+
+  wl_mux_wrapper u_wl_mux_wrapper (
+    .clk               (clk),
+    .rst_n             (rst_n),
+    .wl_bitmap_in      (wl_bitmap),
+    .wl_valid_pulse_in (wl_valid_pulse),
+    .wl_bitmap_out     (wl_bitmap_wrapped),
+    .wl_valid_pulse_out(wl_valid_pulse_wrapped),
+    .wl_data           (wl_data),
+    .wl_group_sel      (wl_group_sel),
+    .wl_latch          (wl_latch),
+    .wl_busy           (wl_mux_busy)
   );
 
   dac_ctrl u_dac (
     .clk          (clk),
     .rst_n        (rst_n),
-    .wl_bitmap    (wl_bitmap),
-    .wl_valid_pulse(wl_valid_pulse),
+    .wl_bitmap    (wl_bitmap_wrapped),
+    .wl_valid_pulse(wl_valid_pulse_wrapped),
     .wl_spike     (wl_spike),
     .dac_valid    (dac_valid),
     .dac_ready    (dac_ready),
@@ -368,13 +435,13 @@ module snn_soc_top (
     .rst_n     (rst_n),
     .wl_spike  (wl_spike),
     .dac_valid (dac_valid),
-    .dac_ready (dac_ready),
+    .dac_ready (dac_ready_hw),
     .cim_start (cim_start_pulse),
-    .cim_done  (cim_done),
+    .cim_done  (cim_done_hw),
     .adc_start (adc_start),
-    .adc_done  (adc_done),
+    .adc_done  (adc_done_hw),
     .bl_sel    (bl_sel),
-    .bl_data   (bl_data)
+    .bl_data   (bl_data_hw)
   );
 
   adc_ctrl u_adc (
@@ -386,7 +453,9 @@ module snn_soc_top (
     .bl_sel         (bl_sel),
     .bl_data        (bl_data),
     .neuron_in_valid(neuron_in_valid),
-    .neuron_in_data (neuron_in_data)
+    .neuron_in_data (neuron_in_data),
+    .adc_sat_high   (adc_sat_high),
+    .adc_sat_low    (adc_sat_low)
   );
 
   lif_neurons u_lif (
@@ -395,12 +464,87 @@ module snn_soc_top (
     .soft_reset_pulse(snn_soft_reset_pulse),
     .neuron_in_valid(neuron_in_valid),
     .neuron_in_data (neuron_in_data),
+    .bitplane_shift (bitplane_shift),
     .threshold      (neuron_threshold),
     .reset_mode     (reset_mode),
     .out_fifo_push  (out_fifo_push),
     .out_fifo_wdata (out_fifo_wdata),
     .out_fifo_full  (out_fifo_full)
   );
+
+  //======================
+  // CIM Test Mode MUX + 响应生成器
+  //======================
+  // 当 cim_test_mode=1 时，旁路 cim_macro_blackbox 的输出，
+  // 由数字侧生成 fake 响应，用于硅上验证数字逻辑（不依赖真实 RRAM 宏）。
+  assign dac_ready_test = 1'b1; // 测试模式下 DAC 始终就绪
+  assign dac_ready = cim_test_mode ? dac_ready_test : dac_ready_hw;
+  assign cim_done  = cim_test_mode ? cim_done_test  : cim_done_hw;
+  assign adc_done  = cim_test_mode ? adc_done_test  : adc_done_hw;
+  assign bl_data   = cim_test_mode ? cim_test_data   : bl_data_hw;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      cim_done_test  <= 1'b0;
+      adc_done_test  <= 1'b0;
+      test_cim_cnt   <= 4'd0;
+      test_cim_busy  <= 1'b0;
+      test_adc_cnt   <= 4'd0;
+      test_adc_busy  <= 1'b0;
+    end else begin
+      cim_done_test <= 1'b0;
+      adc_done_test <= 1'b0;
+      // CIM: 2 cycle delay after cim_start
+      if (cim_start_pulse && !test_cim_busy) begin
+        test_cim_busy <= 1'b1;
+        test_cim_cnt  <= 4'd1;
+      end else if (test_cim_busy) begin
+        if (test_cim_cnt == 4'd0) begin
+          cim_done_test <= 1'b1;
+          test_cim_busy <= 1'b0;
+        end else begin
+          test_cim_cnt <= test_cim_cnt - 4'd1;
+        end
+      end
+      // ADC: 1 cycle delay after adc_start
+      if (adc_start && !test_adc_busy) begin
+        test_adc_busy <= 1'b1;
+        test_adc_cnt  <= 4'd0;
+      end else if (test_adc_busy) begin
+        if (test_adc_cnt == 4'd0) begin
+          adc_done_test <= 1'b1;
+          test_adc_busy <= 1'b0;
+        end else begin
+          test_adc_cnt <= test_adc_cnt - 4'd1;
+        end
+      end
+    end
+  end
+
+  //======================
+  // Debug 计数器（16-bit 饱和）
+  //======================
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      dbg_dma_frame_cnt <= 16'h0;
+      dbg_cim_cycle_cnt <= 16'h0;
+      dbg_spike_cnt     <= 16'h0;
+      dbg_wl_stall_cnt  <= 16'h0;
+    end else begin
+      // DMA frame count: 每次成功 push 64-bit bitmap 到 FIFO
+      if (in_fifo_push && !(&dbg_dma_frame_cnt))
+        dbg_dma_frame_cnt <= dbg_dma_frame_cnt + 16'h1;
+      // CIM cycle count: busy 期间每拍 +1
+      if (snn_busy && !(&dbg_cim_cycle_cnt))
+        dbg_cim_cycle_cnt <= dbg_cim_cycle_cnt + 16'h1;
+      // Spike count: 每次 LIF 向 output_fifo push
+      if (out_fifo_push && !(&dbg_spike_cnt))
+        dbg_spike_cnt <= dbg_spike_cnt + 16'h1;
+      // WL stall count: wl_valid_pulse 到来时 mux 仍忙（协议违规）
+      if (wl_valid_pulse && wl_mux_busy && !(&dbg_wl_stall_cnt))
+        dbg_wl_stall_cnt <= dbg_wl_stall_cnt + 16'h1;
+    end
+  end
 
   //======================
   // 外设 stub
@@ -440,3 +584,4 @@ module snn_soc_top (
     .jtag_tdo (jtag_tdo)
   );
 endmodule
+

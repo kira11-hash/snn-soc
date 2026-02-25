@@ -1,0 +1,104 @@
+============================================================
+  SNN SoC 建模结果 - 参数推荐
+============================================================
+
+评估口径: tuning_split=val (选方案/调参), final_split=test (最终一次报告)
+全量组合扫描数: 900, 推荐精度容忍边界: 0.50%
+
+最佳下采样方法(8/4/1基线): proj_sup_64
+  tuning SNN(ADC=8,W=4,T=1): 90.78%
+  ANN float 基线准确率(test): 86.74%
+  ANN quantized 基线准确率(test): 90.57%
+
+best-case(全量网格最高精度):
+  method=proj_sup_64, scheme=B, ADC=8, W=4, T=1, ratio=0.40, acc=90.78%
+
+recommendation(精度达标下低成本优先):
+  method=proj_sup_64, scheme=B, ADC=8, W=4, T=1, ratio=0.40, tuning_acc=90.78%
+
+Final test (recommendation): 91.24%
+Final test (best-case): 91.24%
+
+Top full-grid combinations:
+  #01: method=proj_sup_64, scheme=B, ADC=8, W=4, T=1, ratio=0.40, acc=90.78%
+  #02: method=proj_sup_64, scheme=B, ADC=8, W=4, T=3, ratio=0.40, acc=90.78%
+  #03: method=proj_sup_64, scheme=B, ADC=8, W=4, T=5, ratio=0.40, acc=90.78%
+  #04: method=proj_sup_64, scheme=B, ADC=8, W=4, T=10, ratio=0.40, acc=90.78%
+  #05: method=proj_sup_64, scheme=B, ADC=8, W=4, T=20, ratio=0.40, acc=90.78%
+  #06: method=proj_sup_64, scheme=B, ADC=12, W=4, T=1, ratio=0.40, acc=90.68%
+  #07: method=proj_sup_64, scheme=B, ADC=12, W=4, T=3, ratio=0.40, acc=90.68%
+  #08: method=proj_sup_64, scheme=B, ADC=12, W=4, T=5, ratio=0.40, acc=90.68%
+  #09: method=proj_sup_64, scheme=B, ADC=12, W=4, T=10, ratio=0.40, acc=90.68%
+  #10: method=proj_sup_64, scheme=B, ADC=12, W=4, T=20, ratio=0.40, acc=90.68%
+
+Per-method calibrated ratio (by scheme):
+  avgpool_8x8         [B] ratio=0.30, val_acc=86.55%
+  bilinear_8x8        [B] ratio=0.30, val_acc=80.90%
+  maxpool_8x8         [B] ratio=0.30, val_acc=83.15%
+  nearest_8x8         [B] ratio=0.30, val_acc=80.10%
+  pad32_reflect_8x8   [B] ratio=0.30, val_acc=84.85%
+  pad32_replicate_8x8 [B] ratio=0.30, val_acc=84.00%
+  pad32_zero_8x8      [B] ratio=0.30, val_acc=85.15%
+  proj_pca_64         [B] ratio=0.30, val_acc=82.05%
+  proj_sup_64         [B] ratio=0.40, val_acc=90.50%
+
+ADC sweep (val):
+   6-bit: 90.10%
+   8-bit: 90.78% <- 推荐
+  10-bit: 90.62%
+  12-bit: 90.68%
+
+Weight sweep (val):
+  2-bit: 80.22%
+  3-bit: 78.02%
+  4-bit: 90.78% <- 推荐
+  6-bit: 86.76%
+  8-bit: 86.12%
+
+Timesteps sweep (val):
+  T= 1: 90.78% <- 推荐
+  T= 3: 90.78%
+  T= 5: 90.78%
+  T=10: 90.78%
+  T=20: 90.78%
+
+器件非理想影响 (val):
+  理想准确率:      90.78%
+  含噪准确率:      90.41% +/- 0.0031
+  准确率退化:      0.37%
+
+差分方案对比 (val):
+  方案 B: 90.78% <- 推荐
+
+决策规则对比 (val):
+  spike   : 90.78%
+  membrane: 90.78%
+
+自适应阈值 (val):
+  固定阈值(spike): 90.78%
+  自适应阈值:      88.98%
+  提升:            -1.80%
+  结论:            不推荐
+
+固定配置多seed复跑 (test):
+  seeds: [42, 43, 44, 45, 46]
+  clean: 91.24% +/- 0.0000
+  noisy: 90.98% +/- 0.0012
+
+Device backend:
+  use_device_model=True
+  plugin_path_exists=True
+  plugin_levels_loaded=True
+  plugin_sim_available=True
+  backend_mode=plugin
+
+============================================================
+  RTL 参数推荐 (用于更新 snn_soc_pkg.sv)
+============================================================
+  NUM_INPUTS  = 64
+  NUM_OUTPUTS = 10
+  ADC_BITS    = 8
+  PIXEL_BITS  = 8
+  // 权重量化位宽 = 4 (器件侧参数, 不在 RTL 内)
+  // 差分方案 = B
+  // 自适应阈值 = 否

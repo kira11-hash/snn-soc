@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: bus_simple_if.sv
 // 描述: 简化的 memory-mapped bus 接口定义。
@@ -7,6 +8,8 @@
 //         - 读请求：下一拍 m_rvalid=1 且 m_rdata 有效
 //======================================================================
 interface bus_simple_if (input logic clk);
+  /* verilator lint_off UNDRIVEN */
+  /* verilator lint_off UNUSEDSIGNAL */
   logic        m_valid;
   logic        m_write;
   logic [31:0] m_addr;
@@ -15,6 +18,11 @@ interface bus_simple_if (input logic clk);
   logic        m_ready;
   logic [31:0] m_rdata;
   logic        m_rvalid;
+  /* verilator lint_on UNUSEDSIGNAL */
+  /* verilator lint_on UNDRIVEN */
+
+  // 标记未使用输入（lint 友好）
+  wire _unused_clk = clk;
 
   modport master (
     input  clk,

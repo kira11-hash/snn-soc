@@ -1,0 +1,5 @@
+﻿backup_created=2026-02-08 02:48:22
+project=d:\SoC Design\Python建模
+run_log=run_all_full_48h_20260208_002558.log
+summary=results\summary.txt
+includes=results/, config.py

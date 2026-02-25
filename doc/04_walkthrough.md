@@ -1,37 +1,42 @@
 # 04_walkthrough
 
-## 从 reset 到 done 的逐拍叙述（按模块）
-1. `rst_n=0`：所有寄存器/FIFO/状态清零。
-2. `rst_n=1`：寄存器保持默认值（threshold=200，timesteps=20）。
-3. 软件或 TB 通过总线写入阈值与 timesteps。
-4. TB 把 5 个 timestep 的 wl_bitmap 写入 data_sram（每个 timestep 占 2 个 word）。
-5. TB 写 DMA_CTRL.START，DMA 读取 data_sram 并把 49-bit wl_bitmap 推入 input_fifo。
-6. TB 写 CIM_CTRL.START，cim_array_ctrl 开始按 timesteps 循环。
-7. 每个 timestep：
-   - STEP_FETCH：读取 input_fifo（若空则用全 0）。
-   - STEP_DAC：触发 DAC，等待 dac_done_pulse。
-   - STEP_CIM：触发 cim_start，等待 cim_done。
-   - STEP_ADC：触发 adc_start，等待 adc_done，并拉高 neuron_in_valid。
-   - STEP_INC：timestep++，若到达终止则 DONE。
-8. DONE：done_sticky 置 1，等待软件清零。
+**参数口径**：默认参数与时序常量以 `rtl/top/snn_soc_pkg.sv` 为准，本文中的数值与示例仅作说明。
 
-## cim_array_ctrl 状态做什么、等待什么
-- IDLE：等待 start_pulse。
-- STEP_FETCH：从 input_fifo 取 wl_bitmap。
-- STEP_DAC：发 wl_valid_pulse，等 dac_done_pulse。
-- STEP_CIM：发 cim_start_pulse，等 cim_done。
-- STEP_ADC：发 adc_kick_pulse，等 neuron_in_valid。
-- STEP_INC：timestep++，决定回到 STEP_FETCH 或进入 DONE。
-- DONE：done_pulse 单拍，回 IDLE。
+## Bit-plane 输入与时序
+- V1 输入为离线预处理后的 64 维特征向量（proj_sup_64: 784→64），每维 8bit。
+- 同一子时间步并行送 64 维特征的第 x 位（NUM_INPUTS=64），顺序 MSB->LSB。
+- `bitplane_shift` 表示当前位平面（MSB=7 ... LSB=0）。
 
-## DMA 如何拼 2 个 word 成 49-bit
+## 一次完整推理流程（TB 视角）
+1. 复位释放。
+2. 配置寄存器：写 `THRESHOLD`、写 `TIMESTEPS`（帧数）。
+3. 写 data_sram：
+   - 每个 bit-plane 为 64-bit（NUM_INPUTS=64），拆成 2 个 32-bit word 写入。
+   - 写入顺序：frame0 的 MSB->LSB，再 frame1 的 MSB->LSB。
+   - **MVP**：由 TB 直接写入 data_sram。
+   - **V1**：CPU 通过 SPI 从外部 Flash 读数据，再写入 data_sram（PIO），后续可升级为 SPI→DMA→SRAM。
+4. 启动 DMA：
+   - `DMA_SRC_ADDR` 指向 data_sram 基址
+   - `DMA_LEN_WORDS = frames * PIXEL_BITS * 2`
+   - 写 `DMA_CTRL.START`
+5. DMA 将 bit-plane 依次写入 input_fifo。
+6. 写 `CIM_CTRL.START` 启动推理。
+7. cim_array_ctrl 状态机循环：
+   - `ST_FETCH`：从 input_fifo 取 1 个 bit-plane
+   - `ST_DAC`：握手并锁存 wl_spike
+   - `ST_CIM`：等待 cim_done
+   - `ST_ADC`：按 20 通道触发 ADC，等待每次 adc_done；ADC 控制器完成数字差分减法后产生 neuron_in_valid
+   - `ST_INC`：bitplane_shift--；若到 LSB 则帧计数++
+8. done_sticky 置 1 后结束。
+
+**补充**：当 `TIMESTEPS=0` 时，控制器立即 done，不进入推理流程。
+
+## DMA 2 word 拼接 64-bit
 - word0 = wl[31:0]
-- word1 = wl[48:32] 放在 word1[16:0]
-- DMA 每读取 2 个 word 后组合：
-  `wl_bitmap = {word1[16:0], word0}`
-- 拼好后 push 到 input_fifo。
+- word1 = wl[63:32]
 
-## output_fifo 如何按顺序 push spike_id
-- lif_neurons 在 neuron_in_valid 时计算 10 个膜电位。
-- 若超过阈值产生 spike，按 i=0..9 的顺序写入内部队列。
-- 之后每拍尝试从队列取 1 个 spike_id 写入 output_fifo，保持顺序。
+## LIF 累加（Scheme B 有符号）
+- `neuron_in_valid` 到来时：
+  - `signed_in = $signed(neuron_in_data[i])` （9-bit 有符号差分值）
+  - `addend = sign_extend(signed_in, 32) <<< bitplane_shift`（算术左移）
+  - 累加到有符号膜电位，超过正阈值产生 spike

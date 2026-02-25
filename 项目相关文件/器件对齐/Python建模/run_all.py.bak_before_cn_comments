@@ -1,0 +1,1088 @@
+"""
+==========================================================
+  SNN SoC Python 建模 - 主程?
+==========================================================
+用法:
+    python run_all.py              # 完整运行 (?10-30 分钟)
+    python run_all.py --quick      # 快测?(?2-3 分钟)
+    python run_all.py --skip-train # 跳过训练，加载已保存的权?
+
+运行流程:
+    步骤 1: 准备 MNIST 数据 (多种降采样方?
+    步骤 2: 训练 ANN (获取 float 基线权重)
+    步骤 3: SNN 推理 + 参数扫描 (核心!)
+    步骤 4: 生成图表 + 输出推荐参数
+
+输出文件 (保存?results/ 目录):
+    fig1_downsample_comparison.png  - 不同降采样方法的 ANN 准确?
+    fig2_adc_bits_sweep.png         - ADC 位宽 vs SNN 准确?
+    fig3_weight_bits_sweep.png      - 权重位宽 vs SNN 准确?
+    fig4_timesteps_sweep.png        - 推理帧数 vs SNN 准确?
+    fig5_noise_impact.png           - 器件非理想对准确率的影响
+    fig6_scheme_comparison.png      - 方案A vs B 对比
+    fig7_adaptive_threshold.png     - 自应阈?vs 固定阈?
+    summary.txt                     - 参数推荐总结
+"""
+
+import sys
+import os
+import argparse
+import time
+import random
+import torch
+import numpy as np
+
+# Keep terminal output robust on Windows code pages.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+# ?matplotlib 在没?GUI 的环境也能保存图?
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+# 导入本项目的模块
+import config as cfg
+import data_utils
+import train_ann
+import snn_engine
+
+
+# =====================================================
+#  辅助函数
+# =====================================================
+
+def setup_chinese_font():
+    """Try to set Chinese-capable fonts for plotting."""
+    try:
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei',
+                                           'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        return True
+    except Exception:
+        return False
+
+
+def progress_bar(current, total, prefix='', suffix='', length=40):
+    """Print a simple terminal progress bar."""
+    percent = current / total
+    filled = int(length * percent)
+    bar = '#' * filled + '-' * (length - filled)
+    sys.stdout.write(f'\r  {prefix} |{bar}| {percent:.0%} {suffix}')
+    sys.stdout.flush()
+    if current == total:
+        print()
+
+
+def set_global_seed(seed):
+    """Set random seeds for deterministic runs."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+
+def calibrate_threshold_ratio(ds, W, adc_bits=8, weight_bits=4,
+                              timesteps=1, scheme='A'):
+    """
+    Calibrate spike threshold ratio on a validation subset.
+    Returns (best_ratio, best_acc) or (None, None) if disabled.
+    """
+    if not getattr(cfg, 'CALIBRATE_THRESHOLD_RATIO', False):
+        return None, None
+
+    candidates = list(getattr(cfg, 'THRESHOLD_RATIO_CANDIDATES', []))
+    if not candidates:
+        return None, None
+
+    n = int(getattr(cfg, 'THRESHOLD_CALIBRATE_SAMPLES', 0) or 0)
+    images_src = ds.get("val_images_uint8")
+    labels_src = ds.get("val_labels")
+    if images_src is None or labels_src is None:
+        return None, None
+    n = min(n, int(labels_src.shape[0]))
+    if n <= 0:
+        return None, None
+
+    # Use a deterministic random subset to avoid positional/class-order bias.
+    gen = torch.Generator().manual_seed(int(getattr(cfg, "RANDOM_SEED", 42)) + 20260207)
+    perm = torch.randperm(int(labels_src.shape[0]), generator=gen)[:n]
+    images = images_src[perm]
+    labels = labels_src[perm]
+
+    best_ratio = None
+    best_acc = -1.0
+    for ratio in candidates:
+        acc, _ = snn_engine.snn_inference(
+            images, labels, W,
+            adc_bits=adc_bits, weight_bits=weight_bits, timesteps=timesteps,
+            scheme=scheme, decision='spike', threshold_ratio=ratio
+        )
+        if acc > best_acc:
+            best_acc = acc
+            best_ratio = ratio
+
+    return best_ratio, best_acc
+
+
+def _get_split_tensors(ds, split_name):
+    """
+    Return (images_uint8, labels) for the requested split.
+    """
+    split = str(split_name).lower()
+    if split == "val":
+        images = ds.get("val_images_uint8")
+        labels = ds.get("val_labels")
+    elif split == "test":
+        images = ds.get("test_images_uint8")
+        labels = ds.get("test_labels")
+    else:
+        raise ValueError(f"unknown split: {split_name}")
+
+    if images is None or labels is None:
+        raise ValueError(f"split '{split}' is unavailable for current dataset")
+    return images, labels
+
+
+def _pick_min_within_margin(metric_dict, margin=0.005):
+    """
+    Pick the smallest key whose value is within `margin` of the best value.
+    """
+    items = sorted(metric_dict.items(), key=lambda kv: kv[0])
+    if not items:
+        raise ValueError("metric_dict is empty")
+    best = max(v for _, v in items)
+    target = best - margin
+    candidates = [k for k, v in items if v >= target]
+    return min(candidates) if candidates else items[-1][0]
+
+
+def _resolve_eval_schemes():
+    schemes = list(getattr(cfg, "EVAL_SCHEMES", ["A", "B"]))
+    if not schemes:
+        schemes = ["B"]
+    schemes = [str(s).upper() for s in schemes]
+    if not bool(getattr(cfg, "ALLOW_SIGNED_SCHEME_A", False)):
+        schemes = [s for s in schemes if s != "A"]
+        if not schemes:
+            schemes = ["B"]
+    primary = str(getattr(cfg, "PRIMARY_SCHEME", schemes[0])).upper()
+    if primary == "A" and not bool(getattr(cfg, "ALLOW_SIGNED_SCHEME_A", False)):
+        primary = "B"
+    if primary not in schemes:
+        schemes = [primary] + [s for s in schemes if s != primary]
+    return schemes, primary
+
+
+def _combo_cost_key(item, primary_scheme):
+    """
+    Cost-oriented ordering for recommendation under an accuracy margin.
+    Lower ADC/weight/timesteps first, then prefer primary scheme, then higher acc.
+    """
+    return (
+        int(item["adc_bits"]),
+        int(item["weight_bits"]),
+        int(item["timesteps"]),
+        0 if str(item["scheme"]).upper() == str(primary_scheme).upper() else 1,
+        -float(item["snn_acc"]),
+        str(item["method"]),
+    )
+
+# =====================================================
+#  步骤 2: 训练 ANN
+# =====================================================
+
+def run_training(all_datasets, skip_train=False, quick=False):
+    """
+    对每种降采样方法训练丢?ANN，记?float 基线准确率?
+
+    返回:
+        results: dict, {方法? {"float_acc": 准确? "weights": W矩阵}}
+    """
+    print("\n[步骤 2/4] 训练 ANN (获取 float 权重)...")
+
+    epochs = cfg.QUICK_EPOCHS if quick else cfg.ANN_EPOCHS
+    results = {}
+
+    for name, ds in all_datasets.items():
+        if skip_train:
+            # 加载已保存的权重
+            try:
+                model = train_ann.load_weights(name, ds["input_dim"])
+                W = train_ann.get_weights(model)
+                acc = train_ann.evaluate_model(model, ds["test_loader_float"])
+                quant_acc = None
+                if getattr(cfg, 'QAT_ENABLE', False):
+                    quant_acc = train_ann.evaluate_model(
+                        model, ds["test_loader_float"],
+                        quantized=True,
+                        weight_bits=cfg.QAT_WEIGHT_BITS,
+                        noise_std=cfg.QAT_NOISE_STD if cfg.QAT_NOISE_ENABLE else 0.0,
+                        ir_drop_coeff=cfg.QAT_IR_DROP_COEFF
+                    )
+                if quant_acc is not None:
+                    print(f"  {name:20s}: loaded weights, acc={acc:.2%}, QAT={quant_acc:.2%}")
+                else:
+                    print(f"  {name:20s}: loaded weights, acc={acc:.2%}")
+                results[name] = {"float_acc": acc, "weights": W, "quant_acc": quant_acc}
+                continue
+            except FileNotFoundError:
+                print(f"  {name}: 未找到已保存权重，重新训?.")
+
+        # +/-+/-
+        model, history = train_ann.train_model(
+            ds["train_loader"], ds["input_dim"], epochs=epochs
+        )
+
+        # QAT fine-tune (optional)
+        quant_acc = None
+        if getattr(cfg, 'QAT_ENABLE', False) and getattr(cfg, 'POST_QUANT_FINE_TUNE_EPOCHS', 0) > 0:
+            qat_epochs = cfg.POST_QUANT_FINE_TUNE_EPOCHS
+            if quick:
+                qat_epochs = min(1, qat_epochs)
+            qat_lr = getattr(cfg, 'QAT_LR', cfg.ANN_LR * 0.2)
+            model, qat_history = train_ann.train_model(
+                ds["train_loader"], ds["input_dim"],
+                epochs=qat_epochs, lr=qat_lr, model=model,
+                qat=True, weight_bits=cfg.QAT_WEIGHT_BITS,
+                noise_std=cfg.QAT_NOISE_STD,
+                ir_drop_coeff=cfg.QAT_IR_DROP_COEFF
+            )
+            if qat_history:
+                history.extend(qat_history)
+
+        acc = train_ann.evaluate_model(model, ds["test_loader_float"])
+        if getattr(cfg, 'QAT_ENABLE', False):
+            quant_acc = train_ann.evaluate_model(
+                model, ds["test_loader_float"],
+                quantized=True,
+                weight_bits=cfg.QAT_WEIGHT_BITS,
+                noise_std=cfg.QAT_NOISE_STD if cfg.QAT_NOISE_ENABLE else 0.0,
+                ir_drop_coeff=cfg.QAT_IR_DROP_COEFF
+            )
+        W = train_ann.get_weights(model)
+        train_ann.save_weights(model, name)
+
+        if quant_acc is not None:
+            print(f"  {name:20s}: loss={history[-1]:.4f}, acc={acc:.2%}, QAT={quant_acc:.2%}")
+        else:
+            print(f"  {name:20s}: loss={history[-1]:.4f}, acc={acc:.2%}")
+        results[name] = {"float_acc": acc, "weights": W, "quant_acc": quant_acc}
+
+    return results
+
+
+# =====================================================
+#  步骤 3: 参数扫描
+# =====================================================
+
+def run_parameter_sweep(all_datasets, training_results, quick=False):
+    """
+    核心: 在不同硬件参数下运行 SNN 推理，收集准确率数据?
+
+    扫描维度:
+        1. 降采样方?
+        2. ADC 位宽 (6/8/10/12)
+        3. 权重位宽 (2/3/4/6/8)
+        4. 推理帧数 (1/3/5/10/20)
+        5. 器件噪声 (??
+        6. 差分方案 (A/B)
+        7. 自应阈?(??
+    """
+    print("\n[步骤 3/4] SNN 推理 + 参数扫描...")
+
+    tune_split = str(getattr(cfg, "TUNE_SPLIT", "val")).lower()
+    final_split = str(getattr(cfg, "FINAL_REPORT_SPLIT", "test")).lower()
+    target_input_dim = int(getattr(cfg, "TARGET_INPUT_DIM_FOR_RECOMMEND", 0) or 0)
+    schemes, primary_scheme = _resolve_eval_schemes()
+    default_ratio = float(getattr(cfg, "SPIKE_THRESHOLD_RATIO", 0.6))
+
+    results = {
+        "downsample": {},       # tuning split
+        "adc_sweep": {},        # tuning split
+        "weight_sweep": {},     # tuning split
+        "timestep_sweep": {},   # tuning split
+        "full_grid": [],        # exhaustive tuning split combinations
+        "full_grid_top": [],    # top-K by tuning accuracy
+        "best_case": {},        # best tuning configuration (max acc)
+        "noise_impact": {},     # tuning split
+        "scheme_compare": {},   # tuning split
+        "decision_compare": {}, # tuning split
+        "adaptive": {},         # tuning split
+        "threshold_calibration": {},  # {method: {scheme: ...}}
+        "meta": {
+            "tune_split": tune_split,
+            "final_split": final_split,
+            "primary_scheme": primary_scheme,
+            "schemes": schemes,
+            "target_input_dim": target_input_dim,
+            "allow_signed_scheme_a": bool(getattr(cfg, "ALLOW_SIGNED_SCHEME_A", False)),
+        },
+        "recommendation": {},
+        "final_test": {},
+        "final_test_best_case": {},
+        "multi_seed": {},
+    }
+
+    eligible_methods = []
+    for name, ds in all_datasets.items():
+        input_dim = int(ds["input_dim"])
+        if target_input_dim > 0 and input_dim != target_input_dim:
+            continue
+        try:
+            _get_split_tensors(ds, tune_split)
+        except ValueError:
+            continue
+        eligible_methods.append(name)
+
+    if not eligible_methods:
+        raise RuntimeError(
+            f"No eligible methods for tuning split='{tune_split}' and target_input_dim={target_input_dim}"
+        )
+
+    print(
+        f"  Tuning on split='{tune_split}', final report on split='{final_split}', "
+        f"primary scheme={primary_scheme}, methods={len(eligible_methods)}"
+    )
+
+    # ---- 3a. 验证 SNN-ANN 等价?(ideal, tuning split) ----
+    print(f"\n  [3a] 验证 SNN ?ANN 的数学等价?(split={tune_split})...")
+    for name in eligible_methods:
+        ds = all_datasets[name]
+        images_eval, labels_eval = _get_split_tensors(ds, tune_split)
+        W = training_results[name]["weights"]
+        ideal_acc = snn_engine.snn_inference_ideal(images_eval, labels_eval, W, timesteps=1)
+        print(f"    {name:20s}: SNN(ideal)={ideal_acc:.2%}")
+
+    # ---- 3b-0. 每种方法、每种方案单独做阈标?----
+    method_ratio = {name: {} for name in eligible_methods}
+    if getattr(cfg, "CALIBRATE_THRESHOLD_RATIO", False):
+        print(f"\n  [3b-0] Calibrate threshold ratio (split={tune_split}, per-method/per-scheme)...")
+        for name in eligible_methods:
+            ds = all_datasets[name]
+            W = training_results[name]["weights"]
+            results["threshold_calibration"][name] = {}
+            for scheme in schemes:
+                ratio, ratio_acc = calibrate_threshold_ratio(
+                    ds, W, adc_bits=8, weight_bits=4, timesteps=1, scheme=scheme
+                )
+                if ratio is None:
+                    ratio = default_ratio
+                else:
+                    ratio = float(ratio)
+                method_ratio[name][scheme] = ratio
+                results["threshold_calibration"][name][scheme] = {
+                    "ratio": ratio,
+                    "val_acc": ratio_acc,
+                }
+                if ratio_acc is None:
+                    print(f"    {name:20s} [{scheme}] ratio={ratio:.2f} (fallback)")
+                else:
+                    print(f"    {name:20s} [{scheme}] ratio={ratio:.2f}, val_acc={ratio_acc:.2%}")
+    else:
+        for name in eligible_methods:
+            for scheme in schemes:
+                method_ratio[name][scheme] = default_ratio
+
+    # ---- 3b. 方法选择（只?tuning split?--
+    print(f"\n  [3b] 降采样方法对?(split={tune_split}, scheme={primary_scheme})...")
+    for name in eligible_methods:
+        ds = all_datasets[name]
+        W = training_results[name]["weights"]
+        images_eval, labels_eval = _get_split_tensors(ds, tune_split)
+        ratio = method_ratio[name].get(primary_scheme, default_ratio)
+        acc, _ = snn_engine.snn_inference(
+            images_eval, labels_eval, W,
+            adc_bits=8, weight_bits=4, timesteps=1,
+            scheme=primary_scheme, threshold_ratio=ratio
+        )
+        results["downsample"][name] = {
+            "float_acc": training_results[name]["float_acc"],
+            "snn_acc": acc,
+            "threshold_ratio": ratio,
+            "input_dim": int(ds["input_dim"]),
+        }
+        print(f"    {name:20s}: SNN={acc:.2%} (ratio={ratio:.2f}, dim={int(ds['input_dim'])})")
+
+    downsample_best_method = max(results["downsample"], key=lambda k: results["downsample"][k]["snn_acc"])
+    downsample_best_ratio = results["downsample"][downsample_best_method]["threshold_ratio"]
+    print(
+        f"\n  朢佳方?(基线 8/4/1, {tune_split}): {downsample_best_method} "
+        f"(SNN={results['downsample'][downsample_best_method]['snn_acc']:.2%}, ratio={downsample_best_ratio:.2f})"
+    )
+
+    # ---- 3b-1. 全量组合扫描 (method/scheme/ADC/W/T) ----
+    print(f"\n  [3b-1] 全量组合扫描 (split={tune_split})...")
+    grid_total = (
+        len(eligible_methods)
+        * len(schemes)
+        * len(cfg.ADC_BITS_SWEEP)
+        * len(cfg.WEIGHT_BITS_SWEEP)
+        * len(cfg.TIMESTEPS_SWEEP)
+    )
+    grid_idx = 0
+    for method_name in eligible_methods:
+        ds = all_datasets[method_name]
+        W = training_results[method_name]["weights"]
+        images_eval, labels_eval = _get_split_tensors(ds, tune_split)
+        for scheme in schemes:
+            ratio = method_ratio[method_name].get(scheme, default_ratio)
+            for adc_bits in cfg.ADC_BITS_SWEEP:
+                for weight_bits in cfg.WEIGHT_BITS_SWEEP:
+                    for timesteps in cfg.TIMESTEPS_SWEEP:
+                        acc, _ = snn_engine.snn_inference(
+                            images_eval, labels_eval, W,
+                            adc_bits=adc_bits,
+                            weight_bits=weight_bits,
+                            timesteps=timesteps,
+                            scheme=scheme,
+                            threshold_ratio=ratio
+                        )
+                        results["full_grid"].append({
+                            "method": method_name,
+                            "scheme": scheme,
+                            "threshold_ratio": float(ratio),
+                            "adc_bits": int(adc_bits),
+                            "weight_bits": int(weight_bits),
+                            "timesteps": int(timesteps),
+                            "snn_acc": float(acc),
+                        })
+                        grid_idx += 1
+                        progress_bar(grid_idx, grid_total, prefix="全量组合")
+
+    if not results["full_grid"]:
+        raise RuntimeError("full-grid sweep produced no records")
+
+    best_case = max(results["full_grid"], key=lambda x: x["snn_acc"])
+    margin = float(getattr(cfg, "RECOMMEND_ACC_MARGIN", 0.005))
+    acc_floor = float(best_case["snn_acc"]) - margin
+    near_best = [x for x in results["full_grid"] if float(x["snn_acc"]) >= acc_floor]
+    if not near_best:
+        near_best = [best_case]
+    recommendation = min(near_best, key=lambda x: _combo_cost_key(x, primary_scheme))
+
+    topk_n = int(getattr(cfg, "SUMMARY_TOPK_COMBOS", 10))
+    results["full_grid_top"] = sorted(
+        results["full_grid"], key=lambda x: float(x["snn_acc"]), reverse=True
+    )[:max(1, topk_n)]
+    results["best_case"] = dict(best_case)
+    results["recommendation"] = dict(recommendation)
+    results["meta"]["recommend_margin"] = margin
+    results["meta"]["full_grid_total"] = len(results["full_grid"])
+    results["meta"]["downsample_best_method"] = downsample_best_method
+
+    print(
+        f"    朢?(best-case): method={best_case['method']}, scheme={best_case['scheme']}, "
+        f"ADC={best_case['adc_bits']}, W={best_case['weight_bits']}, T={best_case['timesteps']}, "
+        f"ratio={best_case['threshold_ratio']:.2f}, acc={best_case['snn_acc']:.2%}"
+    )
+    print(
+        f"    推荐 (low-cost, within {margin:.2%}): method={recommendation['method']}, "
+        f"scheme={recommendation['scheme']}, ADC={recommendation['adc_bits']}, "
+        f"W={recommendation['weight_bits']}, T={recommendation['timesteps']}, "
+        f"ratio={recommendation['threshold_ratio']:.2f}, acc={recommendation['snn_acc']:.2%}"
+    )
+
+    # 后续单维扫描图表固定在推荐方法上做，便于解释趋势
+    best_method = recommendation["method"]
+    best_ratio = recommendation["threshold_ratio"]
+    best_ds = all_datasets[best_method]
+    best_W = training_results[best_method]["weights"]
+    best_images_tune, best_labels_tune = _get_split_tensors(best_ds, tune_split)
+
+    # ---- 3c. ADC sweep (tuning split) ----
+    print(f"\n  [3c] ADC 位宽扫描 (split={tune_split}, {best_method})...")
+    for adc in cfg.ADC_BITS_SWEEP:
+        acc, _ = snn_engine.snn_inference(
+            best_images_tune, best_labels_tune, best_W,
+            adc_bits=adc, weight_bits=4, timesteps=1,
+            scheme=primary_scheme, threshold_ratio=best_ratio
+        )
+        results["adc_sweep"][adc] = acc
+        print(f"    ADC={adc:2d}-bit: {acc:.2%}")
+
+    # ---- 3d. Weight sweep (tuning split) ----
+    print(f"\n  [3d] 权重位宽扫描 (split={tune_split}, {best_method})...")
+    for wb in cfg.WEIGHT_BITS_SWEEP:
+        acc, _ = snn_engine.snn_inference(
+            best_images_tune, best_labels_tune, best_W,
+            adc_bits=8, weight_bits=wb, timesteps=1,
+            scheme=primary_scheme, threshold_ratio=best_ratio
+        )
+        results["weight_sweep"][wb] = acc
+        print(f"    W={wb}-bit: {acc:.2%}")
+
+    # ---- 3e. Timestep sweep (tuning split) ----
+    print(f"\n  [3e] 推理帧数扫描 (split={tune_split}, {best_method})...")
+    for ts in cfg.TIMESTEPS_SWEEP:
+        acc, _ = snn_engine.snn_inference(
+            best_images_tune, best_labels_tune, best_W,
+            adc_bits=8, weight_bits=4, timesteps=ts,
+            scheme=primary_scheme, threshold_ratio=best_ratio
+        )
+        results["timestep_sweep"][ts] = acc
+        print(f"    T={ts:2d}: {acc:.2%}")
+
+    # ---- 3f. 器件非理想影?tuning split) ----
+    print(f"\n  [3f] 器件非理想影?split={tune_split}, {best_method})...")
+    n_trials = cfg.NOISE_TRIALS_QUICK if quick else cfg.NOISE_TRIALS_FULL
+    noise_accs = []
+    for trial in range(n_trials):
+        acc, _ = snn_engine.snn_inference(
+            best_images_tune, best_labels_tune, best_W,
+            adc_bits=8, weight_bits=4, timesteps=1, add_noise=True,
+            scheme=primary_scheme, threshold_ratio=best_ratio
+        )
+        noise_accs.append(acc)
+        progress_bar(trial + 1, n_trials, prefix="噪声实验")
+
+    ideal_acc = results["adc_sweep"].get(8, 0.0)
+    noise_mean = float(np.mean(noise_accs))
+    noise_std = float(np.std(noise_accs))
+    results["noise_impact"] = {
+        "ideal": ideal_acc,
+        "noisy_mean": noise_mean,
+        "noisy_std": noise_std,
+        "degradation": ideal_acc - noise_mean,
+        "split": tune_split,
+    }
+    print(f"    理想:   {ideal_acc:.2%}")
+    print(f"    有噪? {noise_mean:.2%} +/- {noise_std:.4f}")
+    print(f"    逢?   {results['noise_impact']['degradation']:.2%}")
+
+    # ---- 3g. 差分方案对比 (tuning split, per-scheme ratio) ----
+    print(f"\n  [3g] 差分方案对比 (split={tune_split}, {best_method})...")
+    for scheme in schemes:
+        ratio = method_ratio[best_method].get(scheme, default_ratio)
+        acc, _ = snn_engine.snn_inference(
+            best_images_tune, best_labels_tune, best_W,
+            adc_bits=8, weight_bits=4, timesteps=1,
+            scheme=scheme, threshold_ratio=ratio
+        )
+        results["scheme_compare"][scheme] = acc
+        print(f"    方案 {scheme}: {acc:.2%} (ratio={ratio:.2f})")
+
+    # ---- 3h. 决策规则对比 (tuning split) ----
+    print(f"\n  [3h] 决策规则对比 (split={tune_split}, {best_method})...")
+    for decision in ["spike", "membrane"]:
+        acc, _ = snn_engine.snn_inference(
+            best_images_tune, best_labels_tune, best_W,
+            adc_bits=8, weight_bits=4, timesteps=1, decision=decision,
+            scheme=primary_scheme, threshold_ratio=best_ratio
+        )
+        results["decision_compare"][decision] = acc
+        print(f"    decision={decision:8s}: {acc:.2%}")
+
+    # ---- 3i. 自应阈?(tuning split) ----
+    print(f"\n  [3i] 自应阈对?(split={tune_split}, {best_method})...")
+    fixed_acc, _ = snn_engine.snn_inference(
+        best_images_tune, best_labels_tune, best_W,
+        adc_bits=8, weight_bits=4, timesteps=10,
+        scheme=primary_scheme, threshold_ratio=best_ratio
+    )
+    adaptive_acc, _ = snn_engine.snn_inference_adaptive_threshold(
+        best_images_tune, best_labels_tune, best_W,
+        adc_bits=8, weight_bits=4, timesteps=10,
+        scheme=primary_scheme, add_noise=False
+    )
+    results["adaptive"] = {
+        "fixed": fixed_acc,
+        "adaptive": adaptive_acc,
+        "improvement": adaptive_acc - fixed_acc,
+        "split": tune_split,
+    }
+    print(f"    固定阈?(spike):   {fixed_acc:.2%}")
+    print(f"    自应阈?(spike): {adaptive_acc:.2%}")
+    print(f"    提升: {results['adaptive']['improvement']:+.2%}")
+
+    # ---- 3j. 基于 tuning split 生成推荐配置 ----
+    rec_cfg = dict(results.get("recommendation", {}))
+    if not rec_cfg:
+        raise RuntimeError("recommendation is missing after full-grid sweep")
+    rec_cfg["based_on_split"] = tune_split
+    results["recommendation"] = rec_cfg
+    best_method = rec_cfg["method"]
+    best_ratio = float(rec_cfg["threshold_ratio"])
+    best_adc = int(rec_cfg["adc_bits"])
+    best_wb = int(rec_cfg["weight_bits"])
+    best_ts = int(rec_cfg["timesteps"])
+    primary_scheme = str(rec_cfg["scheme"]).upper()
+    print(
+        f"\n  推荐配置 (基于 {tune_split}): "
+        f"method={best_method}, scheme={primary_scheme}, "
+        f"ADC={best_adc}, W={best_wb}, T={best_ts}, ratio={best_ratio:.2f}"
+    )
+
+    # ---- 3k. 仅一?final split 评估 ----
+    final_images, final_labels = _get_split_tensors(best_ds, final_split)
+    final_acc, _ = snn_engine.snn_inference(
+        final_images, final_labels, best_W,
+        adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
+        scheme=primary_scheme, threshold_ratio=best_ratio
+    )
+    results["final_test"] = {
+        "split": final_split,
+        "method": best_method,
+        "scheme": primary_scheme,
+        "threshold_ratio": best_ratio,
+        "adc_bits": int(best_adc),
+        "weight_bits": int(best_wb),
+        "timesteps": int(best_ts),
+        "snn_acc": final_acc,
+    }
+    print(f"  Final {final_split} 丢次评? {final_acc:.2%}")
+
+    best_case_cfg = dict(results.get("best_case", {}))
+    if best_case_cfg:
+        best_case_method = best_case_cfg["method"]
+        best_case_ds = all_datasets[best_case_method]
+        best_case_W = training_results[best_case_method]["weights"]
+        best_case_images, best_case_labels = _get_split_tensors(best_case_ds, final_split)
+        best_case_final_acc, _ = snn_engine.snn_inference(
+            best_case_images, best_case_labels, best_case_W,
+            adc_bits=int(best_case_cfg["adc_bits"]),
+            weight_bits=int(best_case_cfg["weight_bits"]),
+            timesteps=int(best_case_cfg["timesteps"]),
+            scheme=str(best_case_cfg["scheme"]).upper(),
+            threshold_ratio=float(best_case_cfg["threshold_ratio"])
+        )
+        results["final_test_best_case"] = {
+            "split": final_split,
+            "method": best_case_method,
+            "scheme": str(best_case_cfg["scheme"]).upper(),
+            "threshold_ratio": float(best_case_cfg["threshold_ratio"]),
+            "adc_bits": int(best_case_cfg["adc_bits"]),
+            "weight_bits": int(best_case_cfg["weight_bits"]),
+            "timesteps": int(best_case_cfg["timesteps"]),
+            "snn_acc": float(best_case_final_acc),
+        }
+        print(f"  Final {final_split} best-case 评估: {best_case_final_acc:.2%}")
+
+    # ---- 3l. 固定配置?seed 复跑（推理侧?--
+    seed_list = [int(s) for s in getattr(cfg, "FINAL_MULTI_SEEDS", [])]
+    if seed_list:
+        clean_accs = []
+        noisy_accs = []
+        print(f"\n  [3l] 固定配置多seed复跑 ({len(seed_list)} seeds)...")
+        for seed in seed_list:
+            set_global_seed(seed)
+            clean_acc, _ = snn_engine.snn_inference(
+                final_images, final_labels, best_W,
+                adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
+                scheme=primary_scheme, threshold_ratio=best_ratio
+            )
+            noisy_acc, _ = snn_engine.snn_inference(
+                final_images, final_labels, best_W,
+                adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
+                scheme=primary_scheme, threshold_ratio=best_ratio, add_noise=True
+            )
+            clean_accs.append(clean_acc)
+            noisy_accs.append(noisy_acc)
+            print(f"    seed={seed}: clean={clean_acc:.2%}, noisy={noisy_acc:.2%}")
+        # Restore configured seed for any follow-up routines.
+        set_global_seed(cfg.RANDOM_SEED)
+        results["multi_seed"] = {
+            "seeds": seed_list,
+            "clean_mean": float(np.mean(clean_accs)),
+            "clean_std": float(np.std(clean_accs)),
+            "noisy_mean": float(np.mean(noisy_accs)),
+            "noisy_std": float(np.std(noisy_accs)),
+            "split": final_split,
+        }
+
+    results["device_backend"] = snn_engine.get_device_backend_status()
+    return results, best_method
+
+
+# =====================================================
+#  步骤 4: 生成图表 + 输出推荐
+# =====================================================
+
+def generate_plots(results, training_results, best_method):
+    """Generate all result figures."""
+    print("\n[步骤 4/4] 生成结果图表...")
+    os.makedirs(cfg.RESULTS_DIR, exist_ok=True)
+
+    has_chinese = setup_chinese_font()
+
+    # ---- ?: 降采样方法对?----
+    fig, ax = plt.subplots(figsize=(10, 5))
+    methods = list(results["downsample"].keys())
+    float_accs = [results["downsample"][m]["float_acc"] for m in methods]
+    snn_accs = [results["downsample"][m]["snn_acc"] for m in methods]
+    x = np.arange(len(methods))
+    ax.bar(x - 0.2, [a * 100 for a in float_accs], 0.35,
+           label='ANN (float)', color='steelblue')
+    ax.bar(x + 0.2, [a * 100 for a in snn_accs], 0.35,
+           label='SNN (4-bit, ADC=8)', color='coral')
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('Downsample Method Comparison')
+    ax.set_xticks(x)
+    ax.set_xticklabels(methods, rotation=30, ha='right')
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig1_downsample_comparison.png'),
+                dpi=150)
+    plt.close()
+    print("  fig1_downsample_comparison.png")
+
+    # ---- ?: ADC 位宽 ----
+    fig, ax = plt.subplots(figsize=(8, 5))
+    adc_bits = sorted(results["adc_sweep"].keys())
+    adc_accs = [results["adc_sweep"][b] * 100 for b in adc_bits]
+    ax.plot(adc_bits, adc_accs, 'o-', color='steelblue', linewidth=2,
+            markersize=8)
+    float_baseline = training_results[best_method]["float_acc"] * 100
+    ax.axhline(y=float_baseline, color='red', linestyle='--',
+               label=f'ANN float baseline ({float_baseline:.1f}%)')
+    ax.set_xlabel('ADC Bits')
+    ax.set_ylabel('SNN Accuracy (%)')
+    ax.set_title(f'ADC Bit Width vs Accuracy ({best_method})')
+    ax.set_xticks(adc_bits)
+    ax.legend()
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig2_adc_bits_sweep.png'),
+                dpi=150)
+    plt.close()
+    print("  fig2_adc_bits_sweep.png")
+
+    # ---- ?: 权重位宽 ----
+    fig, ax = plt.subplots(figsize=(8, 5))
+    w_bits = sorted(results["weight_sweep"].keys())
+    w_accs = [results["weight_sweep"][b] * 100 for b in w_bits]
+    ax.plot(w_bits, w_accs, 's-', color='forestgreen', linewidth=2,
+            markersize=8)
+    ax.axhline(y=float_baseline, color='red', linestyle='--',
+               label=f'ANN float baseline ({float_baseline:.1f}%)')
+    ax.set_xlabel('Weight Bits')
+    ax.set_ylabel('SNN Accuracy (%)')
+    ax.set_title(f'Weight Quantization vs Accuracy ({best_method})')
+    ax.set_xticks(w_bits)
+    ax.legend()
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig3_weight_bits_sweep.png'),
+                dpi=150)
+    plt.close()
+    print("  fig3_weight_bits_sweep.png")
+
+    # ---- ?: 推理帧数 ----
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ts_list = sorted(results["timestep_sweep"].keys())
+    ts_accs = [results["timestep_sweep"][t] * 100 for t in ts_list]
+    ax.plot(ts_list, ts_accs, 'D-', color='darkorange', linewidth=2,
+            markersize=8)
+    ax.axhline(y=float_baseline, color='red', linestyle='--',
+               label=f'ANN float baseline ({float_baseline:.1f}%)')
+    ax.set_xlabel('Timesteps (frames)')
+    ax.set_ylabel('SNN Accuracy (%)')
+    ax.set_title(f'Inference Timesteps vs Accuracy ({best_method})')
+    ax.set_xticks(ts_list)
+    ax.legend()
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig4_timesteps_sweep.png'),
+                dpi=150)
+    plt.close()
+    print("  fig4_timesteps_sweep.png")
+
+    # ---- ?: 噪声影响 ----
+    fig, ax = plt.subplots(figsize=(6, 5))
+    labels = ['Ideal', 'With Device\nNon-ideality']
+    vals = [results["noise_impact"]["ideal"] * 100,
+            results["noise_impact"]["noisy_mean"] * 100]
+    err = [0, results["noise_impact"]["noisy_std"] * 100]
+    bars = ax.bar(labels, vals, yerr=err, capsize=10,
+                  color=['steelblue', 'coral'])
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('Impact of Device Non-ideality')
+    for bar, val in zip(bars, vals):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f'{val:.1f}%', ha='center')
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig5_noise_impact.png'),
+                dpi=150)
+    plt.close()
+    print("  fig5_noise_impact.png")
+
+    # ---- ?: 差分方案 ----
+    fig, ax = plt.subplots(figsize=(6, 5))
+    scheme_items = sorted(results["scheme_compare"].items(), key=lambda kv: kv[0])
+    labels = [f"Scheme {k}" for k, _ in scheme_items]
+    vals = [v * 100 for _, v in scheme_items]
+    bars = ax.bar(labels, vals, color=['steelblue', 'coral'])
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('Differential Scheme Comparison')
+    for bar, val in zip(bars, vals):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f'{val:.1f}%', ha='center')
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig6_scheme_comparison.png'),
+                dpi=150)
+    plt.close()
+    print("  fig6_scheme_comparison.png")
+
+    # ---- ?: 自应阈?----
+    fig, ax = plt.subplots(figsize=(6, 5))
+    labels = ['Fixed Threshold\n(spike)', 'Adaptive\nThreshold']
+    vals = [results["adaptive"]["fixed"] * 100,
+            results["adaptive"]["adaptive"] * 100]
+    bars = ax.bar(labels, vals, color=['steelblue', 'coral'])
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title(f'Adaptive Threshold (T={10})')
+    for bar, val in zip(bars, vals):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f'{val:.1f}%', ha='center')
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(cfg.RESULTS_DIR, 'fig7_adaptive_threshold.png'),
+                dpi=150)
+    plt.close()
+    print("  fig7_adaptive_threshold.png")
+
+
+def generate_summary(results, training_results, best_method, all_datasets):
+    """Generate summary and recommendation text."""
+    meta = results.get("meta", {})
+    rec = results.get("recommendation", {})
+    best_case = results.get("best_case", {})
+    final = results.get("final_test", {})
+    final_best = results.get("final_test_best_case", {})
+    backend = results.get("device_backend", {})
+    top_grid = results.get("full_grid_top", [])
+
+    lines = []
+    lines.append("=" * 60)
+    lines.append("  SNN SoC 建模结果 - 参数推荐")
+    lines.append("=" * 60)
+    lines.append(
+        f"\n评估口径: tuning_split={meta.get('tune_split', 'val')} "
+        f"(选方?调参), final_split={meta.get('final_split', 'test')} (朢终一次报?"
+    )
+    lines.append(
+        f"全量组合扫描? {meta.get('full_grid_total', 0)}, "
+        f"推荐精度容忍边界: {meta.get('recommend_margin', 0.0):.2%}"
+    )
+
+    lines.append(f"\n朢佳下采样方法(8/4/1基线): {best_method}")
+    lines.append(
+        f"  tuning SNN(ADC=8,W=4,T=1): "
+        f"{results['downsample'][best_method]['snn_acc']:.2%}"
+    )
+    lines.append(f"  ANN float 基线准确?test): {training_results[best_method]['float_acc']:.2%}")
+    quant_acc = training_results[best_method].get("quant_acc")
+    if quant_acc is not None:
+        lines.append(f"  ANN quantized 基线准确?test): {quant_acc:.2%}")
+
+    if best_case:
+        lines.append("\nbest-case(全量网格朢高精?:")
+        lines.append(
+            f"  method={best_case.get('method')}, scheme={best_case.get('scheme')}, "
+            f"ADC={best_case.get('adc_bits')}, W={best_case.get('weight_bits')}, "
+            f"T={best_case.get('timesteps')}, ratio={best_case.get('threshold_ratio', 0.0):.2f}, "
+            f"acc={best_case.get('snn_acc', 0.0):.2%}"
+        )
+
+    if rec:
+        lines.append("\nrecommendation(精度达标下低成本优先):")
+        lines.append(
+            f"  method={rec.get('method')}, scheme={rec.get('scheme')}, "
+            f"ADC={rec.get('adc_bits')}, W={rec.get('weight_bits')}, "
+            f"T={rec.get('timesteps')}, ratio={rec.get('threshold_ratio', 0.0):.2f}, "
+            f"tuning_acc={rec.get('snn_acc', 0.0):.2%}"
+        )
+
+    if final:
+        lines.append(
+            f"\nFinal {final.get('split', 'test')} (recommendation): "
+            f"{final.get('snn_acc', 0.0):.2%}"
+        )
+    if final_best:
+        lines.append(
+            f"Final {final_best.get('split', 'test')} (best-case): "
+            f"{final_best.get('snn_acc', 0.0):.2%}"
+        )
+
+    if top_grid:
+        lines.append("\nTop full-grid combinations:")
+        for i, item in enumerate(top_grid, start=1):
+            lines.append(
+                f"  #{i:02d}: method={item.get('method')}, scheme={item.get('scheme')}, "
+                f"ADC={item.get('adc_bits')}, W={item.get('weight_bits')}, "
+                f"T={item.get('timesteps')}, ratio={item.get('threshold_ratio', 0.0):.2f}, "
+                f"acc={item.get('snn_acc', 0.0):.2%}"
+            )
+
+    if results.get("threshold_calibration"):
+        lines.append("\nPer-method calibrated ratio (by scheme):")
+        for name in sorted(results["threshold_calibration"].keys()):
+            sch_map = results["threshold_calibration"][name]
+            for scheme in sorted(sch_map.keys()):
+                item = sch_map[scheme]
+                ratio = item.get("ratio")
+                val_acc = item.get("val_acc")
+                if val_acc is None:
+                    lines.append(f"  {name:20s}[{scheme}] ratio={ratio:.2f} (fallback)")
+                else:
+                    lines.append(f"  {name:20s}[{scheme}] ratio={ratio:.2f}, val_acc={val_acc:.2%}")
+
+    adc_sorted = sorted(results["adc_sweep"].items())
+    lines.append(f"\nADC sweep ({meta.get('tune_split', 'val')}):")
+    for bits, acc in adc_sorted:
+        marker = " <- 推荐" if bits == rec.get("adc_bits") else ""
+        lines.append(f"  {bits:2d}-bit: {acc:.2%}{marker}")
+
+    w_sorted = sorted(results["weight_sweep"].items())
+    lines.append(f"\nWeight sweep ({meta.get('tune_split', 'val')}):")
+    for bits, acc in w_sorted:
+        marker = " <- 推荐" if bits == rec.get("weight_bits") else ""
+        lines.append(f"  {bits}-bit: {acc:.2%}{marker}")
+
+    ts_sorted = sorted(results["timestep_sweep"].items())
+    lines.append(f"\nTimesteps sweep ({meta.get('tune_split', 'val')}):")
+    for ts, acc in ts_sorted:
+        marker = " <- 推荐" if ts == rec.get("timesteps") else ""
+        lines.append(f"  T={ts:2d}: {acc:.2%}{marker}")
+
+    ni = results["noise_impact"]
+    lines.append(f"\n器件非理想影?({ni.get('split', meta.get('tune_split', 'val'))}):")
+    lines.append(f"  理想准确?      {ni['ideal']:.2%}")
+    lines.append(f"  含噪准确?      {ni['noisy_mean']:.2%} +/- {ni['noisy_std']:.4f}")
+    lines.append(f"  准确率?      {ni['degradation']:.2%}")
+
+    sc = results.get("scheme_compare", {})
+    if sc:
+        lines.append(f"\n差分方案对比 ({meta.get('tune_split', 'val')}):")
+        for scheme, acc in sorted(sc.items(), key=lambda kv: kv[0]):
+            marker = " <- 推荐" if scheme == rec.get("scheme") else ""
+            lines.append(f"  方案 {scheme}: {acc:.2%}{marker}")
+
+    dc = results.get("decision_compare", {})
+    if dc:
+        lines.append(f"\n决策规则对比 ({meta.get('tune_split', 'val')}):")
+        for decision in ["spike", "membrane"]:
+            if decision in dc:
+                lines.append(f"  {decision:8s}: {dc[decision]:.2%}")
+
+    ad = results["adaptive"]
+    do_adaptive = ad["improvement"] >= 0.01
+    lines.append(f"\n自应阈?({ad.get('split', meta.get('tune_split', 'val'))}):")
+    lines.append(f"  固定阈?spike): {ad['fixed']:.2%}")
+    lines.append(f"  自应阈?      {ad['adaptive']:.2%}")
+    lines.append(f"  提升:            {ad['improvement']:+.2%}")
+    lines.append(f"  conclusion: {'recommended' if do_adaptive else 'not recommended'}")
+
+    ms = results.get("multi_seed", {})
+    if ms:
+        lines.append(f"\n固定配置多seed复跑 ({ms.get('split', meta.get('final_split', 'test'))}):")
+        lines.append(f"  seeds: {ms.get('seeds')}")
+        lines.append(f"  clean: {ms.get('clean_mean', 0.0):.2%} +/- {ms.get('clean_std', 0.0):.4f}")
+        lines.append(f"  noisy: {ms.get('noisy_mean', 0.0):.2%} +/- {ms.get('noisy_std', 0.0):.4f}")
+
+    if backend:
+        lines.append("\nDevice backend:")
+        lines.append(f"  use_device_model={backend.get('use_device_model')}")
+        lines.append(f"  plugin_path_exists={backend.get('plugin_path_exists')}")
+        lines.append(f"  plugin_levels_loaded={backend.get('plugin_levels_loaded')}")
+        lines.append(f"  plugin_sim_available={backend.get('plugin_sim_available')}")
+        if backend.get("backend_mode"):
+            lines.append(f"  backend_mode={backend.get('backend_mode')}")
+        notes = backend.get("runtime_notes") or []
+        for note in notes:
+            lines.append(f"  note: {note}")
+
+    lines.append(f"\n{'=' * 60}")
+    lines.append("  RTL 参数推荐 (用于更新 snn_soc_pkg.sv)")
+    lines.append(f"{'=' * 60}")
+    rec_method = rec.get("method", best_method)
+    input_dim = int(all_datasets[rec_method]["input_dim"])
+    lines.append(f"  NUM_INPUTS  = {input_dim}")
+    lines.append("  NUM_OUTPUTS = 10")
+    lines.append(f"  ADC_BITS    = {rec.get('adc_bits')}")
+    lines.append("  PIXEL_BITS  = 8")
+    lines.append(f"  // WEIGHT_BITS = {rec.get('weight_bits')} (device-side parameter)")
+    lines.append(f"  // SCHEME = {rec.get('scheme')}")
+    lines.append(f"  // ADAPTIVE_THRESHOLD = {'ON' if do_adaptive else 'OFF'}")
+    if meta.get("target_input_dim", 0) > 0 and input_dim != int(meta["target_input_dim"]):
+        lines.append(
+            f"  // WARNING: recommended dim ({input_dim}) != target_input_dim ({meta['target_input_dim']})"
+        )
+
+    summary_text = "\n".join(lines)
+    summary_path = os.path.join(cfg.RESULTS_DIR, "summary.txt")
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        f.write(summary_text)
+
+    print(f"\n{summary_text}")
+    print(f"\n结果已保存到: {cfg.RESULTS_DIR}")
+# =====================================================
+#  主入?
+# =====================================================
+
+def main():
+    parser = argparse.ArgumentParser(description='SNN SoC Python 建模系统')
+    parser.add_argument('--quick', action='store_true',
+                        help='快模?(少量样本，合调试)')
+    parser.add_argument('--skip-train', action='store_true',
+                        help='跳过训练，加载已保存权重')
+    args = parser.parse_args()
+
+    print("=" * 60)
+    print("  SNN SoC Python 建模系统 v1.0")
+    print("=" * 60)
+    if args.quick:
+        print("  模式: 快测?(--quick)")
+
+    set_global_seed(cfg.RANDOM_SEED)
+    print(f"  随机种子: {cfg.RANDOM_SEED}")
+    print(f"  ADC满量程模? {cfg.ADC_FULL_SCALE_MODE}")
+    backend = snn_engine.get_device_backend_status()
+    print(
+        "  器件模型接入: "
+        f"use_device_model={backend['use_device_model']}, "
+        f"path_exists={backend['plugin_path_exists']}, "
+        f"levels_loaded={backend['plugin_levels_loaded']}, "
+        f"levels={backend['plugin_levels_count']}"
+    )
+
+    start_time = time.time()
+
+    # 创建输出目录
+    os.makedirs(cfg.RESULTS_DIR, exist_ok=True)
+    os.makedirs(cfg.WEIGHTS_DIR, exist_ok=True)
+
+    # 步骤 1: 准备数据
+    all_datasets = data_utils.prepare_all_datasets(quick_mode=args.quick)
+
+    # 步骤 2: 训练 ANN
+    training_results = run_training(
+        all_datasets, skip_train=args.skip_train, quick=args.quick
+    )
+
+    # 步骤 3: SNN 推理 + 参数扫描
+    sweep_results, best_method = run_parameter_sweep(
+        all_datasets, training_results, quick=args.quick
+    )
+
+    # 步骤 4: 生成图表 + 推荐
+    generate_plots(sweep_results, training_results, best_method)
+    generate_summary(sweep_results, training_results, best_method, all_datasets)
+
+    elapsed = time.time() - start_time
+    print(f"\n总时: {elapsed:.1f} ?({elapsed / 60:.1f} 分钟)")
+    print("完成!")
+
+
+if __name__ == '__main__':
+    main()
+

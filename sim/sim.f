@@ -11,6 +11,7 @@
 ../rtl/snn/adc_ctrl.sv
 ../rtl/snn/lif_neurons.sv
 ../rtl/snn/cim_array_ctrl.sv
+../rtl/snn/wl_mux_wrapper.sv
 ../rtl/snn/cim_macro_blackbox.sv
 ../rtl/periph/uart_stub.sv
 ../rtl/periph/spi_stub.sv

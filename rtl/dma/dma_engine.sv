@@ -1,11 +1,14 @@
+`timescale 1ns/1ps
 //======================================================================
 // 文件名: dma_engine.sv
 // 描述: 最小 DMA 引擎：data_sram -> input_fifo。
 //       - DMA_SRC_ADDR  指向 data_sram 源地址（byte 地址）
 //       - DMA_LEN_WORDS 以 32-bit word 计数，必须为偶数
-//       - DMA_CTRL: bit0 START(W1P), bit1 DONE(W1C), bit2 ERR(W1C)
-//       - 每 2 个 word 拼成 1 个 49-bit wl_bitmap
+//       - DMA_CTRL: bit0 START(W1P), bit1 DONE(W1C), bit2 ERR(W1C), bit3 BUSY(RO)
+//       - 每 2 个 word 拼成 1 个 64-bit wl_bitmap（NUM_INPUTS=64）
 //======================================================================
+// NOTE: DMA_SRC_ADDR 为 SoC 物理地址；内部会减去 ADDR_DATA_BASE 转为 SRAM 偏移。
+//       需 4B 对齐，且 [SRC, SRC+LEN-1] 不能越过 data_sram 边界。
 module dma_engine (
   input  logic        clk,
   input  logic        rst_n,
@@ -24,9 +27,9 @@ module dma_engine (
   input  logic [31:0] dma_rd_data,
 
   // input_fifo 写端口
-  output logic        in_fifo_push,
-  output logic [48:0] in_fifo_wdata,
-  input  logic        in_fifo_full
+  output logic                          in_fifo_push,
+  output logic [snn_soc_pkg::NUM_INPUTS-1:0] in_fifo_wdata,
+  input  logic                          in_fifo_full
 );
   import snn_soc_pkg::*;
 
@@ -53,9 +56,19 @@ module dma_engine (
 
   logic done_sticky;
   logic err_sticky;
+  logic [31:0] len_bytes;
+  logic [31:0] end_addr;
+  logic        addr_align_ok;
+  logic        end_overflow;
 
   wire [7:0] addr_offset = req_addr[7:0];
   wire write_en = req_valid && req_write;
+  // 标记未使用高位（lint 友好）
+  wire _unused = &{1'b0, req_addr[31:8]};
+  assign len_bytes    = len_words_reg << 2;
+  assign end_addr     = src_addr_reg + len_bytes - 1'b1;
+  assign addr_align_ok= (src_addr_reg[1:0] == 2'b00);
+  assign end_overflow = (end_addr < src_addr_reg);
 
   // 写寄存器（地址与长度）
   always_ff @(posedge clk or negedge rst_n) begin
@@ -92,7 +105,7 @@ module dma_engine (
       words_rem   <= 32'h0;
       word0_reg   <= 32'h0;
       word1_reg   <= 32'h0;
-      dma_rd_addr <= 32'h0;
+      // dma_rd_addr 由组合逻辑驱动，无需时序赋值
       done_sticky <= 1'b0;
       err_sticky  <= 1'b0;
     end else begin
@@ -116,12 +129,23 @@ module dma_engine (
               done_sticky <= 1'b1;
               state       <= ST_IDLE;
             end else begin
-              // 正常启动
-              done_sticky <= 1'b0;
-              err_sticky  <= 1'b0;
-              addr_ptr    <= src_addr_reg;
-              words_rem   <= len_words_reg;
-              state       <= ST_SETUP;
+              // normal start
+              if (!addr_align_ok) begin
+                err_sticky  <= 1'b1;
+                done_sticky <= 1'b1;
+                state       <= ST_IDLE;
+              end else if ((src_addr_reg < ADDR_DATA_BASE) || end_overflow || (end_addr > ADDR_DATA_END)) begin
+                err_sticky  <= 1'b1;
+                done_sticky <= 1'b1;
+                state       <= ST_IDLE;
+              end else begin
+                done_sticky <= 1'b0;
+                err_sticky  <= 1'b0;
+                // DMA uses local data_sram address space
+                addr_ptr    <= src_addr_reg - ADDR_DATA_BASE;
+                words_rem   <= len_words_reg;
+                state       <= ST_SETUP;
+              end
             end
           end
         end
@@ -147,7 +171,7 @@ module dma_engine (
 
         ST_PUSH: begin
           if (!in_fifo_full) begin
-            // push 一个 49-bit wl_bitmap
+            // push 一个 NUM_INPUTS-bit wl_bitmap（64-bit）
             words_rem <= words_rem - 32'd2;
             if (words_rem == 32'd2) begin
               done_sticky <= 1'b1;
@@ -180,10 +204,10 @@ module dma_engine (
   // FIFO push 数据拼接
   always_comb begin
     in_fifo_push = 1'b0;
-    in_fifo_wdata= 49'h0;
+    in_fifo_wdata= '0;
     if (state == ST_PUSH && !in_fifo_full) begin
       in_fifo_push  = 1'b1;
-      in_fifo_wdata = {word1_reg[16:0], word0_reg};
+      in_fifo_wdata = {word1_reg, word0_reg};
     end
   end
 
