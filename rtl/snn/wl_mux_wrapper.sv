@@ -100,14 +100,17 @@ module wl_mux_wrapper #(
         end
       endcase
 
-      // 异常保护：忙期间若再次收到新帧，提示协议使用错误
+`ifndef SYNTHESIS
+      // 异常保护（仅仿真）：忙期间若再次收到新帧，提示协议使用错误
       if (wl_valid_pulse_in && (state != ST_IDLE)) begin
         $warning("[wl_mux_wrapper] 收到重入 wl_valid_pulse_in，当前帧尚未完成发送");
       end
+`endif
     end
   end
 
-  // 参数合法性检查
+`ifndef SYNTHESIS
+  // 参数合法性检查（仅仿真）
   initial begin
     if (P_GROUP_W <= 0) begin
       $fatal(1, "[wl_mux_wrapper] P_GROUP_W 必须 > 0");
@@ -117,5 +120,5 @@ module wl_mux_wrapper #(
              P_NUM_INPUTS, P_GROUP_W);
     end
   end
+`endif
 endmodule
-

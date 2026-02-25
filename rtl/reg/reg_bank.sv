@@ -70,6 +70,9 @@ module reg_bank (
   localparam logic [7:0] REG_OUT_COUNT   = 8'h20;
   // Scheme B 阈值比例寄存器（8-bit, 默认 102/255 ≈ 0.40）
   // 固件可读取 ratio 辅助计算绝对阈值，或直接用于 bring-up 调试
+  // THRESHOLD_RATIO is a software/debug-visible ratio shadow register only.
+  // Writing REG_THRESHOLD_RATIO does NOT auto-update neuron_threshold.
+  // Firmware should compute absolute threshold and write REG_THRESHOLD explicitly.
   localparam logic [7:0] REG_THRESHOLD_RATIO = 8'h24;
   // ADC 饱和计数（只读，由 adc_ctrl 驱动，每次推理自动清零）
   localparam logic [7:0] REG_ADC_SAT_COUNT   = 8'h28;
@@ -124,6 +127,8 @@ module reg_bank (
             if (req_wstrb[0]) reset_mode <= req_wdata[0];
           end
           REG_THRESHOLD_RATIO: begin
+            // Shadow-only register: keep ratio visible/configurable for firmware,
+            // but leave actual threshold control to REG_THRESHOLD.
             if (req_wstrb[0]) threshold_ratio <= req_wdata[7:0];
           end
           REG_CIM_TEST: begin

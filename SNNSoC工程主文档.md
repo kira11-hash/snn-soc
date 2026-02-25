@@ -1525,6 +1525,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 #### 5a) chip_top / pad-wrapper 落地（后端前必做）
 
 - 已新增骨架文件：`rtl/top/chip_top.sv`（当前仅占位，不改变现有 `snn_soc_top` 行为）
+- 当前状态说明（避免误解）：`chip_top` 里复用相关 pad 信号仍是占位常量，**不是最终 pad 级连线实现**；Tapeout 前必须完成真实连接与 pad cell 实例化。
 - 后端前必须完成以下收口：
   - 在 `chip_top.sv` 内把外部复用信号（`wl_data/wl_group_sel/wl_latch/cim_start/bl_sel`）连接到内部协议源
   - 统一 pad 口径：确定 45-pin 方案的最终引脚表、方向、电平和复位策略

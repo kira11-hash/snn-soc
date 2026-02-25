@@ -780,7 +780,9 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
                   weight_bits=4, timesteps=1, scheme='A',
                   add_noise=False, quant_mode='linear',
                   decision='spike', threshold_ratio=None, threshold=None,
-                  reset_mode=None, use_device_model=None):
+                  reset_mode=None, use_device_model=None,
+                  spike_fallback_to_membrane=True,
+                  return_stats=False):
     """
     输入：
     - `test_images_uint8`：由调用方传入的业务数据或控制参数。
@@ -917,14 +919,34 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
                     membranes[fired] -= threshold
 
     # ---- Step 5: 鍒嗙被鍐崇瓥 ----
+    stats = {}
     if use_spike:
-        predictions = spike_counts.argmax(dim=1)
+        predictions_spike_only = spike_counts.argmax(dim=1)
         all_zero = (spike_counts.sum(dim=1) == 0)
-        predictions[all_zero] = membranes[all_zero].argmax(dim=1)
+        zero_spike_count = int(all_zero.sum().item())
+        zero_spike_rate = zero_spike_count / max(1, N)
+
+        stats["zero_spike_count"] = zero_spike_count
+        stats["zero_spike_rate"] = float(zero_spike_rate)
+        stats["spike_fallback_to_membrane"] = bool(spike_fallback_to_membrane)
+        stats["spike_only_acc"] = float(
+            (predictions_spike_only == test_labels).sum().item() / N
+        )
+
+        predictions = predictions_spike_only.clone()
+        if spike_fallback_to_membrane and zero_spike_count > 0:
+            predictions[all_zero] = membranes[all_zero].argmax(dim=1)
+            stats["decision_mode"] = "spike_with_membrane_fallback"
+        else:
+            stats["decision_mode"] = "spike_only"
     else:
         predictions = membranes.argmax(dim=1)
+        stats["decision_mode"] = "membrane"
 
     accuracy = (predictions == test_labels).sum().item() / N
+    if return_stats:
+        stats["acc"] = float(accuracy)
+        return accuracy, membranes, stats
     return accuracy, membranes
 
 

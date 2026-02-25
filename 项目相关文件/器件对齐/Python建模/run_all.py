@@ -529,6 +529,8 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         "recommendation": {},
         "final_test": {},
         "final_test_best_case": {},
+        "final_test_hw_aligned": {},
+        "final_test_best_case_hw_aligned": {},
         "multi_seed": {},
     }
 
@@ -880,10 +882,11 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
     # ===== 阶段 3k：最终报告集评估 =====
     # 在 final_split 上跑一次推荐配置，作为对外主口径结果。
     final_images, final_labels = _get_split_tensors(best_ds, final_split)
-    final_acc, _ = snn_engine.snn_inference(
+    final_acc, _, final_stats = snn_engine.snn_inference(
         final_images, final_labels, best_W,
         adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
-        scheme=primary_scheme, threshold_ratio=best_ratio
+        scheme=primary_scheme, threshold_ratio=best_ratio,
+        return_stats=True
     )
     results["final_test"] = {
         "split": final_split,
@@ -895,7 +898,32 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         "timesteps": int(best_ts),
         "snn_acc": final_acc,
     }
+    if "spike_only_acc" in final_stats:
+        results["final_test"]["spike_only_acc"] = float(final_stats["spike_only_acc"])
+        results["final_test"]["zero_spike_rate"] = float(final_stats.get("zero_spike_rate", 0.0))
+        results["final_test"]["zero_spike_count"] = int(final_stats.get("zero_spike_count", 0))
+        results["final_test"]["decision_mode"] = str(final_stats.get("decision_mode", "spike"))
+        # 硬件对齐口径：不允许零脉冲时自动回退到 membrane 决策
+        results["final_test_hw_aligned"] = {
+            "split": final_split,
+            "method": best_method,
+            "scheme": primary_scheme,
+            "threshold_ratio": best_ratio,
+            "adc_bits": int(best_adc),
+            "weight_bits": int(best_wb),
+            "timesteps": int(best_ts),
+            "snn_acc": float(final_stats["spike_only_acc"]),
+            "zero_spike_rate": float(final_stats.get("zero_spike_rate", 0.0)),
+            "zero_spike_count": int(final_stats.get("zero_spike_count", 0)),
+            "decision_mode": "spike_only_no_fallback",
+        }
     print(f"  Final {final_split} 一次评估: {final_acc:.2%}")
+    if "spike_only_acc" in final_stats:
+        print(
+            f"  Final {final_split} 硬件对齐口径(spike-only): "
+            f"{float(final_stats['spike_only_acc']):.2%} "
+            f"(zero-spike={float(final_stats.get('zero_spike_rate', 0.0)):.2%})"
+        )
 
     # 额外评估 best-case 在 final_split 上的表现，帮助理解精度上限。
     best_case_cfg = dict(results.get("best_case", {}))
@@ -904,13 +932,14 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         best_case_ds = all_datasets[best_case_method]
         best_case_W = training_results[best_case_method]["weights"]
         best_case_images, best_case_labels = _get_split_tensors(best_case_ds, final_split)
-        best_case_final_acc, _ = snn_engine.snn_inference(
+        best_case_final_acc, _, best_case_final_stats = snn_engine.snn_inference(
             best_case_images, best_case_labels, best_case_W,
             adc_bits=int(best_case_cfg["adc_bits"]),
             weight_bits=int(best_case_cfg["weight_bits"]),
             timesteps=int(best_case_cfg["timesteps"]),
             scheme=str(best_case_cfg["scheme"]).upper(),
-            threshold_ratio=float(best_case_cfg["threshold_ratio"])
+            threshold_ratio=float(best_case_cfg["threshold_ratio"]),
+            return_stats=True
         )
         results["final_test_best_case"] = {
             "split": final_split,
@@ -922,7 +951,31 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
             "timesteps": int(best_case_cfg["timesteps"]),
             "snn_acc": float(best_case_final_acc),
         }
+        if "spike_only_acc" in best_case_final_stats:
+            results["final_test_best_case"]["spike_only_acc"] = float(best_case_final_stats["spike_only_acc"])
+            results["final_test_best_case"]["zero_spike_rate"] = float(best_case_final_stats.get("zero_spike_rate", 0.0))
+            results["final_test_best_case"]["zero_spike_count"] = int(best_case_final_stats.get("zero_spike_count", 0))
+            results["final_test_best_case"]["decision_mode"] = str(best_case_final_stats.get("decision_mode", "spike"))
+            results["final_test_best_case_hw_aligned"] = {
+                "split": final_split,
+                "method": best_case_method,
+                "scheme": str(best_case_cfg["scheme"]).upper(),
+                "threshold_ratio": float(best_case_cfg["threshold_ratio"]),
+                "adc_bits": int(best_case_cfg["adc_bits"]),
+                "weight_bits": int(best_case_cfg["weight_bits"]),
+                "timesteps": int(best_case_cfg["timesteps"]),
+                "snn_acc": float(best_case_final_stats["spike_only_acc"]),
+                "zero_spike_rate": float(best_case_final_stats.get("zero_spike_rate", 0.0)),
+                "zero_spike_count": int(best_case_final_stats.get("zero_spike_count", 0)),
+                "decision_mode": "spike_only_no_fallback",
+            }
         print(f"  Final {final_split} best-case 评估: {best_case_final_acc:.2%}")
+        if "spike_only_acc" in best_case_final_stats:
+            print(
+                f"  Final {final_split} best-case 硬件对齐口径(spike-only): "
+                f"{float(best_case_final_stats['spike_only_acc']):.2%} "
+                f"(zero-spike={float(best_case_final_stats.get('zero_spike_rate', 0.0)):.2%})"
+            )
 
     # ===== 阶段 3l：多随机种子复跑（稳定性）=====
     # 输入：推荐配置 + seed 列表
@@ -1168,6 +1221,8 @@ def generate_summary(results, training_results, best_method, all_datasets):
     best_case = results.get("best_case", {})
     final = results.get("final_test", {})
     final_best = results.get("final_test_best_case", {})
+    final_hw = results.get("final_test_hw_aligned", {})
+    final_best_hw = results.get("final_test_best_case_hw_aligned", {})
     backend = results.get("device_backend", {})
     top_grid = results.get("full_grid_top", [])
 
@@ -1218,11 +1273,27 @@ def generate_summary(results, training_results, best_method, all_datasets):
             f"\nFinal {final.get('split', 'test')} (recommendation): "
             f"{final.get('snn_acc', 0.0):.2%}"
         )
+        if "spike_only_acc" in final:
+            lines.append(
+                f"  Hardware-aligned (spike-only, no fallback): "
+                f"{final.get('spike_only_acc', 0.0):.2%} "
+                f"(zero-spike={final.get('zero_spike_rate', 0.0):.2%}, "
+                f"n={final.get('zero_spike_count', 0)})"
+            )
     if final_best:
         lines.append(
             f"Final {final_best.get('split', 'test')} (best-case): "
             f"{final_best.get('snn_acc', 0.0):.2%}"
         )
+        if "spike_only_acc" in final_best:
+            lines.append(
+                f"  Hardware-aligned best-case (spike-only, no fallback): "
+                f"{final_best.get('spike_only_acc', 0.0):.2%} "
+                f"(zero-spike={final_best.get('zero_spike_rate', 0.0):.2%}, "
+                f"n={final_best.get('zero_spike_count', 0)})"
+            )
+    if final_hw or final_best_hw:
+        lines.append("\n注：Hardware-aligned 口径禁用“零脉冲时回退到 membrane”兜底，用于与当前 RTL 输出能力对齐。")
 
     # Top-K 组合列表可帮助你快速看到“次优但更低成本”的备选方案。
     if top_grid:
