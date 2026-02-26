@@ -1,9 +1,36 @@
-# 统一章节化注释模板：每个函数均固定为 输入 / 处理 / 输出 / 为什么 四段。
 """
-snn_engine.py 第三版教学导读（SNN 推理与器件非理想建模）
-本文件采用统一注释风格：所有函数固定为“输入/处理/输出/为什么”四段。
-使用建议：先读注释理解思路，再对照代码行走读执行路径。
-本次修改只增强注释可读性，不改变任何运行逻辑。
+==========================================================
+  SNN SoC Python 建模 - SNN 推理引擎 + 器件模型
+==========================================================
+功能：
+  1. 权重量化: 把 ANN 的 float 权重映射到 CIM 阵列的离散电导电平
+  2. 器件非理想性: 注入 D2D/C2C 变化、读噪声、电导漂移
+  3. ADC 量化: 模拟 N-bit ADC 的量化误差
+  4. Bit-plane SNN 推理: 完全匹配 RTL 的行为
+  5. 自适应阈值: 对比固定阈值 vs 自适应阈值的效果
+
+核心概念 - 为什么 SNN 等价于 ANN？
+  ANN 计算:  output[j] = sum_i(W[j,i] * pixel[i])
+  SNN 计算:  对 pixel[i] 做 8-bit 展开 (bit-plane 编码)
+             每个 bit 送一个 0/1 到 CIM，得到部分和
+             LIF 神经元把 8 个部分和按权重 (128,64,...,1) 累加
+             最终结果 = ANN 结果 × 255 (因为 ANN 输入归一化到 [0,1])
+
+差分编码：
+  CIM 阵列的电导只能是正值 (G ≥ 0)，但 ANN 权重有正有负。
+  解决方案: 差分结构
+    W_pos = max(W, 0)     → 映射到正差分列的电导
+    W_neg = max(-W, 0)    → 映射到负差分列的电导
+    输出 = CIM(input, G_pos) - CIM(input, G_neg)
+  这样就能表示正负权重了。
+
+方案 A vs B：
+  方案 A (模拟侧差分): 模拟电路先做 I_pos - I_neg，再送给 ADC
+    → ADC 收到的是有符号电流，需要处理负值
+    → 只需要 10 个 ADC 通道
+  方案 B (数字侧差分): 分别对 I_pos 和 I_neg 做 ADC，数字域相减
+    → 每个 ADC 只处理正电流（简单）
+    → 需要 20 个 ADC 通道
 """
 
 import os
@@ -15,11 +42,6 @@ import torch
 import numpy as np
 import config as cfg
 
-# ==========================================================
-# 绗笁鐗堟暀瀛﹀璇伙紙鍙娉ㄩ噴锛屼笉鏀归€昏緫锛?# ==========================================================
-# 杩欎釜鏂囦欢鏄€滀粠 ANN 鏉冮噸鍒?SNN 鎺ㄧ悊缁撴灉鈥濈殑涓诲紩鎿庛€?# 鍙寜涓嬮潰涓婚摼璺悊瑙ｏ細
-# 1) 鎶婃潈閲嶆媶鎴愬樊鍒嗗骞堕噺鍖栵細`split_differential` / `quantize_weights`銆?# 2) 娉ㄥ叆鍣ㄤ欢闈炵悊鎯筹細D2D/C2C銆佽鍣０銆佹紓绉汇€両R drop銆?# 3) 缁忚繃 ADC 閲忓寲锛歚quantize_adc`銆?# 4) 鎸?bit-plane 绱姞骞跺仛绁炵粡鍏冨浣嶏細`snn_inference`銆?#
-# 瀵瑰簲纭欢鎬濈淮锛?# - `scheme A/B`锛氭ā鎷熷樊鍒?vs 鏁板瓧宸垎璺緞銆?# - `full_scale`锛欰DC 鍥哄畾婊￠噺绋嬭瀹氥€?# - `reset_mode`锛歴oft/hard 涓ょ绁炵粡鍏冨浣嶇瓥鐣ャ€?
 
 _PLUGIN_LEVELS_CACHE = None
 _PLUGIN_LEVELS_LOAD_TRIED = False
@@ -31,24 +53,6 @@ _BACKEND_NOTES_SEEN = set()
 
 
 def _note_backend(message):
-    """
-    输入：
-    - `message`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_note_backend` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     if message in _BACKEND_NOTES_SEEN:
         return
     _BACKEND_NOTES_SEEN.add(message)
@@ -58,26 +62,8 @@ def _note_backend(message):
 
 def _load_plugin_module():
     """
-    输入：
-    - 无显式输入参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_load_plugin_module` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    Load memristor_plugin.py once and cache the imported module.
     """
-    # 设计目的：
-    # 1) 与项目路径解耦，允许按配置切换插件文件。
-    # 2) 只加载一次，避免重复 import 的性能损耗。
     global _PLUGIN_MODULE_CACHE, _PLUGIN_MODULE_LOAD_TRIED
 
     if _PLUGIN_MODULE_LOAD_TRIED:
@@ -107,25 +93,11 @@ def _load_plugin_module():
 
 def _load_plugin_levels():
     """
-    输入：
-    - 无显式输入参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_load_plugin_levels` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    尝试从器件团队提供的 memristor_plugin.py 加载 4-bit 电导电平。
+    返回:
+        levels_norm: Tensor [L], 值域 [0,1]，首元素保证为 0
+                     失败时返回 None
     """
-    # 教学注释：
-    # 4-bit 下优先使用器件离散电平，可更贴近真实量化行为。
     global _PLUGIN_LEVELS_CACHE, _PLUGIN_LEVELS_LOAD_TRIED
 
     if _PLUGIN_LEVELS_LOAD_TRIED:
@@ -157,26 +129,9 @@ def _load_plugin_levels():
 
 def _get_plugin_sim(rows, cols):
     """
-    输入：
-    - `rows`：由调用方传入的业务数据或控制参数。
-    - `cols`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_get_plugin_sim` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    获取器件仿真器实例（按阵列尺寸缓存）。
+    返回 None 表示器件模型不可用。
     """
-    # 教学注释：
-    # 缓存粒度按 (rows, cols) 区分，避免每次推理都重建仿真器。
     if not getattr(cfg, "USE_DEVICE_MODEL", False):
         return None
     module = _load_plugin_module()
@@ -216,24 +171,6 @@ def _get_plugin_sim(rows, cols):
 
 
 def get_device_backend_status():
-    """
-    输入：
-    - 无显式输入参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `get_device_backend_status` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     levels = _load_plugin_levels()
     sim_entries = [v for v in _PLUGIN_SIM_CACHE.values() if v is not None]
     sim_available = len(sim_entries) > 0
@@ -252,52 +189,30 @@ def get_device_backend_status():
 
 
 # ==========================================================
-#  绗?閮ㄥ垎: 鏉冮噸閲忓寲
+#  第1部分: 权重量化
 # ==========================================================
 
 def split_differential(W):
     """
-    输入：
-    - `W`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `split_differential` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    将 ANN 权重拆分为差分对。
+
+    参数:
+        W: Tensor [num_outputs, input_dim], float, 有正有负
+
+    返回:
+        W_pos: Tensor [num_outputs, input_dim], ≥ 0, 正权重部分
+        W_neg: Tensor [num_outputs, input_dim], ≥ 0, 负权重的绝对值
+
+    性质: W = W_pos - W_neg (可以验证)
     """
-    W_pos = torch.clamp(W, min=0)       # 淇濈暀姝ｅ€硷紝璐熷€煎彉0
-    W_neg = torch.clamp(-W, min=0)      # 璐熷€煎彇缁濆鍊硷紝姝ｅ€煎彉0
+    W_pos = torch.clamp(W, min=0)       # 保留正值，负值变0
+    W_neg = torch.clamp(-W, min=0)      # 负值取绝对值，正值变0
     return W_pos, W_neg
 
 
 def _nearest_level_quantize(normalized_values, normalized_levels):
     """
-    输入：
-    - `normalized_values`：由调用方传入的业务数据或控制参数。
-    - `normalized_levels`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_nearest_level_quantize` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    将 [0,1] 的值量化到给定离散电平（最近邻）。
     """
     diff = (normalized_values.unsqueeze(-1) - normalized_levels.view(1, 1, -1)).abs()
     idx = diff.argmin(dim=-1)
@@ -306,33 +221,32 @@ def _nearest_level_quantize(normalized_values, normalized_levels):
 
 def quantize_weights(W_half, weight_bits, mode='linear', ref_max=None, plugin_levels=None):
     """
-    输入：
-    - `W_half`：由调用方传入的业务数据或控制参数。
-    - `weight_bits`：由调用方传入的业务数据或控制参数。
-    - `mode`：由调用方传入的业务数据或控制参数。
-    - `ref_max`：由调用方传入的业务数据或控制参数。
-    - `plugin_levels`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `quantize_weights` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    将权重量化到有限个离散电平（模拟 CIM 阵列的有限电导级数）。
+
+    参数:
+        W_half:      Tensor, ≥ 0, 正差分或负差分的权重
+        weight_bits: int, 量化位宽 (4 → 16 个电平, 8 → 256 个电平)
+        mode:        'linear' 线性等间隔 | 'log' 对数间隔(匹配RRAM特性)
+
+    返回:
+        W_q: Tensor, 量化后的权重
+
+    量化过程:
+        1. 找到最大值 w_max
+        2. 生成 2^N 个离散电平 (从 0 到 w_max)
+        3. 把每个权重值 snap 到最近的电平
+
+    为什么要做这一步？
+        因为 RRAM 只能被编程到有限个电导状态 (4-bit = 16 个状态)。
+        量化后的权重和原始 float 权重有误差，这个误差会降低准确率。
     """
     w_max = W_half.max() if ref_max is None else ref_max
     if w_max < 1e-10:
         return W_half.clone()
 
     num_levels = 2 ** weight_bits
-    # 4-bit 时优先使用器件电平，并与正负支路共享同一 ref_max。
+
+    # 4-bit 时优先用器件电平（如果可用），并且与正/负支路共享同一个 ref_max。
     if plugin_levels is not None and weight_bits == 4:
         levels = plugin_levels.to(device=W_half.device, dtype=W_half.dtype)
         normalized = torch.clamp(W_half / w_max, 0.0, 1.0)
@@ -340,49 +254,32 @@ def quantize_weights(W_half, weight_bits, mode='linear', ref_max=None, plugin_le
         return q_norm * w_max
 
     if mode == 'linear':
-        # 绾挎€х瓑闂撮殧: [0, step, 2*step, ..., w_max]
+        # 线性等间隔: [0, step, 2*step, ..., w_max]
         step = w_max / (num_levels - 1)
         W_q = torch.round(W_half / step) * step
 
     elif mode == 'log':
-        # 瀵规暟闂撮殧: RRAM 鐢靛澶╃劧鏄鏁板垎甯冪殑
-        # 鍦ㄥ鏁板煙鍋氬潎鍖€閲忓寲
-        W_safe = torch.clamp(W_half, min=w_max * 1e-4)  # 閬垮厤 log(0)
+        # 对数间隔: RRAM 电导天然是对数分布的
+        # 在对数域做均匀量化
+        W_safe = torch.clamp(W_half, min=w_max * 1e-4)  # 避免 log(0)
         log_min = torch.log10(torch.tensor(w_max * 1e-4))
         log_max = torch.log10(w_max)
         log_step = (log_max - log_min) / (num_levels - 1)
         log_val = torch.log10(W_safe)
         log_q = torch.round((log_val - log_min) / log_step) * log_step + log_min
         W_q = torch.pow(10, log_q)
-        # 鍘熸湰灏辨槸 0 鐨勪綅缃繚鎸佷负 0
+        # 原本就是 0 的位置保持为 0
         W_q[W_half < w_max * 1e-4] = 0.0
 
     else:
-        raise ValueError(f"鏈煡閲忓寲妯″紡: {mode}")
+        raise ValueError(f"未知量化模式: {mode}")
 
     return torch.clamp(W_q, 0, w_max)
 
 
 def prepare_conductance_pair(W, weight_bits, quant_mode='linear'):
     """
-    输入：
-    - `W`：由调用方传入的业务数据或控制参数。
-    - `weight_bits`：由调用方传入的业务数据或控制参数。
-    - `quant_mode`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `prepare_conductance_pair` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    使用统一标尺量化差分对，避免正/负支路量化尺度不一致。
     """
     W_pos, W_neg = split_differential(W)
     shared_max = W.abs().max()
@@ -397,28 +294,7 @@ def prepare_conductance_pair(W, weight_bits, quant_mode='linear'):
 
 
 def _quantize_weights_device(W_half, weight_bits, device_sim, ref_max):
-    # 鏁欏娉ㄩ噴锛?    # 璁惧妯″瀷璺緞涓嬶紝閲忓寲鐩爣鏄€滅湡瀹炲閫氬€尖€濓紝骞堕檺鍒跺湪鍣ㄤ欢鍙鑼冨洿鍐呫€?    """浣跨敤鍣ㄤ欢鐢靛鐢靛钩杩涜閲忓寲锛岃繑鍥炵湡瀹炵數瀵煎€笺€?""
-    """
-    输入：
-    - `W_half`：由调用方传入的业务数据或控制参数。
-    - `weight_bits`：由调用方传入的业务数据或控制参数。
-    - `device_sim`：由调用方传入的业务数据或控制参数。
-    - `ref_max`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_quantize_weights_device` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
+    """使用器件电导电平进行量化，返回真实电导值。"""
     if ref_max < 1e-10:
         return W_half.clone()
     g_levels = torch.tensor(
@@ -428,12 +304,12 @@ def _quantize_weights_device(W_half, weight_bits, device_sim, ref_max):
     normalized = torch.clamp(W_half / ref_max, 0.0, 1.0)
 
     if weight_bits == 4:
-        # 浣跨敤鍣ㄤ欢鐪熷疄鐢靛钩锛堜笉寮鸿琛ラ浂锛屼綋鐜版紡鐢碉級
+        # 使用器件真实电平（不强行补零，体现漏电）
         levels_norm = g_levels / g_max
         q_norm = _nearest_level_quantize(normalized, levels_norm)
         G = q_norm * g_max
     else:
-        # 鍏跺畠浣嶅锛氱嚎鎬ч噺鍖栧埌 [0, g_max]
+        # 其它位宽：线性量化到 [0, g_max]
         num_levels = 2 ** weight_bits
         step = 1.0 / (num_levels - 1)
         q_norm = torch.round(normalized / step) * step
@@ -445,27 +321,7 @@ def _quantize_weights_device(W_half, weight_bits, device_sim, ref_max):
 
 
 def prepare_conductance_pair_device(W, weight_bits, device_sim):
-    # 鏁欏娉ㄩ噴锛?    # 涓?`prepare_conductance_pair` 瀵瑰簲锛屼絾閲忓寲鍣ㄦ崲鎴?device_sim 椹卞姩銆?    """鍣ㄤ欢妯″瀷鐗堬細宸垎鎷嗗垎 + 鍣ㄤ欢鐢靛閲忓寲銆?""
-    """
-    输入：
-    - `W`：由调用方传入的业务数据或控制参数。
-    - `weight_bits`：由调用方传入的业务数据或控制参数。
-    - `device_sim`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `prepare_conductance_pair_device` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
+    """器件模型版：差分拆分 + 器件电导量化。"""
     W_pos, W_neg = split_differential(W)
     shared_max = W.abs().max()
     if shared_max < 1e-10:
@@ -476,27 +332,7 @@ def prepare_conductance_pair_device(W, weight_bits, device_sim):
 
 
 def _cim_mac(spike_input, G, device_sim=None):
-    # 鏁欏娉ㄩ噴锛?    # CIM 鐨勬牳蹇冪畻瀛愶細I = G * V锛屽啀鎸夊垪姹傚拰寰楀埌姣忎釜杈撳嚭閫氶亾鐢垫祦銆?    """CIM 鐭╅樀涔樻硶锛氬彲閫?IR drop 浠跨湡銆?""
-    """
-    输入：
-    - `spike_input`：由调用方传入的业务数据或控制参数。
-    - `G`：由调用方传入的业务数据或控制参数。
-    - `device_sim`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_cim_mac` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
+    """CIM 矩阵乘法：可选 IR drop 仿真。"""
     if device_sim is not None and device_sim.interconnect.ir_drop_active:
         v_effective = device_sim.ir_simulator.compute_effective_voltages(spike_input, G)
         current_map = G.unsqueeze(0) * v_effective
@@ -505,28 +341,7 @@ def _cim_mac(spike_input, G, device_sim=None):
 
 
 def _estimate_spike_threshold(fs_cfg, timesteps, ratio):
-    # 鏁欏娉ㄩ噴锛?    # 杩欓噷闃堝€间笌 ADC 婊￠噺绋嬨€佸儚绱犱綅瀹姐€佹椂闂存鎴愭瘮渚嬶紝
-    # 鐩磋涓婃槸鈥滄妸闃堝€煎浐瀹氬埌绯荤粺鍙敤鍔ㄦ€佽寖鍥寸殑涓€瀹氭瘮渚嬧€濄€?    """浼扮畻鍥哄畾闃堝€硷紙涓?RTL 鐨?~60% 缁忛獙涓€鑷达級銆?""
-    """
-    输入：
-    - `fs_cfg`：由调用方传入的业务数据或控制参数。
-    - `timesteps`：由调用方传入的业务数据或控制参数。
-    - `ratio`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_estimate_spike_threshold` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
+    """估算固定阈值（与 RTL 的 ~60% 经验一致）。"""
     if "signed" in fs_cfg:
         full_scale = fs_cfg["signed"]
     else:
@@ -536,25 +351,7 @@ def _estimate_spike_threshold(fs_cfg, timesteps, ratio):
 
 def _apply_d2d_c2c_to_diff_pair(G_pos, G_neg, d2d, c2c):
     """
-    输入：
-    - `G_pos`：由调用方传入的业务数据或控制参数。
-    - `G_neg`：由调用方传入的业务数据或控制参数。
-    - `d2d`：由调用方传入的业务数据或控制参数。
-    - `c2c`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_apply_d2d_c2c_to_diff_pair` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    Apply shared D2D and independent C2C variations to differential conductance pair.
     """
     d2d_factor = 1.0 + torch.randn(1, device=G_pos.device, dtype=G_pos.dtype) * d2d
     c2c_pos = 1.0 + torch.randn_like(G_pos) * c2c
@@ -565,63 +362,57 @@ def _apply_d2d_c2c_to_diff_pair(G_pos, G_neg, d2d, c2c):
 
 
 # ==========================================================
-#  绗?閮ㄥ垎: 鍣ㄤ欢闈炵悊鎯虫€?# ==========================================================
+#  第2部分: 器件非理想性
+# ==========================================================
 
 def add_device_variation(W_q, d2d=None, c2c=None, d2d_factor=None):
     """
-    输入：
-    - `W_q`：由调用方传入的业务数据或控制参数。
-    - `d2d`：由调用方传入的业务数据或控制参数。
-    - `c2c`：由调用方传入的业务数据或控制参数。
-    - `d2d_factor`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `add_device_variation` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    给量化后的权重添加器件变化性（模拟制造工艺偏差）。
+
+    参数:
+        W_q:  Tensor, 量化后的权重
+        d2d:  float, Die-to-Die 变化 (整个芯片的系统性偏移, 默认 5%)
+        c2c:  float, Cell-to-Cell 变化 (每个单元的随机偏差, 默认 3%)
+
+    返回:
+        W_noisy: Tensor, 添加变化后的权重
+
+    物理含义:
+        D2D: 同一批芯片之间的差异（比如同一晶圆不同位置的工艺偏差）
+             → 所有单元共享同一个偏移量
+        C2C: 同一芯片上不同单元之间的差异（局部缺陷、掺杂不均匀等）
+             → 每个单元独立的随机偏差
     """
     if d2d is None:
         d2d = cfg.D2D_VARIATION
     if c2c is None:
         c2c = cfg.C2C_VARIATION
 
-    # D2D: 鏁翠綋涔樻€у亸绉?(鎵€鏈夊崟鍏冨悓涓€涓殢鏈哄洜瀛?
+    # D2D: 整体乘性偏移 (所有单元同一个随机因子)
     if d2d_factor is None:
         d2d_factor = 1.0 + torch.randn(1, device=W_q.device, dtype=W_q.dtype) * d2d
-    # C2C: 逐单元乘性偏移。
+
+    # C2C: 逐单元乘性偏移
     c2c_factor = 1.0 + torch.randn_like(W_q) * c2c
+
     W_noisy = W_q * d2d_factor * c2c_factor
-    return torch.clamp(W_noisy, min=0)  # 鐢靛涓嶈兘涓鸿礋
+    return torch.clamp(W_noisy, min=0)  # 电导不能为负
 
 
 def add_read_noise(W_q, noise_sigma=None):
     """
-    输入：
-    - `W_q`：由调用方传入的业务数据或控制参数。
-    - `noise_sigma`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `add_read_noise` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    添加读噪声（每次读取电导值时的随机波动）。
+
+    参数:
+        W_q:         Tensor, 权重
+        noise_sigma: float, 噪声标准差 (占电导范围的比例)
+
+    返回:
+        W_noisy: Tensor, 添加噪声后的权重
+
+    物理含义:
+        每次读取 RRAM 单元时，电流值会有微小的随机波动。
+        这是由热噪声、1/f 噪声等引起的，每次读都不同。
     """
     if noise_sigma is None:
         noise_sigma = cfg.READ_NOISE_SIGMA
@@ -636,24 +427,7 @@ def add_read_noise(W_q, noise_sigma=None):
 
 def add_read_noise_to_signal(signal, full_scale, noise_sigma=None):
     """
-    输入：
-    - `signal`：由调用方传入的业务数据或控制参数。
-    - `full_scale`：由调用方传入的业务数据或控制参数。
-    - `noise_sigma`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `add_read_noise_to_signal` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    对读出信号添加动态噪声。full_scale 固定时更接近硬件。
     """
     if noise_sigma is None:
         noise_sigma = cfg.READ_NOISE_SIGMA
@@ -662,31 +436,30 @@ def add_read_noise_to_signal(signal, full_scale, noise_sigma=None):
 
 
 # ==========================================================
-#  绗?閮ㄥ垎: ADC 閲忓寲
+#  第3部分: ADC 量化
 # ==========================================================
 
 def quantize_adc(values, adc_bits, signed=True, full_scale=None, full_scale_mode=None):
     """
-    输入：
-    - `values`：由调用方传入的业务数据或控制参数。
-    - `adc_bits`：由调用方传入的业务数据或控制参数。
-    - `signed`：由调用方传入的业务数据或控制参数。
-    - `full_scale`：由调用方传入的业务数据或控制参数。
-    - `full_scale_mode`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `quantize_adc` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    模拟 ADC 量化过程。
+
+    参数:
+        values:   Tensor, CIM 矩阵乘法的模拟输出 (电流值)
+        adc_bits: int, ADC 位宽 (8 → 256 个量化级)
+        signed:   bool, True=有符号(方案A), False=无符号(方案B的单路)
+
+    返回:
+        quantized: Tensor, 量化后的数字值
+
+    ADC 的工作原理:
+        把连续的模拟电流值转换为离散的数字码。
+        N-bit ADC 有 2^N 个量化级。
+        量化步长 = 满量程 / (2^N - 1)
+        量化后的值 = round(原值 / 步长) × 步长
+
+    量程设定:
+        满量程根据"最大可能电流"固定（不是按数据自适应的）。
+        这和真实硬件一致：ADC 的参考电压是设计时固定的。
     """
     if full_scale_mode is None:
         full_scale_mode = cfg.ADC_FULL_SCALE_MODE
@@ -695,8 +468,8 @@ def quantize_adc(values, adc_bits, signed=True, full_scale=None, full_scale_mode
     use_dynamic_fs = (full_scale_mode == "dynamic") or (full_scale is None)
 
     if signed:
-        # 鏈夌鍙?ADC (鏂规 A: I_pos - I_neg, 缁撴灉鍙鍙礋)
-        # 閲忕▼: [-full_scale, +full_scale]
+        # 有符号 ADC (方案 A: I_pos - I_neg, 结果可正可负)
+        # 量程: [-full_scale, +full_scale]
         if use_dynamic_fs:
             full_scale = values.abs().max().item()
         if full_scale < 1e-30:
@@ -705,7 +478,7 @@ def quantize_adc(values, adc_bits, signed=True, full_scale=None, full_scale_mode
         quantized = torch.round(values / step) * step
         return torch.clamp(quantized, -full_scale, full_scale)
     else:
-        # 鏃犵鍙?ADC (鏂规 B: 鍗曡矾 I_pos 鎴?I_neg, 鍙湁姝ｅ€?
+        # 无符号 ADC (方案 B: 单路 I_pos 或 I_neg, 只有正值)
         if use_dynamic_fs:
             full_scale = values.max().item()
         if full_scale < 1e-30:
@@ -716,29 +489,13 @@ def quantize_adc(values, adc_bits, signed=True, full_scale=None, full_scale_mode
 
 
 # ==========================================================
-#  绗?閮ㄥ垎: SNN 鎺ㄧ悊 (鍖归厤 RTL 琛屼负)
+#  第4部分: SNN 推理 (匹配 RTL 行为)
 # ==========================================================
 
 def estimate_adc_full_scale(G_pos, G_neg, scheme):
     """
-    输入：
-    - `G_pos`：由调用方传入的业务数据或控制参数。
-    - `G_neg`：由调用方传入的业务数据或控制参数。
-    - `scheme`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `estimate_adc_full_scale` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    基于量化后导通值估计固定 ADC 满量程（bit-plane 单次读出量程）。
+    假设最坏情况下该 bit-plane 的输入全为1。
     """
     pos_fs = G_pos.sum(dim=1).max().item()
     neg_fs = G_neg.sum(dim=1).max().item()
@@ -748,24 +505,6 @@ def estimate_adc_full_scale(G_pos, G_neg, scheme):
 
 
 def _normalize_scheme(scheme):
-    """
-    输入：
-    - `scheme`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_normalize_scheme` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     s = str(scheme).upper()
     if s not in ("A", "B"):
         raise ValueError(f"unknown differential scheme: {scheme}")
@@ -784,39 +523,12 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
                   spike_fallback_to_membrane=True,
                   return_stats=False):
     """
-    输入：
-    - `test_images_uint8`：由调用方传入的业务数据或控制参数。
-    - `test_labels`：由调用方传入的业务数据或控制参数。
-    - `W`：由调用方传入的业务数据或控制参数。
-    - `adc_bits`：由调用方传入的业务数据或控制参数。
-    - `weight_bits`：由调用方传入的业务数据或控制参数。
-    - `timesteps`：由调用方传入的业务数据或控制参数。
-    - `scheme`：由调用方传入的业务数据或控制参数。
-    - `add_noise`：由调用方传入的业务数据或控制参数。
-    - `quant_mode`：由调用方传入的业务数据或控制参数。
-    - `decision`：由调用方传入的业务数据或控制参数。
-    - `threshold_ratio`：由调用方传入的业务数据或控制参数。
-    - `threshold`：由调用方传入的业务数据或控制参数。
-    - `reset_mode`：由调用方传入的业务数据或控制参数。
-    - `use_device_model`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `snn_inference` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    SNN 推理主入口，支持 spike 计数决策与膜电位决策。
+
+    decision:
+        - 'spike' / 'count' : 使用每个输出神经元的发放次数做分类
+        - 'membrane'        : 直接对最终膜电位做 argmax 分类
     """
-    # 教学阅读提示：
-    # 先看 Step1/2（导通准备），再看 Step3（非理想注入），
-    # 最后看 Step4/5（bit-plane 累加与分类决策）。
     N = test_images_uint8.shape[0]
     input_dim = W.shape[1]
     num_outputs = W.shape[0]
@@ -831,7 +543,7 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
 
     device_sim = _get_plugin_sim(num_outputs, input_dim) if use_device_model else None
 
-    # ---- Step 1 + 2: 宸垎鎷嗗垎 + 鏉冮噸閲忓寲 ----
+    # ---- Step 1 + 2: 差分拆分 + 权重量化 ----
     if device_sim is not None:
         G_pos, G_neg = prepare_conductance_pair_device(W, weight_bits, device_sim)
     else:
@@ -840,14 +552,14 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
     # Keep ADC full-scale tied to nominal conductance map (hardware-fixed reference).
     fs_cfg = estimate_adc_full_scale(G_pos, G_neg, scheme)
 
-    # ---- Step 3: 娉ㄥ叆鍣ㄤ欢闈炵悊鎯?----
+    # ---- Step 3: 注入器件非理想 ----
     if add_noise:
         if device_sim is not None:
-            # D2D/C2C 鍏变韩鍚屼竴涓?D2D 绯荤粺鍋忕Щ
+            # D2D/C2C 共享同一个 D2D 系统偏移
             d2d = float(device_sim.variation.die_to_die)
             c2c = float(device_sim.variation.cell_to_cell)
             G_pos, G_neg = _apply_d2d_c2c_to_diff_pair(G_pos, G_neg, d2d, c2c)
-            # 再叠加读噪声与漂移。
+            # 再叠加读噪声与漂移
             G_pos = device_sim.apply_non_idealities(G_pos, add_noise=True, add_drift=True)
             G_neg = device_sim.apply_non_idealities(G_neg, add_noise=True, add_drift=True)
         else:
@@ -861,7 +573,7 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
             ratio = float(getattr(cfg, 'SPIKE_THRESHOLD_RATIO', 0.6))
         threshold = _estimate_spike_threshold(fs_cfg, timesteps, ratio)
 
-    # ---- Step 4: Bit-plane SNN 绱姞 ----
+    # ---- Step 4: Bit-plane SNN 累加 ----
     membranes = torch.zeros(N, num_outputs, dtype=torch.float32)
     spike_counts = torch.zeros(N, num_outputs, dtype=torch.float32) if use_spike else None
 
@@ -870,11 +582,12 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
     for frame in range(timesteps):
         for bit in range(cfg.PIXEL_BITS - 1, -1, -1):
             spike_input = ((pixels >> bit) & 1).float()  # [N, input_dim]
-            # CIM MAC（可选 IR-drop 建模）。
+
+            # CIM MAC（可选 IR drop 建模）
             mac_pos = _cim_mac(spike_input, G_pos, device_sim)
             mac_neg = _cim_mac(spike_input, G_neg, device_sim)
 
-            # 宸垎鏂规 + ADC 閲忓寲
+            # 差分方案 + ADC 量化
             if scheme == 'A':
                 mac_diff = mac_pos - mac_neg
                 if add_noise:
@@ -906,7 +619,7 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
                 )
                 adc_out = adc_pos - adc_neg
             else:
-                raise ValueError(f"鏈煡宸垎鏂规: {scheme}")
+                raise ValueError(f"未知差分方案: {scheme}")
 
             membranes += adc_out * (2 ** bit)
 
@@ -918,7 +631,7 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
                 else:
                     membranes[fired] -= threshold
 
-    # ---- Step 5: 鍒嗙被鍐崇瓥 ----
+    # ---- Step 5: 分类决策 ----
     stats = {}
     if use_spike:
         predictions_spike_only = spike_counts.argmax(dim=1)
@@ -952,25 +665,13 @@ def snn_inference(test_images_uint8, test_labels, W, adc_bits=8,
 
 def snn_inference_ideal(test_images_uint8, test_labels, W, timesteps=1):
     """
-    输入：
-    - `test_images_uint8`：由调用方传入的业务数据或控制参数。
-    - `test_labels`：由调用方传入的业务数据或控制参数。
-    - `W`：由调用方传入的业务数据或控制参数。
-    - `timesteps`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `snn_inference_ideal` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    理想 SNN 推理 (无量化无噪声)。
+    用于验证 SNN 与 ANN 的数学等价性。
+
+    理想情况下:
+      SNN 膜电位 = timesteps × W @ pixel_vector × 1.0
+      与 ANN 输出 × 255 × timesteps 成正比 (因为 ANN 输入归一化到 [0,1])
+    所以 argmax 结果应该完全一致。
     """
     N = test_images_uint8.shape[0]
     membranes = torch.zeros(N, W.shape[0])
@@ -979,7 +680,8 @@ def snn_inference_ideal(test_images_uint8, test_labels, W, timesteps=1):
     for frame in range(timesteps):
         for bit in range(cfg.PIXEL_BITS - 1, -1, -1):
             spike_input = ((pixels >> bit) & 1).float()
-            mac = spike_input @ W.T  # 鐩存帴鐢ㄥ師濮嬫潈閲嶏紝鏃犲樊鍒嗘媶鍒?            membranes += mac * (2 ** bit)
+            mac = spike_input @ W.T  # 直接用原始权重，无差分拆分
+            membranes += mac * (2 ** bit)
 
     predictions = membranes.argmax(dim=1)
     accuracy = (predictions == test_labels).sum().item() / N
@@ -987,7 +689,8 @@ def snn_inference_ideal(test_images_uint8, test_labels, W, timesteps=1):
 
 
 # ==========================================================
-#  绗?閮ㄥ垎: 鑷€傚簲闃堝€兼帹鐞?# ==========================================================
+#  第5部分: 自适应阈值推理
+# ==========================================================
 
 def snn_inference_adaptive_threshold(test_images_uint8, test_labels, W,
                                       adc_bits=8, weight_bits=4,
@@ -996,33 +699,8 @@ def snn_inference_adaptive_threshold(test_images_uint8, test_labels, W,
                                       use_device_model=None, add_noise=False,
                                       reset_mode=None):
     """
-    输入：
-    - `test_images_uint8`：由调用方传入的业务数据或控制参数。
-    - `test_labels`：由调用方传入的业务数据或控制参数。
-    - `W`：由调用方传入的业务数据或控制参数。
-    - `adc_bits`：由调用方传入的业务数据或控制参数。
-    - `weight_bits`：由调用方传入的业务数据或控制参数。
-    - `timesteps`：由调用方传入的业务数据或控制参数。
-    - `scheme`：由调用方传入的业务数据或控制参数。
-    - `delta`：由调用方传入的业务数据或控制参数。
-    - `quant_mode`：由调用方传入的业务数据或控制参数。
-    - `use_device_model`：由调用方传入的业务数据或控制参数。
-    - `add_noise`：由调用方传入的业务数据或控制参数。
-    - `reset_mode`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `snn_inference_adaptive_threshold` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    自适应阈值 SNN 推理。
+    决策规则：argmax(spike_count)。
     """
     N = test_images_uint8.shape[0]
     input_dim = W.shape[1]
@@ -1036,7 +714,7 @@ def snn_inference_adaptive_threshold(test_images_uint8, test_labels, W,
 
     device_sim = _get_plugin_sim(num_outputs, input_dim) if use_device_model else None
 
-    # 宸垎鎷嗗垎 + 鏉冮噸閲忓寲
+    # 差分拆分 + 权重量化
     if device_sim is not None:
         G_pos, G_neg = prepare_conductance_pair_device(W, weight_bits, device_sim)
     else:
@@ -1044,7 +722,8 @@ def snn_inference_adaptive_threshold(test_images_uint8, test_labels, W,
 
     # Keep ADC full-scale tied to nominal conductance map (hardware-fixed reference).
     fs_cfg = estimate_adc_full_scale(G_pos, G_neg, scheme)
-    # 注入器件非理想。
+
+    # 注入器件非理想
     if add_noise:
         if device_sim is not None:
             d2d = float(device_sim.variation.die_to_die)
@@ -1058,7 +737,8 @@ def snn_inference_adaptive_threshold(test_images_uint8, test_labels, W,
             G_neg = add_device_variation(G_neg, d2d_factor=shared_d2d)
 
     pixels = test_images_uint8.long()
-    # 估计初始阈值。
+
+    # 估计初始阈值
     init_samples = max(1, int(getattr(cfg, 'ADAPTIVE_INIT_SAMPLES', 512)))
     sample_n = min(init_samples, N)
     sample_membrane = torch.zeros(sample_n, num_outputs)
@@ -1165,5 +845,3 @@ def snn_inference_adaptive_threshold(test_images_uint8, test_labels, W,
 
     accuracy = (predictions == test_labels).sum().item() / N
     return accuracy, spike_counts
-
-

@@ -66,7 +66,7 @@
 |:---|:---:|---:|:---|
 | `wl_data` | D→A | 8 | 当前组（8 条 WL）的数据 |
 | `wl_group_sel` | D→A | 3 | 组号，范围 0~7 |
-| `wl_latch` | D→A | 1 | 单拍锁存脉冲，锁存 `wl_data` 到对应组 |
+| `wl_latch` | D→A | 1 | 组合输出，ST_SEND 全程（8 拍）保持高电平，与 `wl_data`/`wl_group_sel` 同拍有效，模拟侧在 `wl_latch=1` 期间每拍采样对应组数据 |
 | `wl_ready` | A→D | 0 | **V1 不使用该信号**（无 ready，固定时序） |
 
 固定时序（每个 bit-plane）：

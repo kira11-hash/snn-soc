@@ -246,8 +246,24 @@ class IVCharacteristicLoader:
         """
         import pandas as pd
         dataframe = pd.read_excel(self.filepath)
-        self.voltage_raw = dataframe['Voltage'].values.astype(np.float64)
-        self.current_raw = np.abs(dataframe['Current'].values.astype(np.float64))
+
+        # Keep only required columns and remove invalid rows.
+        dataframe = dataframe[['Voltage', 'Current']].dropna().copy()
+        dataframe['Voltage'] = dataframe['Voltage'].astype(np.float64)
+        dataframe['Current'] = dataframe['Current'].astype(np.float64).abs()
+
+        # Some I-V files contain duplicate voltage points (e.g., forward/backward sweep).
+        # scipy.interpolate.interp1d(kind='cubic') requires strictly unique x values.
+        # Aggregate duplicated voltages before interpolation.
+        dataframe = (
+            dataframe.groupby('Voltage', as_index=False)['Current']
+            .mean()
+            .sort_values('Voltage')
+            .reset_index(drop=True)
+        )
+
+        self.voltage_raw = dataframe['Voltage'].to_numpy(dtype=np.float64)
+        self.current_raw = dataframe['Current'].to_numpy(dtype=np.float64)
         
     def _load_embedded_data(self) -> None:
         # 教学注释：
@@ -739,8 +755,11 @@ class IRDropSimulator:
         
         # 估算压降因子
         v_mean = v_applied.abs().mean(dim=2, keepdim=True).clamp(min=1e-9)
-        drop_factor = 1.0 - (self.params.wire_resistance * 
-                            (current_row + current_col.transpose(1, 2)) / v_mean)
+        # current_row: [batch, rows, 1], current_col: [batch, 1, cols]
+        # Keep broadcasting to [batch, rows, cols]; transposing current_col
+        # breaks non-square array shapes (e.g., 10x64).
+        drop_factor = 1.0 - (self.params.wire_resistance *
+                            (current_row + current_col) / v_mean)
         drop_factor = torch.clamp(drop_factor, 0.5, 1.0)
         
         # 应用压降
@@ -767,7 +786,9 @@ class MemristorArraySimulator:
     
     def __init__(self,
                  iv_data_path: Optional[str] = None,
-                 device: str = 'cuda'):
+                 device: str = 'cuda',
+                 rows: int = 128,
+                 cols: int = 256):
         """
         输入：
         - `self`：当前对象本身，表示“在这个类实例上操作”。
@@ -789,7 +810,7 @@ class MemristorArraySimulator:
         - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
         """
         # 硬件配置
-        self.geometry = ArrayGeometry(rows=128, cols=256)
+        self.geometry = ArrayGeometry(rows=int(rows), cols=int(cols))
         self.precision = PrecisionConfig(n_bits=4)
         self.variation = VariationProfile(die_to_die=0.05, cell_to_cell=0.03)
         self.temporal = TemporalParams(drift_coefficient=0.005)

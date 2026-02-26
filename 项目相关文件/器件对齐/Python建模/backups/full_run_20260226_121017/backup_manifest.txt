@@ -1,0 +1,115 @@
+SNN SoC Python Modeling Backup Manifest
+================================================
+created_at: 2026-02-26T12:10:17
+run_mode: full
+skip_train: True
+elapsed_sec: 1.2
+elapsed_min: 0.0
+cwd: D:\SoC Design\Python建模
+argv: -
+results_dir: D:\SoC Design\Python建模\results
+weights_dir: D:\SoC Design\Python建模\weights_full
+
+[git]
+repo_root: D:\SoC Design
+branch: main
+commit: 9c72eed9d83dfcd887e5fffc93949ce36708befd
+commit_short: 9c72eed
+dirty: True
+status_short:
+  M README.md
+   M doc/00_overview.md
+   M doc/01_memory_map.md
+   M doc/02_reg_map.md
+   M doc/03_cim_if_protocol.md
+   M doc/04_walkthrough.md
+   M doc/05_debug_guide.md
+  AM "doc/develop docs/CIM_Macro_Interface_Specification.md"
+  AM "doc/develop docs/MVP_Learning_Guide.md"
+  AM "doc/develop docs/Tapeout_Schedule.md"
+  MM rtl/bus/bus_interconnect.sv
+   M rtl/bus/bus_simple_if.sv
+   M rtl/dma/dma_engine.sv
+   M rtl/mem/fifo_sync.sv
+   M rtl/mem/sram_simple.sv
+   M rtl/mem/sram_simple_dp.sv
+   M rtl/periph/jtag_stub.sv
+   M rtl/periph/spi_stub.sv
+   M rtl/periph/uart_stub.sv
+   M rtl/reg/fifo_regs.sv
+   M rtl/reg/reg_bank.sv
+   M rtl/snn/adc_ctrl.sv
+   M rtl/snn/cim_array_ctrl.sv
+   M rtl/snn/cim_macro_blackbox.sv
+   M rtl/snn/dac_ctrl.sv
+   M rtl/snn/lif_neurons.sv
+   M rtl/top/snn_soc_pkg.sv
+   M rtl/top/snn_soc_top.sv
+   M sim/run_vcs.sh
+   M sim/run_verdi.sh
+   M sim/verdi.tcl
+   M tb/tb_lib/bus_master_tasks.sv
+   M tb/top_tb.sv
+  ?? .claude/
+  ?? .obsidian/
+  ?? "Python\345\273\272\346\250\241.zip"
+  ?? "Python\345\273\272\346\250\241/"
+  ?? "SNNSoC\345\267\245\347\250\213\344\270\273\346\226\207\346\241\243.md"
+  ?? _nul
+  ?? doc/.obsidian/
+  ?? doc/06_learning_path.md
+  ?? doc/07_tapeout_schedule.md
+  ?? doc/08_cim_analog_interface.md
+  ?? doc/09_smoke_test_checklist.md
+  ?? doc/threshold_recommend.py
+  ?? "\351\241\271\347\233\256\347\233\270\345\205\263\346\226\207\344\273\266/"
+  ?? "\351\241\271\347\233\256\350\277\233\345\261\225\346\212\245\345\221\212.md"
+
+[config_snapshot]
+path: D:\SoC Design\Python建模\backups\full_run_20260226_121017\config.py
+mtime: 2026-02-26T12:07:58
+size: 7888
+sha256: a9ce75883056cbe49361a824436eeb1a0aa0eb87e54918674bacce38b0f3ee38
+
+[weights_files] count=14
+avgpool_7x7.pt | size=3625 | mtime=2026-02-26T09:53:20 | sha256=e045382e40d395fafc0add2b378196ae9ec7479b9c1ecc089a7c3df5efc43470
+avgpool_8x8.pt | size=4265 | mtime=2026-02-26T09:51:47 | sha256=346b5c295405a7a4f902bf191dd8a01940c8edeccd01525599143d74b40406d2
+bilinear_7x7.pt | size=3625 | mtime=2026-02-26T09:53:39 | sha256=9143d6f172154767d6e734d11e2f3be33f67ba49bcd26b223de0019da5f5cb3f
+bilinear_8x8.pt | size=4265 | mtime=2026-02-26T09:51:10 | sha256=2849f79a5b8e2503093cb968c5a0c67243a4c20011d98243d085d1213cd2082d
+maxpool_8x8.pt | size=4265 | mtime=2026-02-26T09:52:06 | sha256=9b73f12c88dd47fe00439a83829f68417e2ee623dfca7f8f37215b80e124d485
+nearest_8x8.pt | size=4265 | mtime=2026-02-26T09:51:29 | sha256=5b4c072d2436bd5393342dae4fdd01f3aa172fd10459b1f8812be4540a0956b3
+pad32_pool_8x8.pt | size=4265 | mtime=2026-02-06T23:05:54 | sha256=9e9124912a1b17dd321ff044492c47344b2cc0731240fc8e2822894484b1719d
+pad32_reflect_8x8.pt | size=4265 | mtime=2026-02-26T09:53:02 | sha256=31ac6a9bce54f2b60739e844a4aab82c7dceed321470d8b21903237c954ef7dd
+pad32_replicate_8x8.pt | size=4265 | mtime=2026-02-26T09:52:43 | sha256=f2e39f5371bfa14e03841b558b98d5ebfe92d85861713dfeeed66672c2cbfed3
+pad32_zero_8x8.pt | size=4265 | mtime=2026-02-26T09:52:25 | sha256=8b214a74eed84ccd5f972cfd6e33d056a25d32fa5c1ec182eb2b20408febf96b
+proj_pca_64.pt | size=4265 | mtime=2026-02-26T09:53:58 | sha256=d49c5f14b5835aa77293e68b549d6631188880e96fbcc9acc2bef941980c53ae
+proj_pca_64_proj_params.pt | size=205797 | mtime=2026-02-26T09:50:45 | sha256=ffc0edd59243173a51cbfd5cdb7d4a291872054eb1d1d6924d2c3e575d987e46
+proj_sup_64.pt | size=4265 | mtime=2026-02-26T09:54:17 | sha256=bfc8fd55dad413b526cdf5e398900ec3424c751b25e649a6e22d52fcac87bfb2
+proj_sup_64_proj_params.pt | size=202409 | mtime=2026-02-26T09:50:51 | sha256=173050b387a2f4f3671f71e3d8f855d69069fb0a1e0524b0b3182ed75f1917ce
+
+[results_files] count=25
+exhaustive_64dim_schemeB_full.csv | size=46066 | mtime=2026-02-07T23:36:01 | sha256=8c9e4cba174b8f37fb29d09418c9bd7179cd40077a0d7b89818a65cfbb00c5c2
+exhaustive_64dim_schemeB_summary.txt | size=635 | mtime=2026-02-07T23:36:01 | sha256=1cf5c5704e2cc232b33e3e15fad44030b2546869ab5057b57798795b933df872
+fig1_downsample_comparison.png | size=54289 | mtime=2026-02-26T12:00:29 | sha256=3494f069e1a1477aba92bcf6de47c4c08a0eefce1ff84579220b07634b3250a8
+fig2_adc_bits_sweep.png | size=42046 | mtime=2026-02-26T12:00:29 | sha256=567791d64e529bc3967b55fb1f0f43e9a58136fcb350df74caa5e1e9f36de8c1
+fig3_weight_bits_sweep.png | size=52209 | mtime=2026-02-26T12:00:29 | sha256=d40469c13890eb1fdac5928ed1879c65fbe4954d2d394193bf466eb771332870
+fig4_timesteps_sweep.png | size=32056 | mtime=2026-02-26T12:00:29 | sha256=22e75a79a07a1747b88110a4722f0d90842b2fbedcf7c077ef2ef9cde3b7825a
+fig5_noise_impact.png | size=22756 | mtime=2026-02-26T12:00:29 | sha256=80b086949ce97bdbc3f2ac31709e62890cacda811ea11ca2a3c8be571b6efbef
+fig6_scheme_comparison.png | size=19521 | mtime=2026-02-26T12:00:29 | sha256=e5edea4ccbcce82965b96b1404823d852885eeed068f4dd3d815fc9fd60462b2
+fig7_adaptive_threshold.png | size=24871 | mtime=2026-02-26T12:00:30 | sha256=3a8f74dbf4e1dca093c5e99aba2a87ae32f3acaf9d5f978315adfdb0f0e29920
+proj_sup_64_test_uint8.npy | size=640128 | mtime=2026-02-07T14:32:26 | sha256=93b8888337e909e19196930b8a5621cf2eb08b7c0e5c3f1c01c1503bad9fced5
+quick_post_rollback_20260208_032152.log | size=124292 | mtime=2026-02-08T03:28:57 | sha256=41cd3b875d889eb837da124a0b24da00efa3ec4092758aab2d6bf3f2190de92c
+quick_resume_test1_20260208_031213.log | size=13082 | mtime=2026-02-08T03:12:39 | sha256=d61d4b14cfef0c436b2066a59436d72aee021925312a2d646b498755eb20e607
+run_all_ab_quick_20260211_164101.log | size=230626 | mtime=2026-02-11T16:54:53 | sha256=2920e0ff24f968dc8ee784043f57ce5970db30b40dd61ff3b4c8a06f2e658d57
+run_all_bias_false_quick_20260211_174043.log | size=124148 | mtime=2026-02-11T17:48:05 | sha256=a0d75a295ef1a6f414dead7db56dcd17aa03f993ee03348296878c7be878f536
+run_all_bias_false_quick_20260211_174914.log | size=124148 | mtime=2026-02-11T17:56:30 | sha256=19ca784516b7b300f444f0d6402ae52ba59b8d7693e959f28a069cd85bcd2561
+run_all_bias_true_quick_20260211_175710.log | size=124148 | mtime=2026-02-11T18:04:12 | sha256=93c11296c75f6da45afdb1dc559587924848aad8db48ebf99019b538a8d064df
+run_all_full_20260207_191330.log | size=114710 | mtime=2026-02-08T00:13:29 | sha256=570ca8ec4d4007144a81aab923ad3a4b43f513fc2fc5149a7f885d2fff231e80
+run_all_full_48h_20260208_002558.log | size=127328 | mtime=2026-02-08T02:47:25 | sha256=2665559d9e369c2ccb17ab1cfa46e0e441ee343e9a1c290c55679a3ce740ee39
+run_all_full_rerun_20260226_095036.log | size=127094 | mtime=2026-02-26T12:00:30 | sha256=af5bf302ae967522d0f6144d26b4125558d166da990b7bc1da73822f5af9714b
+run_all_skiptrain_20260208_001430.log | size=17050 | mtime=2026-02-08T00:25:05 | sha256=331a751facaa07aaaf74e430014cef998612353d1d49d8c618de514f33b77c33
+run_all_skiptrain_20260226_014831.log | size=127152 | mtime=2026-02-26T03:47:54 | sha256=c78f14cdfb0d9e26eec0af455e7dee6f2a002166b747797164a0098e7785c4d2
+run_all_skiptrain_hard_20260210_161450.log | size=127164 | mtime=2026-02-10T18:33:12 | sha256=df193c3e0efb7ac4a930bdd7cee3d807d8f2dfebc52d94a24a72dbd347c8dc9e
+summary.txt | size=3752 | mtime=2026-02-26T12:00:30 | sha256=978ded1a68fb3b002a8a58ee6060964be15814d3c5390075aec06dffbc600491
+summary_bias_false_quick.txt | size=3748 | mtime=2026-02-11T17:56:30 | sha256=28813da269ce5eba20cde5503c492c147da78a6966143c2869549f9fb1790157
+summary_bias_true_quick.txt | size=3748 | mtime=2026-02-11T18:04:12 | sha256=dd725dc6e740d28c8ad76316a57801b8b54ee1f30ec070baff02b5a22dc08043

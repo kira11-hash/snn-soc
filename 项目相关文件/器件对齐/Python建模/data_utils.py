@@ -1,9 +1,16 @@
-# 统一章节化注释模板：每个函数均固定为 输入 / 处理 / 输出 / 为什么 四段。
 """
-data_utils.py 第三版教学导读（数据准备与预处理）
-本文件采用统一注释风格：所有函数固定为“输入/处理/输出/为什么”四段。
-使用建议：先读注释理解思路，再对照代码行走读执行路径。
-本次修改只增强注释可读性，不改变任何运行逻辑。
+==========================================================
+  SNN SoC Python 建模 - 数据准备模块
+==========================================================
+功能：
+  1. 下载 MNIST 数据集 (手写数字 0-9, 28×28 灰度图)
+  2. 提供 6 种降采样方法，将 28×28 缩到 8×8 或 7×7
+  3. 返回训练集和测试集，供后续 ANN 训练和 SNN 推理使用
+
+为什么要降采样？
+  因为我们的 CIM 阵列输入维度有限（64 或 49 个 WL），
+  所以需要把 28×28=784 维的图像压缩到 8×8=64 维（或 7×7=49 维）。
+  不同的降采样方法会影响信息保留程度，进而影响分类准确率。
 """
 
 import os
@@ -15,40 +22,27 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, TensorDataset
 import config as cfg
 
-# ==========================================================
-# 第三版教学导读（只增注释，不改逻辑）
-# ==========================================================
-# 这个文件负责“把原始 MNIST 变成可直接喂给 ANN/SNN 的数据”。
-# 可把流程看成四段：
-# 1) 读取原始 28x28 图像。
-# 2) 执行降采样或投影（得到 64 维/49 维等输入）。
-# 3) 统一量化到 uint8（0~255），并可做输入增益。
-# 4) 打包成 DataLoader，供训练与推理调用。
-#
-# 对硬件同学最关键的一点：
-# 最终得到的是“定长向量 + uint8 数值范围”，这和后续阵列输入接口是匹配的。
-
 
 def downsample_batch(images_28x28, target_size, method):
     """
-    输入：
-    - `images_28x28`：由调用方传入的业务数据或控制参数。
-    - `target_size`：由调用方传入的业务数据或控制参数。
-    - `method`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `downsample_batch` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    对一批 28×28 图像进行降采样。
+
+    参数:
+        images_28x28: Tensor, 形状 [N, 28, 28], 值域 [0, 255], uint8
+        target_size:  int, 目标尺寸 (7 或 8)
+        method:       str, 降采样方法名
+
+    返回:
+        Tensor, 形状 [N, target_size * target_size], 值域 [0, 255], uint8
+
+    降采样方法说明:
+        bilinear  - 双线性插值，像素间平滑过渡，信息保留较好
+        nearest   - 最近邻，直接取最近像素，速度快但可能丢细节
+        avgpool   - 平均池化，每个输出像素 = 对应区域的平均值
+        maxpool   - 最大池化，每个输出像素 = 对应区域的最大值，保留强特征
+        pad32_zero      - 28->32 zero pad, then 4x4 avgpool -> 8x8
+        pad32_replicate - 28->32 replicate pad, then 4x4 avgpool -> 8x8
+        pad32_reflect   - 28->32 reflect pad, then 4x4 avgpool -> 8x8
     """
     N = images_28x28.shape[0]
     # 转为 float 并增加通道维度: [N, 28, 28] → [N, 1, 28, 28]
@@ -93,47 +87,12 @@ def downsample_batch(images_28x28, target_size, method):
 
 
 def _flatten_images(images_28x28):
-    """
-    输入：
-    - `images_28x28`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_flatten_images` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     return images_28x28.view(images_28x28.shape[0], -1).float() / 255.0
 
 
 def _stratified_train_val_split(labels, val_size, seed):
     """
-    输入：
-    - `labels`：由调用方传入的业务数据或控制参数。
-    - `val_size`：由调用方传入的业务数据或控制参数。
-    - `seed`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_stratified_train_val_split` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    Build stratified train/val indices so class ratios stay stable.
     """
     n_total = int(labels.shape[0])
     if val_size <= 0 or n_total <= 1:
@@ -192,28 +151,6 @@ def _stratified_train_val_split(labels, val_size, seed):
 
 
 def _compute_pca_basis(train_x, out_dim, max_samples=None, center=True, generator=None):
-    """
-    输入：
-    - `train_x`：由调用方传入的业务数据或控制参数。
-    - `out_dim`：由调用方传入的业务数据或控制参数。
-    - `max_samples`：由调用方传入的业务数据或控制参数。
-    - `center`：由调用方传入的业务数据或控制参数。
-    - `generator`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_compute_pca_basis` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     if max_samples is not None and max_samples > 0 and train_x.shape[0] > max_samples:
         if generator is None:
             idx = torch.randperm(train_x.shape[0])[:max_samples]
@@ -236,26 +173,6 @@ def _compute_pca_basis(train_x, out_dim, max_samples=None, center=True, generato
 
 
 def _scale_projected_features(train_feat, test_feat, val_feat=None):
-    """
-    输入：
-    - `train_feat`：由调用方传入的业务数据或控制参数。
-    - `test_feat`：由调用方传入的业务数据或控制参数。
-    - `val_feat`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_scale_projected_features` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     method = getattr(cfg, "PROJ_SCALE_METHOD", "minmax")
     if method == "p99":
         p = float(getattr(cfg, "PROJ_SCALE_PERCENTILE", 0.99))
@@ -263,24 +180,6 @@ def _scale_projected_features(train_feat, test_feat, val_feat=None):
         if max_abs < 1e-6:
             max_abs = torch.tensor(1.0, dtype=train_feat.dtype)
         def scale(x):
-            """
-            输入：
-            - `x`：由调用方传入的业务数据或控制参数。
-            
-            处理：
-            - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-            - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-            - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-            
-            输出：
-            - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-            - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-            
-            为什么：
-            - `scale` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-            - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-            - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-            """
             return (x / (2 * max_abs) + 0.5) * 255.0
         info = f"p{int(p * 100)}_max_abs={max_abs:.4f}"
         params = {"method": "p99", "p": p, "max_abs": float(max_abs)}
@@ -291,24 +190,6 @@ def _scale_projected_features(train_feat, test_feat, val_feat=None):
         if rng < 1e-6:
             rng = torch.tensor(1.0, dtype=train_feat.dtype)
         def scale(x):
-            """
-            输入：
-            - `x`：由调用方传入的业务数据或控制参数。
-            
-            处理：
-            - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-            - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-            - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-            
-            输出：
-            - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-            - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-            
-            为什么：
-            - `scale` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-            - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-            - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-            """
             return (x - min_v) / rng * 255.0
         info = f"min={min_v:.4f}, max={max_v:.4f}"
         params = {"method": "minmax", "min": float(min_v), "max": float(max_v)}
@@ -322,27 +203,6 @@ def _scale_projected_features(train_feat, test_feat, val_feat=None):
 
 
 def _train_supervised_projection(train_x, train_labels, proj_dim, quick_mode=False):
-    """
-    输入：
-    - `train_x`：由调用方传入的业务数据或控制参数。
-    - `train_labels`：由调用方传入的业务数据或控制参数。
-    - `proj_dim`：由调用方传入的业务数据或控制参数。
-    - `quick_mode`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_train_supervised_projection` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     use_bias = bool(getattr(cfg, "PROJ_SUP_USE_BIAS", False))
     batch_size = int(getattr(cfg, "PROJ_SUP_BATCH_SIZE", cfg.ANN_BATCH_SIZE))
     lr = float(getattr(cfg, "PROJ_SUP_LR", cfg.ANN_LR))
@@ -351,53 +211,11 @@ def _train_supervised_projection(train_x, train_labels, proj_dim, quick_mode=Fal
         epochs = max(1, min(2, epochs))
 
     class _ProjNet(nn.Module):
-        # 教学注释：
-        # 这里是“仅用于学习投影矩阵”的临时模型，不是最终部署网络。
         def __init__(self, in_dim, proj_dim, bias):
-            """
-            输入：
-            - `self`：当前对象本身，表示“在这个类实例上操作”。
-            - `in_dim`：由调用方传入的业务数据或控制参数。
-            - `proj_dim`：由调用方传入的业务数据或控制参数。
-            - `bias`：由调用方传入的业务数据或控制参数。
-            
-            处理：
-            - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-            - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-            - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-            
-            输出：
-            - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-            - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-            
-            为什么：
-            - `_ProjNet.__init__` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-            - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-            - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-            """
             super().__init__()
             self.proj = nn.Linear(in_dim, proj_dim, bias=bias)
             self.cls = nn.Linear(proj_dim, 10, bias=False)
         def forward(self, x):
-            """
-            输入：
-            - `self`：当前对象本身，表示“在这个类实例上操作”。
-            - `x`：由调用方传入的业务数据或控制参数。
-            
-            处理：
-            - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-            - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-            - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-            
-            输出：
-            - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-            - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-            
-            为什么：
-            - `_ProjNet.forward` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-            - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-            - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-            """
             return self.cls(self.proj(x))
 
     rng_state = torch.random.get_rng_state()
@@ -430,25 +248,6 @@ def _train_supervised_projection(train_x, train_labels, proj_dim, quick_mode=Fal
 
 
 def _save_projection_params(method_name, params):
-    """
-    输入：
-    - `method_name`：由调用方传入的业务数据或控制参数。
-    - `params`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `_save_projection_params` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
-    """
     os.makedirs(cfg.WEIGHTS_DIR, exist_ok=True)
     path = os.path.join(cfg.WEIGHTS_DIR, f"{method_name}_proj_params.pt")
     torch.save(params, path)
@@ -457,22 +256,7 @@ def _save_projection_params(method_name, params):
 
 def prepare_all_datasets(quick_mode=False):
     """
-    输入：
-    - `quick_mode`：由调用方传入的业务数据或控制参数。
-    
-    处理：
-    - 第1步：读取并检查输入，处理默认值、边界值与兼容分支。
-    - 第2步：执行函数名对应的核心逻辑（计算、流程调度、映射或状态更新）。
-    - 第3步：整理结果并输出；若需要，会附带日志、缓存或文件副作用。
-    
-    输出：
-    - 返回值：本函数计算后的主要结果；具体形态由调用场景决定。
-    - 副作用：可能修改对象内部状态、全局缓存、日志输出或磁盘文件。
-    
-    为什么：
-    - `prepare_all_datasets` 是当前模块流程中的一个可复用步骤，单独封装可减少重复代码。
-    - 采用“输入校验 -> 核心处理 -> 统一输出”结构，便于零基础读者按步骤理解。
-    - 当后续需求变化时，只需改这个函数内部，调用方接口可以保持稳定。
+    Prepare all datasets for each downsample method.
     """
     print("\n[Step 1/4] Prepare MNIST data...")
 
@@ -582,7 +366,8 @@ def prepare_all_datasets(quick_mode=False):
                     p = torch.quantile(train_flat.float(), float(cfg.INPUT_GAIN_PERCENTILE))
                     if p > 1.0:
                         gain = min(float(cfg.INPUT_GAIN_MAX), 255.0 / float(p))
-                except Exception:
+                except Exception as _gain_err:
+                    print(f"  [WARNING] AUTO_INPUT_GAIN: gain calculation failed ({_gain_err}), using gain=1.0")
                     gain = 1.0
             if gain > 1.0 + 1e-6:
                 train_flat = torch.clamp(train_flat.float() * gain, 0, 255).round().byte()

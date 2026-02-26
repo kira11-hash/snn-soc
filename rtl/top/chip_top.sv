@@ -1,3 +1,13 @@
+// -----------------------------------------------------------------------------
+// AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
+// File: rtl/top/chip_top.sv
+// Purpose: Chip-level wrapper skeleton for future pad-ring integration around snn_soc_top.
+// Role in system: Holds the place for pad cells, external pin muxing, and final package-facing signal shaping.
+// Current status: Skeleton only (many pad-facing outputs are placeholders) used to lock interface planning and lint flow.
+// Do not tape out as-is: Final pad mapping, IO cell instantiation, ESD/pad config, and analog connections are not implemented yet.
+// Development benefit: Allows early lint/checks on top-level integration boundaries without disturbing snn_soc_top internals.
+// -----------------------------------------------------------------------------
+
 `timescale 1ns/1ps
 //======================================================================
 // 文件名: chip_top.sv

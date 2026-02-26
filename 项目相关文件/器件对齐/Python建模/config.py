@@ -1,117 +1,129 @@
-"""
+﻿"""
 ==========================================================
-  SNN SoC Python 建模 - 配置文件
+  SNN SoC Python 寤烘ā - 閰嶇疆鏂囦欢
 ==========================================================
-所有可调参数集中在这里。修改参数后重新运行 run_all.py 即可。
+鎵€鏈夊彲璋冨弬鏁伴泦涓湪杩欓噷銆備慨鏀瑰弬鏁板悗閲嶆柊杩愯 run_all.py 鍗冲彲銆?
 
-文件说明：
-  - 器件参数来自器件团队提供的 memristor_plugin.py
-  - 扫描范围覆盖论文中需要对比的所有参数组合
-  - 路径配置假设从 Python建模/ 目录运行
+鏂囦欢璇存槑锛?
+  - 鍣ㄤ欢鍙傛暟鏉ヨ嚜鍣ㄤ欢鍥㈤槦鎻愪緵鐨?memristor_plugin.py
+  - 鎵弿鑼冨洿瑕嗙洊璁烘枃涓渶瑕佸姣旂殑鎵€鏈夊弬鏁扮粍鍚?
+  - 璺緞閰嶇疆鍋囪浠?Python寤烘ā/ 鐩綍杩愯
 """
 
 import os
 
 # =====================================================
-# 路径配置
+# 璺緞閰嶇疆
 # =====================================================
-# 项目根目录（自动检测，无需修改）
+# 椤圭洰鏍圭洰褰曪紙鑷姩妫€娴嬶紝鏃犻渶淇敼锛?
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-RESULTS_DIR = os.path.join(PROJECT_DIR, "results")     # 结果输出
-WEIGHTS_DIR = os.path.join(PROJECT_DIR, "weights")      # 训练权重保存目录
-DATA_DIR    = os.path.join(PROJECT_DIR, "data")          # 手写数字数据目录
+RESULTS_DIR = os.path.join(PROJECT_DIR, "results")          # 缁撴灉杈撳嚭
+WEIGHTS_DIR_FULL = os.path.join(PROJECT_DIR, "weights_full")   # full-run weights
+WEIGHTS_DIR_QUICK = os.path.join(PROJECT_DIR, "weights_quick") # quick-run weights
+WEIGHTS_DIR = WEIGHTS_DIR_FULL                                # ANN鏉冮噸淇濆瓨 (榛樿 full)
+DATA_DIR    = os.path.join(PROJECT_DIR, "data")               # MNIST鏁版嵁
 
-# 仓库根目录（当前目录通常位于项目的建模子目录）
-REPO_ROOT = os.path.abspath(os.path.join(PROJECT_DIR, "..", "..", ".."))
+# I-V 鏁版嵁鏂囦欢璺緞锛堝鏋滄湁鐨勮瘽锛岀敤浜庡姞杞界湡瀹炲櫒浠舵暟鎹級
+# I-V 数据与器件插件路径（支持多种目录布局 + 环境变量覆盖）
+def _pick_existing_path(candidates):
+    for p in candidates:
+        p_norm = os.path.normpath(p)
+        if os.path.exists(p_norm):
+            return p_norm
+    return os.path.normpath(candidates[0])
 
 
-def _pick_existing_path(path_candidates):
-    """
-    从候选路径中选择第一个存在的路径；若都不存在，返回第一个候选的绝对路径。
-    目的：兼容不同机器上的目录布局，避免 I-V 与 plugin 路径失效。
-    """
-    for p in path_candidates:
-        p_abs = os.path.abspath(p)
-        if os.path.exists(p_abs):
-            return p_abs
-    return os.path.abspath(path_candidates[0])
+def _resolve_path_from_env_or_candidates(env_key, candidates):
+    env_val = os.environ.get(env_key, "").strip()
+    if env_val:
+        return os.path.normpath(env_val)
+    return _pick_existing_path(candidates)
 
-# 电压-电流数据文件路径（若存在则用于加载真实器件数据）
-IV_DATA_PATH = _pick_existing_path([
-    os.path.join(PROJECT_DIR, "..", "器件相关参数与数据", "I-V.xlsx"),
-    os.path.join(PROJECT_DIR, "..", "项目相关文件", "器件对齐", "器件相关参数与数据", "I-V.xlsx"),
-    os.path.join(REPO_ROOT, "项目相关文件", "器件对齐", "器件相关参数与数据", "I-V.xlsx"),
-])
-MEMRISTOR_PLUGIN_PATH = _pick_existing_path([
-    os.path.join(PROJECT_DIR, "..", "器件相关参数与数据", "memristor_plugin.py"),
-    os.path.join(PROJECT_DIR, "..", "项目相关文件", "器件对齐", "器件相关参数与数据", "memristor_plugin.py"),
-    os.path.join(REPO_ROOT, "项目相关文件", "器件对齐", "器件相关参数与数据", "memristor_plugin.py"),
-])
 
-# =====================================================
-# 器件参数（来自器件插件）
-# =====================================================
-ARRAY_ROWS = 128           # 物理阵列行数
-ARRAY_COLS = 256           # 物理阵列列数 (128×2 差分)
-WEIGHT_BITS_DEVICE = 4     # 器件原生精度：4 位（16 个电导电平）
-D2D_VARIATION = 0.05       # 芯片间变化性 5%
-C2C_VARIATION = 0.03       # 单元间变化性 3%
-READ_NOISE_SIGMA = 0.0005  # 读噪声标准差 (占电导范围的 0.05%)
-DRIFT_COEFF = 0.005        # 电导漂移系数
+IV_DATA_PATH = _resolve_path_from_env_or_candidates(
+    "SNN_IV_DATA_PATH",
+    [
+        os.path.join(PROJECT_DIR, "..", "器件相关参数与数据", "I-V.xlsx"),
+        os.path.join(PROJECT_DIR, "device-model", "I-V.xlsx"),
+        os.path.join(PROJECT_DIR, "..", "device-model", "I-V.xlsx"),
+    ],
+)
+MEMRISTOR_PLUGIN_PATH = _resolve_path_from_env_or_candidates(
+    "SNN_MEMRISTOR_PLUGIN_PATH",
+    [
+        os.path.join(PROJECT_DIR, "..", "器件相关参数与数据", "memristor_plugin.py"),
+        os.path.join(PROJECT_DIR, "device-model", "memristor_plugin.py"),
+        os.path.join(PROJECT_DIR, "..", "device-model", "memristor_plugin.py"),
+    ],
+)
 
 # =====================================================
-# 仿真可复现性
+# 鍣ㄤ欢鍙傛暟 (鏉ヨ嚜 memristor_plugin.py)
+# =====================================================
+ARRAY_ROWS = 128           # 鐗╃悊闃靛垪琛屾暟
+ARRAY_COLS = 256           # 鐗╃悊闃靛垪鍒楁暟 (128脳2 宸垎)
+WEIGHT_BITS_DEVICE = 4     # 鍣ㄤ欢鍘熺敓绮惧害: 4-bit (16 涓數瀵肩數骞?
+D2D_VARIATION = 0.05       # Die-to-Die 鍙樺寲鎬?5%
+C2C_VARIATION = 0.03       # Cell-to-Cell 鍙樺寲鎬?3%
+READ_NOISE_SIGMA = 0.0005  # 璇诲櫔澹版爣鍑嗗樊 (鍗犵數瀵艰寖鍥寸殑 0.05%)
+DRIFT_COEFF = 0.005        # 鐢靛婕傜Щ绯绘暟
+
+# =====================================================
+# 浠跨湡鍙鐜版€?
 # =====================================================
 RANDOM_SEED = 42
 
 # =====================================================
-# 器件模型接入配置
+# 鍣ㄤ欢妯″瀷鎺ュ叆閰嶇疆
 # =====================================================
-USE_MEMRISTOR_PLUGIN = True      # 为真时尝试加载器件组提供的器件插件
-PLUGIN_LEVELS_FOR_4BIT = True    # 为真时 4 位量化优先使用器件离散电导级
+USE_MEMRISTOR_PLUGIN = True      # True: 灏濊瘯鍔犺浇鍣ㄤ欢缁?memristor_plugin.py
+PLUGIN_LEVELS_FOR_4BIT = True    # True: 4-bit 閲忓寲浼樺厛浣跨敤鍣ㄤ欢鐢靛绂绘暎绾?
 
 # =====================================================
-# 模数转换量化配置
+# ADC 閲忓寲閰嶇疆
 # =====================================================
-# 固定模式：使用固定满量程（更接近真实硬件）
-# 动态模式：按当前输入动态缩放（仅用于调试，不建议用于论文结论）
+# fixed: 浣跨敤鍥哄畾婊￠噺绋?(鏇存帴杩戠湡瀹炵‖浠?
+# dynamic: 鎸夊綋鍓嶈緭鍏ュ姩鎬佺缉鏀?(浠呰皟璇曪紝璁烘枃涓嶅缓璁?
 ADC_FULL_SCALE_MODE = "fixed"
 
 # =====================================================
-# 脉冲网络推理核心开关
+# SNN inference core switches
 # =====================================================
-USE_DEVICE_MODEL = True       # 启用基于插件的器件模型/噪声/线阻压降
-SPIKE_THRESHOLD_RATIO = 0.6   # 未做标定时使用的全局默认阈值比例
-SPIKE_RESET_MODE = "soft"     # 软复位：V=V-Vth；硬复位：V=0
-ADAPTIVE_INIT_SAMPLES = 512   # 自适应阈值初始化时使用的样本数
-ALLOW_SIGNED_SCHEME_A = False  # 为假时与当前硬件无符号数据通路保持一致
+USE_DEVICE_MODEL = True       # Enable plugin-based device model / noise / IR drop
+SPIKE_THRESHOLD_RATIO = 0.10  # Default global threshold ratio when not calibrated
+                               # (降低以保证 spike-only 决策时胜出类别始终能发放脉冲)
+SPIKE_RESET_MODE = "soft"     # soft: V=V-Vth; hard: V=0
+ADAPTIVE_INIT_SAMPLES = 512   # Samples used for adaptive-threshold initialization
+ALLOW_SIGNED_SCHEME_A = False  # False keeps Python aligned with current unsigned RTL data path
 
-# 评估口径范围（避免在模型选择/调参阶段泄漏测试集）
-TUNE_SPLIT = "val"             # 调参与选方案使用的数据集：验证集或测试集（推荐验证集）
-FINAL_REPORT_SPLIT = "test"    # 最终一次报告使用的数据集划分
-TARGET_INPUT_DIM_FOR_RECOMMEND = 64  # 推荐配置仅在 64 维输入方法中选择（投影或 8x8 路线）
-EVAL_SCHEMES = ["B"]           # 当前硬件口径下参与评估的方案列表
-PRIMARY_SCHEME = "B"           # 用于方法、位宽、帧数推荐的主方案
+# Evaluation scope (avoid test leakage during model/param selection)
+TUNE_SPLIT = "val"             # "val" or "test" (recommended: "val")
+FINAL_REPORT_SPLIT = "test"    # final one-shot report split
+TARGET_INPUT_DIM_FOR_RECOMMEND = 64  # set to 64 for projection/8x8 recommendation
+EVAL_SCHEMES = ["B"]           # primary evaluation schemes under current RTL
+PRIMARY_SCHEME = "B"           # scheme used for method/ADC/W/T recommendations
 
-# 最终固定配置的多随机种子报告（仅推理侧）
+# Final fixed-config multi-seed report (inference-only)
 FINAL_MULTI_SEEDS = [42, 43, 44, 45, 46]
 
 # =====================================================
-# 输入缩放/增益
+# Input scaling / gain
 # =====================================================
 AUTO_INPUT_GAIN = True
-INPUT_GAIN_PERCENTILE = 0.99  # 将 99 分位值映射到接近 255 的位置
+INPUT_GAIN_PERCENTILE = 0.99  # Scale so p99 maps near 255
 INPUT_GAIN_MAX = 1.5
 
 # =====================================================
-# 阈值标定
+# Threshold calibration
 # =====================================================
 CALIBRATE_THRESHOLD_RATIO = True
-THRESHOLD_RATIO_CANDIDATES = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+# 候选值大幅下调：calibration 现在按纯 spike 精度优化（无 membrane fallback）
+# 目标：找到使胜出类别始终发放脉冲、且零脉冲率接近 0% 的最小阈值
+THRESHOLD_RATIO_CANDIDATES = [0.02, 0.03, 0.05, 0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.40]
 THRESHOLD_CALIBRATE_SAMPLES = 2000
 
 # =====================================================
-# 训练侧鲁棒性（量化感知训练 / 噪声 / 线阻压降代理）
+# Training-side robustness (QAT / noise / IR-drop proxy)
 # =====================================================
 QAT_ENABLE = True
 QAT_WEIGHT_BITS = 4
@@ -123,12 +135,12 @@ QAT_LR = 0.002
 POST_QUANT_FINE_TUNE_EPOCHS = 5
 
 # =====================================================
-# 784->64 投影（主成分法 / 监督式）
+# 784->64 projection (PCA / supervised)
 # =====================================================
 PROJ_DIM = 64
 PROJ_PCA_SAMPLES = 10000
 PROJ_PCA_CENTER = True
-PROJ_SCALE_METHOD = "minmax"  # 可选缩放方式：minmax 或 p99
+PROJ_SCALE_METHOD = "minmax"  # minmax | p99
 PROJ_SCALE_PERCENTILE = 0.99
 PROJ_SUP_EPOCHS = 10
 PROJ_SUP_LR = 0.02
@@ -136,54 +148,54 @@ PROJ_SUP_BATCH_SIZE = 256
 PROJ_SUP_USE_BIAS = False
 
 # =====================================================
-# 脉冲网络固定参数
+# SNN 鍥哄畾鍙傛暟
 # =====================================================
-PIXEL_BITS = 8             # 像素位宽 = 位平面数量（8 位灰度图）
-NUM_OUTPUTS = 10           # 输出类别数（手写数字 0-9）
+PIXEL_BITS = 8             # 鍍忕礌浣嶅 = bit-plane 鏁伴噺 (8-bit 鐏板害鍥?
+NUM_OUTPUTS = 10           # 杈撳嚭绫诲埆鏁?(MNIST 0-9)
 
 # =====================================================
-# 降采样方法列表
+# 闄嶉噰鏍锋柟娉曞垪琛?
 # =====================================================
-# 每种方法会独立训练模型并对比准确率
-# 格式: { 名称: (目标尺寸, 方法) }
+# 姣忕鏂规硶浼氱嫭绔嬭缁傾NN骞跺姣斿噯纭巼
+# 鏍煎紡: { 鍚嶇О: (鐩爣灏哄, 鏂规硶) }
 DOWNSAMPLE_METHODS = {
-    "bilinear_8x8":    (8, "bilinear"),    # 双线性插值 28→8
-    "nearest_8x8":     (8, "nearest"),     # 最近邻插值 28→8
-    "avgpool_8x8":     (8, "avgpool"),     # 自适应平均池化 28→8
-    "maxpool_8x8":     (8, "maxpool"),     # 自适应最大池化 28→8
-    "pad32_zero_8x8":      (8, "pad32_zero"),      # 28->32 零填充，再 4x4 平均池化到 8x8
-    "pad32_replicate_8x8": (8, "pad32_replicate"), # 28->32 边界复制填充，再 4x4 平均池化到 8x8
-    "pad32_reflect_8x8":   (8, "pad32_reflect"),   # 28->32 镜像反射填充，再 4x4 平均池化到 8x8
-    "avgpool_7x7":     (7, "avgpool"),     # 自适应平均池化 28->7（49维对比）
-    "bilinear_7x7":    (7, "bilinear"),    # 双线性插值 28→7（49维对比）
-    "proj_pca_64":    (64, "proj_pca"),    # 主成分投影 784->64 维
-    "proj_sup_64":    (64, "proj_sup"),    # 监督式投影 784->64 维
+    "bilinear_8x8":    (8, "bilinear"),    # 鍙岀嚎鎬ф彃鍊?28鈫?
+    "nearest_8x8":     (8, "nearest"),     # 鏈€杩戦偦鎻掑€?28鈫?
+    "avgpool_8x8":     (8, "avgpool"),     # 鑷€傚簲骞冲潎姹犲寲 28鈫?
+    "maxpool_8x8":     (8, "maxpool"),     # 鑷€傚簲鏈€澶ф睜鍖?28鈫?
+    "pad32_zero_8x8":      (8, "pad32_zero"),      # 28->32 zero pad + 4x4 avgpool -> 8
+    "pad32_replicate_8x8": (8, "pad32_replicate"), # 28->32 replicate pad + 4x4 avgpool -> 8
+    "pad32_reflect_8x8":   (8, "pad32_reflect"),   # 28->32 reflect pad + 4x4 avgpool -> 8
+    "avgpool_7x7":     (7, "avgpool"),     # 鑷€傚簲骞冲潎姹犲寲 28->7锛?9缁村姣旓級
+    "bilinear_7x7":    (7, "bilinear"),    # 鍙岀嚎鎬ф彃鍊?28鈫? (49缁村姣?
+    "proj_pca_64":    (64, "proj_pca"),    # PCA 鎶曞奖 784->64 缁?
+    "proj_sup_64":    (64, "proj_sup"),    # 鐩戠潱寮忔姇褰?784->64 缁?
 }
 
 # =====================================================
-# 参数扫描范围
+# 鍙傛暟鎵弿鑼冨洿
 # =====================================================
-ADC_BITS_SWEEP    = [6, 8, 10, 12]      # 模数转换位宽扫描
-WEIGHT_BITS_SWEEP = [2, 3, 4, 6, 8]     # 权重量化位宽扫描
-TIMESTEPS_SWEEP   = [1, 3, 5, 10, 20]   # 推理帧数扫描
+ADC_BITS_SWEEP    = [6, 8, 10, 12]      # ADC 浣嶅鎵弿
+WEIGHT_BITS_SWEEP = [2, 3, 4, 6, 8]     # 鏉冮噸閲忓寲浣嶅鎵弿
+TIMESTEPS_SWEEP   = [1, 3, 5, 10, 20]   # 鎺ㄧ悊甯ф暟鎵弿
 
 # =====================================================
-# 训练超参数
+# ANN 璁粌瓒呭弬鏁?
 # =====================================================
-ANN_EPOCHS     = 30        # 训练轮数（手写数字单层 30 轮通常可收敛）
-ANN_LR         = 0.01      # 学习率
-ANN_MOMENTUM   = 0.9       # 随机梯度下降动量
-ANN_BATCH_SIZE = 128       # 批大小
+ANN_EPOCHS     = 30        # 璁粌杞暟 (MNIST 鍗曞眰30杞冻澶熸敹鏁?
+ANN_LR         = 0.01      # 瀛︿範鐜?
+ANN_MOMENTUM   = 0.9       # SGD 鍔ㄩ噺
+ANN_BATCH_SIZE = 128       # 鎵瑰ぇ灏?
 
 # =====================================================
-# 快速模式（使用 --quick 命令行参数时启用）
+# 蹇€熸ā寮?(--quick 鍛戒护琛屽弬鏁版椂浣跨敤)
 # =====================================================
-QUICK_TEST_SAMPLES = 500   # 快速模式只用500个测试样本
-QUICK_EPOCHS = 5           # 快速模式只训练5轮
+QUICK_TEST_SAMPLES = 500   # 蹇€熸ā寮忓彧鐢?00涓祴璇曟牱鏈?
+QUICK_EPOCHS = 5           # 蹇€熸ā寮忓彧璁粌5杞?
 NOISE_TRIALS_QUICK = 5
 NOISE_TRIALS_FULL = 30
 
 # =====================================================
-# 训练/验证拆分
+# 璁粌/楠岃瘉鎷嗗垎
 # =====================================================
-VAL_SAMPLES = 5000         # 从训练集划分用于阈值标定的验证样本数
+VAL_SAMPLES = 5000         # 浠庤缁冮泦鍒掑垎鐢ㄤ簬闃堝€兼爣瀹氱殑楠岃瘉鏍锋湰鏁?
