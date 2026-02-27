@@ -27,9 +27,9 @@
 // 20 列 BL（Bit-Line）：10 正列 + 10 负列，数字域做减法。
 // adc_ctrl 顺序采样 20 个通道，差分结果为有符号 9-bit 数据。
 //
-// 【参数决策依据（Python 建模结果）】
-// 最优配置：proj_sup_64 + Scheme B + ADC=8 + W=4 + T=1 + ratio=0.40
-// 测试精度：91.24%（MNIST 测试集）
+// 【参数决策依据（Python 建模最终锁定结果）】
+// 最终配置：proj_sup_64 + Scheme B + ADC=8 + W=4 + T=10 + ratio_code=4(4/255)
+// 测试精度：90.42%（MNIST test, spike-only, zero-spike=0.00%）
 //======================================================================
 package snn_soc_pkg;
 
@@ -73,32 +73,33 @@ package snn_soc_pkg;
   // ──────────────────────────────────────────────────────────────────────────
   // LIF 膜电位位宽（有符号，需留出位移累加余量）
   // 32 位可覆盖 NEURON_DATA_WIDTH + PIXEL_BITS 的移位累加，留出充足裕量
-  // 最大累积 = 255 × 2^7 × 1 = 32640 < 2^15，32 位绰绰有余
+  // 定版 T=10 时最大累积约 = 255 × 2^7 × 10 = 326400 < 2^19，32 位绰绰有余
   // ──────────────────────────────────────────────────────────────────────────
   parameter int LIF_MEM_WIDTH = 32; // 膜电位寄存器位宽（有符号 32-bit）
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 阈值比例寄存器默认值（8-bit: 102/255 ≈ 0.40，建模最优 ratio）
+  // 阈值比例寄存器默认值（8-bit 码值，定版锁定）
+  // ratio_code=4 → 4/255 ≈ 0.0157，T=10 下 spike-only 测试精度 90.42%，zero-spike=0.00%
   // 固件可读取此值辅助计算绝对阈值，或直接写 REG_THRESHOLD
   // THRESHOLD_RATIO 仅为软件可见的 shadow 寄存器，不自动更新阈值
   // ──────────────────────────────────────────────────────────────────────────
-  parameter int THRESHOLD_RATIO_DEFAULT = 102; // 102/255 ≈ 0.4000
+  parameter int THRESHOLD_RATIO_DEFAULT = 4; // 4/255 ≈ 0.0157（定版 ratio_code）
 
   // 推理帧数（每帧包含 PIXEL_BITS 个子时间步，MSB->LSB）
-  // 建模结果：T=1 即达最优精度，无需多帧
-  parameter int TIMESTEPS_DEFAULT = 1; // 默认推理帧数
+  // 建模结果：T=10 达最优精度（spike-only 90.42%，zero-spike=0.00%，定版）
+  parameter int TIMESTEPS_DEFAULT = 10; // 默认推理帧数（定版）
 
-  // 阈值默认值：ratio × (2^PIXEL_BITS - 1) × TIMESTEPS
-  // = 102 × (256-1) × 1 = 102 × 255 = 26010
+  // 阈值默认值：ratio_code × (2^PIXEL_BITS - 1) × TIMESTEPS
+  // = 4 × (256-1) × 10 = 4 × 255 × 10 = 10200
   // Scheme B 差分输出为有符号数，膜电位可负，阈值为正值门限
   parameter int THRESHOLD_DEFAULT =
       THRESHOLD_RATIO_DEFAULT * ((1 << PIXEL_BITS) - 1) * TIMESTEPS_DEFAULT;
-  // 展开：102 * 255 * 1 = 26010
+  // 展开：4 * 255 * 10 = 10200
 
   // ──────────────────────────────────────────────────────────────────────────
   // FIFO 深度（按 V1 完整版实际需求保留冗余）
-  // 需要覆盖 TB 一次性灌入的 bit-plane 数量（TIMESTEPS * PIXEL_BITS = 8）
-  // 实际需求 8，选 256 提供充足余量，对仿真面积无影响
+  // 需要覆盖 TB 一次性灌入的 bit-plane 数量（TIMESTEPS * PIXEL_BITS = 10 * 8 = 80）
+  // 实际需求 80，选 256 提供充足余量，对仿真面积无影响
   // ──────────────────────────────────────────────────────────────────────────
   parameter int INPUT_FIFO_DEPTH  = 256; // 输入 FIFO 深度（64-bit 宽：bit-plane 数据）
   parameter int OUTPUT_FIFO_DEPTH = 256; // 输出 FIFO 深度（4-bit 宽：spike 神经元编号）

@@ -1,1 +1,1 @@
-/home/caiqiang/Desktop/Pythoncqa/backups/full_run_20260226_142242
+/home/caiqiang/Desktop/器件对齐/Python建模/backups/full_run_20260227_104133

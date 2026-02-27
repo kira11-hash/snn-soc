@@ -82,6 +82,17 @@ def progress_bar(current, total, prefix='', suffix='', length=40):
         print()
 
 
+def format_ratio(ratio):
+    """Format threshold ratio with enough precision for tiny code-step values."""
+    if ratio is None:
+        return "N/A"
+    val = float(ratio)
+    code = int(round(val * 255.0))
+    if 0 <= code <= 255 and abs(val - (code / 255.0)) < 1e-6:
+        return f"{val:.5f} ({code}/255)"
+    return f"{val:.5f}"
+
+
 def set_global_seed(seed):
     """Set random seeds for deterministic runs."""
     random.seed(seed)
@@ -319,23 +330,24 @@ def calibrate_threshold_ratio(ds, W, adc_bits=8, weight_bits=4,
                               timesteps=1, scheme='A'):
     """
     Calibrate spike threshold ratio on a validation subset.
-    Returns (best_ratio, best_acc) or (None, None) if disabled.
+    Returns (best_ratio, best_acc, candidate_scores) or (None, None, []) if disabled.
+    candidate_scores is a list of {"ratio": float, "val_acc": float} for all candidates.
     """
     if not getattr(cfg, 'CALIBRATE_THRESHOLD_RATIO', False):
-        return None, None
+        return None, None, []
 
     candidates = list(getattr(cfg, 'THRESHOLD_RATIO_CANDIDATES', []))
     if not candidates:
-        return None, None
+        return None, None, []
 
     n = int(getattr(cfg, 'THRESHOLD_CALIBRATE_SAMPLES', 0) or 0)
     images_src = ds.get("val_images_uint8")
     labels_src = ds.get("val_labels")
     if images_src is None or labels_src is None:
-        return None, None
+        return None, None, []
     n = min(n, int(labels_src.shape[0]))
     if n <= 0:
-        return None, None
+        return None, None, []
 
     # Use a deterministic random subset to avoid positional/class-order bias.
     gen = torch.Generator().manual_seed(int(getattr(cfg, "RANDOM_SEED", 42)) + 20260207)
@@ -345,6 +357,7 @@ def calibrate_threshold_ratio(ds, W, adc_bits=8, weight_bits=4,
 
     best_ratio = None
     best_acc = -1.0
+    candidate_scores = []
     for ratio in candidates:
         acc, _, stats = snn_engine.snn_inference(
             images, labels, W,
@@ -354,11 +367,15 @@ def calibrate_threshold_ratio(ds, W, adc_bits=8, weight_bits=4,
             return_stats=True,
         )
         spike_acc = stats.get("spike_only_acc", acc)
+        candidate_scores.append({
+            "ratio": float(ratio),
+            "val_acc": float(spike_acc),
+        })
         if spike_acc > best_acc:
             best_acc = spike_acc
             best_ratio = ratio
 
-    return best_ratio, best_acc
+    return best_ratio, best_acc, candidate_scores
 
 
 def _get_split_tensors(ds, split_name):
@@ -601,7 +618,7 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
             W = training_results[name]["weights"]
             results["threshold_calibration"][name] = {}
             for scheme in schemes:
-                ratio, ratio_acc = calibrate_threshold_ratio(
+                ratio, ratio_acc, ratio_candidates = calibrate_threshold_ratio(
                     ds, W, adc_bits=8, weight_bits=4, timesteps=1, scheme=scheme
                 )
                 if ratio is None:
@@ -612,11 +629,20 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
                 results["threshold_calibration"][name][scheme] = {
                     "ratio": ratio,
                     "val_acc": ratio_acc,
+                    "candidates": ratio_candidates,
                 }
                 if ratio_acc is None:
-                    print(f"    {name:20s} [{scheme}] ratio={ratio:.2f} (fallback)")
+                    print(f"    {name:20s} [{scheme}] ratio={format_ratio(ratio)} (fallback)")
                 else:
-                    print(f"    {name:20s} [{scheme}] ratio={ratio:.2f}, val_acc={ratio_acc:.2%}")
+                    print(
+                        f"    {name:20s} [{scheme}] ratio={format_ratio(ratio)}, "
+                        f"val_acc={ratio_acc:.2%}"
+                    )
+                if ratio_candidates:
+                    cand_line = ", ".join(
+                        f"{item['ratio']:.5f}->{item['val_acc']:.2%}" for item in ratio_candidates
+                    )
+                    print(f"      candidates: {cand_line}")
     else:
         for name in eligible_methods:
             for scheme in schemes:
@@ -640,13 +666,17 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
             "threshold_ratio": ratio,
             "input_dim": int(ds["input_dim"]),
         }
-        print(f"    {name:20s}: SNN={acc:.2%} (ratio={ratio:.2f}, dim={int(ds['input_dim'])})")
+        print(
+            f"    {name:20s}: SNN={acc:.2%} "
+            f"(ratio={format_ratio(ratio)}, dim={int(ds['input_dim'])})"
+        )
 
     downsample_best_method = max(results["downsample"], key=lambda k: results["downsample"][k]["snn_acc"])
     downsample_best_ratio = results["downsample"][downsample_best_method]["threshold_ratio"]
     print(
         f"\n  鏈€浣虫柟娉?(鍩虹嚎 8/4/1, {tune_split}): {downsample_best_method} "
-        f"(SNN={results['downsample'][downsample_best_method]['snn_acc']:.2%}, ratio={downsample_best_ratio:.2f})"
+        f"(SNN={results['downsample'][downsample_best_method]['snn_acc']:.2%}, "
+        f"ratio={format_ratio(downsample_best_ratio)})"
     )
 
     # ---- 3b-1. 鍏ㄩ噺缁勫悎鎵弿 (method/scheme/ADC/W/T) ----
@@ -712,13 +742,13 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
     print(
         f"    鏈€浣?(best-case): method={best_case['method']}, scheme={best_case['scheme']}, "
         f"ADC={best_case['adc_bits']}, W={best_case['weight_bits']}, T={best_case['timesteps']}, "
-        f"ratio={best_case['threshold_ratio']:.2f}, acc={best_case['snn_acc']:.2%}"
+        f"ratio={format_ratio(best_case['threshold_ratio'])}, acc={best_case['snn_acc']:.2%}"
     )
     print(
         f"    鎺ㄨ崘 (low-cost, within {margin:.2%}): method={recommendation['method']}, "
         f"scheme={recommendation['scheme']}, ADC={recommendation['adc_bits']}, "
         f"W={recommendation['weight_bits']}, T={recommendation['timesteps']}, "
-        f"ratio={recommendation['threshold_ratio']:.2f}, acc={recommendation['snn_acc']:.2%}"
+        f"ratio={format_ratio(recommendation['threshold_ratio'])}, acc={recommendation['snn_acc']:.2%}"
     )
 
     # 鍚庣画鍗曠淮鎵弿鍥捐〃鍥哄畾鍦ㄦ帹鑽愭柟娉曚笂鍋氾紝渚夸簬瑙ｉ噴瓒嬪娍
@@ -798,7 +828,7 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
             scheme=scheme, threshold_ratio=ratio
         )
         results["scheme_compare"][scheme] = acc
-        print(f"    鏂规 {scheme}: {acc:.2%} (ratio={ratio:.2f})")
+        print(f"    鏂规 {scheme}: {acc:.2%} (ratio={format_ratio(ratio)})")
 
     # ---- 3h. 鍐崇瓥瑙勫垯瀵规瘮 (tuning split) ----
     print(f"\n  [3h] 鍐崇瓥瑙勫垯瀵规瘮 (split={tune_split}, {best_method})...")
@@ -848,7 +878,7 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
     print(
         f"\n  鎺ㄨ崘閰嶇疆 (鍩轰簬 {tune_split}): "
         f"method={best_method}, scheme={primary_scheme}, "
-        f"ADC={best_adc}, W={best_wb}, T={best_ts}, ratio={best_ratio:.2f}"
+        f"ADC={best_adc}, W={best_wb}, T={best_ts}, ratio={format_ratio(best_ratio)}"
     )
 
     # ---- 3k. 浠呬竴娆?final split 璇勪及 ----
@@ -1173,7 +1203,7 @@ def generate_summary(results, training_results, best_method, all_datasets):
         lines.append(
             f"  method={best_case.get('method')}, scheme={best_case.get('scheme')}, "
             f"ADC={best_case.get('adc_bits')}, W={best_case.get('weight_bits')}, "
-            f"T={best_case.get('timesteps')}, ratio={best_case.get('threshold_ratio', 0.0):.2f}, "
+            f"T={best_case.get('timesteps')}, ratio={format_ratio(best_case.get('threshold_ratio', 0.0))}, "
             f"acc={best_case.get('snn_acc', 0.0):.2%}"
         )
 
@@ -1182,7 +1212,7 @@ def generate_summary(results, training_results, best_method, all_datasets):
         lines.append(
             f"  method={rec.get('method')}, scheme={rec.get('scheme')}, "
             f"ADC={rec.get('adc_bits')}, W={rec.get('weight_bits')}, "
-            f"T={rec.get('timesteps')}, ratio={rec.get('threshold_ratio', 0.0):.2f}, "
+            f"T={rec.get('timesteps')}, ratio={format_ratio(rec.get('threshold_ratio', 0.0))}, "
             f"tuning_acc={rec.get('snn_acc', 0.0):.2%}"
         )
 
@@ -1217,7 +1247,7 @@ def generate_summary(results, training_results, best_method, all_datasets):
             lines.append(
                 f"  #{i:02d}: method={item.get('method')}, scheme={item.get('scheme')}, "
                 f"ADC={item.get('adc_bits')}, W={item.get('weight_bits')}, "
-                f"T={item.get('timesteps')}, ratio={item.get('threshold_ratio', 0.0):.2f}, "
+                f"T={item.get('timesteps')}, ratio={format_ratio(item.get('threshold_ratio', 0.0))}, "
                 f"acc={item.get('snn_acc', 0.0):.2%}"
             )
 
@@ -1230,9 +1260,17 @@ def generate_summary(results, training_results, best_method, all_datasets):
                 ratio = item.get("ratio")
                 val_acc = item.get("val_acc")
                 if val_acc is None:
-                    lines.append(f"  {name:20s}[{scheme}] ratio={ratio:.2f} (fallback)")
+                    lines.append(f"  {name:20s}[{scheme}] ratio={format_ratio(ratio)} (fallback)")
                 else:
-                    lines.append(f"  {name:20s}[{scheme}] ratio={ratio:.2f}, val_acc={val_acc:.2%}")
+                    lines.append(
+                        f"  {name:20s}[{scheme}] ratio={format_ratio(ratio)}, val_acc={val_acc:.2%}"
+                    )
+                cand_items = item.get("candidates") or []
+                if cand_items:
+                    cand_line = ", ".join(
+                        f"{c.get('ratio', 0.0):.5f}->{c.get('val_acc', 0.0):.2%}" for c in cand_items
+                    )
+                    lines.append(f"    candidates: {cand_line}")
 
     adc_sorted = sorted(results["adc_sweep"].items())
     lines.append(f"\nADC sweep ({meta.get('tune_split', 'val')}):")

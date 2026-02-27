@@ -1,0 +1,67 @@
+SNN SoC Python Modeling Backup Manifest
+================================================
+created_at: 2026-02-27T10:16:45
+run_mode: full
+skip_train: True
+elapsed_sec: 308.2
+elapsed_min: 5.1
+cwd: /home/caiqiang/Desktop/器件对齐/Python建模
+argv: run_all.py --skip-train
+results_dir: /home/caiqiang/Desktop/器件对齐/Python建模/results
+weights_dir: /home/caiqiang/Desktop/器件对齐/Python建模/weights_full
+
+[git]
+repo_root: /home/caiqiang/Desktop/器件对齐
+branch: None
+commit: None
+commit_short: None
+dirty: False
+
+[config_snapshot]
+path: /home/caiqiang/Desktop/器件对齐/Python建模/backups/full_run_20260227_101645/config.py
+mtime: 2026-02-27T10:10:23
+size: 8722
+sha256: 8c7f071156eebb80c7b220b3d15b951a641eec84bb337cfc6a179de810fb3321
+
+[weights_files] count=14
+avgpool_7x7.pt | size=3625 | mtime=2026-02-26T20:17:17 | sha256=e045382e40d395fafc0add2b378196ae9ec7479b9c1ecc089a7c3df5efc43470
+avgpool_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=346b5c295405a7a4f902bf191dd8a01940c8edeccd01525599143d74b40406d2
+bilinear_7x7.pt | size=3625 | mtime=2026-02-26T20:17:17 | sha256=9143d6f172154767d6e734d11e2f3be33f67ba49bcd26b223de0019da5f5cb3f
+bilinear_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=2849f79a5b8e2503093cb968c5a0c67243a4c20011d98243d085d1213cd2082d
+maxpool_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=9b73f12c88dd47fe00439a83829f68417e2ee623dfca7f8f37215b80e124d485
+nearest_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=5b4c072d2436bd5393342dae4fdd01f3aa172fd10459b1f8812be4540a0956b3
+pad32_pool_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=9e9124912a1b17dd321ff044492c47344b2cc0731240fc8e2822894484b1719d
+pad32_reflect_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=31ac6a9bce54f2b60739e844a4aab82c7dceed321470d8b21903237c954ef7dd
+pad32_replicate_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=f2e39f5371bfa14e03841b558b98d5ebfe92d85861713dfeeed66672c2cbfed3
+pad32_zero_8x8.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=8b214a74eed84ccd5f972cfd6e33d056a25d32fa5c1ec182eb2b20408febf96b
+proj_pca_64.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=d49c5f14b5835aa77293e68b549d6631188880e96fbcc9acc2bef941980c53ae
+proj_pca_64_proj_params.pt | size=205336 | mtime=2026-02-27T09:49:51 | sha256=68555a2b5b668a631af51f35471ab99a21e5d110059d4971571183b81db32e63
+proj_sup_64.pt | size=4265 | mtime=2026-02-26T20:17:17 | sha256=bfc8fd55dad413b526cdf5e398900ec3424c751b25e649a6e22d52fcac87bfb2
+proj_sup_64_proj_params.pt | size=202012 | mtime=2026-02-27T10:11:44 | sha256=5020d309cc3da7dbbc705c2374c22feb6eab7cc4bff45d48b4b8d57bfa1bcece
+
+[results_files] count=25
+exhaustive_64dim_schemeB_full.csv | size=46066 | mtime=2026-02-26T20:17:14 | sha256=8c9e4cba174b8f37fb29d09418c9bd7179cd40077a0d7b89818a65cfbb00c5c2
+exhaustive_64dim_schemeB_summary.txt | size=635 | mtime=2026-02-26T20:17:14 | sha256=1cf5c5704e2cc232b33e3e15fad44030b2546869ab5057b57798795b933df872
+fig1_downsample_comparison.png | size=36637 | mtime=2026-02-27T10:16:44 | sha256=c283bf01b061ef9681bd5a096cbd154c7a466e565572910aa785234b8fe906fc
+fig2_adc_bits_sweep.png | size=36933 | mtime=2026-02-27T10:16:44 | sha256=ef273f6d4051e4081a9df70b9490433fe7afa5baf1b84b84b37853e1f1e81ef8
+fig3_weight_bits_sweep.png | size=38335 | mtime=2026-02-27T10:16:44 | sha256=49f0f43c736065edfe44c2ec2df767c882ff3bc0f08112a9296a2acefacc9258
+fig4_timesteps_sweep.png | size=39376 | mtime=2026-02-27T10:16:45 | sha256=a9aa1d3daa5e72c73439476cf0c6c322179204d4aec32944660d1db0eba3c501
+fig5_noise_impact.png | size=29708 | mtime=2026-02-27T10:16:45 | sha256=cdfdb0811a139684ff41ac64ea88967d69251e54634698e66d9d2c49a99fb17b
+fig6_scheme_comparison.png | size=25363 | mtime=2026-02-27T10:16:45 | sha256=dcda24129986c260cfeb9135ebcb5c1382925053e3999268cb1c830cab537039
+fig7_adaptive_threshold.png | size=31800 | mtime=2026-02-27T10:16:45 | sha256=c89d2fd4f976ff5d8ae41c7ef6749cadbd74283eb2b6b14a1e26aebcc761f8c3
+proj_sup_64_test_uint8.npy | size=640128 | mtime=2026-02-26T20:17:16 | sha256=93b8888337e909e19196930b8a5621cf2eb08b7c0e5c3f1c01c1503bad9fced5
+quick_post_rollback_20260208_032152.log | size=124292 | mtime=2026-02-26T20:17:16 | sha256=41cd3b875d889eb837da124a0b24da00efa3ec4092758aab2d6bf3f2190de92c
+quick_resume_test1_20260208_031213.log | size=13082 | mtime=2026-02-26T20:17:16 | sha256=d61d4b14cfef0c436b2066a59436d72aee021925312a2d646b498755eb20e607
+run_all_ab_quick_20260211_164101.log | size=230626 | mtime=2026-02-26T20:17:16 | sha256=2920e0ff24f968dc8ee784043f57ce5970db30b40dd61ff3b4c8a06f2e658d57
+run_all_bias_false_quick_20260211_174043.log | size=124148 | mtime=2026-02-26T20:17:16 | sha256=a0d75a295ef1a6f414dead7db56dcd17aa03f993ee03348296878c7be878f536
+run_all_bias_false_quick_20260211_174914.log | size=124148 | mtime=2026-02-26T20:17:16 | sha256=19ca784516b7b300f444f0d6402ae52ba59b8d7693e959f28a069cd85bcd2561
+run_all_bias_true_quick_20260211_175710.log | size=124148 | mtime=2026-02-26T20:17:17 | sha256=93c11296c75f6da45afdb1dc559587924848aad8db48ebf99019b538a8d064df
+run_all_full_20260207_191330.log | size=114710 | mtime=2026-02-26T20:17:17 | sha256=570ca8ec4d4007144a81aab923ad3a4b43f513fc2fc5149a7f885d2fff231e80
+run_all_full_48h_20260208_002558.log | size=127328 | mtime=2026-02-26T20:17:17 | sha256=2665559d9e369c2ccb17ab1cfa46e0e441ee343e9a1c290c55679a3ce740ee39
+run_all_full_rerun_20260226_095036.log | size=127094 | mtime=2026-02-26T20:17:17 | sha256=af5bf302ae967522d0f6144d26b4125558d166da990b7bc1da73822f5af9714b
+run_all_skiptrain_20260208_001430.log | size=17050 | mtime=2026-02-26T20:17:17 | sha256=331a751facaa07aaaf74e430014cef998612353d1d49d8c618de514f33b77c33
+run_all_skiptrain_20260226_014831.log | size=127152 | mtime=2026-02-26T20:17:17 | sha256=c78f14cdfb0d9e26eec0af455e7dee6f2a002166b747797164a0098e7785c4d2
+run_all_skiptrain_hard_20260210_161450.log | size=127164 | mtime=2026-02-26T20:17:17 | sha256=df193c3e0efb7ac4a930bdd7cee3d807d8f2dfebc52d94a24a72dbd347c8dc9e
+summary.txt | size=2644 | mtime=2026-02-27T10:16:45 | sha256=ed2decaca1cf6903c8382551df1e21e766444c8662d15b94cef8b36d39e752b8
+summary_bias_false_quick.txt | size=3748 | mtime=2026-02-26T20:17:17 | sha256=28813da269ce5eba20cde5503c492c147da78a6966143c2869549f9fb1790157
+summary_bias_true_quick.txt | size=3748 | mtime=2026-02-26T20:17:17 | sha256=dd725dc6e740d28c8ad76316a57801b8b54ee1f30ec070baff02b5a22dc08043

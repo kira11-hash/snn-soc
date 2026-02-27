@@ -1,0 +1,10 @@
+Exhaustive Sweep Summary (64-dim methods, scheme B, full dataset)
+total_records=900
+
+Best case (oracle on test):
+{'method': 'proj_sup_64', 'input_dim': 64, 'scheme': 'B', 'threshold_ratio': 0.4, 'ratio_val_acc': 0.9245, 'adc_bits': 12, 'weight_bits': 4, 'timesteps': 1, 'val_acc': 0.9072, 'test_acc': 0.9124}
+
+Recommended case (selected by val, cost-aware):
+{'method': 'proj_sup_64', 'input_dim': 64, 'scheme': 'B', 'threshold_ratio': 0.4, 'ratio_val_acc': 0.9245, 'adc_bits': 6, 'weight_bits': 4, 'timesteps': 1, 'val_acc': 0.9044, 'test_acc': 0.9096}
+
+csv=D:\SoC Design\Python建模\results\exhaustive_64dim_schemeB_full.csv

@@ -248,7 +248,7 @@ ST_IDLE ──start_pulse──> ST_SETUP
 ...
 帧N-1: bitplane_shift = 7,6,5,4,3,2,1,0
 
-总子时间步数 = TIMESTEPS × PIXEL_BITS = 1 × 8 = 8（默认 T=1）
+总子时间步数 = TIMESTEPS × PIXEL_BITS = 10 × 8 = 80（定版 T=10）
 ```
 
 ### ADC 时分复用详解
@@ -314,7 +314,7 @@ Q: 为什么用 MSB-first（bitplane_shift 从 7 开始）？
 A: 高位权重大，先处理高位可以更早判断是否超过阈值
 
 Q: 膜电位为什么不会溢出？
-A: 最坏情况（V1 默认 T=1）：1帧 × 8步 × 255（8-bit ADC max）= 2040，约需 11 位
+A: 定版（T=10）：10帧 × 8步 × 255（8-bit ADC max）= 20400，约需 15 位；32 位有符号留有充足余量
    即使 T=20：20 × 8 × 255 = 40800，约需 16 位；使用 32 位留有充足余量
 ```
 
@@ -354,11 +354,11 @@ A: 最坏情况（V1 默认 T=1）：1帧 × 8步 × 255（8-bit ADC max）= 204
 
 | 地址 | 名称 | 关键位段 |
 |------|------|----------|
-| 0x4000_0000 | THRESHOLD | [31:0] 阈值，默认 THRESHOLD_DEFAULT = 26010 |
-| 0x4000_0004 | TIMESTEPS | [7:0] 帧数，默认 1 |
+| 0x4000_0000 | THRESHOLD | [31:0] 阈值，默认 THRESHOLD_DEFAULT = 10200（4×255×10，定版） |
+| 0x4000_0004 | TIMESTEPS | [7:0] 帧数，默认 10（定版） |
 | 0x4000_0014 | CIM_CTRL | bit0=START(W1P), bit1=SOFT_RESET(W1P), bit7=DONE(W1C) |
 | 0x4000_0018 | STATUS | bit0=BUSY(RO), bit[15:8]=TIMESTEP_CNT(RO) |
-| 0x4000_0024 | THRESHOLD_RATIO | [7:0] 阈值比例，默认 102 (ratio≈0.40) |
+| 0x4000_0024 | THRESHOLD_RATIO | [7:0] 阈值比例，默认 4 (ratio_code=4, 4/255≈0.0157, 定版) |
 | 0x4000_0028 | ADC_SAT_COUNT | [15:0]=sat_high, [31:16]=sat_low (RO) |
 
 ### 重点理解

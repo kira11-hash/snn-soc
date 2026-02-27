@@ -1,6 +1,6 @@
 完成V1, 然后看懂全部代码，重要的部分自己写一遍，然后去找前端实习
 
-Smoke test 是"冒烟测试"（点火后不冒烟就算过），但要保证质量，必须逐模块深入验证。这也是为什么 [06_learning_path.md](vscode-webview://1ovgbj1gh33590a4ono35g37im6tu1fe1hgdm12tkvvf19e5r60r/doc/06_learning_path.md) 中建议做模块级仿真的原因。
+Smoke test 是"冒烟测试"（点火后不冒烟就算过），但要保证质量，必须逐模块深入验证。这也是为什么 `doc/06_learning_path.md` 中建议做模块级仿真的原因。
 
 **参数口径**：默认参数与时序常量以 `rtl/top/snn_soc_pkg.sv` 为准，本文数值仅作说明，若不一致以 pkg 为准。
 
@@ -819,16 +819,16 @@ E203 官方项目（蜂鸟 E203）就有 Arty A7 的参考设计，可以直接�
 
 **优先级 1（系统级 SoC 视角，必读）**
 
-1. [A_RISC-V_Neuromorphic_Micro-Controller_Unit_vMCU...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "A_RISC-V_Neuromorphic_Micro-Controller_Unit_vMCU...pdf")
-2. [DIANA_An_End-to-End_Hybrid_DIgital_and_ANAlog_Neural_Network_SoC...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "DIANA_An_End-to-End_Hybrid_DIgital_and_ANAlog_Neural_Network_SoC...pdf")
-3. [SENECA building a fully digital neuromorphic processor...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "SENECA building a fully digital neuromorphic processor...pdf")
-4. [Darwin__A neuromorphic hardware co-processor...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "Darwin__A neuromorphic hardware co-processor...pdf") / [darwin3.pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "darwin3.pdf")
-5. [ODIN (UCLouvain).pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "ODIN (UCLouvain).pdf")
+1. A_RISC-V_Neuromorphic_Micro-Controller_Unit_vMCU...pdf
+2. DIANA_An_End-to-End_Hybrid_DIgital_and_ANAlog_Neural_Network_SoC...pdf
+3. SENECA building a fully digital neuromorphic processor...pdf
+4. Darwin__A neuromorphic hardware co-processor...pdf / darwin3.pdf
+5. ODIN (UCLouvain).pdf
 
 **优先级 2（SoC 集成 + 能耗表格有价值）**  
-6) [ANP-I_A_28-nm_1.5-pJ_SOP...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "ANP-I_A_28-nm_1.5-pJ_SOP...pdf")  
-7) [C-DNN_An_Energy-Efficient...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "C-DNN_An_Energy-Efficient...pdf")  
-8) [A_73.53TOPS_W...SoC...pdf](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.68-win32-x64/webview/# "A_73.53TOPS_W...SoC...pdf")
+6) ANP-I_A_28-nm_1.5-pJ_SOP...pdf  
+7) C-DNN_An_Energy-Efficient...pdf  
+8) A_73.53TOPS_W...SoC...pdf
 
 > **注意**：CIM 类论文你只关注**系统级功耗/数据搬运/控制/缓存结构**，跳过宏电路细节。
 
@@ -1296,6 +1296,9 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 ### 已完成的更改
 （已从"改动纪要"整理，便于对齐与回顾）
 
+> 注：本节按时间顺序保留历史记录，包含旧参数（如 `T=1 / ratio=0.40 / 91.24%`）。
+> 当前定版口径请以“关键决策点”“参数定版表”以及 `snn_soc_pkg.sv` 为准（`T=10 / ratio_code=4 / THRESHOLD_DEFAULT=10200`）。
+
 1) **建模路线与论文准备落地**
    - 明确 Phase 1~5 建模流程与"Phase 2/3 等价校验"
    - Phase 2 训练关闭 bias（`bias=False`），保证与 Phase 3 等价
@@ -1360,17 +1363,17 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
    - A2: **确认 ADC 8-bit**
    - A3: 1 ADC × 20 MUX（推荐方案，模拟团队接受）
    - J1: **不做自适应阈值**（建模证明无益 -1.80%）
-   - J2: **在 reg_bank 新增 8-bit THRESHOLD_RATIO 寄存器**，默认 102 (0x66 = ratio 0.40)，UART 可覆写
+   - J2: **在 reg_bank 新增 8-bit THRESHOLD_RATIO 寄存器**，定版默认 4（ratio_code=4，4/255≈0.0157），UART 可覆写（原会议确认值 102 已由 2026-02-27 定版更新取代）
 
 9) **RTL 参数更新完成（2026-02-06）**
-   - 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=1, THRESHOLD_RATIO_DEFAULT=102, NEURON_DATA_WIDTH=9
+   - 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=10, THRESHOLD_RATIO_DEFAULT=4, THRESHOLD_DEFAULT=10200, NEURON_DATA_WIDTH=9（2026-02-27 定版更新）
    - 4b. `adc_ctrl.sv`: 20通道 MUX + 数字差分减法（Scheme B），signed 9-bit 输出
    - 4c. `lif_neurons.sv`: signed 膜电位 + 符号扩展 + 算术左移 + signed 阈值比较
-   - 4d. `reg_bank.sv`: 新增 REG_THRESHOLD_RATIO (0x24, 8-bit, 默认102)，双寄存器模式
+   - 4d. `reg_bank.sv`: 新增 REG_THRESHOLD_RATIO (0x24, 8-bit, 默认4)，双寄存器模式（2026-02-27 定版）
    - 4e. `cim_macro_blackbox.sv`: P_ADC_CHANNELS=20，Scheme B 行为模型（正列/负列公式）
    - 4f. `dma_engine.sv`: 64-bit 打包（2×32 整拼接，word1_reg 扩展为 32-bit）
    - 4g. `snn_soc_top.sv`: bl_sel 位宽→$clog2(ADC_CHANNELS)=5, neuron_in_data 位宽→NEURON_DATA_WIDTH
-   - TB: `top_tb.sv` 适配新参数（64-bit patterns, T=1, signed diff 显示, THRESHOLD_RATIO 读回测试）
+   - TB: `top_tb.sv` 适配新参数（64-bit patterns, T=10, signed diff 显示, THRESHOLD_RATIO 读回测试）
    - **全部文档同步更新**：00_overview, 01_memory_map, 02_reg_map, 03_cim_if_protocol, 04_walkthrough, 05_debug_guide, 08_cim_analog_interface
 
 10) **V1 输入说明修订（2026-02-06）**
@@ -1380,8 +1383,8 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 11) **双寄存器阈值模式（2026-02-06）**
     - REG_THRESHOLD (0x00, 32-bit): 绝对阈值，直接用于 LIF 比较
-    - REG_THRESHOLD_RATIO (0x24, 8-bit): 阈值比率（默认 102/255≈0.40），供固件计算绝对阈值
-    - THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 102 × 255 × 1 = 26010
+    - REG_THRESHOLD_RATIO (0x24, 8-bit): 阈值比率（默认 4/255≈0.0157），供固件计算绝对阈值
+    - THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 10 = 10200
     - 固件可: (a) 直接写 THRESHOLD 绝对值, 或 (b) 读 RATIO 计算后写 THRESHOLD
 
 12) **ADC 饱和计数器（2026-02-06）**
@@ -1451,7 +1454,8 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 #### 2) ✅ Python 建模与参数决策（已完成 2026-02-08）
 
 > 全量建模已完成。结果见上方"已完成的更改"第 7 项。
-> 参数已定版：proj_sup_64, Scheme B, ADC=8, W=4, T=1, ratio=0.40, test=91.24%
+> 参数已定版（2026-02-27 更新）：proj_sup_64, Scheme B, ADC=8, W=4, T=10, ratio_code=4 (4/255≈0.0157), test=90.42%（纯 spike，zero-spike=0.00%）
+> （原旧配置 T=1, ratio=0.40, test=91.24% 使用 hybrid metric，含 96% membrane fallback，不代表硬件对齐精度）
 
 #### 3) ✅ 器件/模拟团队会议确认（已完成 2026-02-06）
 
@@ -1459,20 +1463,20 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 > - 差分方案: 方案 B（数字侧差分，20 通道）
 > - ADC: 8-bit
 > - 自适应阈值: 不做
-> - THRESHOLD_RATIO: 8-bit 寄存器，默认 102 (0x66)
+> - THRESHOLD_RATIO: 8-bit 寄存器，定版默认 4（ratio_code=4，4/255≈0.0157）
 
 #### 4) ✅ RTL 参数更新（已完成 2026-02-06）
 
-> **参数已定版**：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=1, ratio=0.40, Scheme B
+> **参数已定版（2026-02-27 更新）**：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=10, ratio_code=4, Scheme B
 > **注意**：修改顺序很重要，pkg 是上游，其余模块依赖 pkg 参数。
 
 **4a. `snn_soc_pkg.sv`（最先改，所有参数的源头）**
 - [x] `NUM_INPUTS` = 49 → **64**
 - [x] `ADC_BITS` = 12 → **8**
 - [x] 新增 `ADC_CHANNELS` = **20**（Scheme B: 10 pos + 10 neg）
-- [x] `TIMESTEPS_DEFAULT` = 20 → **1**
-- [x] 新增 `THRESHOLD_RATIO_DEFAULT` = **102**（0x66, ratio=0.40）
-- [x] 更新 `THRESHOLD_DEFAULT` 计算公式（适配 ADC=8, T=1, ratio=0.40）
+- [x] `TIMESTEPS_DEFAULT` = 20 → **1** → **10**（2026-02-27 定版更新）
+- [x] 新增/更新 `THRESHOLD_RATIO_DEFAULT` = ~~102（0x66, ratio=0.40）~~ → **4**（ratio_code=4, 4/255≈0.0157，定版）
+- [x] 更新 `THRESHOLD_DEFAULT` 计算公式（适配 ADC=8, T=10, ratio_code=4）→ **10200**
 - [x] 更新 `ADC_PEAK_EST` 和 `THRESHOLD_REPEAT_FRAMES` = 1
 - [x] `LIF_MEM_WIDTH` 保持 32（重新验算：T=1 × 8bp × 255(8-bit ADC) × 128(shift7) = 261120，约需 18 bit，32-bit signed 足够）
 - [x] 新增 `NEURON_DATA_WIDTH` = ADC_BITS + 1 = **9**（signed，用于 Scheme B 差分结果）
@@ -1493,7 +1497,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 **4d. `reg_bank.sv`（新增 THRESHOLD_RATIO 寄存器）**
 - [x] 新增 `REG_THRESHOLD_RATIO` at offset **0x24**（8-bit, R/W）
-- [x] 默认值 = `THRESHOLD_RATIO_DEFAULT`（102 = 0x66）
+- [x] 默认值 = `THRESHOLD_RATIO_DEFAULT`（4 = 0x04，定版）
 - [x] 新增 output port `threshold_ratio [7:0]`
 - [x] 读回逻辑 + 写入逻辑（仅 byte 0 有效）
 
@@ -1548,8 +1552,8 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 | 权重位宽 | 4-bit | 建模 + D1 确认 |
 | 差分方案 | B（数字侧） | A1 确认 |
 | ADC 通道数 | 20 (10 pos + 10 neg) | Scheme B |
-| 推理帧数 | T=1 | 建模（T=1~20 等价精度） |
-| 阈值比率 | 0.40 (寄存器值 102) | 建模标定 |
+| 推理帧数 | T=10 | 建模定版（spike-only 90.42%，zero-spike=0.00%） |
+| 阈值比率 | ratio_code=4（寄存器值 4，4/255≈0.0157） | 建模定版（纯 spike 标定） |
 | 阈值自适应 | 不做 | 建模证明下降 1.80%, J1 确认 |
 | 复位模式 | soft (V=V-Vth) | 建模对比（soft/hard 在当前推荐配置下等效）+ 与现有 RTL 路径一致 |
 | 决策规则 | spike count | 与 RTL 对齐 |
@@ -1557,7 +1561,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 复位模式定版补充（2026-02-10）：
 
-- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=1, threshold_ratio=0.40`）。
+- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=10, ratio_code=4`）。
 - 对比入口：`run_all.py` 中 `[3f]`（噪声影响，`add_noise=True`）与 `[3l]`（test 多 seed noisy，`add_noise=True`）。
 - soft（历史基线）：
   - val noisy mean：`90.41% +/- 0.0031`
@@ -1586,7 +1590,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
   - 06 学习文档中的参数表需更新（NUM_INPUTS=64、可能的通道数变化）
 - 更新本文档（口径/流程/参数/接口一致）
 - 同步寄存器表/地址映射到最新设计
-- **Phase 1~5 建模流程同步**：当前文档中的建模部分仍写的是 28×28→7×7=49，需要改为 32×32→8×8=64
+- **Phase 1~5 建模流程同步**：已更新为 32×32→8×8=64（2026-02-27）；历史 7×7=49 仅保留在变更记录中
 
 #### 9) 辅助保障机制（可选但建议）
 
@@ -1744,7 +1748,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 3. ✅ 确定 IO 方案：WL 8组×8 时分复用 + 8-bit ADC + 方案B 差分 + 保留 JTAG = 45 pin（会议后更新）
 4. ✅ 获取器件 Python 模型（memristor_plugin.py + I-V.xlsx）
 5. ✅ 分析器件参数：4-bit 权重、5000:1 开关比、8-bit ADC、pA~nA 级电流
-6. ✅ Python 全量建模完成：proj_sup_64, Scheme B, ADC=8, W=4, T=1, ratio=0.40, test=91.24%
+6. ✅ Python 全量建模完成（初版 T=1, ratio=0.40, test=91.24%）→ **定版更新（2026-02-27）**: T=10, ratio_code=4, spike-only test=90.42%, zero-spike=0.00%
 7. ✅ 器件/模拟团队会议确认：Scheme B, 8-bit ADC, 无自适应阈值, THRESHOLD_RATIO 寄存器
 8. ✅ RTL 参数更新 + TB 适配 + 文档同步（2026-02-06）
 9. ✅ CIM Test Mode + Debug 计数器 + FIFO 断言（2026-02-08）
@@ -1784,9 +1788,9 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 | ADC 位宽 | **8-bit** | 建模最优 (90.78%) + A2 确认 |
 | 差分方案 | **B（数字侧减，20通道）** | A1 确认 |
 | 阈值自适应 | **不做** | 建模下降 1.80% + J1 确认 |
-| 阈值比率 | **0.40（寄存器值 102）** | 建模标定 + J2 确认 |
+| 阈值比率 | **ratio_code=4（寄存器值 4，4/255≈0.0157）** | 建模定版（纯spike标定）+ J2 确认 |
 | 阵列规模 | **64×20 固定窗口**（V1） | 建模确认 + V2 可配 |
-| 帧数 | **T=1** | 建模（T=1~20 等价精度） |
+| 帧数 | **T=10** | 建模定版（spike-only 90.42%，zero-spike=0.00%） |
 
 
 *(旧的 IO pad 行动项已合并到上方“更新后的执行计划”中)*
@@ -1836,7 +1840,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 - **ADC 设计**：8-bit SAR ADC，20 通道时分复用共享 1 个 ADC — 可以开始 ADC 单元设计
 - **WL 驱动电路**：8 组 × 8 的时分复用结构 — 可以开始驱动器设计
 
-**但是**，在上面 P0 的 3 个问题确认之前，他们不应该锁定接口时序。建议你把 [03_cim_if_protocol.md](vscode-webview://1ovgbj1gh33590a4ono35g37im6tu1fe1hgdm12tkvvf19e5r60r/doc/03_cim_if_protocol.md) 和 [08_cim_analog_interface.md](vscode-webview://1ovgbj1gh33590a4ono35g37im6tu1fe1hgdm12tkvvf19e5r60r/doc/08_cim_analog_interface.md) 发给模拟团队，让他们基于这两份文档做初步设计，同时把 P0 问题的答案反馈给你，你这边相应调整 RTL 时序（主要是 `cim_macro_blackbox` 的行为模型和 `adc_ctrl` 的状态机等待周期）。
+**但是**，在上面 P0 的 3 个问题确认之前，他们不应该锁定接口时序。建议你把 `doc/03_cim_if_protocol.md` 和 `doc/08_cim_analog_interface.md` 发给模拟团队，让他们基于这两份文档做初步设计，同时把 P0 问题的答案反馈给你，你这边相应调整 RTL 时序（主要是 `cim_macro_blackbox` 的行为模型和 `adc_ctrl` 的状态机等待周期）。
 ## 计划评价
 
 | 阶段                                        | 评价                                                                     | 建议                                                                                            |
@@ -1948,7 +1952,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
                      └──────────┘
 ```
 
-## 具体数据变换过程（以一次 T=1 推理为例）
+## 具体数据变换过程（以单帧 T=1 子流程示例，非定版默认值）
 
 |阶段|数据形态|位宽|说明|
 |---|---|---|---|
@@ -1966,7 +1970,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 ### 关键时序：一次完整推理循环
 
 ```
-对于 T=1, PIXEL_BITS=8:  共 8 个 bit-plane 子步
+示例采用 T=1, PIXEL_BITS=8：共 8 个 bit-plane 子步（仅用于解释编码流程；定版实际为 T=10）
 
 bitplane_shift:  7 → 6 → 5 → 4 → 3 → 2 → 1 → 0
                  ↑                                ↑
@@ -2047,108 +2051,12 @@ parameter int WL_GROUP_COUNT = (NUM_INPUTS / WL_GROUP_WIDTH);  // = 8
 
 ---
 
-## 回答你的问题
+## Appendix: Analog Handoff Entry (Final)
 
-> 这样是不是解决时分复用的问题了，这样芯片内部时分复用直接给到 wrapper，wrapper 正好能和模拟的部分拼在一块，对不？
+To keep this main document focused on architecture and fixed parameters,
+use the following docs for analog-team handoff and meeting execution:
 
-**对，理解正确。** 用一张图说清楚当前和最终的区别：
-
-```
-当前状态（仿真/FPGA 验证阶段）：
-┌─────────────────── snn_soc_top ────────────────────┐
-│  cim_array_ctrl                                     │
-│       │ wl_bitmap[63:0]                             │
-│       ▼                                             │
-│  wl_mux_wrapper ──┬─ wl_bitmap_wrapped ──► dac_ctrl │
-│                   │                         │       │
-│                   │ wl_data[7:0]            ▼       │
-│                   │ wl_group_sel[2:0]   cim_macro   │
-│                   │ wl_latch            (blackbox)  │
-│                   └─ (当前未连出，_unused)            │
-└─────────────────────────────────────────────────────┘
-
-最终芯片（tapeout 阶段）：
-┌────────────────── chip_top ──────────────────────────┐
-│  ┌───────────── snn_soc_top ─────────────┐          │
-│  │  cim_array_ctrl                       │          │
-│  │       │ wl_bitmap                     │          │
-│  │       ▼                               │          │
-│  │  wl_mux_wrapper ──► dac_ctrl ──► ...  │          │
-│  │       │                               │          │
-│  └───────┼───────────────────────────────┘          │
-│          │ wl_data[7:0]       ┌──────────────────┐  │
-│          │ wl_group_sel[2:0]  │  模拟 CIM Macro  │  │
-│          │ wl_latch           │  (GDS 替换)      │  │
-│          └──────────────────► │  接收 WL 数据     │  │
-│                               └──────────────────┘  │
-│          PAD ring                                    │
-└──────────────────────────────────────────────────────┘
-```
-
-关键点：
-
-1. wrapper 的**外部复用信号**（`wl_data/wl_group_sel/wl_latch`）就是将来给模拟团队的接口，协议已经冻结
-2. wrapper 的**内部并行信号**（`wl_bitmap_wrapped`）保留给仿真 blackbox 用
-3. 到 tapeout 时，只需要把外部复用信号从 `_unused` 改为连到 chip_top 的 pad — **不需要改 wrapper 内部逻辑**
-
-发 08 文档给模拟 → 等 P0/P1/P2 → 跑smoketest边学代码边改 → 加 UART/SPI/DMA/AXI/E203 → 创新点 → FPGA → ASIC 后端
-
-### 2. 行列选通固定窗口版 — **暂时不需要管**
-
-当前设计已经隐式确定了窗口：
-
-- **行（WL）**：64 根，`wl_bitmap[63:0]` 由软件/DMA 控制哪些行激活，天然支持任意子集
-- **列（BL）**：`bl_sel[4:0]` 选择 20 通道中的哪一路送 ADC，已经是可选的
-
-所谓"固定窗口"的需求取决于物理阵列的布局（哪些 WL/BL 线被引出），这是 **P0/P1 信息**（analog team 尚未提供）。在他们确定物理映射前，数字侧做不了有意义的设计。
-
-**建议**：等 P0/P1 返回后，如果物理映射需要地址偏移或行列重映射，再加一个简单的 offset 寄存器即可。现在不用动。
-
-现在回答你的问题：**集成和测试的方案有必要现在决定吗？**
-
-**短答案：现在不需要定，但可以先把框架性的事情想清楚。**
-
-具体分析：
-
-**集成方案（§5）** — **不急，等 Smoke Test 通过后再定**
-
-- 集成方案的核心是 chip_top pad wrapper + 与模拟团队的接口冻结。这些依赖：
-    - Smoke Test 跑通（确认数字逻辑无 bug）
-    - 与器件组第二次会议确认 pin 方案和 WL 时分复用时序
-- 现在数字侧 RTL 已经参数化到位、CIM Test Mode 也有了，集成所需的数字侧准备工作已 ready。但模拟侧接口（Vref、偏置、供电）还有待确认项，现在定方案会有修改风险。
-
-**测试方案（§7）** — **框架可以现在定，细节等集成后再补**
-
-- 数字单测（UART 自检、SRAM memtest、DMA/FIFO/控制链路）：CIM Test Mode 已实现，Smoke Test 通过后就可以细化 checklist
-- 模拟单测（IV 曲线、电导分布等）：完全依赖模拟团队，现在没有足够信息定
-- 端到端推理测试：依赖集成完成
-
-**建议的节奏**：
-
-1. **现在** → 跑通 Smoke Test（§0），确认数字逻辑无问题
-2. **Smoke Test 通过后** → 细化数字单测 checklist（基于 CIM Test Mode + Debug 计数器）
-3. **器件二次会议后** → 冻结集成方案 + pin 表
-4. **集成完成后** → 定端到端测试方案
-
-你接下来给模拟同学，建议发这 4 份文档：
-
-1. [08_cim_analog_interface.md](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.71-win32-x64/webview/# "doc/08_cim_analog_interface.md")（主合同，信号/时序/责任边界）
-2. [03_cim_if_protocol.md](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.71-win32-x64/webview/# "doc/03_cim_if_protocol.md")（快速版协议）
-3. [02_reg_map.md](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.71-win32-x64/webview/# "doc/02_reg_map.md")（可调参数与测试寄存器口径）
-4. [SNNSoC工程主文档.md](https://file+.vscode-resource.vscode-cdn.net/c%3A/Users/24201/.vscode/extensions/openai.chatgpt-0.4.71-win32-x64/webview/# "SNNSoC工程主文档.md")（只看“关键决策点 + 待确认项 + 45-pin 方案”相关章节）
-
-会上重点拿回（按优先级）：
-
-- A4：Vref/TIA 增益与可调范围（给出推荐标称+容差）
-- A5：每 bit-plane 真实延迟分解（WL 建立/CIM 稳定/ADC 转换）
-- A6：最小可检电流、动态范围、噪声口径（RMS/pp/温漂）
-- A7：最终时序合同（谁拉高、保持几拍、done 脉冲宽度）
-- P0/P1/P2：物理映射与引脚/偏置约束（决定 pad wrapper 最终连法）
-
-那我去给模拟同学文档、问他要数据、然后再稍微了解一下python建模的·代码和再看一遍跑出来的结果，然后跑smoke test、学代码，看代码，彻底理解当前代码，然后根据模拟同学给的数据改当前代码，确定测试和集成方案，然后按照顺序添加那些还没添加的模块（uart e203 spi dma axi-lite之类的） 然后有时间就加小创新点，然后上fpga进行测试，然后做asic后端，
-
-1. **1~4 可并行**：文档给模拟同学后等回复期间，同时看 Python 建模代码 + 跑 smoke test + 学 RTL 代码，不用串行等
-2. **Smoke test 尽早跑**：如果有编译/仿真问题，早发现可以边学代码边修，不耽误
-3. **模拟数据决定改动范围**：他们给的实测数据（ADC 特性、时序约束、电平标准等）会影响 `doc/08` 里的"待确认"项，进而决定 RTL 是否需要调整（比如 ADC settle cycles、CIM latency 等时序参数）
-4. **模块添加顺序建议**：UART → AXI-Lite 总线替换 → E203 集成 → SPI → DMA 扩展（abort 等），因为 UART 是 bring-up 第一通道，AXI-Lite 是 E203 的前置依赖
-5. **FPGA 在 ASIC 后端前**：正确，FPGA 验证可以用真实时钟/IO 暴露仿真发现不了的问题
+- `项目相关文件/09_analog_team_handoff.md`
+- `doc/08_cim_analog_interface.md`
+- `doc/03_cim_if_protocol.md`
+- `doc/02_reg_map.md`

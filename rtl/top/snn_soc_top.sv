@@ -270,15 +270,15 @@ module snn_soc_top (
   logic [NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data;
 
   // 来自 reg_bank 的控制寄存器
-  // neuron_threshold: LIF 膜电位阈值（32-bit，低 8-bit 有效 = THRESHOLD_RATIO，默认 102）
-  // timesteps       : 推理时间步数（8-bit，MVP 阶段固定为 1）
+  // neuron_threshold: LIF 膜电位阈值（32-bit，默认 THRESHOLD_DEFAULT=10200）
+  // timesteps       : 推理时间步数（8-bit，定版默认 10）
   // reset_mode      : LIF 复位模式：0=减法复位（soft），1=归零复位（hard）
   // snn_busy        : SNN 子系统忙标志（cim_array_ctrl → reg_bank，SW 轮询）
   // snn_done_pulse  : SNN 推理完成脉冲（单拍，cim_array_ctrl → reg_bank）
   // snn_start_pulse : SW 写寄存器触发的推理启动脉冲（reg_bank → cim_array_ctrl）
   // snn_soft_reset_pulse: SW 写寄存器触发的软复位脉冲（不清零 debug 计数器）
   // timestep_counter: 当前时间步计数值（cim_array_ctrl → reg_bank 用于状态显示）
-  // bitplane_shift  : 当前处理的比特平面偏移（用于多比特精度编码，MVP T=1 时为 0）
+  // bitplane_shift  : 当前处理的比特平面偏移（0~7，用于多比特精度编码）
   logic [31:0] neuron_threshold;
   logic [7:0]  timesteps;
   logic        reset_mode;
@@ -563,8 +563,8 @@ module snn_soc_top (
   // reg_bank：核心控制/状态寄存器，包含：
   //   - REG_CTRL: snn_start_pulse / snn_soft_reset_pulse / reset_mode / cim_test_mode
   //   - REG_STATUS: snn_busy / snn_done_pulse / timestep_counter 等
-  //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（默认 102 = 0x66）
-  //   - REG_TIMESTEPS: 时间步数（默认 1）
+  //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（定版默认 4 = 0x04）
+  //   - REG_TIMESTEPS: 时间步数（定版默认 10）
   //   - REG_CIM_TEST_DATA: 8-bit fake ADC 数据（测试模式用）
   //   - REG_ADC_SAT: ADC 饱和计数高/低
   //   - REG_DBG_*: 4 个调试计数器
@@ -633,7 +633,7 @@ module snn_soc_top (
 
   //======================
   // SNN 子系统
-  // 推理数据流（单次推理时序，T=1）：
+  // 推理数据流（单个时间步示意）：
   //   周期 0 : SW 写 START → snn_start_pulse 脉冲
   //   周期 1 : cim_array_ctrl 从 input FIFO pop 64-bit bitmap，置 snn_busy
   //   周期 2 : cim_array_ctrl 发出 wl_bitmap + wl_valid_pulse
@@ -644,7 +644,7 @@ module snn_soc_top (
   //   周期 7~26: adc_ctrl 逐列扫描（每列: adc_start → adc_done → 采样 bl_data）
   //   周期 27: adc_ctrl 发出 neuron_in_valid + neuron_in_data[19:0]（20 个 9-bit）
   //   周期 28: lif_neurons 更新膜电位，判断阈值，push spike 到 output FIFO
-  //   周期 29: cim_array_ctrl 检测到 T=1 完成，发出 snn_done_pulse，清 snn_busy
+  //   周期 29: cim_array_ctrl 完成当前时间步；若达到 timesteps 则发出 snn_done_pulse
   //======================
 
   // cim_array_ctrl：SNN 主控 FSM
@@ -760,8 +760,8 @@ module snn_soc_top (
   //     若超过阈值 → 产生 spike，根据 reset_mode 复位膜电位（减法或归零）
   //   所有时间步完成后，找最大膜电位对应的神经元编号，push 到 output FIFO
   // 关键信号：
-  //   bitplane_shift : 比特平面偏移（多位精度时权重移位，MVP T=1 时为 0）
-  //   threshold      : 来自 reg_bank（32-bit，低 8-bit 有效 = THRESHOLD_RATIO）
+  //   bitplane_shift : 比特平面偏移（0~7，对应 8-bit 输入位平面）
+  //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 10200）
   //   reset_mode     : 0=减法复位（membrane -= threshold），1=归零（membrane=0）
   lif_neurons u_lif (
     .clk            (clk),

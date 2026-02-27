@@ -6,7 +6,7 @@
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x00 | NEURON_THRESHOLD | threshold | [31:0] | RW | THRESHOLD_DEFAULT | LIF 阈值 |
-| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd1 | 推理帧数（每帧含 PIXEL_BITS 子时间步） |
+| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd10 | 推理帧数（每帧含 PIXEL_BITS 子时间步，定版 T=10） |
 | 0x08 | NUM_INPUTS | num_inputs | [15:0] | RO | 16'd64 | 输入维度（8x8 离线投影后特征） |
 | 0x0C | NUM_OUTPUTS | num_outputs | [7:0] | RO | 8'd10 | 输出类别 |
 | 0x10 | RESET_MODE | reset_mode | [0] | RW | 1'b0 | 0=soft reset, 1=hard reset |
@@ -21,7 +21,7 @@
 | 0x18 | STATUS | TIMESTEP_CNT | [15:8] | RO | 0 | 已完成帧计数 |
 | 0x1C | OUT_FIFO_DATA | spike_id | [3:0] | RO | 0 | 读一次弹出一个 spike_id，空则返回 0 |
 | 0x20 | OUT_FIFO_COUNT | count | [8:0] | RO | 0 | 输出 FIFO 当前计数（有效位 [8:0]，其余为 0） |
-| 0x24 | THRESHOLD_RATIO | ratio | [7:0] | RW | 8'd102 | 阈值比例（102/255≈0.40），供固件计算绝对阈值 |
+| 0x24 | THRESHOLD_RATIO | ratio | [7:0] | RW | 8'd4 | 阈值比例（4/255≈0.0157，定版 ratio_code），供固件计算绝对阈值 |
 | 0x28 | ADC_SAT_COUNT | sat_high | [15:0] | RO | 0 | ADC 采样 == MAX (0xFF) 累计次数，每次推理自动清零 |
 | 0x28 | ADC_SAT_COUNT | sat_low | [31:16] | RO | 0 | ADC 采样 == 0 累计次数，每次推理自动清零 |
 | 0x2C | CIM_TEST | test_mode | [0] | RW | 0 | CIM 测试模式使能（1=旁路模拟宏，用数字假响应） |
@@ -33,7 +33,7 @@
 
 说明：
 - THRESHOLD 和 THRESHOLD_RATIO 为双寄存器模式：固件可读取 ratio 计算绝对阈值后写入 THRESHOLD，或直接写入绝对阈值。
-- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 102 × 255 × 1 = 26010。
+- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 10 = 10200（定版）。
 - CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake DAC/CIM/ADC 响应（dac_ready=1, cim_done 延迟 2 拍, adc_done 延迟 1 拍），bl_data 返回 test_data 常量。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
 - 用途边界：CIM_TEST 仅用于握手/时序/通路自检，不用于分类数值链路正确性验证。
 - 原因：Scheme B 下 adc_ctrl 会做正负通道差分，test_data 常量通常会在差分后抵消，不能代表真实推理精度。

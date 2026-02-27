@@ -24,7 +24,7 @@
 // 寄存器地址映射（物理地址 = 0x4000_0000 + offset）：
 //
 //   0x00  REG_THRESHOLD      [31:0]  LIF 神经元绝对阈值（直接驱动 neuron_threshold）
-//   0x04  REG_TIMESTEPS      [7:0]   推理时步数（即帧数，V1 固定=1）
+//   0x04  REG_TIMESTEPS      [7:0]   推理时步数（即帧数，V1 定版=10）
 //   0x08  REG_NUM_INPUTS     [15:0]  只读：NUM_INPUTS 参数值（=64）
 //   0x0C  REG_NUM_OUTPUTS    [7:0]   只读：NUM_OUTPUTS 参数值（=10）
 //   0x10  REG_RESET_MODE     [0]     重置模式选择（0=hard/1=soft）
@@ -41,7 +41,7 @@
 //                                      bit[15:8] timestep_counter（当前时步）
 //   0x1C  REG_OUT_DATA       [3:0]   只读：弹出 output_fifo 的 spike_id（读后自动 pop）
 //   0x20  REG_OUT_COUNT      只读：output_fifo 当前 entry 数
-//   0x24  REG_THRESHOLD_RATIO [7:0]  shadow 寄存器：Scheme B 阈值比例（默认 102 = 0x66 ≈ 40%）
+//   0x24  REG_THRESHOLD_RATIO [7:0]  shadow 寄存器：Scheme B 阈值比例（定版默认 4 ≈ 1.57%）
 //                                     注意：此寄存器不驱动硬件，固件需手动计算后写 REG_THRESHOLD
 //   0x28  REG_ADC_SAT_COUNT  只读：{adc_sat_low[31:16], adc_sat_high[15:0]}
 //   0x2C  REG_CIM_TEST       bit[0]=cim_test_mode, bit[15:8]=cim_test_data（8-bit ADC 合成响应）
@@ -163,7 +163,7 @@ module reg_bank (
   localparam logic [7:0] REG_STATUS      = 8'h18; // 只读状态：busy/fifo flags/timestep_counter
   localparam logic [7:0] REG_OUT_DATA    = 8'h1C; // 只读：output_fifo 队头 spike_id（读触发 pop）
   localparam logic [7:0] REG_OUT_COUNT   = 8'h20; // 只读：output_fifo 当前 entry 数
-  // Scheme B 阈值比例寄存器（8-bit, 默认 102/255 ≈ 0.40）
+  // Scheme B 阈值比例寄存器（8-bit, 定版默认 4/255 ≈ 0.0157）
   // 固件可读取 ratio 辅助计算绝对阈值，或直接用于 bring-up 调试
   // THRESHOLD_RATIO is a software/debug-visible ratio shadow register only.
   // Writing REG_THRESHOLD_RATIO does NOT auto-update neuron_threshold.
@@ -223,7 +223,7 @@ module reg_bank (
       // 复位值来自 snn_soc_pkg 参数（保证与包定义一致）
       neuron_threshold  <= THRESHOLD_DEFAULT[31:0];      // 默认阈值
       timesteps         <= TIMESTEPS_DEFAULT[7:0];       // 默认时步数
-      threshold_ratio   <= THRESHOLD_RATIO_DEFAULT[7:0]; // 默认比例 102（0x66）
+      threshold_ratio   <= THRESHOLD_RATIO_DEFAULT[7:0]; // 默认比例 4（定版 ratio_code=4）
       reset_mode        <= 1'b0;
       start_pulse      <= 1'b0;
       soft_reset_pulse <= 1'b0;

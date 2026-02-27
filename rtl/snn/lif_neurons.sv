@@ -71,7 +71,7 @@ module lif_neurons (
   // bitplane_shift：当前 bit-plane 的位权（7=MSB,6,5,...,0=LSB）
   // 用于算术左移（等效于乘以 2^shift），实现 bit-plane 加权
   input  logic [$clog2(snn_soc_pkg::PIXEL_BITS)-1:0] bitplane_shift,
-  input  logic [31:0] threshold,  // 脉冲阈值（来自 reg_bank.neuron_threshold，默认 26010）
+  input  logic [31:0] threshold,  // 脉冲阈值（来自 reg_bank.neuron_threshold，定版默认 10200）
   input  logic reset_mode,        // 复位模式：0=soft，1=hard（来自 reg_bank.reset_mode）
 
   // ── 到 output FIFO 的写接口 ──────────────────────────────────────────────
@@ -116,7 +116,7 @@ module lif_neurons (
 
   // ── 内部 spike 队列（环形缓冲区）────────────────────────────────────────
   // 用于在同一拍产生多个神经元 spike 时缓冲，每拍向 output FIFO pop 一个
-  localparam int QDEPTH     = 32; // 队列深度（10 个神经元 × T=1 帧，32 足够）
+  localparam int QDEPTH     = 32; // 队列深度（单拍最多 10 个神经元触发，32 留足余量）
   localparam int QADDR_BITS = $clog2(QDEPTH); // 队列指针位宽（log2(32)=5）
 
   // ── 内部状态寄存器 ────────────────────────────────────────────────────────

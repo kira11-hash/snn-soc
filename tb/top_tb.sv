@@ -14,7 +14,7 @@
 // 描述: SNN SoC 顶层 Testbench。
 //       完整流程：配置寄存器 -> 写入 data_sram -> DMA -> 推理 -> 读取输出。
 //       生成 FSDB 波形供 Verdi 使用。
-//       适配 V1 参数：NUM_INPUTS=64, ADC_BITS=8, T=1, Scheme B。
+//       适配 V1 参数：NUM_INPUTS=64, ADC_BITS=8, T=10, Scheme B（定版）。
 //======================================================================
 //
 // -----------------------------------------------------------------------
@@ -22,19 +22,19 @@
 //
 //   Phase 1: 寄存器配置
 //     - 写 REG_THRESHOLD（0x4000_0000）：设置 LIF 神经元阈值
-//     - 写 REG_TIMESTEPS（0x4000_0004）：设置时步数/帧数（=1）
-//     - 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值（期望 102/0x66）
+//     - 写 REG_TIMESTEPS（0x4000_0004）：设置时步数/帧数（=10，定版 TIMESTEPS_DEFAULT）
+//     - 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值（期望 4，ratio_code=4/255≈0.0157）
 //
 //   Phase 2: 写入 data_sram（bit-plane 编码）
 //     - 每个像素值（8-bit）展开为 8 个 bit-plane（MSB 优先）
 //     - 每个 bit-plane = NUM_INPUTS=64 bit = 2 个 32-bit word
 //     - 写入地址：data_sram 起始地址 0x0001_0000
-//     - 总共写入：frames × PIXEL_BITS × 2 = 1 × 8 × 2 = 16 words
-//     - 这是 DMA_LEN_WORDS=16（偶数，满足 DMA 要求）
+//     - 总共写入：frames × PIXEL_BITS × 2 = 10 × 8 × 2 = 160 words
+//     - 这是 DMA_LEN_WORDS=160（偶数，满足 DMA 要求）
 //
 //   Phase 3: DMA 传输
 //     - 写 DMA_SRC_ADDR（0x4000_0100）：= 0x0001_0000（data_sram 起始）
-//     - 写 DMA_LEN_WORDS（0x4000_0104）：= 16（8 个 bit-plane，每 plane 2 words）
+//     - 写 DMA_LEN_WORDS（0x4000_0104）：= 160（T=10 × 8 个 bit-plane × 每 plane 2 words）
 //     - 写 DMA_CTRL.START（0x4000_0108）：W1P 触发
 //     - 轮询 DMA_CTRL.DONE（bit[1]）：等待传输完成
 //
@@ -324,7 +324,7 @@ module top_tb;
     logic [NUM_INPUTS-1:0] wl_vec [0:1];          // 两个测试图案（64-bit 各一个）
     logic [7:0] pixel_val [0:1][0:NUM_INPUTS-1];  // 像素值：[帧][像素位置]
     logic [7:0] frame_amp [0:1];  // 每帧的振幅（8-bit 像素最大值）
-    int frames = 1;               // V1 默认 T=1（单帧推理）
+    int frames = snn_soc_pkg::TIMESTEPS_DEFAULT; // 定版 T=10：同一输入重复 10 帧累积膜电位
     int write_idx;                // data_sram 写入索引（按 bit-plane 对计数）
     logic [NUM_INPUTS-1:0] plane_vec; // 当前 bit-plane 的 64-bit 位向量
 
@@ -347,7 +347,7 @@ module top_tb;
     // 8x8 patterns (used to build 8-bit pixels)
     // Pattern 0: 中心十字（8x8）
     wl_vec[0] = 64'b00000000_00011000_00011000_01111110_01111110_00011000_00011000_00000000;
-    // Pattern 1: 对角线 X（备用，frames=1 时不使用）
+    // Pattern 1: 对角线 X（备用，T=10 时 10 帧全部使用 Pattern 0 重复，Pattern 1 不用）
     wl_vec[1] = 64'b10000001_01000010_00100100_00011000_00011000_00100100_01000010_10000001;
 
     // -----------------------------------------------------------------------
@@ -382,12 +382,11 @@ module top_tb;
     // THRESHOLD_DEFAULT 来自 snn_soc_pkg，确保与包参数一致
     // 1) 配置阈值与时步
     bus_write32(bus_vif, 32'h4000_0000, THRESHOLD_DEFAULT, 4'hF); // THRESHOLD
-    // 写 REG_TIMESTEPS（0x4000_0004）：frames=1，使用 wstrb=4'h1 只写 byte0
+    // 写 REG_TIMESTEPS（0x4000_0004）：frames=TIMESTEPS_DEFAULT=10（定版），使用 wstrb=4'h1 只写 byte0
     bus_write32(bus_vif, 32'h4000_0004, frames,   4'h1); // TIMESTEPS
 
     // 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值
-    // 期望值 = THRESHOLD_RATIO_DEFAULT = 102（= 0x66，约 40% 满量程）
-    // 这是 Scheme B 的默认比例系数（ADC 正负差分的判决点）
+    // 期望值 = THRESHOLD_RATIO_DEFAULT = 4（ratio_code=4，4/255≈0.0157，定版锁定）
     // 读回 THRESHOLD_RATIO 验证默认值
     bus_read32(bus_vif, 32'h4000_0024, rd);
     $display("[TB] THRESHOLD_RATIO = %0d (expected %0d)", rd[7:0], THRESHOLD_RATIO_DEFAULT);
@@ -417,7 +416,9 @@ module top_tb;
       for (int b = PIXEL_BITS-1; b >= 0; b = b - 1) begin
         // 提取第 b 位 bit-plane：64 个像素各取 1 bit 组成 64-bit 向量
         for (int p = 0; p < NUM_INPUTS; p = p + 1) begin
-          plane_vec[p] = pixel_val[t][p][b];
+          // T=10：10 帧重复同一输入（pattern 0）进行膜电位累积
+          // pixel_val 仅定义了 [0:1]，使用 t%2 防止越界；实际 smoke test 全部用 pattern 0
+          plane_vec[p] = pixel_val[0][p][b];
         end
         word0 = plane_vec[31:0];   // 低 32-bit（像素 0~31 的第 b 位）
         word1 = plane_vec[63:32];  // 高 32-bit（像素 32~63 的第 b 位）
@@ -438,8 +439,8 @@ module top_tb;
     //   0x4000_0108 = DMA_CTRL      (offset 0x08)
     //
     // DMA_LEN_WORDS = frames * PIXEL_BITS * 2
-    //   = 1 * 8 * 2 = 16 words（16 是偶数，满足 DMA 的奇偶检查）
-    //   每个 bit-plane 占 2 words，共 8 个 bit-plane，总计 16 words
+    //   = 10 * 8 * 2 = 160 words（160 是偶数，满足 DMA 的奇偶检查）
+    //   每个 bit-plane 占 2 words，10帧×8 个 bit-plane，总计 160 words
     //
     // 轮询 DMA DONE（bit[1]）：
     //   DMA_CTRL[1] = done_sticky，传输完成后硬件置 1
@@ -526,7 +527,7 @@ module top_tb;
     //        若在读 spike 过程中 FIFO 状态变化（不应该，推理已完成），
     //        循环仍按初始 count 次数执行。
     //
-    // 正常情况下（单帧 T=1）：output_fifo 中应有若干个激发神经元的 spike_id，
+    // 正常情况下（T=10，10帧累积）：output_fifo 中应有若干个激发神经元的 spike_id，
     //   每个 spike_id 对应一个膜电位超过阈值的输出神经元（数字分类结果）。
     // =======================================================================
     // 5) 读取 output_fifo

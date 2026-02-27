@@ -246,7 +246,7 @@ module bus_interconnect (
   //
   // 实现说明：
   //   使用 >= 和 <= 进行无符号比较，适合地址空间在 32-bit 范围内的情况。
-  //   verilator lint_off/on 抑制"函数参数未在函数外使用"的警告。
+  //   下方使用 Verilator 元注释来抑制"函数参数未在函数外使用"的警告。
   // ----------------------------------------------------------
   /* verilator lint_off UNUSEDSIGNAL */
   function automatic logic in_range(

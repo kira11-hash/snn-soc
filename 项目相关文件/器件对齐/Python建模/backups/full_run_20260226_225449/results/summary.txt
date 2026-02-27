@@ -1,0 +1,108 @@
+============================================================
+  SNN SoC 寤烘ā缁撴灉 - 鍙傛暟鎺ㄨ崘
+============================================================
+
+璇勪及鍙ｅ緞: tuning_split=val (閫夋柟妗?璋冨弬), final_split=test (鏈€缁堜竴娆℃姤鍛?
+鍏ㄩ噺缁勫悎鎵弿鏁? 900, 鎺ㄨ崘绮惧害瀹瑰繊杈圭晫: 0.50%
+
+鏈€浣充笅閲囨牱鏂规硶(8/4/1鍩虹嚎): proj_sup_64
+  tuning SNN(ADC=8,W=4,T=1): 90.86%
+  ANN float 鍩虹嚎鍑嗙‘鐜?test): 86.74%
+  ANN quantized 鍩虹嚎鍑嗙‘鐜?test): 89.64%
+
+best-case(鍏ㄩ噺缃戞牸鏈€楂樼簿搴?:
+  method=proj_sup_64, scheme=B, ADC=10, W=4, T=1, ratio=0.40, acc=90.92%
+
+recommendation(绮惧害杈炬爣涓嬩綆鎴愭湰浼樺厛):
+  method=proj_sup_64, scheme=B, ADC=8, W=4, T=1, ratio=0.40, tuning_acc=90.86%
+
+Final test (recommendation): 90.43%
+  Hardware-aligned (spike-only, no fallback): 12.72% (zero-spike=96.39%, count=9639)
+Final test (best-case): 90.50%
+  Hardware-aligned best-case (spike-only, no fallback): 12.73% (zero-spike=96.39%, count=9639)
+
+Top full-grid combinations:
+  #01: method=proj_sup_64, scheme=B, ADC=10, W=4, T=1, ratio=0.40, acc=90.92%
+  #02: method=proj_sup_64, scheme=B, ADC=10, W=4, T=3, ratio=0.40, acc=90.92%
+  #03: method=proj_sup_64, scheme=B, ADC=10, W=4, T=5, ratio=0.40, acc=90.92%
+  #04: method=proj_sup_64, scheme=B, ADC=10, W=4, T=10, ratio=0.40, acc=90.92%
+  #05: method=proj_sup_64, scheme=B, ADC=10, W=4, T=20, ratio=0.40, acc=90.92%
+  #06: method=proj_sup_64, scheme=B, ADC=12, W=4, T=1, ratio=0.40, acc=90.92%
+  #07: method=proj_sup_64, scheme=B, ADC=12, W=4, T=3, ratio=0.40, acc=90.92%
+  #08: method=proj_sup_64, scheme=B, ADC=12, W=4, T=5, ratio=0.40, acc=90.92%
+  #09: method=proj_sup_64, scheme=B, ADC=12, W=4, T=10, ratio=0.40, acc=90.92%
+  #10: method=proj_sup_64, scheme=B, ADC=12, W=4, T=20, ratio=0.40, acc=90.92%
+
+Per-method calibrated ratio (by scheme):
+  avgpool_8x8         [B] ratio=0.30, val_acc=85.85%
+  bilinear_8x8        [B] ratio=0.30, val_acc=80.30%
+  maxpool_8x8         [B] ratio=0.30, val_acc=82.05%
+  nearest_8x8         [B] ratio=0.30, val_acc=79.65%
+  pad32_reflect_8x8   [B] ratio=0.30, val_acc=83.45%
+  pad32_replicate_8x8 [B] ratio=0.30, val_acc=83.30%
+  pad32_zero_8x8      [B] ratio=0.30, val_acc=84.10%
+  proj_pca_64         [B] ratio=0.30, val_acc=37.75%
+  proj_sup_64         [B] ratio=0.40, val_acc=90.50%
+
+ADC sweep (val):
+   6-bit: 90.30%
+   8-bit: 90.86% <- 鎺ㄨ崘
+  10-bit: 90.92%
+  12-bit: 90.92%
+
+Weight sweep (val):
+  2-bit: 80.22%
+  3-bit: 78.00%
+  4-bit: 90.86% <- 鎺ㄨ崘
+  6-bit: 86.76%
+  8-bit: 86.06%
+
+Timesteps sweep (val):
+  T= 1: 90.86% <- 鎺ㄨ崘
+  T= 3: 90.86%
+  T= 5: 90.86%
+  T=10: 90.86%
+  T=20: 90.86%
+
+鍣ㄤ欢闈炵悊鎯冲奖鍝?(val):
+  鐞嗘兂鍑嗙‘鐜?      90.86%
+  鍚櫔鍑嗙‘鐜?      90.20% +/- 0.0053
+  鍑嗙‘鐜囬€€鍖?      0.66%
+
+宸垎鏂规瀵规瘮 (val):
+  鏂规 B: 90.86% <- 鎺ㄨ崘
+
+鍐崇瓥瑙勫垯瀵规瘮 (val):
+  spike   : 90.86%
+  membrane: 90.86%
+
+鑷€傚簲闃堝€?(val):
+  鍥哄畾闃堝€?spike): 90.86%
+  鑷€傚簲闃堝€?      87.68%
+  鎻愬崌:            -3.18%
+  conclusion: not recommended
+
+鍥哄畾閰嶇疆澶歴eed澶嶈窇 (test):
+  seeds: [42, 43, 44, 45, 46]
+  clean: 90.43% +/- 0.0000
+  noisy: 90.20% +/- 0.0027
+
+Device backend:
+  use_device_model=True
+  plugin_path_exists=True
+  plugin_levels_loaded=True
+  plugin_sim_available=True
+  backend_mode=plugin
+
+注：Hardware-aligned 口径禁用“零脉冲时回退到 membrane”兜底，用于与当前 RTL 输出能力对齐。
+
+============================================================
+  RTL 鍙傛暟鎺ㄨ崘 (鐢ㄤ簬鏇存柊 snn_soc_pkg.sv)
+============================================================
+  NUM_INPUTS  = 64
+  NUM_OUTPUTS = 10
+  ADC_BITS    = 8
+  PIXEL_BITS  = 8
+  // WEIGHT_BITS = 4 (device-side parameter)
+  // SCHEME = B
+  // ADAPTIVE_THRESHOLD = OFF
