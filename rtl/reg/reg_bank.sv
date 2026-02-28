@@ -27,7 +27,7 @@
 //   0x04  REG_TIMESTEPS      [7:0]   推理时步数（即帧数，V1 定版=10）
 //   0x08  REG_NUM_INPUTS     [15:0]  只读：NUM_INPUTS 参数值（=64）
 //   0x0C  REG_NUM_OUTPUTS    [7:0]   只读：NUM_OUTPUTS 参数值（=10）
-//   0x10  REG_RESET_MODE     [0]     重置模式选择（0=hard/1=soft）
+//   0x10  REG_RESET_MODE     [0]     重置模式选择（0=soft/1=hard）
 //   0x14  REG_CIM_CTRL       [7:0]   控制/状态复合寄存器：
 //                                      bit[0] START      W1P  写 1 产生 1 拍 start_pulse
 //                                      bit[1] SOFT_RESET W1P  写 1 产生 1 拍 soft_reset_pulse
@@ -44,7 +44,7 @@
 //   0x24  REG_THRESHOLD_RATIO [7:0]  shadow 寄存器：Scheme B 阈值比例（定版默认 4 ≈ 1.57%）
 //                                     注意：此寄存器不驱动硬件，固件需手动计算后写 REG_THRESHOLD
 //   0x28  REG_ADC_SAT_COUNT  只读：{adc_sat_low[31:16], adc_sat_high[15:0]}
-//   0x2C  REG_CIM_TEST       bit[0]=cim_test_mode, bit[15:8]=cim_test_data（8-bit ADC 合成响应）
+//   0x2C  REG_CIM_TEST       bit[0]=cim_test_mode, bit[15:8]=cim_test_data_pos（正通道 ch0~9）, bit[23:16]=cim_test_data_neg（负通道 ch10~19）
 //   0x30  REG_DBG_CNT_0      只读：{cim_cycle_cnt[31:16], dma_frame_cnt[15:0]}
 //   0x34  REG_DBG_CNT_1      只读：{wl_stall_cnt[31:16], spike_cnt[15:0]}
 //
@@ -134,14 +134,17 @@ module reg_bank (
   // 输出到 SNN 子系统
   output logic [31:0] neuron_threshold,   // 直接驱动 LIF 神经元阈值
   output logic [7:0]  timesteps,          // 推理时步数（帧数）
-  output logic        reset_mode,         // 0=hard reset，1=soft reset
+  output logic        reset_mode,         // 0=soft reset，1=hard reset
   output logic        start_pulse,        // 1 拍脉冲，触发 SNN 推理开始（W1P）
   output logic        soft_reset_pulse,   // 1 拍脉冲，触发软复位（W1P）
 
   // CIM Test Mode 输出
   // cim_test_mode=1 时，cim_macro_blackbox 用合成数据替代真实 RRAM 响应
+  // cim_test_data_pos：正通道（ch 0~9）合成 ADC 值；cim_test_data_neg：负通道（ch 10~19）合成 ADC 值
+  // 将两者设置为不同值（如 pos=100, neg=0）可使 Scheme B 差分非零，LIF 膜电位可积累并产生 spike
   output logic        cim_test_mode,
-  output logic [snn_soc_pkg::ADC_BITS-1:0] cim_test_data, // 合成 ADC 响应值（8-bit）
+  output logic [snn_soc_pkg::ADC_BITS-1:0] cim_test_data_pos, // 正通道合成值（8-bit，ch 0~9）
+  output logic [snn_soc_pkg::ADC_BITS-1:0] cim_test_data_neg, // 负通道合成值（8-bit，ch 10~19）
 
   // 输出 FIFO 弹出控制（在 rvalid 那拍）
   // 由 pop_pending 2-cycle pipeline 驱动，确保读出后下一拍才 pop
@@ -171,8 +174,8 @@ module reg_bank (
   localparam logic [7:0] REG_THRESHOLD_RATIO = 8'h24; // shadow 寄存器，不驱动硬件
   // ADC 饱和计数（只读，由 adc_ctrl 驱动，每次推理自动清零）
   localparam logic [7:0] REG_ADC_SAT_COUNT   = 8'h28; // {sat_low[31:16], sat_high[15:0]}
-  // CIM Test Mode: bit[0]=test_mode, bits[15:8]=test_data
-  localparam logic [7:0] REG_CIM_TEST        = 8'h2C; // bit[0]=test_mode, bit[15:8]=test_data
+  // CIM Test Mode: bit[0]=test_mode, bit[15:8]=test_data_pos(ch0~9), bit[23:16]=test_data_neg(ch10~19)
+  localparam logic [7:0] REG_CIM_TEST        = 8'h2C; // bit[0]=test_mode, bit[15:8]=test_data_pos(ch0~9), bit[23:16]=test_data_neg(ch10~19)
   // Debug 计数器（只读，打包两组 16-bit）
   localparam logic [7:0] REG_DBG_CNT_0       = 8'h30; // [15:0]=dma_frame, [31:16]=cim_cycle
   localparam logic [7:0] REG_DBG_CNT_1       = 8'h34; // [15:0]=spike, [31:16]=wl_stall
@@ -194,7 +197,7 @@ module reg_bank (
   // 标记未使用高位（lint 友好）
   // req_addr[31:8]: 高位用于顶层 bus_interconnect 路由，本模块不使用
   // req_wstrb[3:2]: 暂未用于任何字节精确写逻辑（当前只有 byte0/byte1 被精确控制）
-  wire _unused = &{1'b0, req_addr[31:8], req_wstrb[3:2]};
+  wire _unused = &{1'b0, req_addr[31:8], req_wstrb[3]}; // wstrb[2] 现用于 cim_test_data_neg 写入
 
   // -----------------------------------------------------------------------
   // 主寄存器写逻辑（同步时序）
@@ -228,8 +231,9 @@ module reg_bank (
       start_pulse      <= 1'b0;
       soft_reset_pulse <= 1'b0;
       done_sticky      <= 1'b0;
-      cim_test_mode    <= 1'b0;
-      cim_test_data    <= '0;
+      cim_test_mode     <= 1'b0;
+      cim_test_data_pos <= '0;
+      cim_test_data_neg <= '0;
     end else begin
       // W1P 默认每拍清零（确保脉冲只有 1 拍宽度）
       // 这两行必须在 case 之前，以便 case 中的赋值可以覆盖它们
@@ -265,11 +269,14 @@ module reg_bank (
             if (req_wstrb[0]) threshold_ratio <= req_wdata[7:0];
           end
           REG_CIM_TEST: begin
-            // bit[0] = cim_test_mode（通过 byte0 写入）
-            if (req_wstrb[0]) cim_test_mode <= req_wdata[0];
-            // bit[15:8] = cim_test_data（通过 byte1 写入，wstrb[1] 控制）
-            // 注意：req_wdata[15:8] 对应 byte1，需 wstrb[1]=1 才写入
-            if (req_wstrb[1]) cim_test_data <= req_wdata[15:8];
+            // bit[0]    = cim_test_mode（byte0，wstrb[0]）
+            if (req_wstrb[0]) cim_test_mode     <= req_wdata[0];
+            // bit[15:8] = cim_test_data_pos（正通道 ch0~9，byte1，wstrb[1]）
+            if (req_wstrb[1]) cim_test_data_pos <= req_wdata[15:8];
+            // bit[23:16]= cim_test_data_neg（负通道 ch10~19，byte2，wstrb[2]）
+            // 建议写法：bus_write(REG_CIM_TEST, {8'h00, neg_val, pos_val, 7'h0, mode})
+            //           wstrb=4'b0111 同时写三个字节
+            if (req_wstrb[2]) cim_test_data_neg <= req_wdata[23:16];
           end
           REG_CIM_CTRL: begin
             // W1P: START / RESET
@@ -334,9 +341,10 @@ module reg_bank (
   //         固件读取时需按此顺序解析（参见 top_tb.sv 的读取示例）。
   //
   // REG_CIM_TEST 字段布局：
-  //   rdata = {16'h0, cim_test_data[7:0], 7'h0, cim_test_mode}
-  //   → bit[15:8] = cim_test_data（8-bit ADC 合成响应）
-  //   → bit[0]    = cim_test_mode
+  //   rdata = {8'h0, cim_test_data_neg[7:0], cim_test_data_pos[7:0], 7'h0, cim_test_mode}
+  //   → bit[23:16] = cim_test_data_neg（负通道合成值，ch 10~19）
+  //   → bit[15:8]  = cim_test_data_pos（正通道合成值，ch 0~9）
+  //   → bit[0]     = cim_test_mode
   //
   // REG_DBG_CNT_0 字段布局：
   //   rdata = {dbg_cim_cycle_cnt[31:16], dbg_dma_frame_cnt[15:0]}
@@ -378,8 +386,8 @@ module reg_bank (
       REG_THRESHOLD_RATIO: rdata = {24'h0, threshold_ratio}; // 高 24 位填 0，低 8 位 = ratio
       // ADC 饱和计数：sat_low 在高 16 位，sat_high 在低 16 位（见顶部注释）
       REG_ADC_SAT_COUNT:   rdata = {adc_sat_low, adc_sat_high};
-      // CIM Test 寄存器：bit[15:8]=test_data, bit[0]=test_mode
-      REG_CIM_TEST:        rdata = {16'h0, cim_test_data, 7'h0, cim_test_mode};
+      // CIM Test 寄存器：bit[23:16]=test_data_neg, bit[15:8]=test_data_pos, bit[0]=test_mode
+      REG_CIM_TEST:        rdata = {8'h0, cim_test_data_neg, cim_test_data_pos, 7'h0, cim_test_mode};
       // Debug 计数器 0：高 16=cim_cycle，低 16=dma_frame
       REG_DBG_CNT_0:       rdata = {dbg_cim_cycle_cnt, dbg_dma_frame_cnt};
       // Debug 计数器 1：高 16=wl_stall，低 16=spike

@@ -24,7 +24,7 @@
 //
 //   这是一个参数化同步 FIFO，WIDTH 和 DEPTH 可配置。
 //   在本 SoC 中有两处实例化：
-//     - input_fifo  : WIDTH=NUM_INPUTS(=64), DEPTH=16，DMA 向 LIF 神经元送数
+//     - input_fifo  : WIDTH=NUM_INPUTS(=64), DEPTH=INPUT_FIFO_DEPTH（当前默认 256），DMA 向 SNN 主控送 bit-plane
 //     - output_fifo : WIDTH=4（spike_id），DEPTH=OUTPUT_FIFO_DEPTH，LIF 向 CPU 输出
 //
 // -----------------------------------------------------------------------

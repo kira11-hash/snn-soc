@@ -1,5 +1,60 @@
 # Smoke Test 清单
 
+## 0. 执行边界（2026-02-27 更新）
+
+- 本清单的“完整 smoke test”默认环境是 **Linux + VCS + Verdi**。
+- 脚本入口已统一为：
+  - `sim/run_vcs.sh`：编译并运行仿真（产出 `sim.log`、`vcs.log`、`waves/snn_soc.fsdb`）
+  - `sim/run_verdi.sh`：打开波形
+- 运行前建议只做最小环境设置（避免脚本内硬编码）：
+  - `export VCS_HOME=/path/to/vcs`
+  - `export VERDI_HOME=/path/to/verdi`
+  - 可选：`export SYN_ENV_FILE=/path/to/syn.env`（如你们组有统一环境脚本）
+
+### 0.1 无 VCS 环境的替代检查（本地）
+
+若本机暂时没有 VCS，可先执行静态可编译性检查：
+
+```bash
+verilator --lint-only -Wall -f sim/sim.f
+verilator --lint-only -Wall -f sim/rtl_with_chip_top_check.f
+```
+
+> 说明：这不是完整 smoke test，但可快速确认 RTL/顶层集成无语法和大多数连线错误；完整流程仍需在 VCS 环境跑通。
+
+### 0.2 Icarus 本地轻量 Smoke Test（已验证通过，2026-02-27）
+
+> **前置条件**：安装 `iverilog`（`apt install iverilog` 或 `brew install icarus-verilog`）。
+
+**运行方法**（在项目根目录或 `sim/` 目录均可）：
+
+```bash
+cd sim
+bash run_icarus_light.sh
+```
+
+**预期输出**：
+
+```
+[INFO] Icarus light smoke test start
+[INFO] DMA done after N polls, DMA_CTRL=0x00000002
+[INFO] CIM done after N polls, CIM_CTRL=0x00000080
+[INFO] OUT_FIFO_COUNT=0xXXXXXXXX (N)
+LIGHT_SMOKETEST_PASS
+```
+
+**OUT_FIFO_COUNT 说明**：
+- 当前轻量测试已按定版参数跑 `TIMESTEPS=10`（不再是早期 `T=1`）
+- 通过标准是：`LIGHT_SMOKETEST_PASS` 且 DMA/CIM DONE 位按预期置位
+- `OUT_FIFO_COUNT` 属于业务数据结果，允许随输入激励变化；通常为非零（当前回归样例为 20）
+- 测试意图：验证**端到端数字链路**（DMA → FIFO → FSM → ADC → LIF → output_fifo）可稳定运行
+
+**波形分析**：运行后产生 `sim/waves/icarus_light.vcd`，可用任意 VCD 查看器（GTKWave 等）打开：
+
+```bash
+gtkwave sim/waves/icarus_light.vcd &
+```
+
 本文档提供在 Linux 服务器上运行仿真的完整检查清单。
 
 ---
@@ -94,7 +149,7 @@ grep "Simulation finished" sim.log
 grep "OUT_FIFO_COUNT" sim.log
 
 # 预期结果：
-# [TB] OUT_FIFO_COUNT = N  (N 可能为 0，若为 0 参考“问题 3”排查)
+# [TB] OUT_FIFO_COUNT = N  (N 随输入激励变化；若多次回归长期为 0，参考“问题 3”排查)
 ```
 
 **检查点 2.3**：无致命错误
@@ -202,7 +257,7 @@ verdi -ssf waves/snn_soc.fsdb &
 3. 检查最后一个活动时刻的状态
 ```
 
-### 问题 3：OUT_FIFO_COUNT = 0
+### 问题 3：OUT_FIFO_COUNT 多次回归长期为 0
 
 ```
 可能原因：
@@ -335,10 +390,10 @@ echo "  运行 ./run_verdi.sh 查看波形"
 | VCS 编译 | vcs.log 无 Error |
 | simv 生成 | 文件存在且可执行 |
 | 仿真完成 | sim.log 包含 "Simulation finished" |
-| Spike 输出 | OUT_FIFO_COUNT 可能为 0（若为 0 参考“问题 3”排查） |
+| Spike 输出 | OUT_FIFO_COUNT 为业务结果（当前样例约 20）；若多次回归长期为 0，参考“问题 3”排查 |
 | 波形文件 | snn_soc.fsdb > 1MB |
 | 状态机流转 | 可在 Verdi 中观察到完整状态转换 |
 
 ---
 
-*最后更新：2026-01-30*
+*最后更新：2026-02-27（新增 §0.2 Icarus 本地轻量 smoke test，已实跑通过）*

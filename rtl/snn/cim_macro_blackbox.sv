@@ -33,8 +33,8 @@
 // 【仿真版本（`else，即非综合）】
 //   - 提供行为级功能模型，用于数字仿真验证。
 //   - 模拟 RRAM CIM 宏的基本行为：
-//     * DAC 握手：dac_ready 始终为 1（简化，不模拟 DAC 忙等）
-//     * DAC 锁存：dac_valid && dac_ready 时捕获 wl_spike 到 wl_latched
+//     * DAC 锁存：dac_valid=1 时（单拍脉冲）捕获 wl_spike 到 wl_latched
+//       （真实芯片侧由 wl_latch 时序控制，dac_ready 握手已简化移除）
 //     * CIM 计算：触发后延迟 CIM_LATENCY_CYCLES 个周期，产生 cim_done
 //     * ADC 采样：触发后延迟 ADC_SAMPLE_CYCLES 个周期，产生 adc_done，
 //                 同时计算并存储 bl_data_internal（Scheme B 行为模型）
@@ -83,8 +83,9 @@ module cim_macro_blackbox #(
   input  logic rst_n,
   // wl_spike 为一帧输入图像的单个 bit-plane（64 路并行）
   input  logic [P_NUM_INPUTS-1:0] wl_spike,
+  // dac_valid: 单拍脉冲，dac_ctrl 在 wl_spike 有效时发出，通知本模块锁存 wl_spike
+  // （真实芯片侧由 wl_latch 时序控制，dac_ready 握手已移除 - 2026-02-27）
   input  logic dac_valid,
-  output logic dac_ready,
   input  logic cim_start,
   output logic cim_done,
   input  logic adc_start,
@@ -107,11 +108,10 @@ module cim_macro_blackbox #(
   input  logic rst_n,
   input  logic [P_NUM_INPUTS-1:0] wl_spike,
 
-  // DAC handshake
-  // dac_valid : 来自 dac_ctrl，表示 wl_spike 数据有效，请求 DAC 锁存
-  // dac_ready : 本模块输出，表示 DAC 可接受新数据（仿真模型中始终为 1）
+  // DAC latch trigger
+  // dac_valid : 来自 dac_ctrl，单拍脉冲，表示 wl_spike 已稳定，本模块应在此拍锁存
+  // （原 dac_ready 握手已移除 - 2026-02-27，真实芯片侧由 wl_latch 时序控制）
   input  logic dac_valid,
-  output logic dac_ready,
 
   // CIM compute
   // cim_start : 来自 cim_array_ctrl（经由 cim_array_ctrl.cim_start_pulse），触发计算
@@ -141,7 +141,7 @@ module cim_macro_blackbox #(
   localparam logic [BL_SEL_W-1:0] ADC_CH_MAX = BL_SEL_W'(P_ADC_CHANNELS); // count, not max index; used as bl_sel < ADC_CH_MAX
 
   // wl_latched: 锁存的 WL 激活图。
-  // 在 dac_valid && dac_ready 握手完成时从 wl_spike 捕获。
+  // 在 dac_valid 单拍脉冲时从 wl_spike 捕获（dac_ready 已移除，固定时序）。
   // 后续 CIM 计算和 ADC 采样均基于此锁存值（不随 wl_spike 变化）。
   logic [P_NUM_INPUTS-1:0] wl_latched;
 
@@ -179,16 +179,6 @@ module cim_macro_blackbox #(
     end
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
-
-  // -----------------------------------------------------------------------
-  // dac_ready 始终为 1（简化仿真模型）
-  // 真实模拟 DAC 可能需要数个周期建立，但仿真中我们不模拟这一行为，
-  // 让握手立即完成，将延迟集中在后续 DAC_LATENCY_CYCLES 中体现。
-  // -----------------------------------------------------------------------
-  // dac_ready 始终为 1（简化模型）
-  always_comb begin
-    dac_ready = 1'b1;
-  end
 
   // -----------------------------------------------------------------------
   // popcount 组合逻辑
@@ -230,12 +220,14 @@ module cim_macro_blackbox #(
       adc_done <= 1'b0;
 
       // -------------------------------------------------------------------
-      // DAC 握手：锁存 wl_spike
-      // 当 dac_valid && dac_ready（本仿真中 dac_ready 恒为 1）时握手成功，
+      // DAC 锁存 wl_spike
+      // dac_valid 单拍脉冲（来自 dac_ctrl）表示 wl_spike 已稳定。
       // 将 wl_spike 捕获到 wl_latched，供后续 popcount 和 ADC 模型使用。
+      // 注意：dac_ctrl 中 wl_reg 在 wl_valid_pulse 后一拍更新，
+      //       dac_valid 也在同一拍发出，所以此处锁存的是新 wl_spike 值。
       // -------------------------------------------------------------------
-      // DAC 握手：锁存 wl_spike
-      if (dac_valid && dac_ready) begin
+      // DAC 锁存 wl_spike
+      if (dac_valid) begin
         wl_latched <= wl_spike;
       end
 

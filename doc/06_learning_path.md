@@ -197,7 +197,7 @@ ST_IDLE ──start_pulse──> ST_SETUP
 ```
 1. rtl/snn/cim_array_ctrl.sv     ← 主 FSM（最重要！）
 2. rtl/snn/wl_mux_wrapper.sv     ← WL 时分复用（64-bit→8×8 分组发送）
-3. rtl/snn/dac_ctrl.sv           ← DAC 握手
+3. rtl/snn/dac_ctrl.sv           ← DAC 固定时序控制（无 dac_ready 握手）
 4. doc/03_cim_if_protocol.md     ← CIM 接口协议
 5. rtl/snn/cim_macro_blackbox.sv ← 行为模型
 6. rtl/snn/adc_ctrl.sv           ← ADC 时分复用（重点）
@@ -456,7 +456,7 @@ cd sim
 ```
 - vcs.log 无 Error
 - sim.log 出现 "[TB] Simulation finished."
-- sim.log 出现 "[TB] OUT_FIFO_COUNT = N"（N 可能为 0）
+- sim.log 出现 "[TB] OUT_FIFO_COUNT = N"（N 随输入激励变化，当前回归样例约 20；若长期为 0 参考 `doc/09` 问题 3）
 - waves/snn_soc.fsdb 文件生成
 ```
 
@@ -667,11 +667,11 @@ endmodule
 1. **正常功能** - 验证基本读写、状态转换
 2. **边界条件** - 满、空、最大值、最小值
 3. **异常情况** - 错误输入、超时、X/Z 值
-4. **时序检查** - valid/ready 握手、脉冲宽度
+4. **时序检查** - 总线 valid/ready 握手、SNN 脉冲宽度
 
 **波形观察重点**:
 - 状态机：每个状态停留时间、转换条件
-- 握手信号：valid 和 ready 的时序关系
+- 握手信号：总线 valid/ready 关系 + SNN done_pulse 时序关系
 - 计数器：是否正确递增/递减
 - 数据通路：数据是否正确传递
 
@@ -700,7 +700,7 @@ endmodule
 
 - [ ] 能画出 SoC 整体框图（不看代码）
 - [ ] 能说出地址 0x4000_001C 对应什么寄存器
-- [ ] 能解释 valid/ready 握手协议
+- [ ] 能解释总线 valid/ready 握手协议与 SNN 单拍脉冲协议
 - [ ] 能说出 DMA 状态机的 5 个状态
 - [ ] 能画出 cim_array_ctrl 状态转移图
 - [ ] 能解释 pulse 和 level 的区别
@@ -749,7 +749,7 @@ endmodule
 优先看:
 1. clk, rst_n（确认时钟和复位正常）
 2. 各模块的 state 信号
-3. 关键握手信号（valid/ready/done_pulse）
+3. 关键握手信号（总线 valid/ready + SNN done_pulse）
 4. 数据通路信号（fifo count, membrane 等）
 5. bitplane_shift（观察 7→0 变化）
 ```
@@ -782,11 +782,11 @@ MSB-first 设计：
 ### Q7: CIM Macro 行为模型的输出有什么含义？
 ```
 Scheme B 行为模型（20 通道：前 10 正列 + 后 10 负列）：
-pop = popcount(wl_spike)  // 0-64
+pop = popcount(wl_latched)  // 0-64（在 dac_valid 单拍触发后锁存）
 正列 (j<10): bl_data[j] = (pop * 2 + j) & 0xFF
 负列 (j>=10): bl_data[j] = (pop/2 + (j-10)) & 0xFF
 
-- popcount: 输入 64 位中 1 的个数
+- popcount: 统计锁存向量 wl_latched 中 1 的个数
 - 数字侧差分: diff[i] = raw[i] - raw[i+10] (i=0..9)
 - 真实 CIM 会输出实际的 MAC 结果
 ```

@@ -25,7 +25,8 @@
 | 0x28 | ADC_SAT_COUNT | sat_high | [15:0] | RO | 0 | ADC 采样 == MAX (0xFF) 累计次数，每次推理自动清零 |
 | 0x28 | ADC_SAT_COUNT | sat_low | [31:16] | RO | 0 | ADC 采样 == 0 累计次数，每次推理自动清零 |
 | 0x2C | CIM_TEST | test_mode | [0] | RW | 0 | CIM 测试模式使能（1=旁路模拟宏，用数字假响应） |
-| 0x2C | CIM_TEST | test_data | [15:8] | RW | 0 | 测试模式下 bl_data 返回值（8-bit） |
+| 0x2C | CIM_TEST | test_data_pos | [15:8] | RW | 0 | 测试模式下正通道（ch 0~9）bl_data 返回值（8-bit） |
+| 0x2C | CIM_TEST | test_data_neg | [23:16] | RW | 0 | 测试模式下负通道（ch 10~19）bl_data 返回值（8-bit）；令 pos≠neg 使差分非零，可验证 LIF 全链路 |
 | 0x30 | DBG_CNT_0 | dma_frame_cnt | [15:0] | RO | 0 | DMA 已完成 FIFO push 次数（16-bit 饱和） |
 | 0x30 | DBG_CNT_0 | cim_cycle_cnt | [31:16] | RO | 0 | CIM busy 累计周期数（16-bit 饱和） |
 | 0x34 | DBG_CNT_1 | spike_cnt | [15:0] | RO | 0 | LIF spike 总数（16-bit 饱和） |
@@ -34,9 +35,9 @@
 说明：
 - THRESHOLD 和 THRESHOLD_RATIO 为双寄存器模式：固件可读取 ratio 计算绝对阈值后写入 THRESHOLD，或直接写入绝对阈值。
 - THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 10 = 10200（定版）。
-- CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake DAC/CIM/ADC 响应（dac_ready=1, cim_done 延迟 2 拍, adc_done 延迟 1 拍），bl_data 返回 test_data 常量。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
-- 用途边界：CIM_TEST 仅用于握手/时序/通路自检，不用于分类数值链路正确性验证。
-- 原因：Scheme B 下 adc_ctrl 会做正负通道差分，test_data 常量通常会在差分后抵消，不能代表真实推理精度。
+- CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake CIM/ADC 响应（cim_done 延迟 2 拍, adc_done 延迟 1 拍）；bl_data 按 bl_sel 分路返回：ch 0~9 返回 test_data_pos，ch 10~19 返回 test_data_neg；DAC 阶段仍按固定 `DAC_LATENCY_CYCLES` 时序运行（无 `dac_ready` 握手）。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
+- 推荐写法（全链路自检）：写 `test_mode=1, test_data_pos=100, test_data_neg=0`，Scheme B 差分 = 100，T=10 推理后 OUT_FIFO_COUNT 应明显非零（验证 DMA→FIFO→FSM→ADC→LIF→输出FIFO 全通路）。单写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111）即可同时配置三字段。
+- 用途边界：CIM_TEST 仅用于时序/通路自检，不用于分类数值链路正确性验证（差分结果非真实权重，推理结果无意义）。
 - DBG_CNT_0/1：16-bit 饱和计数器，仅 rst_n 清零。用于运行时诊断 DMA 搬运量、推理耗时、spike 输出量、WL mux 协议违规。
 
 ## dma_regs（base = 0x4000_0100）

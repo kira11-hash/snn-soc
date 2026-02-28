@@ -81,8 +81,9 @@
 // -----------------------------------------------------------------------
 // CIM_TEST_MODE：
 //
-//   当 cim_test_mode=1 时，cim_macro_blackbox 使用 cim_test_data（8-bit）
-//   作为所有通道的合成 ADC 响应，绕过真实 RRAM 读取逻辑。
+//   当 cim_test_mode=1 时，cim_macro_blackbox 使用
+//   cim_test_data_pos（ch 0~9）/ cim_test_data_neg（ch 10~19）作为合成 ADC 响应，
+//   绕过真实 RRAM 读取逻辑。
 //   用途：在没有真实 RRAM 模型的情况下验证控制路径通路。
 //   本 TB 默认 cim_test_mode=0，使用真实 cim_macro_blackbox 行为模型。
 //
@@ -492,8 +493,9 @@ module top_tb;
     //   rdata[31:16] = wl_stall_cnt（WL 总线停顿次数）
     //
     // CIM_TEST（0x4000_002C）：
-    //   rd[0]    = cim_test_mode（默认 0，未启用测试模式）
-    //   rd[15:8] = cim_test_data（默认 0）
+    //   rd[0]     = cim_test_mode（默认 0，未启用测试模式）
+    //   rd[15:8]  = cim_test_data_pos（默认 0，ch 0~9）
+    //   rd[23:16] = cim_test_data_neg（默认 0，ch 10~19）
     // -----------------------------------------------------------------------
     // 4b) 读取 ADC 饱和计数（诊断）
     bus_read32(bus_vif, 32'h4000_0028, rd);
@@ -510,8 +512,8 @@ module top_tb;
 
     // 4d) 读取 CIM_TEST 寄存器（默认值应为 0）
     bus_read32(bus_vif, 32'h4000_002C, rd);
-    $display("[TB] CIM_TEST = 0x%08X (test_mode=%0b, test_data=0x%02X)",
-             rd, rd[0], rd[15:8]);
+    $display("[TB] CIM_TEST = 0x%08X (test_mode=%0b, pos=0x%02X, neg=0x%02X)",
+             rd, rd[0], rd[15:8], rd[23:16]);
 
     // =======================================================================
     // Phase 5: 读取 output_fifo 中的 spike 输出

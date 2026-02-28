@@ -8,8 +8,7 @@
 | 方向 | 信号 | 位宽 | 类型 | 说明 |
 |---|---|---:|---|---|
 | input | wl_spike | NUM_INPUTS(=64) | 数据 | 单个 bit-plane（64 路并行），同一子时间步的特征向量第 x 位 |
-| input | dac_valid | 1 | 握手 | DAC valid（保持到 ready） |
-| output | dac_ready | 1 | 握手 | DAC ready（为 1 表示锁存 wl_spike） |
+| input | dac_valid | 1 | 脉冲 | 单拍触发信号；行为模型在该拍锁存 `wl_spike`（真实芯片由 `wl_latch` 时序控制） |
 | input | cim_start | 1 | 脉冲 | CIM 计算启动 |
 | output | cim_done | 1 | 脉冲 | CIM 计算完成 |
 | input | adc_start | 1 | 脉冲 | ADC 启动 |
@@ -17,11 +16,12 @@
 | input | bl_sel | $clog2(ADC_CHANNELS)(=5) | 控制 | bitline 选择（0..ADC_CHANNELS-1，Scheme B: 0-9 正列, 10-19 负列） |
 | output | bl_data | ADC_BITS(=8) | 数据 | 当前通道的 8-bit ADC 输出 |
 
-## 握手与时序
-1. 控制器拉高 `dac_valid`，同时保持 `wl_spike` 稳定。
-2. Macro 在 `dac_valid && dac_ready` 时锁存 `wl_spike`。
-3. 控制器发出 `cim_start`，Macro 经过 `CIM_LATENCY_CYCLES` 后拉高 `cim_done`。
-4. 控制器发出 `adc_start`，进入 ADC 时分复用采样。
+## 时序与触发
+1. `wl_mux_wrapper` 用 `wl_latch` 完成 8 组 WL 复用发送。
+2. `dac_ctrl` 在 `wl_valid_pulse` 到来后锁存 `wl_bitmap` 到 `wl_spike`，并发出 `dac_valid` 单拍。
+3. 行为模型在 `dac_valid` 单拍时锁存 `wl_spike`；真实芯片侧不依赖 `dac_ready`，采用固定时序。
+4. 控制器等待固定 `DAC_LATENCY_CYCLES` 后发出 `cim_start`，Macro 经过 `CIM_LATENCY_CYCLES` 后拉高 `cim_done`。
+5. 控制器发出 `adc_start`，进入 ADC 时分复用采样。
 
 ## ADC 时分复用（Scheme B）
 - `bl_sel` 依次为 0..ADC_CHANNELS-1（共 20 通道）。
@@ -34,8 +34,8 @@
 
 ## 行为模型 bl_data 生成规则
 ```
-pop = popcount(wl_spike)
+pop = popcount(wl_latched)
 正列 (j < 10):  bl_data[j] = (pop * 2 + j) & 8'hFF
 负列 (j >= 10): bl_data[j] = (pop / 2 + (j-10)) & 8'hFF
 ```
-- `popcount` 统计 `wl_spike` 中 1 的个数（0..64）。
+- `popcount` 统计锁存后 `wl_latched` 中 1 的个数（0..64）。

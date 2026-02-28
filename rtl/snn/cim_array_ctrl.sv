@@ -149,6 +149,63 @@ module cim_array_ctrl (
       /* verilator lint_on CMPCONST */
     end
   end
+
+`ifdef VCS
+  // -------------------------------------------------------------------
+  // SVA 并发断言（仅 VCS 编译；Icarus 用 -gno-assertions，无需此块）
+  // 覆盖目标：
+  //   P1 done_pulse 单拍宽度
+  //   P2 done_pulse 必须来自 ST_DONE（$past 因 state 已跳 ST_IDLE 故需用 $past）
+  //   P3-P5 三路 start 脉冲仅在对应状态产生（state 在同拍内未跳转，直接比较）
+  //   P6 in_fifo_pop 仅在 ST_FETCH 且 FIFO 非空时弹出
+  // -------------------------------------------------------------------
+  property p_done_single;
+    @(posedge clk) disable iff (!rst_n)
+    done_pulse |=> !done_pulse;
+  endproperty
+
+  property p_done_from_valid_path;
+    @(posedge clk) disable iff (!rst_n)
+    done_pulse |-> (
+      ($past(state) == ST_DONE) ||
+      (($past(state) == ST_IDLE) && $past(start_pulse) && ($past(timesteps) == 8'h00))
+    );
+  endproperty
+
+  property p_wl_in_dac;
+    @(posedge clk) disable iff (!rst_n)
+    wl_valid_pulse |-> ($past(state) == ST_DAC);
+  endproperty
+
+  property p_cim_in_cim;
+    @(posedge clk) disable iff (!rst_n)
+    cim_start_pulse |-> ($past(state) == ST_CIM);
+  endproperty
+
+  property p_adc_in_adc;
+    @(posedge clk) disable iff (!rst_n)
+    adc_kick_pulse |-> ($past(state) == ST_ADC);
+  endproperty
+
+  property p_pop_from_fetch;
+    @(posedge clk) disable iff (!rst_n)
+    in_fifo_pop |-> (($past(state) == ST_FETCH) && !$past(in_fifo_empty));
+  endproperty
+
+  a_done_single:    assert property (p_done_single)
+    else $error("[cim_array_ctrl] done_pulse 宽度超 1 拍");
+  a_done_from_done: assert property (p_done_from_valid_path)
+    else $error("[cim_array_ctrl] done_pulse 非法触发（既非 ST_DONE，也非 timesteps=0 立即完成路径）");
+  a_wl_in_dac:      assert property (p_wl_in_dac)
+    else $error("[cim_array_ctrl] wl_valid_pulse 非 ST_DAC");
+  a_cim_in_cim:     assert property (p_cim_in_cim)
+    else $error("[cim_array_ctrl] cim_start_pulse 非 ST_CIM");
+  a_adc_in_adc:     assert property (p_adc_in_adc)
+    else $error("[cim_array_ctrl] adc_kick_pulse 非 ST_ADC");
+  a_pop_from_fetch: assert property (p_pop_from_fetch)
+    else $error("[cim_array_ctrl] in_fifo_pop 非 ST_FETCH 触发");
+`endif
+
 `endif
 
   always_ff @(posedge clk or negedge rst_n) begin

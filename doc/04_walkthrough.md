@@ -23,7 +23,7 @@
 6. 写 `CIM_CTRL.START` 启动推理。
 7. cim_array_ctrl 状态机循环：
    - `ST_FETCH`：从 input_fifo 取 1 个 bit-plane
-   - `ST_DAC`：握手并锁存 wl_spike
+   - `ST_DAC`：锁存 wl_spike，等待固定 `DAC_LATENCY_CYCLES`（无 `dac_ready` 握手）
    - `ST_CIM`：等待 cim_done
    - `ST_ADC`：按 20 通道触发 ADC，等待每次 adc_done；ADC 控制器完成数字差分减法后产生 neuron_in_valid
    - `ST_INC`：bitplane_shift--；若到 LSB 则帧计数++

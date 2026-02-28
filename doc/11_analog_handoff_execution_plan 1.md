@@ -1,22 +1,36 @@
-# 09 数字-模拟接口对接文档（发送给模拟同学）
+# 11 数字-模拟接口对接文档
 
 **文档目的**：数字侧向模拟侧传递当前设计口径，并列出需要模拟侧确认/提供的全部信息，以推进 V1 RTL 收口和后端集成。
-**版本**：v1.0
+**版本**：v1.3
 **日期**：2026-02-27
-**数字侧联系人**：（填写你的名字）
 
 ---
 
-## 一、发给模拟同学的文档清单
+## 零、已确认事项（2026-02-27 更新）
+| 编号 | 事项 | 状态 |
+|:---:|---|:---:|
+| Q1 | **WL de-mux 归属**：模拟侧在芯片内部实现 8 组×8-bit 锁存器，接收 `wl_data/wl_group_sel/wl_latch`，还原 64 根字线驱动 | ✅ 已确认 |
+| Q2 | **dac_ready 握手移除**：模拟侧固定时序 WL de-mux，无需 ready 回路；数字侧改为固定 `DAC_LATENCY_CYCLES` 延迟；已更新 dac_ctrl.sv、cim_macro_blackbox.sv、snn_soc_top.sv | ✅ 已实施 |
+| Q3 | **chip_top 当前为 pad 骨架占位**：`rtl/top/chip_top.sv` 当前用于接口冻结/lint，不承担最终 pad 连线；不影响当前接口协议发送，但 tapeout 前必须完成 pad cell 实例化与真实连线 | ✅ 已明确 |
 
-| 优先级 | 文档 | 说明 |
-|:---:|---|---|
-| ★★★ | `doc/08_cim_analog_interface.md` | 主合同：信号定义、时序协议、接口边界、待确认事项 |
-| ★★★ | `doc/03_cim_if_protocol.md` | 快速版协议参考（握手时序、ADC MUX 流程） |
-| ★★★ | `doc/02_reg_map.md` | 可调参数口径（THRESHOLD、TIMESTEPS、THRESHOLD_RATIO 等） |
-| ★★ | `SNNSoC工程主文档.md` 中 §"关键决策点" + §"45-pin方案" | 已定版参数、pin 分配概况 |
+---
 
-**建议阅读顺序**：先看 08 文档了解整体接口框架，再看 03 文档看协议细节，然后看 02 文档了解可配参数，最后看主文档的关键决策点确认已对齐的结论。
+## 一、模拟侧文档清单
+
+| 优先级 | 文档                                        | 说明                                            |
+| :-: | ----------------------------------------- | --------------------------------------------- |
+| ★★★ | `doc/11_analog_handoff_execution_plan.md` | 执行主文档：对齐结论、待确认问题、会后回填模板                       |
+| ★★★ | `doc/08_cim_analog_interface.md`          | 主合同：信号定义、时序协议、接口边界、待确认事项                      |
+| ★★★ | `doc/03_cim_if_protocol.md`               | 快速版协议参考（固定时序、ADC MUX 流程）                      |
+| ★★★ | `doc/02_reg_map.md`                       | 可调参数口径（THRESHOLD、TIMESTEPS、THRESHOLD_RATIO 等） |
+| ★★  | `SNNSoC工程主文档.md` 中 §"关键决策点" + §"45-pin方案" | 已定版参数、pin 分配概况                                |
+
+**文档一致性约束（对外发送时请附带）**：
+- 以上 5 份为当前唯一“对外有效口径”。
+- `项目相关文件/器件对齐/器件组合作对齐会议材料_demo.md` 属于历史讨论稿，含早期口径（如 10 通道/`dac_ready`/旧 pin 估算），不作为接口签版依据。
+- 若历史文档与上述 5 份冲突，一律以上述 5 份为准（且以 RTL `rtl/top/snn_soc_pkg.sv` 参数为最终准绳）。
+
+**建议阅读顺序**：先看 11 文档掌握整体结论与待回填项，再看 08 文档了解接口框架，然后看 03 文档看协议细节，再看 02 文档了解可配参数，最后看主文档关键决策点确认定版结论。
 
 ---
 
@@ -34,10 +48,12 @@
 | 阵列物理规模 | 128×256 RRAM | 差分结构，V1有效使用 64 WL × 20 BL |
 | 时钟频率 | **50 MHz**（目标） | 周期 20 ns |
 | 总推理子时间步数 | **80** | T=10 帧 × PIXEL_BITS=8 bit-plane = 80 |
+| 对齐精度口径 | spike-only；zero-spike=0.00% | 与当前 Python/RTL 定版口径一致 |
+| 证据文件 | `项目相关文件/器件对齐/Python建模/results/summary.txt` | 对齐结果归档 |
 
 ---
 
-## 三、需要模拟同学确认/提供的信息（按优先级排序）
+## 三、需要模拟侧确认/提供的信息（按优先级排序）
 
 ### A4【最高优先级】ADC 参考电压与 TIA 增益
 
@@ -73,7 +89,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A5-3 | ADC MUX 切换建立时间：从 bl_sel 变化到 MUX 输出电压稳定（供 ADC 采样），需多少 ns？ | 2 cycles = 40 ns | [ns] / [cycles] |
 | A5-4 | ADC 转换时间：从 adc_start 到 adc_done（SAR 完成），需多少 ns？ | 3 cycles = 60 ns | [ns] / [cycles] |
 | A5-5 | bl_data 数据有效保持时间：adc_done 后 bl_data 需保持多少拍？（数字侧在 adc_done 后立即读取，需要至少 1 拍） | 1 cycle | [cycles] |
-| A5-6 | DAC 建立时间：从 dac_valid && dac_ready 后，WL 驱动器建立稳定需多少 ns？（影响何时可以发 cim_start） | 5 cycles = 100 ns | [ns] / [cycles] |
+| A5-6 | DAC 建立时间：从 wl_latch 下降沿后（dac_valid 单拍脉冲触发，固定时序，无 dac_ready 握手），WL 驱动器建立稳定需多少 ns？（影响何时可以发 cim_start） | 5 cycles = 100 ns | [ns] / [cycles] |
 | A5-7 | 一个完整 bit-plane 总时间（实测最坏情况）？50MHz 下能否 pipeline？ | ~125 cycles / 2.5 μs | [ns] |
 
 ---
@@ -103,7 +119,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 |---|---|---|
 | A7-1 | cim_done 脉冲宽度：保持 1 拍还是多拍？（数字侧按单拍脉冲处理） | 请确认 1 cycle / n cycles |
 | A7-2 | adc_done 脉冲宽度：1 拍还是多拍？（数字侧按单拍处理） | 请确认 1 cycle / n cycles |
-| A7-3 | dac_ready 信号：在 cim_done 之后、下一个 dac_valid 之前，是否需要 de-assert（拉低）再重新拉高？还是可以持续保持高电平？ | 请确认 ready 信号的复位行为 |
+| ~~A7-3~~ | ~~dac_ready 信号：在 cim_done 之后、下一个 dac_valid 之前，是否需要 de-assert（拉低）再重新拉高？还是可以持续保持高电平？~~ | **已解决（2026-02-27）：模拟侧采用固定时序 WL de-mux，dac_ready 握手已从接口中移除。数字侧改为固定 DAC_LATENCY_CYCLES 延迟，无需 ready 回路。** |
 | A7-4 | bl_sel 可以在 cim_done 后立即切换，还是需要等待额外的 guard time？ | 请给出 guard time（0 或 n cycles） |
 | A7-5 | 在 wl_spike = 64'b0（全 0 输入）时，CIM 是否正常运行 cim_done？还是会静默？ | 关键边界条件 |
 | A7-6 | 最高时钟频率下，数字侧发出 cim_start 到模拟侧 cim_done，最大延迟是多少（包含 PVT 最坏情况）？ | [cycles] worst-case |
@@ -149,7 +165,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 ---
 
-### 额外补充问题（不在 A4-A7/P0-P2 但同样重要）
+### 额外补充问题
 
 | 编号 | 问题 | 优先级 |
 |---|---|---|
@@ -163,22 +179,41 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 ---
 
-## 四、会议议程建议（优先级排序）
+### 参数回填状态表（会后持续维护）
 
-建议第一次对接会按以下顺序讨论（约 1.5 小时）：
+> 用法：每次会后更新“状态/负责人/日期/版本号”，避免口径漂移。
+| 条目 | 当前状态 | 负责人 | 目标日期 | 回填值/文档链接 | 备注 |
+|---|---|---|---|---|---|
+| A4（Vref/TIA） | 待回填 | 模拟团队 | 待定 | 待补充 | 影响阈值物理映射 |
+| A5（时序数字） | 待回填 | 模拟团队 | 待定 | 待补充 | 影响 pkg 时序参数 |
+| A6（噪声/动态范围） | 待回填 | 模拟团队 | 待定 | 待补充 | 影响阈值鲁棒性 |
+| A7（时序合同） | 待回填 | 数字+模拟联合 | 待定 | 待补充 | 需明确脉宽/guard time |
+| P0（pin/pad/floorplan） | 待回填 | 模拟+后端 | 待定 | 待补充 | 影响 chip_top/pad 定稿 |
+| P1（供电/偏置） | 待回填 | 模拟+器件 | 待定 | 待补充 | 影响电源与外部引脚 |
+| P2（RRAM 状态） | 待回填 | 器件团队 | 待定 | 待补充 | 影响 V1 是否需写入流程 |
 
-```
-[0-10 min]  双方确认 08 文档中的信号表格无异议（信号名、位宽、方向）
-[10-25 min] A7：确认时序合同（cim_done/adc_done脉宽、dac_ready行为）→ 输出一版时序合同签字版
-[25-45 min] A5：逐项填写真实时序数字 → 输出填好的 3.2 节表格
-[45-60 min] A4：确认 ADC Vref 和 TIA 增益 → 输出物理参数表
-[60-75 min] A6：确认噪声水平 → 评估阈值是否需要调整
-[75-90 min] P0：过 pin 分配表，双方签字确认最终 45-pin 版本
-```
+### 收口准入条件
+
+- `A7`：每个时序信号的主从、有效沿、脉宽（cycles）、是否允许 back-to-back。
+- `A5`：每阶段延迟（ns/cycles）+ 最坏 PVT 数值。
+- `A4`：Vref 高低点、TIA 增益标称/容差、是否可调、温漂。
+- `A6`：噪声（LSB RMS / pp）、最小可检电流、ENOB、温漂影响。
+- `P0`：最终 pin list（45-pin 定稿）与宏接口方位。
+- `P1`：AVDD/DVDD 约束、偏置来源、是否新增外部引脚。
+- `P2`：RRAM 上电状态、retention/read-disturb、V1 是否需写入流程。
 
 ---
 
-## 五、数字侧拿到信息后需要做的事
+## 四、数字侧拿到信息后需要做的事
+
+### 固定改码顺序（避免反复改）
+
+1. 先改时序参数（A5）：`rtl/top/snn_soc_pkg.sv`
+2. 重跑 SV lint + smoke test（先确认数字状态机无回归）
+3. 再改建模噪声/量程（A4/A6）：`项目相关文件/器件对齐/Python建模/config.py`
+4. 先跑 `--skip-train` 做快速一致性回归（只验推理链路）
+5. 若精度或稳定性变化超阈值，再决定是否回跑 full
+6. 最后处理 pad/物理映射（P0/P1/P2）：`rtl/top/chip_top.sv` + 文档
 
 ### 拿到 A5（真实时序数字）后：
 
@@ -212,62 +247,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 ---
 
-## 六、等待期间数字侧任务清单
-
-> 在等待模拟同学回复期间，数字侧按以下顺序并行推进。
-
-### 第一阶段（立即开始，约 1 周）
-
-```
-优先级 1：Smoke Test（VCS/Verdi 仿真）
-  目标：确认 RTL 编译无报错，基本数据通路可走通
-  步骤：
-    1. 同步最新 RTL 到 shannon 服务器
-    2. 运行 vcs 编译（见 sim/run_vcs.sh 或手动写 filelist）
-    3. 观察 top_tb.sv 输出：
-       - THRESHOLD_RATIO readback = 4 ✓
-       - DMA 传输 160 words 完成 ✓
-       - CIM DONE 拉高 ✓
-       - output_fifo 有 spike_id 输出 ✓
-    4. 若有 X 态或 timeout：用 Verdi 追波形定位
-
-优先级 2：学习代码（按 doc/06_learning_path.md Stage A→E 顺序）
-  Stage A：snn_soc_pkg.sv → 理解所有参数含义
-  Stage B：reg_bank.sv + bus_simple_if.sv → 理解寄存器读写协议
-  Stage C：dma_engine.sv + fifo_sync.sv → 理解数据通路
-  Stage D：cim_array_ctrl.sv + adc_ctrl.sv + lif_neurons.sv → 理解推理核
-  Stage E：wl_mux_wrapper.sv + chip_top.sv → 理解 pad 接口
-```
-
-### 第二阶段（拿到模拟侧 A5 之后）
-
-```
-1. 更新仿真时序参数（snn_soc_pkg.sv）
-2. 重跑 Smoke Test 验证新参数下 DMA+CIM+ADC 时序无违例
-3. 如 CIM 计算时间 > 当前 10 cycles，检查 cim_array_ctrl 状态机是否需要扩容
-```
-
-### 第三阶段（拿到模拟侧 A6 之后）
-
-```
-1. 更新 Python 建模的 READ_NOISE_SIGMA
-2. 重跑 python run_all.py --skip-train（约 2-3 小时）
-3. 若精度下降 >2%，考虑重新标定阈值 ratio_code
-4. 若需要调整 THRESHOLD_DEFAULT，同步更新 snn_soc_pkg.sv
-```
-
-### 第四阶段（拿到 LEF/Liberty/GDS 之后）
-
-```
-1. 更新 cim_macro_blackbox.sv 端口为真实宏端口
-2. 修改 chip_top.sv pad wrapper
-3. 启动 DC 综合（合成）
-4. 启动 PR 后端（P&R）
-```
-
----
-
-## 七、本文档附带的关键数字（供模拟同学快速核对）
+## 五、本文档附带的关键数字（供模拟侧快速核对）
 
 | 参数 | 值 | 来源 |
 |---|---|---|

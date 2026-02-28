@@ -55,17 +55,17 @@ doc/   中文说明文档
 
 ## 关键说明
 - **参数口径**：所有默认参数与时序常量以 `rtl/top/snn_soc_pkg.sv` 为准，文档中的数值仅作说明与示例，若不一致请以 pkg 为准。
-- 输入编码：7x7 像素、每像素 8bit；同一子时间步并行送 49 个像素的第 x 位，顺序为 MSB->LSB。
-- data_sram 排布：每个 bit-plane 为 49-bit，按 2 个 32-bit word 保存（word0=低32位，word1[16:0]=高17位）。
+- 输入编码：8x8 离线投影特征（NUM_INPUTS=64）、每维 8bit；同一子时间步并行送 64 维特征的第 x 位，顺序为 MSB->LSB。
+- data_sram 排布：每个 bit-plane 为 64-bit，按 2 个 32-bit word 保存（word0=低32位，word1=高32位）。
 - TIMESTEPS 表示帧数；总子时间步 = TIMESTEPS × PIXEL_BITS。
 - 当 TIMESTEPS=0 时，推理立即结束。
 - LIF 位宽建议：`LIF_MEM_WIDTH >= ADC_BITS + PIXEL_BITS`。
-- 默认阈值为 `THRESHOLD_DEFAULT`（按“同图重复 5 帧”估算，见 `snn_soc_pkg.sv`，可软件覆盖）。
+- 默认阈值为 `THRESHOLD_DEFAULT`（定版计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 10 = 10200`，可软件覆盖）。
 - CIM Macro 在仿真中为行为模型，综合时为黑盒，可替换真实宏。
 - UART/SPI/JTAG 仅为 stub，不产生真实协议，仅占位可读写寄存器。
 
 ## 建模定版补充（复位模式，2026-02-10）
-- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=1, threshold_ratio=0.40`）。
+- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=10, ratio_code=4`）。
 - 对比入口：`run_all.py` 的 `[3f]`（噪声影响，`add_noise=True`）和 `[3l]`（test 多 seed noisy，`add_noise=True`）。
 - soft（历史基线）：
   - val noisy mean：`90.41% +/- 0.0031`

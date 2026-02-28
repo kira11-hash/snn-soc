@@ -235,12 +235,11 @@ module snn_soc_top (
   // wl_spike: dac_ctrl 将 wl_bitmap 转换为模拟脉冲的数字控制信号（每 bit 对应一条 WL）
   logic [NUM_INPUTS-1:0] wl_spike;
 
-  // DAC 握手信号
-  // dac_valid      : dac_ctrl 通知 cim_macro 当前 WL spike 有效，可以读取
-  // dac_ready      : cim_macro 通知 dac_ctrl 已准备好接收（MUX 后信号）
+  // DAC 信号
+  // dac_valid      : dac_ctrl 发出单拍脉冲，通知 cim_macro 行为模型锁存 wl_spike
+  //                  （真实芯片侧由 wl_latch 时序控制，无需 dac_ready 握手）
   // dac_done_pulse : dac_ctrl 完成本次 WL 行激活的完成脉冲（单拍）
   logic                  dac_valid;
-  logic                  dac_ready;
   logic                  dac_done_pulse;
 
   // CIM 启动/完成握手
@@ -311,29 +310,31 @@ module snn_soc_top (
   // 设计意图：流片后上电，在模拟宏（RRAM 阵列）就绪之前，
   // 先用 cim_test_mode=1 验证数字控制链路是否正常工作。
   //
-  // cim_test_mode : reg_bank 中的测试使能位（SW 写入）
-  // cim_test_data : reg_bank 中的测试数据（8-bit，SW 写入，作为 fake ADC 输出）
+  // cim_test_mode     : reg_bank 中的测试使能位（SW 写入）
+  // cim_test_data_pos : 正通道（ch 0~9）合成 ADC 值（8-bit，SW 写入）
+  // cim_test_data_neg : 负通道（ch 10~19）合成 ADC 值（8-bit，SW 写入）
+  //   → 令 pos≠neg（如 pos=100, neg=0），Scheme B 差分非零，LIF 可积累 spike
+  //   → 这是流片后数字自检的关键：无需真实 RRAM，也能验证 LIF+输出 FIFO 全链路
   //
   // _hw 后缀：cim_macro_blackbox 的原始输出（test mode MUX 之前）
   // _test 后缀：数字侧产生的 fake 延迟响应
-  // 无后缀（dac_ready/cim_done/adc_done/bl_data）：MUX 后信号，是实际连接到控制链路的
+  // 无后缀（cim_done/adc_done/bl_data）：MUX 后信号，是实际连接到控制链路的
+  // 注：dac_ready 已移除（2026-02-27），模拟侧采用固定时序，无需握手回路
   // ----------------------------------------------------------
   logic                cim_test_mode;
-  logic [ADC_BITS-1:0] cim_test_data;
+  logic [ADC_BITS-1:0] cim_test_data_pos;
+  logic [ADC_BITS-1:0] cim_test_data_neg;
   // 硬件侧（cim_macro_blackbox 原始输出，test mode MUX 前）
-  logic                dac_ready_hw;
   logic                cim_done_hw;
   logic                adc_done_hw;
   logic [ADC_BITS-1:0] bl_data_hw;
   // 测试侧响应信号
-  // dac_ready_test: test mode 下 DAC 始终就绪（组合赋值 1'b1）
   // cim_done_test : test mode 下由计数器产生的 2 拍延迟 done 脉冲
   // adc_done_test : test mode 下由计数器产生的 1 拍延迟 done 脉冲
   // test_cim_cnt  : CIM fake 延迟倒计时计数器（4-bit，初值=1，即 2 拍延迟）
   // test_cim_busy : CIM fake 延迟进行中标志
   // test_adc_cnt  : ADC fake 延迟倒计时计数器（4-bit，初值=0，即 1 拍延迟）
   // test_adc_busy : ADC fake 延迟进行中标志
-  logic                dac_ready_test;
   logic                cim_done_test;
   logic                adc_done_test;
   logic [3:0]          test_cim_cnt;
@@ -565,7 +566,7 @@ module snn_soc_top (
   //   - REG_STATUS: snn_busy / snn_done_pulse / timestep_counter 等
   //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（定版默认 4 = 0x04）
   //   - REG_TIMESTEPS: 时间步数（定版默认 10）
-  //   - REG_CIM_TEST_DATA: 8-bit fake ADC 数据（测试模式用）
+  //   - REG_CIM_TEST: test_mode + test_data_pos/test_data_neg（测试模式用）
   //   - REG_ADC_SAT: ADC 饱和计数高/低
   //   - REG_DBG_*: 4 个调试计数器
   //   - REG_OUT_FIFO: 输出 FIFO 读取（包含 pop 动作）
@@ -608,8 +609,9 @@ module snn_soc_top (
     .reset_mode     (reset_mode),         // LIF 复位模式（0=软, 1=硬）
     .start_pulse    (snn_start_pulse),    // 推理启动脉冲（单拍）
     .soft_reset_pulse(snn_soft_reset_pulse), // 软复位脉冲（单拍）
-    .cim_test_mode  (cim_test_mode),      // CIM 测试模式使能（电平）
-    .cim_test_data  (cim_test_data),      // fake ADC 数据（电平）
+    .cim_test_mode    (cim_test_mode),      // CIM 测试模式使能（电平）
+    .cim_test_data_pos(cim_test_data_pos), // 正通道合成值（ch 0~9）
+    .cim_test_data_neg(cim_test_data_neg), // 负通道合成值（ch 10~19）
     .out_fifo_pop   (out_fifo_pop)        // SW 读输出结果时触发 pop（脉冲）
   );
 
@@ -648,15 +650,15 @@ module snn_soc_top (
   //======================
 
   // cim_array_ctrl：SNN 主控 FSM
-  // 状态：IDLE → FETCH（pop FIFO）→ SEND_WL → WAIT_DAC → WAIT_CIM → WAIT_ADC → DONE
-  // 输出：wl_bitmap, wl_valid_pulse, cim_start_pulse, adc_kick_pulse, neuron_in_valid
-  // 输入：snn_start_pulse, in_fifo_empty, dac_done_pulse, cim_done, adc_kick_pulse
+  // 状态：ST_IDLE → ST_FETCH（pop FIFO）→ ST_DAC → ST_CIM → ST_ADC → ST_INC → ST_DONE
+  // 输出：wl_bitmap, wl_valid_pulse, cim_start_pulse, adc_kick_pulse
+  // 输入：snn_start_pulse, in_fifo_empty, dac_done_pulse, cim_done, neuron_in_valid
   cim_array_ctrl u_cim_ctrl (
     .clk             (clk),
     .rst_n           (rst_n),
     .soft_reset_pulse(snn_soft_reset_pulse), // SW 软复位：FSM 回到 IDLE，不清 debug 计数器
     .start_pulse     (snn_start_pulse),      // SW 启动推理（单拍触发）
-    .timesteps       (timesteps),            // 时间步总数（MVP=1）
+    .timesteps       (timesteps),            // 时间步总数（默认 10，可寄存器配置）
     .in_fifo_rdata   (in_fifo_rdata),        // 从 input FIFO 读出的 64-bit bitmap
     .in_fifo_empty   (in_fifo_empty),        // FIFO 空则无法启动
     .in_fifo_pop     (in_fifo_pop),          // FSM 控制的 FIFO pop 信号
@@ -695,25 +697,23 @@ module snn_soc_top (
   );
 
   // dac_ctrl：DAC 控制器（数字 → 模拟 WL 脉冲驱动）
-  // 功能：接收 wl_bitmap_wrapped，逐位产生对应 WL 的模拟激活脉冲
-  // 握手：
-  //   dac_ctrl 产生 dac_valid → cim_macro 看到后拉高 dac_ready（表示已接收）→
-  //   dac_ctrl 检测到 dac_ready 后发出 dac_done_pulse 通知 cim_array_ctrl
-  // 注意：dac_ready 是 MUX 后信号（test mode 时为 1'b1）
+  // 功能：接收 wl_bitmap_wrapped，锁存后输出 wl_spike，等待固定延迟（DAC_LATENCY_CYCLES）
+  // 时序：wl_valid_pulse 到来时直接进入延迟计数，无需等待外部握手信号
+  //   dac_valid 为单拍脉冲，通知 cim_macro_blackbox 行为模型何时锁存 wl_spike
+  //   真实芯片侧由 wl_latch 时序保证，dac_ready 握手已移除（2026-02-27）
   dac_ctrl u_dac (
     .clk          (clk),
     .rst_n        (rst_n),
     .wl_bitmap    (wl_bitmap_wrapped),      // 来自 wl_mux_wrapper 的 64-bit bitmap
     .wl_valid_pulse(wl_valid_pulse_wrapped), // bitmap 有效脉冲
     .wl_spike     (wl_spike),               // 输出：每 bit 对应一条 WL 的模拟脉冲驱动信号
-    .dac_valid    (dac_valid),              // 输出：当前 WL spike 有效
-    .dac_ready    (dac_ready),              // 输入：cim_macro 已准备好接收（MUX 后）
+    .dac_valid    (dac_valid),              // 输出：单拍脉冲，通知行为模型锁存 wl_spike
     .dac_done_pulse(dac_done_pulse)         // 输出：本次 DAC 操作完成（单拍）
   );
 
   // cim_macro_blackbox：RRAM CIM 阵列行为模型（黑盒仿真）
   // 功能：模拟 128x256 RRAM 阵列（差分结构，实际 64x20 有效计算）的推理行为
-  //   - 接收 wl_spike（WL 激活信号）
+  //   - 接收 wl_spike（WL 激活信号），通过 dac_valid 单拍脉冲触发锁存
   //   - 在 cim_start 后执行内积计算（权重 x 输入）
   //   - 通过 adc_start/adc_done/bl_data 串行输出 20 个 BL 列的 ADC 结果
   // 注意：这里连接的是 _hw 后缀信号（原始输出），之后由 MUX 选择 hw 还是 test
@@ -721,8 +721,7 @@ module snn_soc_top (
     .clk       (clk),
     .rst_n     (rst_n),
     .wl_spike  (wl_spike),       // 来自 dac_ctrl：WL 激活位图的数字表示
-    .dac_valid (dac_valid),      // 来自 dac_ctrl：spike 有效指示
-    .dac_ready (dac_ready_hw),   // 输出：模型就绪（→ test mode MUX 后接 dac_ready）
+    .dac_valid (dac_valid),      // 来自 dac_ctrl：单拍脉冲，通知行为模型锁存 wl_spike
     .cim_start (cim_start_pulse), // 来自 cim_array_ctrl：计算启动脉冲
     .cim_done  (cim_done_hw),    // 输出：计算完成（→ test mode MUX 后接 cim_done）
     .adc_start (adc_start),      // 来自 adc_ctrl：当前列开始采样
@@ -754,11 +753,10 @@ module snn_soc_top (
 
   // lif_neurons：LIF 神经元阵列（10 个输出神经元，对应 MNIST 10 类）
   // 功能：
-  //   收到 neuron_in_valid 时，将 neuron_in_data（20x9-bit）累加到 10 个神经元的膜电位
-  //   （注：20 个差分通道对应 10 个输出，每个神经元的输入是对应差分对的和）
-  //   每个时间步结束后，比较膜电位与 threshold：
+  //   收到 neuron_in_valid 时，将 neuron_in_data（10x9-bit，已完成 Scheme B 差分）累加到 10 个神经元膜电位
+  //   每个子时间步结束后，比较膜电位与 threshold：
   //     若超过阈值 → 产生 spike，根据 reset_mode 复位膜电位（减法或归零）
-  //   所有时间步完成后，找最大膜电位对应的神经元编号，push 到 output FIFO
+  //   每次 spike 事件都会把神经元编号 push 到 output FIFO（事件流输出）
   // 关键信号：
   //   bitplane_shift : 比特平面偏移（0~7，对应 8-bit 输入位平面）
   //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 10200）
@@ -796,14 +794,19 @@ module snn_soc_top (
   //
   // 为什么 CIM 用 2 拍、ADC 用 1 拍？
   //   模拟真实 cim_macro_blackbox 行为模型的典型延迟，保证控制链路时序正确性验证
+  // 注：dac_ready MUX 已移除（2026-02-27），dac_ctrl 不再需要外部握手信号。
   //======================
-  assign dac_ready_test = 1'b1; // 测试模式下 DAC 始终就绪（无需等待模拟 macro）
 
   // 根据 cim_test_mode 选择信号来源
-  assign dac_ready = cim_test_mode ? dac_ready_test : dac_ready_hw; // MUX: DAC 就绪
   assign cim_done  = cim_test_mode ? cim_done_test  : cim_done_hw;  // MUX: CIM 完成
   assign adc_done  = cim_test_mode ? adc_done_test  : adc_done_hw;  // MUX: ADC 完成
-  assign bl_data   = cim_test_mode ? cim_test_data   : bl_data_hw;  // MUX: BL 数据（ADC 结果）
+  // BL 数据 MUX：test mode 下按通道号分发 pos/neg 合成值
+  //   bl_sel < NUM_OUTPUTS(10) → 正通道（ch 0~9）  → 返回 cim_test_data_pos
+  //   bl_sel >= NUM_OUTPUTS    → 负通道（ch 10~19） → 返回 cim_test_data_neg
+  // 令 pos≠neg（如 pos=100, neg=0）时，Scheme B 差分 = 100，LIF 膜电位可积累 spike
+  assign bl_data   = cim_test_mode ?
+      (bl_sel < $bits(bl_sel)'(NUM_OUTPUTS) ? cim_test_data_pos : cim_test_data_neg) :
+      bl_data_hw;
 
   // CIM / ADC fake 延迟响应生成器（寄存器逻辑）
   always_ff @(posedge clk or negedge rst_n) begin

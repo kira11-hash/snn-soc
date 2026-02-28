@@ -397,4 +397,53 @@ module dma_engine (
       default: rdata = 32'h0;
     endcase
   end
+
+`ifndef SYNTHESIS
+`ifdef VCS
+  // -------------------------------------------------------------------
+  // SVA 并发断言（仅 VCS 编译；Icarus -gno-assertions 无需此块）
+  // 覆盖目标：
+  //   B1 in_fifo_push 仅在 ST_PUSH 且 FIFO 非满时产生（组合信号，同拍比较）
+  //   B2 dma_rd_en 仅在 ST_RD0 / ST_RD1 产生
+  //   B3 IDLE 状态下无 push / read 动作
+  //   B4 err_sticky 置位时 done_sticky 必须同时置位
+  // -------------------------------------------------------------------
+  property p_push_in_st_push;
+    @(posedge clk) disable iff (!rst_n)
+    in_fifo_push |-> (state == ST_PUSH);
+  endproperty
+
+  property p_push_no_full;
+    @(posedge clk) disable iff (!rst_n)
+    in_fifo_push |-> !in_fifo_full;
+  endproperty
+
+  property p_rd_in_rd_states;
+    @(posedge clk) disable iff (!rst_n)
+    dma_rd_en |-> (state == ST_RD0 || state == ST_RD1);
+  endproperty
+
+  property p_idle_quiet;
+    @(posedge clk) disable iff (!rst_n)
+    (state == ST_IDLE) |-> (!in_fifo_push && !dma_rd_en);
+  endproperty
+
+  property p_err_with_done;
+    @(posedge clk) disable iff (!rst_n)
+    $rose(err_sticky) |-> done_sticky;
+  endproperty
+
+  a_push_in_push: assert property (p_push_in_st_push)
+    else $error("[dma_engine] in_fifo_push 非 ST_PUSH 状态");
+  a_push_no_full: assert property (p_push_no_full)
+    else $error("[dma_engine] in_fifo_push when FIFO full");
+  a_rd_in_rd:     assert property (p_rd_in_rd_states)
+    else $error("[dma_engine] dma_rd_en 非 ST_RD0/RD1 状态");
+  a_idle_quiet:   assert property (p_idle_quiet)
+    else $error("[dma_engine] IDLE 状态产生了 push/rd_en");
+  a_err_done:     assert property (p_err_with_done)
+    else $error("[dma_engine] err_sticky 置位但 done_sticky 未同时置位");
+`endif
+`endif
+
 endmodule
