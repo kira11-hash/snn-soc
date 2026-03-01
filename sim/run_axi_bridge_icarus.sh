@@ -24,7 +24,7 @@ fi
 echo "[INFO] Compilation OK"
 
 echo "[INFO] Running simulation..."
-./axi_bridge_test 2>&1 | tee axi_bridge_sim.log
+vvp axi_bridge_test 2>&1 | tee axi_bridge_sim.log
 
 echo ""
 if grep -q "AXI_BRIDGE_SMOKETEST_PASS" axi_bridge_sim.log; then
