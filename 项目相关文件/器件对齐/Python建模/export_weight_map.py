@@ -12,7 +12,9 @@
 
 说明:
   - row: 输入维度索引 i (0..NUM_INPUTS-1)
-  - col_pos/col_neg: 输出类别 j 的差分列号 (2*j, 2*j+1)
+  - col_pos/col_neg: 输出类别 j 的差分列号
+      * grouped(默认, 与 RTL 一致): col_pos=j, col_neg=j+NUM_OUTPUTS
+      * interleaved(兼容旧格式):    col_pos=2*j, col_neg=2*j+1
   - level_pos/level_neg: 对应电导级编号
   - G_pos/G_neg: 目标电导值 (单位取决于器件模型, 通常是 S)
 """
@@ -83,6 +85,17 @@ def _nearest_level_index(values: torch.Tensor, levels: torch.Tensor) -> torch.Te
     return diff.argmin(dim=-1)
 
 
+def _resolve_diff_columns(j: int, num_outputs: int, col_map: str) -> Tuple[int, int]:
+    """根据列映射模式返回 (col_pos, col_neg)。"""
+    if col_map == "grouped":
+        # 与 RTL Scheme B 一致: 0..N-1 正列, N..2N-1 负列
+        return j, j + num_outputs
+    if col_map == "interleaved":
+        # 兼容历史导出: 偶数列正, 奇数列负
+        return 2 * j, 2 * j + 1
+    raise ValueError(f"不支持的列映射模式: {col_map}")
+
+
 def _quantize_to_conductance(
     w: torch.Tensor, weight_bits: int, rows: int, cols: int
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -111,6 +124,7 @@ def export_weight_map(
     weight_bits: int,
     out_csv: str,
     weights_dir: str,
+    col_map: str,
 ) -> None:
     w = _load_weight_tensor(method=method, weights_dir=weights_dir)
     num_outputs, num_inputs = int(w.shape[0]), int(w.shape[1])
@@ -120,6 +134,19 @@ def export_weight_map(
     g_pos, g_neg, levels = _quantize_to_conductance(
         w=w, weight_bits=weight_bits, rows=rows, cols=cols
     )
+
+    # 防误用检查：保证导出列号不会越界物理列数。
+    max_col = -1
+    for j in range(num_outputs):
+        col_pos, col_neg = _resolve_diff_columns(
+            j=j, num_outputs=num_outputs, col_map=col_map
+        )
+        max_col = max(max_col, col_pos, col_neg)
+    if max_col >= cols:
+        raise RuntimeError(
+            f"列映射越界: col_map={col_map}, max_col={max_col}, ARRAY_COLS={cols}. "
+            "请检查 NUM_OUTPUTS / ARRAY_COLS / col_map 配置。"
+        )
 
     idx_pos = _nearest_level_index(g_pos, levels)
     idx_neg = _nearest_level_index(g_neg, levels)
@@ -131,8 +158,9 @@ def export_weight_map(
             ["row", "col_pos", "col_neg", "level_pos", "level_neg", "G_pos", "G_neg"]
         )
         for j in range(num_outputs):
-            col_pos = 2 * j
-            col_neg = 2 * j + 1
+            col_pos, col_neg = _resolve_diff_columns(
+                j=j, num_outputs=num_outputs, col_map=col_map
+            )
             for i in range(num_inputs):
                 writer.writerow(
                     [
@@ -149,6 +177,9 @@ def export_weight_map(
     print("导出完成:")
     print(f"  method={method}")
     print(f"  weight_bits={weight_bits}")
+    print(f"  col_map={col_map}")
+    if col_map == "interleaved":
+        print("  [WARN] interleaved 与当前 RTL 默认分组映射不一致，仅用于兼容旧流程。")
     print(f"  权重形状=[{num_outputs}, {num_inputs}]")
     print(f"  电导级数量={int(levels.numel())}")
     print(f"  输出文件={out_csv}")
@@ -170,6 +201,16 @@ def main():
         default=None,
         help="输出 CSV 路径，默认 results/weight_map_<method>_w<bits>.csv",
     )
+    parser.add_argument(
+        "--col-map",
+        type=str,
+        choices=["grouped", "interleaved"],
+        default="grouped",
+        help=(
+            "差分列映射: grouped(默认, 与 RTL 一致: pos=0..N-1, neg=N..2N-1) "
+            "或 interleaved(兼容旧格式: pos=2*j, neg=2*j+1)"
+        ),
+    )
     args = parser.parse_args()
 
     out_csv = args.out
@@ -183,9 +224,9 @@ def main():
         weight_bits=int(args.weight_bits),
         out_csv=out_csv,
         weights_dir=args.weights_dir,
+        col_map=args.col_map,
     )
 
 
 if __name__ == "__main__":
     main()
-

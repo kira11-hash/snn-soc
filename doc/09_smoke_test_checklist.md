@@ -11,6 +11,21 @@
   - `export VERDI_HOME=/path/to/verdi`
   - 可选：`export SYN_ENV_FILE=/path/to/syn.env`（如你们组有统一环境脚本）
 
+### 0.3 Linux 执行前换行符修正（避免 `sim.log` 隐藏字符）
+
+若脚本来自 Windows，可能带 CRLF，导致日志文件名实际变成 `sim.log^M`（不可见后缀），表现为终端有输出但 `sim.log` 不更新。
+
+```bash
+cd sim
+sed -i 's/\r$//' run_vcs.sh run_verdi.sh run_icarus_light.sh
+```
+
+执行后建议检查一次：
+
+```bash
+ls -lb sim.log*
+```
+
 ### 0.1 无 VCS 环境的替代检查（本地）
 
 若本机暂时没有 VCS，可先执行静态可编译性检查：
@@ -105,11 +120,17 @@ ls -la sim/*.sh
 ```bash
 cd sim
 
+# 先清理 CRLF，避免生成 sim.log^M
+sed -i 's/\r$//' run_vcs.sh run_verdi.sh run_icarus_light.sh
+
 # 确保 waves 目录存在
 mkdir -p waves
 
-# 运行 VCS 编译
-./run_vcs.sh
+# 运行 VCS 编译 + 仿真
+bash run_vcs.sh
+
+# 检查日志文件名是否正常（不应出现 sim.log^M）
+ls -lb sim.log*
 ```
 
 **检查点 1.1**：编译日志
@@ -130,9 +151,9 @@ ls -la simv
 ### Step 2: 运行仿真
 
 ```bash
-# 如果 run_vcs.sh 已包含运行步骤，则跳过
-# 否则手动运行：
-./simv -l sim.log
+# run_vcs.sh 已包含运行步骤（推荐）
+# 若需手动重跑，使用以下命令保证“终端输出 + 文件落盘”一致：
+./simv |& tee sim.log
 ```
 
 **检查点 2.1**：仿真完成
@@ -171,7 +192,7 @@ ls -la waves/snn_soc.fsdb
 ### Step 4: 打开 Verdi 查看波形
 
 ```bash
-./run_verdi.sh
+bash run_verdi.sh
 
 # 或手动：
 verdi -ssf waves/snn_soc.fsdb &
@@ -208,22 +229,22 @@ verdi -ssf waves/snn_soc.fsdb &
 
 ### 4.4 ADC 时分复用
 
-| 信号 | 预期行为 |
-|------|----------|
-| `u_adc.bl_sel` | 0 → 1 → 2 → ... → 19 → 0 → ...（Scheme B：20 通道） |
-| `u_adc.neuron_in_valid` | 每完成 20 个通道采样并执行差分减法后产生单拍脉冲 |
+| 信号                      | 预期行为                                           |
+| ----------------------- | ---------------------------------------------- |
+| `u_adc.bl_sel`          | 0 → 1 → 2 → ... → 19 → 0 → ...（Scheme B：20 通道） |
+| `u_adc.neuron_in_valid` | 每完成 20 个通道采样并执行差分减法后产生单拍脉冲                     |
 
 ### 4.5 LIF 神经元
 
-| 信号                    | 预期行为                   |
-| --------------------- | ---------------------- |
-| `u_lif.membrane[0]`   | 逐步累加，超过阈值后复位           |
+| 信号                    | 预期行为                        |
+| --------------------- | --------------------------- |
+| `u_lif.membrane[0]`   | 逐步累加，超过阈值后复位                |
 | `u_lif.out_fifo_push` | spike 产生时拉高，将 spike 写入 FIFO |
 
 ### 4.6 输出 FIFO
 
-| 信号 | 预期行为 |
-|------|----------|
+| 信号                    | 预期行为                             |
+| --------------------- | -------------------------------- |
 | `u_output_fifo.count` | 有 spike 时从 0 逐步增加；若无 spike 可保持 0 |
 
 ---
@@ -283,6 +304,20 @@ verdi -ssf waves/snn_soc.fsdb &
 2. 确认 $fsdbDumpfile 在复位后执行
 ```
 
+### 问题 5：终端有输出，但 sim.log 不更新（仍是旧时间）
+
+```
+典型原因：
+1. 脚本为 CRLF，实际写入文件名是 sim.log^M
+2. 跑的是别的目录下的 simv/sim.log
+
+排查方法：
+1. pwd -P
+2. ls -lb sim.log*
+3. sed -i 's/\r$//' run_vcs.sh run_verdi.sh
+4. 手动运行：./simv |& tee sim.log
+```
+
 ---
 
 ## 完整 Smoke Test 脚本
@@ -312,6 +347,9 @@ fi
 echo "VCS_HOME = $VCS_HOME"
 echo "VERDI_HOME = $VERDI_HOME"
 
+# 修正 CRLF（避免 sim.log^M）
+sed -i 's/\r$//' run_vcs.sh run_verdi.sh 2>/dev/null || true
+
 # Step 2: 编译
 echo ""
 echo "[Step 2] VCS 编译..."
@@ -332,7 +370,7 @@ echo "编译成功！"
 # Step 3: 运行仿真
 echo ""
 echo "[Step 3] 运行仿真..."
-./simv -l sim.log
+./simv |& tee sim.log
 
 # Step 4: 检查结果
 echo ""

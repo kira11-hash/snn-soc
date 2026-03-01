@@ -1,0 +1,22 @@
+rc file Version 1.0
+
+[Design]
+COMPILE_PATH=/home/chenqingan/Desktop/project/SoCDesign/sim
+VCS_HOME=/opt/Synopsys/vcs_green/vcs-2021.09-sp2
+VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
+SystemC=FALSE
+UUM=FALSE
+KDB=TRUE
+USE_NOVAS_HOME=FALSE
+COSIM=FALSE
+TOP=top_tb 
+OPTION=-ssv -ssy 
+ELAB_OPTION=-ssv -ssy 
+ELAB=TRUE
+SIMV_WRAPPER=FALSE
+[vcs]
+RUN_ELABCOM=unset TURBO_LOG_DIR ;\rm -rf /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/elabcomLog ;/opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/bin/elabcom -logdir /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/elabcomLog  -simvdaidir /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir  -lib /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/work  -saveLevel  -elab /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/kdb -simflow -simdir /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/kdb_libs -use_old_scope_tree -topfile /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/.elabcomTopFile -pkgfile /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/.elabcomPkgFile -ssv -ssy  -Lf work +disable_message+C00380+C00381 +disable_message+C00388+C00389  >& /dev/null  && echo Success >& /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/.elabcomReport || echo Fail >& /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/.elabcomReport; \rm -rf /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/work.lib++ /home/chenqingan/Desktop/project/SoCDesign/sim/simv.daidir/kdb_libs/ 
+
+[Value]
+WREALX=ffff534e50535f58
+WREALZ=ffff534e50535f5a

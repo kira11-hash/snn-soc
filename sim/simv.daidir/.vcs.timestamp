@@ -1,0 +1,138 @@
+0 
+40
++itf+/opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/vcsdp_lite.tab
++vcsd1
++vpi
+-Mamsrun=
+-Masflags=
+-Mcc=gcc
+-Mcfl= -pipe -fPIC -O -I/opt/Synopsys/vcs_green/vcs-2021.09-sp2/include
+-Mcplusplus=g++
+-Mcrt0=
+-Mcrtn=
+-Mcsrc=
+-Mexternalobj=
+-Mldflags= -rdynamic
+-Mobjects= /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/libvirsim.so /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/liberrorinf.so /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/libsnpsmalloc.so /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/libvfs.so /opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/pli.a
+-Mout=simv
+-Msaverestoreobj=/opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/vcs_save_restore_new.o
+-Msyslibs=/opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/pli.a -ldl -lm
+-Mvcsaceobjs=
+-Mxcflags= -pipe -fPIC -I/opt/Synopsys/vcs_green/vcs-2021.09-sp2/include
+-Mxllcflags=
+-P
+-P
+-Xufe=2steps
+-debug_access+all
+-f sim.f
+-fsdb
+-full64
+-gen_obj
+-kdb
+-l
+-o simv
+-picarchive
+-sverilog
+-timescale=1ns/1ps
+/opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/bin/vcs1
+vcs.log
+simv
+/opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/novas.tab
+/opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/verdi.tab
+sim.f
+59
+icc=/home/opt/Synopsys/icc-2020.09-sp4
+dc=/home/opt/Synopsys/dc-2021.06-sp5
+XMODIFIERS=@im=ibus
+XDG_SESSION_ID=191
+XDG_RUNTIME_DIR=/run/user/1032
+XDG_MENU_PREFIX=gnome-
+XDG_DATA_DIRS=/home/chenqingan/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share
+XDG_CURRENT_DESKTOP=GNOME
+VTE_VERSION=5204
+VNCDESKTOP=zjueda1:11 (chenqingan)
+VMR_MODE_FLAG=64
+VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
+VERDI=/home/opt/Synopsys/verdi-2021.09-sp2
+VCS_PATHMAP_PRELOAD_DONE=1
+VCS_MX_HOME_INTERNAL=1
+VCS_MODE_FLAG=64
+VCS_LOG_FILE=vcs.log
+VCS_HOME=/opt/Synopsys/vcs_green/vcs-2021.09-sp2
+VCS_EXEC_DONE=1
+VCS_DEPTH=0
+VCS_ARG_ADDED_FOR_TMP=1
+VCS_ARCH=linux64
+UNAME=/bin/uname
+TOOL_HOME=/opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64
+SSH_TTY=/dev/pts/0
+SSH_CONNECTION=10.97.41.116 64642 10.98.193.11 22
+SSH_CLIENT=10.97.41.116 64642 22
+SSH_AUTH_SOCK=/run/user/1032/keyring/ssh
+SSH_AGENT_PID=74473
+SNPS_VERDI_INTERNAL_LP_XML_NEW_FLOW=1
+SNPS_VCS_CLANG_PATH=/opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/clang
+SNPS_INTERNAL_VCS_LINUX_OS=linux
+SESSION_MANAGER=local/unix:@/tmp/.ICE-unix/74059,unix/unix:/tmp/.ICE-unix/74059
+SELINUX_USE_CURRENT_RANGE=
+SELINUX_ROLE_REQUESTED=
+SELINUX_LEVEL_REQUESTED=
+SCRNAME=vcs
+SCRIPT_NAME=vcs
+QT_IM_MODULE=ibus
+QT_GRAPHICSSYSTEM_CHECKED=1
+QTLIB=/usr/lib/qt-3.3/lib
+QTINC=/usr/lib/qt-3.3/include
+QTDIR=/usr/lib/qt-3.3
+PRIMETIME=/home/opt/Synopsys/pt-2021.06-sp5
+OVA_UUM=0
+LESSOPEN=||/usr/bin/lesspipe.sh %s
+LC_ALL=C
+IMSETTINGS_MODULE=none
+IMSETTINGS_INTEGRATE_DESKTOP=yes
+HISTCONTROL=ignoredups
+GNOME_TERMINAL_SERVICE=:1.146
+GNOME_TERMINAL_SCREEN=/org/gnome/Terminal/screen/829990eb_1817_431f_afe0_730e21460d63
+GNOME_SHELL_SESSION_MODE=classic
+GNOME_DESKTOP_SESSION_ID=this-is-deprecated
+Formality=/home/opt/Synopsys/fm-2021.06-sp5
+DBUS_STARTER_BUS_TYPE=session
+DBUS_STARTER_ADDRESS=unix:abstract=/tmp/dbus-QNc2jX5ZAr,guid=ee4e4d1e30f97190904e0b4b69771172
+DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-QNc2jX5ZAr,guid=ee4e4d1e30f97190904e0b4b69771172
+COLORTERM=truecolor
+0
+0
+25
+1772289602 ../tb/top_tb.sv
+1772289603 ../tb/tb_lib/bus_master_tasks.sv
+1772289601 ../rtl/top/snn_soc_top.sv
+1772289600 ../rtl/periph/jtag_stub.sv
+1772289600 ../rtl/periph/spi_stub.sv
+1772289600 ../rtl/periph/uart_stub.sv
+1772289601 ../rtl/snn/cim_macro_blackbox.sv
+1772289601 ../rtl/snn/wl_mux_wrapper.sv
+1772289600 ../rtl/snn/cim_array_ctrl.sv
+1772289601 ../rtl/snn/lif_neurons.sv
+1772289600 ../rtl/snn/adc_ctrl.sv
+1772289601 ../rtl/snn/dac_ctrl.sv
+1772289600 ../rtl/dma/dma_engine.sv
+1772289600 ../rtl/reg/fifo_regs.sv
+1772289600 ../rtl/reg/reg_bank.sv
+1772289600 ../rtl/mem/fifo_sync.sv
+1772289600 ../rtl/mem/sram_simple_dp.sv
+1772289600 ../rtl/mem/sram_simple.sv
+1772289599 ../rtl/bus/bus_interconnect.sv
+1772289600 ../rtl/bus/bus_simple_if.sv
+1772289601 ../rtl/top/snn_soc_pkg.sv
+1772289601 sim.f
+1646047051 /opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/verdi.tab
+1646047051 /opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/novas.tab
+1645762003 /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/vcsdp_lite.tab
+5
+1645765402 /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/libvirsim.so
+1645763693 /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/liberrorinf.so
+1645763573 /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/libsnpsmalloc.so
+1645763690 /opt/Synopsys/vcs_green/vcs-2021.09-sp2/linux64/lib/libvfs.so
+1646044993 /opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/pli.a
+1772334214 simv.daidir
+-1 partitionlib

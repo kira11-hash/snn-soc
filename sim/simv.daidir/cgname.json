@@ -1,0 +1,116 @@
+{
+    "std": [
+        "std",
+        "reYIK",
+        "module",
+        1
+    ],
+    "snn_soc_pkg": [
+        "snn_soc_pkg",
+        "MKbRM",
+        "module",
+        2
+    ],
+    "bus_simple_if": [
+        "bus_simple_if",
+        "L3v77",
+        "module",
+        3
+    ],
+    "bus_interconnect": [
+        "bus_interconnect",
+        "yf3m7",
+        "module",
+        4
+    ],
+    "fifo_sync": [
+        "fifo_sync",
+        "prbSR",
+        "module",
+        5
+    ],
+    "fifo_sync_0000": [
+        "fifo_sync_0000",
+        "u9tNf",
+        "module",
+        6
+    ],
+    "reg_bank": [
+        "reg_bank",
+        "zpMar",
+        "module",
+        7
+    ],
+    "fifo_regs": [
+        "fifo_regs",
+        "x5tHN",
+        "module",
+        8
+    ],
+    "dac_ctrl": [
+        "dac_ctrl",
+        "GB3ff",
+        "module",
+        9
+    ],
+    "adc_ctrl": [
+        "adc_ctrl",
+        "xM158",
+        "module",
+        10
+    ],
+    "lif_neurons": [
+        "lif_neurons",
+        "p45Bp",
+        "module",
+        11
+    ],
+    "wl_mux_wrapper": [
+        "wl_mux_wrapper",
+        "HbjRy",
+        "module",
+        12
+    ],
+    "cim_macro_blackbox": [
+        "cim_macro_blackbox",
+        "yVtkp",
+        "module",
+        13
+    ],
+    "uart_stub": [
+        "uart_stub",
+        "IgcxK",
+        "module",
+        14
+    ],
+    "spi_stub": [
+        "spi_stub",
+        "maqZE",
+        "module",
+        15
+    ],
+    "jtag_stub": [
+        "jtag_stub",
+        "QT1Ht",
+        "module",
+        16
+    ],
+    "tb_bus_pkg": [
+        "tb_bus_pkg",
+        "zujLe",
+        "module",
+        17
+    ],
+    "top_tb": [
+        "top_tb",
+        "W0eJz",
+        "module",
+        18
+    ],
+    "...MASTER...": [
+        "SIM",
+        "amcQw",
+        "module",
+        19
+    ]
+}

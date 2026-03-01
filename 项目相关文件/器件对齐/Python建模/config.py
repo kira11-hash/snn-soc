@@ -90,18 +90,18 @@ ADC_FULL_SCALE_MODE = "fixed"
 # SNN inference core switches
 # =====================================================
 USE_DEVICE_MODEL = True       # Enable plugin-based device model / noise / IR drop
-# 阈值锁定为最终定版码值：4/255
+# Default fixed threshold ratio (used when calibration is disabled).
 SPIKE_THRESHOLD_RATIO = 4.0 / 255.0
 SPIKE_RESET_MODE = "soft"     # soft: V=V-Vth; hard: V=0
 ADAPTIVE_INIT_SAMPLES = 512   # Samples used for adaptive-threshold initialization
-ALLOW_SIGNED_SCHEME_A = False  # False keeps Python aligned with current unsigned RTL data path
+ALLOW_SIGNED_SCHEME_A = True   # Enable Scheme A for exhaustive A/B exploration
 
 # Evaluation scope (avoid test leakage during model/param selection)
 TUNE_SPLIT = "val"             # "val" or "test" (recommended: "val")
 # Final-test 配置：参数冻结后仅在 test 上做最终一次报告
 FINAL_REPORT_SPLIT = "test"
-TARGET_INPUT_DIM_FOR_RECOMMEND = 64  # set to 64 for projection/8x8 recommendation
-EVAL_SCHEMES = ["B"]           # primary evaluation schemes under current RTL
+TARGET_INPUT_DIM_FOR_RECOMMEND = 0   # 0 = include all input dims in recommendation/sweep
+EVAL_SCHEMES = ["A", "B"]      # exhaustive differential-scheme sweep
 PRIMARY_SCHEME = "B"           # scheme used for method/ADC/W/T recommendations
 
 # Final fixed-config multi-seed report (inference-only)
@@ -117,9 +117,12 @@ INPUT_GAIN_MAX = 1.5
 # =====================================================
 # Threshold calibration
 # =====================================================
-CALIBRATE_THRESHOLD_RATIO = False
-# 历史候选保留；当前已锁定阈值，默认不再参与运行
-THRESHOLD_RATIO_CANDIDATES = [2.0 / 255.0, 3.0 / 255.0, 4.0 / 255.0]
+CALIBRATE_THRESHOLD_RATIO = True
+# Per-method/per-scheme threshold-ratio candidates for exhaustive sweep.
+THRESHOLD_RATIO_CANDIDATES = [
+    2.0 / 255.0, 3.0 / 255.0, 4.0 / 255.0,
+    6.0 / 255.0, 8.0 / 255.0, 12.0 / 255.0,
+]
 THRESHOLD_CALIBRATE_SAMPLES = 2000
 
 # =====================================================
@@ -158,18 +161,28 @@ NUM_OUTPUTS = 10           # 杈撳嚭绫诲埆鏁?(MNIST 0-9)
 # =====================================================
 # 姣忕鏂规硶浼氱嫭绔嬭缁傾NN骞跺姣斿噯纭巼
 # 鏍煎紡: { 鍚嶇О: (鐩爣灏哄, 鏂规硶) }
-# 最终阈值码值确认阶段：仅跑最终方法，减少运行时间与干扰项
+# Full method set for exhaustive exploration.
 DOWNSAMPLE_METHODS = {
-    "proj_sup_64": (64, "proj_sup"),
+    "avgpool_7x7":          (7,  "avgpool"),
+    "bilinear_7x7":         (7,  "bilinear"),
+    "avgpool_8x8":          (8,  "avgpool"),
+    "bilinear_8x8":         (8,  "bilinear"),
+    "maxpool_8x8":          (8,  "maxpool"),
+    "nearest_8x8":          (8,  "nearest"),
+    "pad32_zero_8x8":       (8,  "pad32_zero"),
+    "pad32_replicate_8x8":  (8,  "pad32_replicate"),
+    "pad32_reflect_8x8":    (8,  "pad32_reflect"),
+    "proj_pca_64":          (64, "proj_pca"),
+    "proj_sup_64":          (64, "proj_sup"),
 }
 
 # =====================================================
 # 鍙傛暟鎵弿鑼冨洿
 # =====================================================
-# Final-test 固定配置：仅比较阈值码值，其他参数固定
-ADC_BITS_SWEEP    = [8]
-WEIGHT_BITS_SWEEP = [4]
-TIMESTEPS_SWEEP   = [10]
+# Exhaustive hardware parameter sweeps.
+ADC_BITS_SWEEP    = [6, 8, 10, 12]
+WEIGHT_BITS_SWEEP = [2, 3, 4, 6, 8]
+TIMESTEPS_SWEEP   = [1, 3, 5, 10, 20]
 
 # =====================================================
 # ANN 璁粌瓒呭弬鏁?

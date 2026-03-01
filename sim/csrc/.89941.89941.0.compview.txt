@@ -1,0 +1,9 @@
+{"vcs1":{"timestamp_begin":1772333722.611571112, "rt":0.88, "ut":0.74, "st":0.31}}
+{"vcselab":{"timestamp_begin":1772333723.628133959, "rt":0.34, "ut":0.24, "st":0.11}}
+{"link":{"timestamp_begin":1772333724.064399639, "rt":0.26, "ut":0.16, "st":0.11}}
+{"SNPS_VCS_INTERNAL_ROOT_START_TIME": 1772333721.679421499}
+{"VCS_COMP_START_TIME": 1772333721.679421499}
+{"VCS_COMP_END_TIME": 1772333724.584982620}
+{"VCS_USER_OPTIONS": "-full64 -sverilog -timescale=1ns/1ps -f sim.f -o simv -debug_access+all -kdb -P /opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/novas.tab /opt/Synopsys/verdi_green/verdi-2021.09-sp2/share/PLI/VCS/LINUX64/pli.a -l vcs.log"}
+{"vcs1": {"peak_mem": 485036}}
+{"stitch_vcselab": {"peak_mem": 224892}}
