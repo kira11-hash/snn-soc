@@ -90,7 +90,8 @@ module uart_ctrl (
           // TXDATA：忙时写入忽略（由 TX FSM 单独处理 tx_shift 的加载）
           REG_TXDATA: if (!tx_busy) txdata_shadow <= req_wdata[7:0];
           // CTRL：任何时候均可更新波特率（下次发送生效）
-          REG_CTRL:   baud_div_reg <= req_wdata[15:0];
+          // 防御：写 0 视为非法配置，钳位到 1，避免 baud_cnt 装载为 16'hFFFF
+          REG_CTRL:   baud_div_reg <= (req_wdata[15:0] == 16'd0) ? 16'd1 : req_wdata[15:0];
           default: ;
         endcase
       end

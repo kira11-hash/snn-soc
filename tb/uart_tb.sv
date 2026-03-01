@@ -159,40 +159,6 @@ module uart_tb;
     end
   endtask
 
-  // ── 发送+解码+校验辅助任务 ────────────────────────────────────────────────
-  task send_and_check;
-    input [7:0] byte_to_send;
-    reg [7:0]   decoded;
-    reg [31:0]  rd;
-    begin
-      // 启动解码任务（后台等待起始位）——用 fork/join 并发
-      fork
-        begin
-          bus_write(REG_TXDATA, {24'h0, byte_to_send});
-        end
-        begin
-          uart_decode(decoded);
-        end
-      join
-      // 等发送完成（tx_busy 归 0）
-      begin : wait_idle
-        integer timeout;
-        timeout = 0;
-        while (1) begin
-          bus_read(REG_STATUS, rd);
-          if (rd[0] == 1'b0) disable wait_idle;
-          if (timeout > 20000) begin
-            $display("[FAIL] send_and_check: tx_busy timeout");
-            fail_cnt = fail_cnt + 1;
-            disable wait_idle;
-          end
-          timeout = timeout + 1;
-          @(posedge clk);
-        end
-      end
-    end
-  endtask
-
   // ── 看门狗定时器 ──────────────────────────────────────────────────────────
   initial begin
     #2_000_000;
@@ -201,7 +167,6 @@ module uart_tb;
   end
 
   // ── 主测试序列 ────────────────────────────────────────────────────────────
-  integer rd_val;
   reg [7:0] decoded_byte;
   reg [31:0] rd_data;
 
@@ -291,12 +256,12 @@ module uart_tb;
     req_addr  = UART_BASE | 32'h4;
     #4; rd_data = rdata;
     @(posedge clk); #1; req_valid = 0;
-    check(rd_data[0], 1'b1, "T6_BUSY ");  // 应为 busy
+    check({31'h0, rd_data[0]}, 32'h1, "T6_BUSY ");  // 应为 busy
 
     // 等发送完毕：baud_div=8，10 bit * 8 clk = 80 clk
     repeat (120) @(posedge clk);
     bus_read(REG_STATUS, rd_data);
-    check(rd_data[0], 1'b0, "T6_IDLE ");  // 应为 idle
+    check({31'h0, rd_data[0]}, 32'h0, "T6_IDLE ");  // 应为 idle
     // 消耗掉这帧 uart_tx 上的数据（已发完，无需 decode）
 
     // ──────────────────────────────────────────────────────────────────────
