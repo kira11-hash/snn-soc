@@ -303,7 +303,66 @@ main 分支完全未被修改，可随时回退。
 
 ---
 
-## 七、与后续迭代的关系
+## 七、待完成项（2026-03-01 审查后更新）
+
+对照六步计划，当前完成情况：
+
+| 步骤 | 文件 | 状态 | 说明 |
+|------|------|------|------|
+| ① | `rtl/bus/axi_lite_if.sv` | ✅ 已完成 | 99行，含 master/slave modport |
+| ② | `rtl/bus/axi2simple_bridge.sv` | ✅ 已完成 | 263行，AW/W 错拍 + 5状态 FSM |
+| ③ | `tb/axi_lite_master_bfm.sv` | ⚠️ 未独立 | BFM 任务内联在 axi_bridge_tb.sv 中（axi_write/axi_read/axi_write_aw_first/axi_write_w_first），未提取为独立文件 |
+| ④ | `tb/axi_bridge_tb.sv` | ✅ 已完成 | 391行，T1-T7 共 7 个测试（含错拍） |
+| ⑤ | `rtl/bus/axi_lite_interconnect.sv` | ❌ 未完成 | 1主N从地址译码路由，替代或包装现有 bus_interconnect |
+| ⑥ | `snn_soc_top.sv` 集成 | ❌ 未完成 | 替换现有 simple bus 接线，E203 接入前必须完成 |
+
+### ③ 独立 BFM（低优先级）
+
+当前 `axi_bridge_tb.sv` 将 BFM 任务内联。如需在多个 TB 中复用，可提取为独立文件：
+
+```
+tb/axi_lite_master_bfm.sv
+  - axi_write(addr, data, wstrb)
+  - axi_write_aw_first(addr, data, wstrb)   // AW 先到
+  - axi_write_w_first(addr, data, wstrb)    // W 先到
+  - axi_read(addr) → rdata
+```
+
+不影响当前功能，属于代码组织优化，**E203 集成前再做**。
+
+### ⑤ axi_lite_interconnect.sv（中优先级）
+
+功能：替代现有 `bus_interconnect.sv`，在 AXI-Lite 侧做地址译码和 1主N从路由，
+再调用 `axi2simple_bridge` 转到各从设备的 bus_simple 接口。
+
+设计思路（供实现参考）：
+```
+E203 AXI-Lite master
+       │
+       ▼
+axi_lite_interconnect
+  ├── addr decode → sel
+  ├── AW/W/B 路由到选中从设备
+  └── AR/R 路由到选中从设备
+       │
+       ▼（可选：每个从设备有独立的 axi2simple_bridge，或共用一个）
+bus_simple slave（reg_bank / dma / uart / spi / fifo）
+```
+
+**体量估计**：约 150~200 行。关键信号：`m_axi_*`（主机侧）+ 各从设备独立 `s_axi_*`。
+
+### ⑥ snn_soc_top.sv 集成（高优先级，E203 接入时必做）
+
+改动范围极小，主要是：
+1. 将 `bus_interconnect` 实例替换为 `axi_lite_interconnect`
+2. 增加 AXI-Lite 主机端口（供 E203 连接）
+3. 删除或保留旧的 bus_simple TB 驱动端口（可用 ifdef 隔离）
+
+**前置条件**：⑤ 完成后再做。
+
+---
+
+## 八、与后续迭代的关系
 
 ```
 feature/axi-lite（本分支）
