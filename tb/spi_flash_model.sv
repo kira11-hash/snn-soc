@@ -21,16 +21,17 @@ module spi_flash_model (
   logic [7:0]  cmd_shift;
   logic [4:0]  in_bit_cnt;
   logic [23:0] addr_shift;
-  logic [7:0]  addr_ptr;
+  logic [15:0] addr_ptr;
   logic [7:0]  out_byte;
   logic [2:0]  out_bit_idx;
   logic [1:0]  id_idx;
 
-  logic [7:0] mem [0:255];
+  // Use a 64KB window so READ tests do not quickly wrap on addresses >0x00FF.
+  logic [7:0] mem [0:65535];
   integer i;
 
   initial begin
-    for (i = 0; i < 256; i = i + 1) begin
+    for (i = 0; i < 65536; i = i + 1) begin
       mem[i] = i[7:0];
     end
   end
@@ -40,7 +41,7 @@ module spi_flash_model (
     cmd_shift  <= 8'h00;
     in_bit_cnt <= 5'd0;
     addr_shift <= 24'h0;
-    addr_ptr   <= 8'h00;
+    addr_ptr   <= 16'h0000;
     out_byte   <= 8'h00;
     out_bit_idx <= 3'd7;
     id_idx     <= 2'd0;
@@ -79,8 +80,9 @@ module spi_flash_model (
         ST_ADDR: begin
           addr_shift <= {addr_shift[22:0], spi_mosi};
           if (in_bit_cnt == 5'd23) begin
-            addr_ptr    <= {addr_shift[6:0], spi_mosi};
-            out_byte    <= mem[{addr_shift[6:0], spi_mosi}];
+            // READ uses 24-bit address, model implements lower 16-bit window.
+            addr_ptr    <= {addr_shift[14:0], spi_mosi};
+            out_byte    <= mem[{addr_shift[14:0], spi_mosi}];
             out_bit_idx <= 3'd7;
             state       <= ST_READ;
           end else begin
@@ -114,8 +116,8 @@ module spi_flash_model (
                 out_byte <= 8'h00;
               end
             end else begin
-              addr_ptr <= addr_ptr + 8'd1;
-              out_byte <= mem[addr_ptr + 8'd1];
+              addr_ptr <= addr_ptr + 16'd1;
+              out_byte <= mem[addr_ptr + 16'd1];
             end
           end else begin
             out_bit_idx <= out_bit_idx - 3'd1;

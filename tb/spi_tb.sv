@@ -4,6 +4,7 @@
 // Purpose: Unit smoke test for spi_ctrl + spi_flash_model
 // Coverage:
 //   T1: CTRL write/readback
+//   T1b: CTRL safety clamp (spi_en=1, clk_div=0 -> force clk_div=2)
 //   T2: RDID (0x9F) -> EF 40 16
 //   T3: READ (0x03 @ 0x000010) -> 10 11 12 13
 //   T4: STATUS.rx_valid clears after RXDATA read
@@ -184,6 +185,11 @@ module spi_tb;
     bus_write(REG_CTRL, CTRL_BASE);
     bus_read(REG_CTRL, rd);
     check32(rd, CTRL_BASE, "T1 CTRL");
+
+    // T1b: Safety clamp check. clk_div=0 with spi_en=1 is clamped to clk_div=2.
+    bus_write(REG_CTRL, 32'h0000_0001);
+    bus_read(REG_CTRL, rd);
+    check32(rd, CTRL_BASE, "T1b CLAMP");
 
     // T2: RDID sequence.
     bus_write(REG_CTRL, CTRL_CS_LOW);
