@@ -549,32 +549,32 @@ end
 
 **阶段 1：基础模块（1-2天）**
 
-1. **FIFO** ([rtl/mem/fifo_sync.sv](rtl/mem/fifo_sync.sv))
+1. **FIFO** ([rtl/mem/fifo_sync.sv](../rtl/mem/fifo_sync.sv))
    - 测试场景：满、空、同时读写、计数器
    - 最简单，先练手
 
-2. **SRAM** ([rtl/mem/sram_simple.sv](rtl/mem/sram_simple.sv))
+2. **SRAM** ([rtl/mem/sram_simple.sv](../rtl/mem/sram_simple.sv))
    - 测试场景：读写、地址边界
 
 **阶段 2：控制逻辑（2-3天）**
 
-3. **DMA 引擎** ([rtl/dma/dma_engine.sv](rtl/dma/dma_engine.sv))
+3. **DMA 引擎** ([rtl/dma/dma_engine.sv](../rtl/dma/dma_engine.sv))
    - 测试场景：正常搬运、越界、奇数长度
    - 重点观察状态机流转
 
-4. **寄存器组** ([rtl/reg/reg_bank.sv](rtl/reg/reg_bank.sv))
+4. **寄存器组** ([rtl/reg/reg_bank.sv](../rtl/reg/reg_bank.sv))
    - 测试场景：读写、W1C、只读寄存器
 
 **阶段 3：SNN 核心（3-4天）**
 
-5. **LIF 神经元** ([rtl/snn/lif_neurons.sv](rtl/snn/lif_neurons.sv))
+5. **LIF 神经元** ([rtl/snn/lif_neurons.sv](../rtl/snn/lif_neurons.sv))
    - 测试场景：membrane 累加、超过阈值发放 spike
    - 测试不同输入值、不同阈值
 
-6. **ADC 控制** ([rtl/snn/adc_ctrl.sv](rtl/snn/adc_ctrl.sv))
+6. **ADC 控制** ([rtl/snn/adc_ctrl.sv](../rtl/snn/adc_ctrl.sv))
    - 测试场景：时分复用、bl_sel 切换
 
-7. **CIM 阵列控制** ([rtl/snn/cim_array_ctrl.sv](rtl/snn/cim_array_ctrl.sv))
+7. **CIM 阵列控制** ([rtl/snn/cim_array_ctrl.sv](../rtl/snn/cim_array_ctrl.sv))
    - 测试场景：完整推理流程、bitplane 顺序、timestep 计数
    - 最复杂，留到最后
 
