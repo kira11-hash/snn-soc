@@ -56,9 +56,17 @@
 - `SNNSoC工程主文档.md` 含 `\xa0`（non-breaking space），Edit 工具无法匹配时改用 Python 脚本
 - 部分 `.sv` 文件有 UTF-8 BOM，注意编辑器设置
 
+## AXI-Lite 分支状态（feature/axi-lite，2026-03-01）
+
+- **已完成**：`rtl/bus/axi_lite_if.sv`（接口定义）、`rtl/bus/axi2simple_bridge.sv`（5态 FSM 桥接）
+- **已完成**：`tb/axi_bridge_tb.sv`（T1~T5 含字节写使能测试）、`sim/sim_axi_bridge.f`、`sim/run_axi_bridge_icarus.sh`
+- **待做**：`rtl/bus/axi_lite_interconnect.sv`（可选，E203 接入前不急）、集成进 `snn_soc_top.sv`
+- 运行测试：`cd sim && bash run_axi_bridge_icarus.sh`，通过标准：`AXI_BRIDGE_SMOKETEST_PASS`
+- 桥时序：写/读均为 2 cycle（IDLE→PEND→RSP），bus_simple 固定 1-cycle 响应与之匹配
+
 ## 当前迭代路径（顺序固定，不可跳步）
 
-1. **AXI-Lite 基础骨架**：`axi_lite_if` + `interconnect` + `axi2simple_bridge`，用 TB master 验证读写通路。E203 后续所有接入都依赖它。
+1. **AXI-Lite 基础骨架** ✅（进行中）：`axi_lite_if` + `axi2simple_bridge` 已完成，TB 待跑通；下一步集成进 snn_soc_top.sv。
 2. **UART**：最小可用（TX/RX + 状态寄存器），用于 bring-up 打印日志。
 3. **SPI**：先做 Flash 读路径（读 ID + 连续读），暂不追求复杂模式，为 boot/data load 做准备。
 4. **DMA 扩展**：先打通 SPI → SRAM，再 SRAM → input_fifo，每条路径单独写 TB，确认 done/err/busy。
