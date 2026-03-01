@@ -18,6 +18,8 @@
 //   T3: 写 reg[4]，读回验证（类 REG_THRESHOLD 地址）
 //   T4: reg[0] 持久性验证（T2 后再读 reg[0] 不变）
 //   T5: 字节写使能验证（wstrb=4'b0001，只改 byte0）
+//   T6: AXI-Lite 错拍写（AW 先到）
+//   T7: AXI-Lite 错拍写（W 先到）
 //
 // 【通过标准】
 //   所有 $display("[PASS]") 无 "[FAIL]"，最终打印 AXI_BRIDGE_SMOKETEST_PASS
@@ -178,15 +180,14 @@ module axi_bridge_tb;
   // ── AXI-Lite BFM tasks ───────────────────────────────────────────────────
   //
   // axi_write：
-  //   同时驱动 AW + W 通道（本桥要求两者同时有效），等待 AWREADY/WREADY，
-  //   再等待 B 通道响应（s_bready 常态为 1）。
+  //   同时驱动 AW + W 通道，等待 AWREADY/WREADY，再等待 B 通道响应。
   //
   // axi_read：
   //   驱动 AR 通道，等待 ARREADY，再等待 R 通道数据（s_rready 常态为 1）。
   //
   // 时序说明：
   //   在 posedge 之后 #1 再采样/驱动，避免 0-delay 竞争。
-  //   AWREADY/WREADY 为组合信号（accept_wr 驱动），通常在下一拍采样时已为 1。
+  //   READY 可能是组合脉冲，故先“看到 READY”，再过一个上升沿完成握手。
   // ──────────────────────────────────────────────────────────────────────────
 
   task axi_write;
@@ -194,19 +195,16 @@ module axi_bridge_tb;
     input [31:0] data;
     input [3:0]  strb;
     begin
-      // 在 posedge 后驱动（setup 给下一个上升沿）
       @(posedge clk); #1;
       s_awvalid = 1'b1; s_awaddr = addr;
       s_wvalid  = 1'b1; s_wdata  = data; s_wstrb = strb;
-      // 等到 AWREADY（第一拍通常立即到来）
+      while (!(s_awready && s_wready)) begin @(posedge clk); #1; end
+      // READY 已观测到，下一拍完成握手后拉低 valid
       @(posedge clk); #1;
-      while (!s_awready) begin @(posedge clk); #1; end
-      // 握手完成：deassert AW + W
       s_awvalid = 1'b0;
       s_wvalid  = 1'b0;
-      // 等待 B 通道（s_bready 始终为 1，BVALID 再过 1 拍到来）
       while (!s_bvalid) begin @(posedge clk); #1; end
-      @(posedge clk); #1;  // 消费 B 通道
+      @(posedge clk); #1;
     end
   endtask
 
@@ -216,13 +214,58 @@ module axi_bridge_tb;
     begin
       @(posedge clk); #1;
       s_arvalid = 1'b1; s_araddr = addr;
-      @(posedge clk); #1;
       while (!s_arready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
       s_arvalid = 1'b0;
-      // 等待 R 通道数据（s_rready 始终为 1）
       while (!s_rvalid) begin @(posedge clk); #1; end
       data = s_rdata;
-      @(posedge clk); #1;  // 消费 R 通道
+      @(posedge clk); #1;
+    end
+  endtask
+
+  // AXI-Lite 标准允许 AW/W 错拍：先发 AW 再发 W
+  task axi_write_aw_first;
+    input [31:0] addr;
+    input [31:0] data;
+    input [3:0]  strb;
+    begin
+      @(posedge clk); #1;
+      s_awvalid = 1'b1; s_awaddr = addr;
+      while (!s_awready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_awvalid = 1'b0;
+
+      @(posedge clk); #1;
+      s_wvalid  = 1'b1; s_wdata = data; s_wstrb = strb;
+      while (!s_wready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_wvalid = 1'b0;
+
+      while (!s_bvalid) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+    end
+  endtask
+
+  // AXI-Lite 标准允许 AW/W 错拍：先发 W 再发 AW
+  task axi_write_w_first;
+    input [31:0] addr;
+    input [31:0] data;
+    input [3:0]  strb;
+    begin
+      @(posedge clk); #1;
+      s_wvalid  = 1'b1; s_wdata = data; s_wstrb = strb;
+      while (!s_wready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_wvalid = 1'b0;
+
+      @(posedge clk); #1;
+      s_awvalid = 1'b1; s_awaddr = addr;
+      while (!s_awready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_awvalid = 1'b0;
+
+      while (!s_bvalid) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
     end
   endtask
 
@@ -299,6 +342,28 @@ module axi_bridge_tb;
       pass_cnt = pass_cnt + 1;
     end else begin
       $display("[FAIL] T5 byte-strobe: got=0x%08X exp=0xFFFFFFAB", rd_data);
+      fail_cnt = fail_cnt + 1;
+    end
+
+    // ── T6: AW/W 错拍（AW 先到）───────────────────────────────────────────
+    axi_write_aw_first(ADDR_REG_BASE + 32'h0C, 32'h1234_5678, 4'hF);
+    axi_read          (ADDR_REG_BASE + 32'h0C, rd_data);
+    if (rd_data === 32'h1234_5678) begin
+      $display("[PASS] T6 skew write (AW first) : 0x%08X", rd_data);
+      pass_cnt = pass_cnt + 1;
+    end else begin
+      $display("[FAIL] T6 skew write (AW first): got=0x%08X exp=0x12345678", rd_data);
+      fail_cnt = fail_cnt + 1;
+    end
+
+    // ── T7: AW/W 错拍（W 先到）────────────────────────────────────────────
+    axi_write_w_first(ADDR_REG_BASE + 32'h14, 32'h89AB_CDEF, 4'hF);
+    axi_read         (ADDR_REG_BASE + 32'h14, rd_data);
+    if (rd_data === 32'h89AB_CDEF) begin
+      $display("[PASS] T7 skew write (W first)  : 0x%08X", rd_data);
+      pass_cnt = pass_cnt + 1;
+    end else begin
+      $display("[FAIL] T7 skew write (W first): got=0x%08X exp=0x89ABCDEF", rd_data);
       fail_cnt = fail_cnt + 1;
     end
 
