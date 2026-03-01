@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 riscv-tests
 ================
 
@@ -176,6 +175,3 @@ A variant of this testing approach was also used for the Scale vector-thread
 processor at MIT, begun in 2000. Ronny Krashinsky and Christopher Batten were
 the principal architects of the Scale chip. Jeffrey Cohen and Mark Hampton
 developed a version of torture capable of generating vector-thread code.
-=======
-# SI-RISCV-TESTS
->>>>>>> 0a6a29e25e65e05105bdb616d0deb56e241c7844
