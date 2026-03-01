@@ -210,3 +210,32 @@ git checkout main
 ```bash
 git branch -D feature/uart-tx
 ```
+
+---
+
+## 功能定位决策（已确认锁定）
+
+### 结论：V1 UART = 调试打印口（TX only），不做正式通信接口
+
+E203 自带 JTAG，所有正式工作（寄存器读写、固件加载、断点调试）走 JTAG，UART TX 只负责 `printf` 输出日志。
+
+| 维度 | 调试打印口（当前） | 正式通信接口（不做）|
+|------|-----------------|------------------|
+| 速度 | 115200 baud ≈ 11.5 KB/s，够打印字符串 | 下发像素/权重需高吞吐，UART 太慢 |
+| 命令/参数下发 | 不适合 | 走 AXI-Lite → reg_bank（直接寄存器读写）|
+| 状态回读 | 打印 STATUS/FIFO count 即可 | 软件直接读 reg_bank 更快 |
+| RX 需要吗 | 不需要 | 正式接口必须有 RX |
+| CLAUDE.md 定义 | "用于 bring-up 打印日志" | — |
+
+正式命令下发路径：**Host PC → JTAG → E203 → AXI-Lite → reg_bank**，不经过 UART。
+
+### V1 实现边界（不可越界）
+
+- ✅ TX 8N1，波特率软件配，tx_busy 状态位
+- ✅ 忙时写入丢弃（无 TX FIFO，由软件 poll tx_busy 控制节奏）
+- ❌ RX — 不做，留 V2
+- ❌ TX FIFO — 不做，留 V2
+- ❌ 中断 — 不做，软件 poll 足够
+- ❌ 流控（RTS/CTS）— 不做
+
+当前 `uart_ctrl.sv` 的实现刚好覆盖且仅覆盖上述 V1 边界，无需修改。
