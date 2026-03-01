@@ -29,7 +29,7 @@
 |---------|------|------|
 | `rtl/bus/axi_lite_if.sv` | RTL（接口定义） | AXI4-Lite SystemVerilog interface |
 | `rtl/bus/axi2simple_bridge.sv` | RTL（核心模块） | AXI-Lite slave → bus_simple master 桥接 FSM |
-| `tb/axi_bridge_tb.sv` | Testbench | T1~T7 端到端测试，含 BFM tasks |
+| `tb/axi_bridge_tb.sv` | Testbench | T1~T9 端到端测试，含 BFM tasks 与 B/R 背压验证 |
 | `sim/sim_axi_bridge.f` | 仿真文件列表 | Icarus 编译文件列表 |
 | `sim/run_axi_bridge_icarus.sh` | 脚本 | 一键编译 + 运行 + 结果判断 |
 | `new_branchnotes/axi-lite.md` | 文档 | 本文件，分支开发记录 |
@@ -312,7 +312,7 @@ main 分支完全未被修改，可随时回退。
 | ① | `rtl/bus/axi_lite_if.sv` | ✅ 已完成 | 99行，含 master/slave modport |
 | ② | `rtl/bus/axi2simple_bridge.sv` | ✅ 已完成 | 263行，AW/W 错拍 + 5状态 FSM |
 | ③ | `tb/axi_lite_master_bfm.sv` | ⚠️ 未独立 | BFM 任务内联在 axi_bridge_tb.sv 中（axi_write/axi_read/axi_write_aw_first/axi_write_w_first），未提取为独立文件 |
-| ④ | `tb/axi_bridge_tb.sv` | ✅ 已完成 | 391行，T1-T7 共 7 个测试（含错拍） |
+| ④ | `tb/axi_bridge_tb.sv` | ✅ 已完成 | 447行，T1-T9 共 9 个测试（含错拍 + 背压） |
 | ⑤ | `rtl/bus/axi_lite_interconnect.sv` | ❌ 未完成 | 1主N从地址译码路由，替代或包装现有 bus_interconnect |
 | ⑥ | `snn_soc_top.sv` 集成 | ❌ 未完成 | 替换现有 simple bus 接线，E203 接入前必须完成 |
 

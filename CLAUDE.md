@@ -59,7 +59,7 @@
 ## AXI-Lite 分支状态（feature/axi-lite，2026-03-01）
 
 - **已完成**：`rtl/bus/axi_lite_if.sv`（接口定义）、`rtl/bus/axi2simple_bridge.sv`（5态 FSM 桥接）
-- **已完成**：`tb/axi_bridge_tb.sv`（T1~T5 含字节写使能测试）、`sim/sim_axi_bridge.f`、`sim/run_axi_bridge_icarus.sh`
+- **已完成**：`tb/axi_bridge_tb.sv`（T1~T9，含字节写使能、AW/W错拍与B/R背压测试）、`sim/sim_axi_bridge.f`、`sim/run_axi_bridge_icarus.sh`
 - **待做**：`rtl/bus/axi_lite_interconnect.sv`（可选，E203 接入前不急）、集成进 `snn_soc_top.sv`
 - 运行测试：`cd sim && bash run_axi_bridge_icarus.sh`，通过标准：`AXI_BRIDGE_SMOKETEST_PASS`
 - 桥时序：写/读均为 2 cycle（IDLE→PEND→RSP），bus_simple 固定 1-cycle 响应与之匹配

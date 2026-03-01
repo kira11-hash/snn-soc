@@ -20,6 +20,8 @@
 //   T5: 字节写使能验证（wstrb=4'b0001，只改 byte0）
 //   T6: AXI-Lite 错拍写（AW 先到）
 //   T7: AXI-Lite 错拍写（W 先到）
+//   T8: 写响应背压（BVALID 在 BREADY=0 时保持）
+//   T9: 读数据背压（RVALID 在 RREADY=0 时保持）
 //
 // 【通过标准】
 //   所有 $display("[PASS]") 无 "[FAIL]"，最终打印 AXI_BRIDGE_SMOKETEST_PASS
@@ -185,6 +187,9 @@ module axi_bridge_tb;
   // axi_read：
   //   驱动 AR 通道，等待 ARREADY，再等待 R 通道数据（s_rready 常态为 1）。
   //
+  // axi_write_bstall / axi_read_rstall：
+  //   人为拉低 BREADY/RREADY，验证 BVALID/RVALID 在背压下保持不丢失。
+  //
   // 时序说明：
   //   在 posedge 之后 #1 再采样/驱动，避免 0-delay 竞争。
   //   READY 可能是组合脉冲，故先“看到 READY”，再过一个上升沿完成握手。
@@ -265,6 +270,68 @@ module axi_bridge_tb;
       s_awvalid = 1'b0;
 
       while (!s_bvalid) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+    end
+  endtask
+
+  // 写响应背压测试：BREADY 拉低若干拍，BVALID 必须保持为 1
+  task axi_write_bstall;
+    input [31:0] addr;
+    input [31:0] data;
+    input [3:0]  strb;
+    input integer stall_cycles;
+    integer i;
+    begin
+      @(posedge clk); #1;
+      s_bready  = 1'b0;
+      s_awvalid = 1'b1; s_awaddr = addr;
+      s_wvalid  = 1'b1; s_wdata  = data; s_wstrb = strb;
+      while (!(s_awready && s_wready)) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_awvalid = 1'b0;
+      s_wvalid  = 1'b0;
+
+      while (!s_bvalid) begin @(posedge clk); #1; end
+      for (i = 0; i < stall_cycles; i = i + 1) begin
+        @(posedge clk); #1;
+        if (!s_bvalid) begin
+          $display("[FAIL] BVALID dropped while BREADY=0 at stall cycle %0d", i);
+          fail_cnt = fail_cnt + 1;
+        end
+      end
+
+      s_bready = 1'b1;
+      @(posedge clk); #1;
+    end
+  endtask
+
+  // 读数据背压测试：RREADY 拉低若干拍，RVALID 必须保持为 1
+  task axi_read_rstall;
+    input  [31:0] addr;
+    input  integer stall_cycles;
+    output [31:0] data;
+    integer i;
+    begin
+      data = 32'h0;
+      @(posedge clk); #1;
+      s_rready  = 1'b0;
+      s_arvalid = 1'b1; s_araddr = addr;
+      while (!s_arready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_arvalid = 1'b0;
+
+      while (!s_rvalid) begin @(posedge clk); #1; end
+      data = s_rdata;
+      for (i = 0; i < stall_cycles; i = i + 1) begin
+        @(posedge clk); #1;
+        if (!s_rvalid) begin
+          $display("[FAIL] RVALID dropped while RREADY=0 at stall cycle %0d", i);
+          fail_cnt = fail_cnt + 1;
+        end
+        data = s_rdata;
+      end
+
+      s_rready = 1'b1;
       @(posedge clk); #1;
     end
   endtask
@@ -364,6 +431,27 @@ module axi_bridge_tb;
       pass_cnt = pass_cnt + 1;
     end else begin
       $display("[FAIL] T7 skew write (W first): got=0x%08X exp=0x89ABCDEF", rd_data);
+      fail_cnt = fail_cnt + 1;
+    end
+
+    // ── T8: 写响应背压（BREADY=0 持续 3 拍，BVALID 必须保持）───────────────
+    axi_write_bstall(ADDR_REG_BASE + 32'h18, 32'h0BAD_F00D, 4'hF, 3);
+    axi_read       (ADDR_REG_BASE + 32'h18, rd_data);
+    if (rd_data === 32'h0BAD_F00D) begin
+      $display("[PASS] T8 bresp backpressure    : 0x%08X", rd_data);
+      pass_cnt = pass_cnt + 1;
+    end else begin
+      $display("[FAIL] T8 bresp backpressure: got=0x%08X exp=0x0BADF00D", rd_data);
+      fail_cnt = fail_cnt + 1;
+    end
+
+    // ── T9: 读数据背压（RREADY=0 持续 3 拍，RVALID 必须保持）────────────────
+    axi_read_rstall(ADDR_REG_BASE + 32'h18, 3, rd_data);
+    if (rd_data === 32'h0BAD_F00D) begin
+      $display("[PASS] T9 rdata backpressure    : 0x%08X", rd_data);
+      pass_cnt = pass_cnt + 1;
+    end else begin
+      $display("[FAIL] T9 rdata backpressure: got=0x%08X exp=0x0BADF00D", rd_data);
       fail_cnt = fail_cnt + 1;
     end
 
