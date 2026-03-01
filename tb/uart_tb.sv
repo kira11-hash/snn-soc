@@ -10,6 +10,7 @@
 //
 // 【测试列表】
 //   T1: 写 CTRL（baud_div=8），读回验证
+//   T1b: 读 RXDATA（占位寄存器），返回 0（地址兼容性）
 //   T2: 发送 0x55（01010101），解码验证
 //   T3: 发送 0xA5（10100101），解码验证
 //   T4: 发送 0xFF，解码验证
@@ -61,10 +62,11 @@ module uart_tb;
   // ── UART 基地址（与 snn_soc_pkg 一致）────────────────────────────────────
   localparam logic [31:0] UART_BASE = 32'h4000_0200;
 
-  // ── 寄存器 offset ─────────────────────────────────────────────────────────
-  localparam logic [3:0] REG_TXDATA = 4'h0;
-  localparam logic [3:0] REG_STATUS = 4'h4;
-  localparam logic [3:0] REG_CTRL   = 4'h8;
+  // ── 寄存器 offset（与 uart_stub 保持一致）─────────────────────────────────
+  localparam logic [7:0] REG_TXDATA = 8'h00;
+  localparam logic [7:0] REG_RXDATA = 8'h04;
+  localparam logic [7:0] REG_STATUS = 8'h08;
+  localparam logic [7:0] REG_CTRL   = 8'h0C;
 
   // ── 通过/失败计数器 ───────────────────────────────────────────────────────
   integer pass_cnt, fail_cnt;
@@ -72,14 +74,14 @@ module uart_tb;
   // ── 总线写任务 ────────────────────────────────────────────────────────────
   // 向 DUT 发起一次写请求（单拍有效脉冲）
   task bus_write;
-    input [3:0]  offset;
+    input [7:0]  offset;
     input [31:0] data;
     begin
       @(posedge clk);
       #1;
       req_valid = 1'b1;
       req_write = 1'b1;
-      req_addr  = UART_BASE | {28'h0, offset};
+      req_addr  = UART_BASE | {24'h0, offset};
       req_wdata = data;
       req_wstrb = 4'hF;
       @(posedge clk);
@@ -90,24 +92,22 @@ module uart_tb;
   endtask
 
   // ── 总线读任务 ────────────────────────────────────────────────────────────
-  // 向 DUT 发起一次读请求（单拍有效脉冲），返回当拍 rdata（组合读）
-  // 注：uart_ctrl.rdata 是组合输出，req_valid 当拍即有效
+  // 向 DUT 发起一次读请求（单拍有效脉冲），在下一拍采样 rdata。
+  // 这样避免依赖固定 #delay，提升仿真器可移植性。
   task bus_read;
-    input  [3:0]  offset;
+    input  [7:0]  offset;
     output [31:0] data;
     begin
       @(posedge clk);
       #1;
       req_valid = 1'b1;
       req_write = 1'b0;
-      req_addr  = UART_BASE | {28'h0, offset};
+      req_addr  = UART_BASE | {24'h0, offset};
       req_wdata = 32'h0;
       req_wstrb = 4'h0;
-      // 等半拍让组合逻辑稳定，再采样 rdata
-      #4;
-      data = rdata;
       @(posedge clk);
       #1;
+      data = rdata;
       req_valid = 1'b0;
     end
   endtask
@@ -200,6 +200,10 @@ module uart_tb;
     bus_read (REG_CTRL, rd_data);
     check(rd_data, 32'd8, "T1_CTRL ");
 
+    // RXDATA 占位寄存器地址兼容性检查（应返回 0）
+    bus_read (REG_RXDATA, rd_data);
+    check(rd_data, 32'h0, "T1_RXDAT");
+
     // ──────────────────────────────────────────────────────────────────────
     // T2: 发送 0x55，解码验证（交替 01 模式）
     // ──────────────────────────────────────────────────────────────────────
@@ -253,7 +257,7 @@ module uart_tb;
     // 紧跟一拍读 STATUS
     @(posedge clk); #1;
     req_valid = 1; req_write = 0;
-    req_addr  = UART_BASE | 32'h4;
+    req_addr  = UART_BASE | {24'h0, REG_STATUS};
     #4; rd_data = rdata;
     @(posedge clk); #1; req_valid = 0;
     check({31'h0, rd_data[0]}, 32'h1, "T6_BUSY ");  // 应为 busy

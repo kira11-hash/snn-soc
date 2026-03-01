@@ -9,16 +9,16 @@
 // 波特率通过 CTRL 寄存器的 baud_div 字段配置。
 // RX 路径在 V1 不实现（占位，读回 0）。
 //
-// 【寄存器映射】（offset 相对于 UART 基地址 0x4000_0200）
-//   0x00: TXDATA [7:0] - 写触发发送（忙时写入忽略）；读回上次写值
-//   0x04: STATUS [0]=tx_busy - 1=正在发送，0=空闲
-//   0x08: CTRL   [15:0]=baud_div - 波特率分频值（默认868=100MHz/115200）
-//   0x0C: RXDATA [7:0] - 占位，读返回 0
+// 【寄存器映射】（offset 相对于 UART 基地址 0x4000_0200，保持与 uart_stub 一致）
+//   0x00: TXDATA [7:0]  - 写触发发送（忙时写入忽略）；读回上次写值
+//   0x04: RXDATA [7:0]  - 占位，读返回 0
+//   0x08: STATUS [0]    - tx_busy：1=正在发送，0=空闲
+//   0x0C: CTRL   [15:0] - 波特率分频值（默认868=100MHz/115200）
 //
 // 【时序说明】
-//   baud_div 为每个 baud 周期的时钟数 - 1（即分频系数减1存入）。
-//   例：clk=100MHz，baud=115200 → baud_div_reg=868，每 bit = 868+1 个时钟周期。
-//   但为编程简便，CTRL 写入的是原始分频系数（868），内部减 1 使用。
+//   CTRL.baud_div 写入“每 bit 的时钟周期数”（而不是减 1 值）。
+//   例：clk=100MHz，baud=115200 → 写入 868，每 bit 持续 868 个时钟周期。
+//   RTL 内部通过 baud_cnt=baud_div-1 的倒计数实现该语义。
 //
 // 【TX 状态机（8N1 时序）】
 //   ST_IDLE  : uart_tx=1（空闲高），等待 TXDATA 写入
@@ -38,7 +38,7 @@ module uart_ctrl (
   // ── 总线接口（bus_simple slave，来自 bus_interconnect）────────────────────
   input  logic        req_valid,  // 请求有效脉冲
   input  logic        req_write,  // 1=写，0=读
-  input  logic [31:0] req_addr,   // 字节地址（低4位用作寄存器 offset）
+  input  logic [31:0] req_addr,   // 字节地址（低8位用作寄存器 offset）
   input  logic [31:0] req_wdata,  // 写数据（32位，实际使用 [7:0] 或 [15:0]）
   input  logic [3:0]  req_wstrb,  // 字节写使能（V1 忽略，按整字处理）
   output logic [31:0] rdata,      // 读返回数据（组合输出）
@@ -49,10 +49,10 @@ module uart_ctrl (
 );
 
   // ── 寄存器 offset 定义 ────────────────────────────────────────────────────
-  localparam logic [3:0] REG_TXDATA = 4'h0;  // 发送数据
-  localparam logic [3:0] REG_STATUS = 4'h4;  // 状态（tx_busy）
-  localparam logic [3:0] REG_CTRL   = 4'h8;  // 控制（baud_div）
-  localparam logic [3:0] REG_RXDATA = 4'hC;  // 接收数据（占位）
+  localparam logic [7:0] REG_TXDATA = 8'h00; // 发送数据
+  localparam logic [7:0] REG_RXDATA = 8'h04; // 接收数据（占位）
+  localparam logic [7:0] REG_STATUS = 8'h08; // 状态（tx_busy）
+  localparam logic [7:0] REG_CTRL   = 8'h0C; // 控制（baud_div）
 
   // 100MHz 时钟 / 115200 baud ≈ 868 个时钟周期
   localparam logic [15:0] BAUD_DIV_DEFAULT = 16'd868;
@@ -75,7 +75,7 @@ module uart_ctrl (
   logic        tx_busy;    // 发送忙标志（高=正在发送）
 
   // ── 辅助信号 ──────────────────────────────────────────────────────────────
-  wire [3:0]  addr_off  = req_addr[3:0];   // 低4位作为寄存器 offset
+  wire [7:0]  addr_off  = req_addr[7:0];   // 低8位作为寄存器 offset
   wire        write_en  = req_valid && req_write;
   wire        baud_last = (baud_cnt == 16'd0); // 当前 baud 周期最后一拍
 
@@ -185,14 +185,14 @@ module uart_ctrl (
     rdata = 32'h0;
     case (addr_off)
       REG_TXDATA: rdata = {24'h0, txdata_shadow};          // 影子寄存器读回
+      REG_RXDATA: rdata = 32'h0;                           // RX 占位，返回0
       REG_STATUS: rdata = {31'h0, tx_busy};                // [0]=tx_busy
       REG_CTRL:   rdata = {16'h0, baud_div_reg};           // [15:0]=baud_div
-      REG_RXDATA: rdata = 32'h0;                           // RX 占位，返回0
       default:    rdata = 32'h0;
     endcase
   end
 
   // ── 哑线：抑制未使用信号 lint 告警 ───────────────────────────────────────
-  wire _unused = &{1'b0, uart_rx, req_wstrb, req_addr[31:4]};
+  wire _unused = &{1'b0, uart_rx, req_wstrb, req_addr[31:8]};
 
 endmodule
