@@ -418,6 +418,8 @@ main                    # 主分支：始终保持可流片状态
 
 **当前状态**：`uart_stub.sv` 只是空壳
 
+> As of 2026-03-02: `feature/uart-tx` has completed `uart_ctrl + TB` validation (9/9 PASS); `main` still uses `uart_stub` in `snn_soc_top.sv` and awaits top-level integration.
+
 **添加时机**：阶段 1（现在就可以做，不依赖 CPU/AXI；可先用 TB 验证收发）
 
 **需要实现**：
@@ -444,6 +446,8 @@ rtl/periph/uart_ctrl.sv  ← 替换 uart_stub.sv
 **原因**：启动路径是 `Flash → SPI → DMA → 指令SRAM`，没有 SPI 无法加载固件
 
 **当前状态**：`spi_stub.sv` 只是空壳
+
+> As of 2026-03-02: `feature/spi` has completed `spi_ctrl + flash model + TB` validation (9/9 PASS); `main` still uses `spi_stub` in `snn_soc_top.sv` and awaits top-level integration.
 
 **添加时机**：阶段 2（现在就可以做，不依赖 CPU/AXI；与 UART 可并行）
 
