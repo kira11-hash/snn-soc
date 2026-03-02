@@ -13,11 +13,11 @@
 //   0x00: TXDATA [7:0]  - 写触发发送（忙时写入忽略）；读回上次写值
 //   0x04: RXDATA [7:0]  - 占位，读返回 0
 //   0x08: STATUS [0]    - tx_busy：1=正在发送，0=空闲
-//   0x0C: CTRL   [15:0] - 波特率分频值（默认868=100MHz/115200）
+//   0x0C: CTRL   [15:0] - 波特率分频值（默认434=50MHz/115200）
 //
 // 【时序说明】
-//   CTRL.baud_div 写入“每 bit 的时钟周期数”（而不是减 1 值）。
-//   例：clk=100MHz，baud=115200 → 写入 868，每 bit 持续 868 个时钟周期。
+//   CTRL.baud_div 写入”每 bit 的时钟周期数”（而不是减 1 值）。
+//   例：clk=50MHz，baud=115200 → 写入 434，每 bit 持续 434 个时钟周期。
 //   RTL 内部通过 baud_cnt=baud_div-1 的倒计数实现该语义。
 //
 // 【TX 状态机（8N1 时序）】
@@ -54,8 +54,8 @@ module uart_ctrl (
   localparam logic [7:0] REG_STATUS = 8'h08; // 状态（tx_busy）
   localparam logic [7:0] REG_CTRL   = 8'h0C; // 控制（baud_div）
 
-  // 100MHz 时钟 / 115200 baud ≈ 868 个时钟周期
-  localparam logic [15:0] BAUD_DIV_DEFAULT = 16'd868;
+  // 50MHz 时钟 / 115200 baud ≈ 434 个时钟周期（ASIC 目标时钟 50MHz）
+  localparam logic [15:0] BAUD_DIV_DEFAULT = 16'd434;
 
   // ── 内部寄存器 ────────────────────────────────────────────────────────────
   logic [7:0]  txdata_shadow;   // TXDATA 影子寄存器（供读回，不参与发送移位）

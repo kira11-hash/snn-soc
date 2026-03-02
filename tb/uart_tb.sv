@@ -33,7 +33,7 @@ module uart_tb;
   // ── 时钟和复位 ────────────────────────────────────────────────────────────
   logic clk, rst_n;
   initial clk = 0;
-  always #5 clk = ~clk;   // 100MHz，周期 10ns
+  always #10 clk = ~clk;  // 50MHz，周期 20ns（与 ASIC 目标时钟一致）
 
   // ── DUT 信号 ──────────────────────────────────────────────────────────────
   logic        req_valid;
