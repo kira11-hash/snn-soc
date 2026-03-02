@@ -32,6 +32,7 @@
 - dma：DMA 引擎（data_sram -> input_fifo）  
 - snn：CIM 控制器 + DAC/ADC + LIF 神经元 + CIM 行为模型  
 - periph：UART/SPI/JTAG stub  
+- As of 2026-03-02: `feature/spi` (`spi_ctrl + flash model + TB`) and `feature/uart-tx` (`uart_ctrl + TB`) are both validated (9/9 PASS each); `main` still awaits `snn_soc_top.sv` stub-replacement integration.
 
 ## 一次推理的数据流
 ```

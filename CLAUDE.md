@@ -65,19 +65,34 @@
 - `SNNSoC工程主文档.md` 含 `\xa0`（non-breaking space），Edit 工具无法匹配时改用 Python 脚本
 - 部分 `.sv` 文件有 UTF-8 BOM，注意编辑器设置
 
+## AXI-Lite 分支状态（feature/axi-lite，2026-03-01）
+
+- **已完成**：`rtl/bus/axi_lite_if.sv`（接口定义）、`rtl/bus/axi2simple_bridge.sv`（5态 FSM 桥接）
+- **已完成**：`tb/axi_bridge_tb.sv`（T1~T9，含字节写使能、AW/W错拍与B/R背压测试）、`sim/sim_axi_bridge.f`、`sim/run_axi_bridge_icarus.sh`
+- **待做**：`rtl/bus/axi_lite_interconnect.sv`（可选，E203 接入前不急）、集成进 `snn_soc_top.sv`
+- 运行测试：`cd sim && bash run_axi_bridge_icarus.sh`，通过标准：`AXI_BRIDGE_SMOKETEST_PASS`
+- 桥时序：写/读均为 2 cycle（IDLE→PEND→RSP），bus_simple 固定 1-cycle 响应与之匹配
+
+## SPI 分支状态（feature/spi，2026-03-02）
+
+- **已完成**：`rtl/periph/spi_ctrl.sv`（SPI Master，Mode0，MSB first）
+- **已完成**：`tb/spi_flash_model.sv`、`tb/spi_tb.sv`（T1~T4+T1b，9/9 PASS）
+- **已完成**：`sim/sim_spi.f`、`sim/run_spi_icarus.sh`（Icarus 独立回归入口）
+- **已完成**：`clk_div` 安全钳位与 50MHz 频率口径修正（分支文档与实现一致）
+- **待做**：`snn_soc_top.sv` 中 `spi_stub` → `spi_ctrl` 集成（主线仍为 stub）
+
 ## 当前迭代路径（顺序固定，不可跳步）
 
-1. **AXI-Lite 基础骨架**：`axi_lite_if` + `interconnect` + `axi2simple_bridge`，用 TB master 验证读写通路。E203 后续所有接入都依赖它。
+1. **AXI-Lite 基础骨架** ✅（进行中）：`axi_lite_if` + `axi2simple_bridge` + AXI TB（T1~T9）已完成；下一步是 `axi_lite_interconnect` 与 `snn_soc_top.sv` 集成。
 2. **UART**：最小可用（TX/RX + 状态寄存器），用于 bring-up 打印日志。
-3. **SPI**：先做 Flash 读路径（读 ID + 连续读），暂不追求复杂模式，为 boot/data load 做准备。
+3. **SPI Master** ✅（分支完成）：`spi_ctrl` + Flash model + TB 已完成（9/9 PASS）；下一步是主线 `spi_stub` 替换与顶层集成。
 4. **DMA 扩展**：先打通 SPI → SRAM，再 SRAM → input_fifo，每条路径单独写 TB，确认 done/err/busy。
 5. **E203 最后接入**：先跑最小固件（UART 打印 → SPI 读 → DMA 搬运），出问题容易定位。
 
 ## 不可修改事项（除非用户明确授权）
 
-- 不可修改上表中任何定版参数
-- 不可删除 `ifndef SYNTHESIS` / `ifdef VCS` 宏保护
-- 不可将 Scheme B 改回 Scheme A
-- 不可提交 force push 到 main 分支
-
-- 工程默认 T=3（精度/时延最优折中）；T=10 仅作为论文高精度对照档位（做 trade-off 图）
+- 不可修改上表中任何定版参数。
+- 不可删除 `ifndef SYNTHESIS` / `ifdef VCS` 宏保护。
+- 不可将 Scheme B 改回 Scheme A。
+- 不可提交或执行 force push 到 `main` 分支。
+- 工程默认 T=3（精度/时延最优折中）；论文可附加 T=10 作为高精度对照档位（做 trade-off 图）。

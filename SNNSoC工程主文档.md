@@ -389,6 +389,8 @@ main                    # 主分支：始终保持可流片状态
 
 | ⑧ | UART 控制器 (与PC通信) | ❌ 仅 stub | 🔴 新增 |
 
+> As of 2026-03-02: this table remains a `main`-branch historical snapshot; `feature/spi` and `feature/uart-tx` have completed IP+TB validation, while `main` still needs `snn_soc_top.sv` stub replacement (`spi_stub/uart_stub`).
+
 | ⑨ | JTAG 接口 | ❌ 仅 stub | 🟡 可后期 |
 
 | ⑩ | 输入 Spike FIFO 256×64bit | ✅ 有 | ✅ 匹配 |
@@ -632,6 +634,7 @@ void snn_done_isr(void) {
     - 先实现最小可用（TX/RX + 状态寄存器），用于后续 bring-up 打印日志。
 3. SPI
     - 先做 Flash 读路径（读 ID + 连续读），暂不追求复杂模式。
+    - As of 2026-03-02: this Flash-read-path goal is already validated at IP level in `feature/spi`; remaining work is top-level integration in `main`.
     - 为 boot/data load 做准备。
 4. DMA 扩展
     - 先打通 SPI -> SRAM，再 SRAM -> input_fifo。

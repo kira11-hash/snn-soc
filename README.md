@@ -47,6 +47,7 @@ rtl/   RTL 实现
   dma/      DMA 引擎
   snn/      CIM 控制器 + DAC/ADC + LIF + Macro 行为模型
   periph/   UART/SPI/JTAG stub
+- As of 2026-03-02: `feature/spi` has completed `spi_ctrl + flash model + TB` validation (9/9 PASS); `main` still needs top-level integration (`spi_stub -> spi_ctrl`).
 
 tb/    Testbench
 sim/   仿真脚本与波形
