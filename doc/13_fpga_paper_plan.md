@@ -181,17 +181,17 @@ ASIC 主线                               FPGA 论文兜底线
 ──────────                              ─────────────
 ① AXI-Lite 桥接 + TB                    共用
    状态：feature/axi-lite 分支
-   完成：axi_lite_if + axi2simple_bridge + TB (T1-T7 PASS)
+   完成：axi_lite_if + axi2simple_bridge + TB (T1-T9, 9/9 PASS, 含背压测试)
    待做：axi_lite_interconnect (⑤) + snn_soc_top 集成 (⑥)
 
 ② UART TX                               共用
    状态：feature/uart-tx 分支
-   完成：uart_ctrl.sv + TB (T1-T7, 8/8 PASS)
+   完成：uart_ctrl.sv + TB (T1-T7+T1b, 9/9 PASS, 寄存器映射已对齐 stub)
    待做：snn_soc_top 中 uart_stub → uart_ctrl 替换
 
 ③ SPI Master                             共用
    状态：feature/spi 分支
-   完成：spi_ctrl.sv + Flash model + TB (T1-T4, 8/8 PASS)
+   完成：spi_ctrl.sv + Flash model + TB (T1-T4+T1b, 9/9 PASS, 含 clk-div clamp)
    待做：snn_soc_top 中 spi_stub → spi_ctrl 替换
 
 ④ DMA 扩展                               共用
@@ -218,19 +218,109 @@ ASIC 主线                               FPGA 论文兜底线
 |------|---------|------|
 | LUT | 3000~5000 | SoC 控制逻辑 + MAC 加法树 |
 | FF | 1500~3000 | 寄存器 + 状态机 + 计数器 |
-| BRAM (18Kb) | 4~6 | 3×SRAM(16KB) + 1×权重(640B) + FIFO |
+| BRAM (18Kb) | ~27 | 3×SRAM(16KB) + FIFO + 权重存储 |
 | DSP | 0 | 1-bit×4-bit 乘法不需要 DSP，纯 LUT 实现 |
+
+**BRAM 详细估算（基于 RTL 实际参数）：**
+
+| 存储器 | 规格 | 配置 | RAMB18 数量 |
+|--------|------|------|------------|
+| INSTR_SRAM | 16KB，32-bit宽，4K深 | 512×36 × 8 | 8 |
+| DATA_SRAM | 16KB，32-bit宽，4K深 | 512×36 × 8 | 8 |
+| WEIGHT_SRAM | 16KB，32-bit宽，4K深 | 512×36 × 8 | 8 |
+| INPUT_FIFO | 64-bit宽，256深 | 256×36 × 2（宽度级联） | 2 |
+| OUTPUT_FIFO | 4-bit宽，256深 | 最小分配 | 1 |
+| 合计 | - | - | ~27 |
+
+> 注：3 个 16KB SRAM 就需要约 24 个 RAMB18；加上 FIFO/权重存储后总量约 27。
 
 ### 4.2 推荐开发板
 
-| 开发板 | FPGA | LUT | BRAM | 价格 | 推荐度 |
-|--------|------|-----|------|------|--------|
-| Basys3 | Artix-7 35T | 20,800 | 50×18Kb | ~500 RMB | 够用 |
-| PYNQ-Z1 | Zynq-7020 | 53,200 | 140×18Kb | ~800 RMB | 推荐（有 ARM 可辅助调试）|
-| Nexys A7 | Artix-7 100T | 63,400 | 135×18Kb | ~1500 RMB | 充裕 |
-| 自有板卡 | 看具体型号 | — | — | — | 有就用 |
+| 开发板 | FPGA | LUT | BRAM(18Kb) | BRAM 利用率(按27估算) | 推荐度 |
+|--------|------|-----|-----------|-----------------------|--------|
+| Basys3 | Artix-7 35T | 20,800 | 50 | ~54%（偏紧） | 可用但不建议首选 |
+| PYNQ-Z1 | Zynq-7020 | 53,200 | 140 | ~19%（充裕） | 推荐（有 ARM 可辅助调试）|
+| Nexys A7 | Artix-7 100T | 63,400 | 270 | ~10%（宽裕） | 充裕 |
+| **ZCU102** | **Zynq US+ ZU9EG** | **274,080** | **912×36Kb≈1824×18Kb** | **<5%（按27估算）** | **最佳（已有优先，详见 4.3 节）** |
 
-Artix-7 35T 就足够（资源使用率约 15~25%）。
+> Basys3 在 BRAM 上偏紧；PYNQ-Z1 / Nexys A7 / ZCU102 更稳妥。
+
+### 4.3 ZCU102 实机评估（已有板卡）
+
+项目组手头有 Xilinx ZCU102 评估板（XCZU9EG-2FFVB1156E，Zynq UltraScale+ MPSoC），
+以下为该板卡与本项目需求的详细匹配分析。
+
+#### 4.3.1 资源对比
+
+| 资源 | ZCU102 (XCZU9EG PL 侧) | SNN SoC 估算需求 | 裕量 |
+|------|-------------------------|------------------|------|
+| CLB LUT | 274,080 | 3,000~15,000 | >18× |
+| CLB FF | 548,160 | 1,500~20,000 | >27× |
+| BRAM 36Kb | 912 块 (32.1 Mb) | 约14 块（≈27 块 18Kb 当量） | >65× |
+| UltraRAM 288Kb | 80 块 | 0 | 全部空闲 |
+| DSP48E2 | 2,520 | 0（1-bit MAC 不需要 DSP） | 全部空闲 |
+| DDR4 | PS: 4 GB + PL: 512 MB | 几十 KB（MNIST 数据） | 极富余 |
+
+**结论：资源远超需求，utilization 预计 <5%。**
+
+#### 4.3.2 板载外设与 SoC 需求匹配
+
+| SoC 需求 | ZCU102 板载资源 | 可用性 |
+|----------|----------------|--------|
+| UART TX 调试输出 | CP2108 USB-UART 桥（4 通道，micro-USB） | **可用**（通过 PMOD/FMC 或可达的 PL 引脚通道接出） |
+| JTAG 调试 | 板载 Digilent USB-JTAG + 14-pin 标准 header | **直接可用** |
+| SPI Flash | 2× 512Mb Micron QSPI Flash | **不能直接给 PL 侧 spi_ctrl 用**（见下方说明） |
+| 外扩 IO | 2× FMC HPC (~200+ IO) + 2× PMOD (16 IO) | **充裕** |
+
+**SPI Flash 重要说明**：
+ZCU102 板载 QSPI Flash 连接在 PS 侧 MIO 引脚上，用于 ARM 引导启动，
+PL 侧自研 `spi_ctrl.sv` 无法直接驱动这些 Flash。解决方案（三选一）：
+
+1. **外接 SPI Flash 模块**（推荐）：通过 PMOD 或 FMC 接一个小 Flash 板，PL 侧 spi_ctrl 直接驱动
+2. **BRAM 模拟 Flash**：用 BRAM + `$readmemh` 预加载 MNIST 数据，spi_ctrl 仅做功能验证
+3. **PS 中转**：ARM 通过 MIO 读 Flash，再通过 AXI 传给 PL 侧 SRAM
+
+方案 1 最接近真实场景；方案 2 最简单，足够发论文。
+
+#### 4.3.3 ARM (PS) vs E203 (PL)：双路线策略
+
+ZCU102 的 PS 侧有硬核 ARM Cortex-A53（四核，1.5GHz，可跑 Linux），
+这使得除了"纯 PL 复刻 ASIC"之外，还有一条"ARM + 加速器"路线可选。
+
+| | 方案 A：纯 PL（E203 + SNN） | 方案 B：PS ARM + PL 加速器 |
+|---|---|---|
+| **CPU** | E203 RISC-V（PL 内软核） | ARM Cortex-A53（PS 硬核） |
+| **OS** | 裸机固件（无 OS） | PetaLinux / Bare-metal |
+| **数据加载** | SPI Flash → CPU → SRAM → DMA | ARM 读 DDR/SD 卡 → AXI → PL SRAM → DMA |
+| **开发方式** | 交叉编译 RISC-V 固件，JTAG 烧写 | GCC/Python 直接在板上运行 |
+| **论文价值** | 完整复刻 ASIC 设计，映射最强 | 大规模实验最方便，可做 demo |
+| **适合阶段** | 验证 SoC 架构正确性 | 批量跑实验、出数据表 |
+
+**ARM 路线的独特优势**：
+
+1. **批量实验**：Python 脚本循环 10,000 张 MNIST 测试图，自动统计 accuracy
+2. **参数扫描**：脚本自动修改 threshold / timesteps / noise_level，跑多组实验出图表
+3. **实时 demo**：摄像头输入 → 预处理 → SNN 推理 → 屏幕显示分类结果
+4. **功耗对比**：ARM 纯软件推理 vs SNN 硬件加速，直接出 speedup 和能效比数据
+5. **AXI 天然对接**：PS 通过 AXI HP/HPC 端口驱动 PL，而我们的 `axi2simple_bridge` 恰好做这个转换
+
+**推荐策略**：先做方案 A（纯 PL + E203）拿到基线数据和 ASIC 等效验证；
+再做方案 B（ARM + 加速器）做批量实验和 demo。论文里两条路线都能写，
+方案 A 证明"架构设计正确"，方案 B 提供"大规模实验数据"。
+
+#### 4.3.4 FPGA 适配层清单（不可省略）
+
+纯 PL 方案需要以下 FPGA 专用适配（非 SoC 功能逻辑）：
+
+| 适配项 | 说明 |
+|--------|------|
+| `top_fpga.sv` | 板级顶层，连接 PL 引脚到 SoC 顶层端口 |
+| 时钟 PLL/MMCM | 50 MHz 系统时钟生成（板载 300MHz 差分时钟 → PLL ÷6） |
+| 复位同步 | 板载按钮去抖 + 异步复位同步器 |
+| `.xdc` 约束文件 | 引脚分配（UART TX → PMOD/USB-UART、LED、按键、SPI） |
+| Vivado 工程/TCL | 综合 + 实现 + 生成 bitstream 脚本 |
+
+这些与 SoC 功能 RTL 无关，属于板级集成工程。
 
 ---
 
@@ -378,7 +468,7 @@ fpga/
 | 数字流片失败 | 无硅测试数据 | FPGA 结果兜底，论文不依赖硅 |
 | 模拟流片失败 | CIM macro 不工作 | CIM test mode 已预留（REG_CIM_TEST），可绕过模拟；FPGA 独立验证 |
 | FPGA 精度与 Python 不一致 | 论文数据不可信 | 用相同权重 + 相同量化流程，差异应 <0.5%；如有差异可分析原因 |
-| 开发板不够用 | 资源不够 | Artix-7 35T 已足够（utilization ~20%），实在不够换 100T |
+| 开发板不够用 | BRAM 紧张或 IO 不足 | 优先选 PYNQ-Z1/Nexys A7/ZCU102；Basys3 仅作最小演示 |
 | 论文审稿质疑"为何不流片" | 被拒 | 明确声明 FPGA 是"架构预验证"，流片是后续工作；加入非理想注入提升含金量 |
 
 ---
