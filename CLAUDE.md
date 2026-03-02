@@ -18,18 +18,27 @@
 | THRESHOLD_DEFAULT | 10200 | = 4 × 255 × 10 |
 | NEURON_DATA_WIDTH | 9 | signed 9-bit（Scheme B 差分输出）|
 
-## 寄存器地址表（关键寄存器）
+## 寄存器地址表（快速参考，权威以 doc/02_reg_map.md 为准）
 
-| 地址 | 名称 | 说明 |
-|------|------|------|
-| 0x00 | DMA_CTRL | [0]=START(W1P), [1]=DONE(R/W1C) |
-| 0x04 | DMA_SRC | DMA 源地址 |
-| 0x08 | DMA_LEN | DMA 长度（单位：word） |
-| 0x10 | CIM_CTRL | [0]=START(W1P), [7]=DONE(R/W1C) |
-| 0x14 | CIM_STATUS | [0]=err_sticky |
-| 0x20 | REG_THRESHOLD | LIF 阈值（default 10200）|
-| 0x24 | REG_THRESHOLD_RATIO | 8-bit ratio_code（default 4）|
-| 0x2C | REG_CIM_TEST | [0]=test_mode, [15:8]=test_data_pos, [23:16]=test_data_neg |
+> 注意：不同外设有不同基地址，不要把 offset 混成同一张表。
+
+### REG_BANK（基地址 `0x4000_0000`）
+
+| 绝对地址 | offset | 名称 | 说明 |
+|------|------|------|------|
+| 0x4000_0000 | 0x00 | REG_THRESHOLD | LIF 阈值（default 10200） |
+| 0x4000_0014 | 0x14 | CIM_CTRL | [0]=START(W1P), [1]=SOFT_RESET(W1P), [7]=DONE(W1C) |
+| 0x4000_0018 | 0x18 | STATUS | [0]=BUSY, [4:1]=FIFO 标志, [15:8]=TIMESTEP_CNT |
+| 0x4000_0024 | 0x24 | REG_THRESHOLD_RATIO | 8-bit ratio_code（default 4，shadow） |
+| 0x4000_002C | 0x2C | REG_CIM_TEST | [0]=test_mode, [15:8]=test_data_pos, [23:16]=test_data_neg |
+
+### DMA（基地址 `0x4000_0100`）
+
+| 绝对地址 | offset | 名称 | 说明 |
+|------|------|------|------|
+| 0x4000_0100 | 0x00 | DMA_SRC_ADDR | DMA 源地址 |
+| 0x4000_0104 | 0x04 | DMA_LEN_WORDS | DMA 长度（单位：32-bit word） |
+| 0x4000_0108 | 0x08 | DMA_CTRL | [0]=START(W1P), [1]=DONE(W1C), [2]=ERR(W1C), [3]=BUSY(RO) |
 
 ## CIM Test Mode（流片后自检关键）
 
