@@ -551,8 +551,7 @@ endmodule
 ```systemverilog
 module cim_macro_blackbox #(
     parameter int P_NUM_INPUTS   = snn_soc_pkg::NUM_INPUTS,    // 64
-    parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS,  // 20
-    parameter int P_ADC_BITS     = snn_soc_pkg::ADC_BITS       // 8
+    parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS   // 20
 ) (
     // 时钟和复位
     input  logic        clk,
@@ -572,7 +571,7 @@ module cim_macro_blackbox #(
     input  logic [$clog2(P_ADC_CHANNELS)-1:0] bl_sel,  // 通道选择 0-19（Scheme B）
     input  logic        adc_start,              // ADC 采样启动
     output logic        adc_done,               // ADC 采样完成
-    output logic [P_ADC_BITS-1:0] bl_data       // 8-bit ADC 输出
+    output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data  // 8-bit ADC 输出
 );
 ```
 
