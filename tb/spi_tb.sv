@@ -14,7 +14,7 @@
 module spi_tb;
   logic clk = 1'b0;
   logic rst_n;
-  always #5 clk = ~clk; // 100 MHz
+  always #10 clk = ~clk; // 50 MHz（与 ASIC 目标时钟一致）
 
   // simple bus request
   logic        req_valid;
