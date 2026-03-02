@@ -71,7 +71,7 @@ module lif_neurons (
   // bitplane_shift：当前 bit-plane 的位权（7=MSB,6,5,...,0=LSB）
   // 用于算术左移（等效于乘以 2^shift），实现 bit-plane 加权
   input  logic [$clog2(snn_soc_pkg::PIXEL_BITS)-1:0] bitplane_shift,
-  input  logic [31:0] threshold,  // 脉冲阈值（来自 reg_bank.neuron_threshold，定版默认 10200）
+  input  logic [31:0] threshold,  // 脉冲阈值（来自 reg_bank.neuron_threshold，工程默认 3060）
   input  logic reset_mode,        // 复位模式：0=soft，1=hard（来自 reg_bank.reset_mode）
 
   // ── 到 output FIFO 的写接口 ──────────────────────────────────────────────

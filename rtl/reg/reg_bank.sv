@@ -24,7 +24,7 @@
 // 寄存器地址映射（物理地址 = 0x4000_0000 + offset）：
 //
 //   0x00  REG_THRESHOLD      [31:0]  LIF 神经元绝对阈值（直接驱动 neuron_threshold）
-//   0x04  REG_TIMESTEPS      [7:0]   推理时步数（即帧数，V1 定版=10）
+//   0x04  REG_TIMESTEPS      [7:0]   推理时步数（即帧数，工程默认=3）
 //   0x08  REG_NUM_INPUTS     [15:0]  只读：NUM_INPUTS 参数值（=64）
 //   0x0C  REG_NUM_OUTPUTS    [7:0]   只读：NUM_OUTPUTS 参数值（=10）
 //   0x10  REG_RESET_MODE     [0]     重置模式选择（0=soft/1=hard）
