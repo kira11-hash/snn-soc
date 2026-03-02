@@ -12,7 +12,7 @@
 ../rtl/snn/lif_neurons.sv
 ../rtl/snn/cim_array_ctrl.sv
 ../rtl/snn/wl_mux_wrapper.sv
-../rtl/snn/cim_macro_blackbox.sv
+../fpga/cim_model/cim_fpga_model.sv
 ../rtl/periph/uart_stub.sv
 ../rtl/periph/spi_stub.sv
 ../rtl/periph/jtag_stub.sv

@@ -711,17 +711,17 @@ module snn_soc_top (
     .dac_done_pulse(dac_done_pulse)         // 输出：本次 DAC 操作完成（单拍）
   );
 
-  // cim_macro_blackbox：RRAM CIM 阵列行为模型（黑盒仿真）
-  // 功能：模拟 128x256 RRAM 阵列（差分结构，实际 64x20 有效计算）的推理行为
-  //   - 接收 wl_spike（WL 激活信号），通过 dac_valid 单拍脉冲触发锁存
-  //   - 在 cim_start 后执行内积计算（权重 x 输入）
-  //   - 通过 adc_start/adc_done/bl_data 串行输出 20 个 BL 列的 ADC 结果
+  // cim_fpga_model：FPGA 可综合 CIM 替代模块
+  // 功能：使用 BRAM 权重存储 + 1-bit×4-bit 条件累加，替代 RRAM 行为模型
+  //   - 接口与 cim_macro_blackbox 100% 兼容（即插即换）
+  //   - 权重通过 $readmemh 从 .hex 文件加载（训练后导出）
+  //   - 保留相同的时序模型（CIM_LATENCY_CYCLES / ADC_SAMPLE_CYCLES）
   // 注意：这里连接的是 _hw 后缀信号（原始输出），之后由 MUX 选择 hw 还是 test
-  cim_macro_blackbox u_macro (
+  cim_fpga_model u_macro (
     .clk       (clk),
     .rst_n     (rst_n),
     .wl_spike  (wl_spike),       // 来自 dac_ctrl：WL 激活位图的数字表示
-    .dac_valid (dac_valid),      // 来自 dac_ctrl：单拍脉冲，通知行为模型锁存 wl_spike
+    .dac_valid (dac_valid),      // 来自 dac_ctrl：单拍脉冲，通知模型锁存 wl_spike
     .cim_start (cim_start_pulse), // 来自 cim_array_ctrl：计算启动脉冲
     .cim_done  (cim_done_hw),    // 输出：计算完成（→ test mode MUX 后接 cim_done）
     .adc_start (adc_start),      // 来自 adc_ctrl：当前列开始采样

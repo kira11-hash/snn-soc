@@ -1,0 +1,14 @@
+# Golden membrane potentials after full inference
+# Pixels: class0_field=255, class1_field=128, background=64
+# Timesteps=3, PixelBits=8
+# Threshold default = 3060
+neuron[0]: membrane=   83634  SPIKE
+neuron[1]: membrane=   56232  SPIKE
+neuron[2]: membrane=   37419  SPIKE
+neuron[3]: membrane=   41439  SPIKE
+neuron[4]: membrane=   35889  SPIKE
+neuron[5]: membrane=   37230  SPIKE
+neuron[6]: membrane=   42408  SPIKE
+neuron[7]: membrane=   40500  SPIKE
+neuron[8]: membrane=   45468  SPIKE
+neuron[9]: membrane=   40683  SPIKE
