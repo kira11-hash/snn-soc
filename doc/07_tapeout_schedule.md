@@ -35,8 +35,8 @@ V1 先完成数字 SoC 单独流片，并进行片外混合集成验证；V2/V3 
 | 权重 Buffer 16KB | 需要 | ⚠️ 需改造 | Phase 3 |
 | DMA 引擎 | 多目标 | ⚠️ 单目标 | Phase 3 |
 | 寄存器 Bank | 需要 | ✅ 有 | - |
-| **SPI 控制器** | 需要 | ❌ 仅stub | Phase 2 |
-| **UART 控制器** | 需要 | ❌ 仅stub | Phase 2 |
+| **SPI 控制器** | 需要 | ⚠️ 主线stub（feature/spi 已完成 IP+TB 验证） | Phase 2（待主线集成） |
+| **UART 控制器** | 需要 | ⚠️ 主线stub（feature/uart-tx 已完成 IP+TB 验证） | Phase 2（待主线集成） |
 | JTAG 接口 | 需要 | ❌ 仅stub | Phase 5 |
 | 输入 Spike FIFO | 需要 | ✅ 有 | - |
 | 输出 Spike FIFO | 需要 | ✅ 有 | - |
@@ -94,6 +94,7 @@ V1 先完成数字 SoC 单独流片，并进行片外混合集成验证；V2/V3 
 ### 目标
 - 实现完整的 UART 控制器（替换 uart_stub.sv）
 - 实现完整的 SPI 控制器（替换 spi_stub.sv）
+- As of 2026-03-02: UART/SPI IP has already passed standalone TB in `feature/uart-tx` and `feature/spi`; remaining work on `main` is top-level stub replacement and integration in `snn_soc_top.sv`.
 - UART 和 SPI 可以并行开发
 
 ### 第3周（2.14-2.20）：UART 控制器
