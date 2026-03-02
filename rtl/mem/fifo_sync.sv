@@ -5,7 +5,7 @@
 // Role in system: Absorbs rate mismatch between producer FSMs and consumer FSMs (DMA, LIF, readout path).
 // Behavior summary: Single-clock FIFO with count/full/empty and sticky overflow/underflow pulse outputs.
 // Timing model: Purely synchronous; write/read happen on the same clock domain.
-// Integration note: Depth is parameterized and may be non-power-of-two (assertions should protect assumptions).
+// Integration note: DEPTH must be a power of two; non-compliant values fail at elaboration in simulation.
 // Debug note: overflow/underflow outputs are often left unconnected in top-level unless explicitly monitored.
 // -----------------------------------------------------------------------------
 
@@ -112,6 +112,7 @@ module fifo_sync #(
   localparam int ADDR_BITS = $clog2(DEPTH);
   localparam int COUNT_W   = $clog2(DEPTH+1);
   localparam logic [COUNT_W-1:0] DEPTH_VAL = COUNT_W'(DEPTH);
+  localparam bit DEPTH_IS_POW2 = (DEPTH > 0) && ((DEPTH & (DEPTH - 1)) == 0);
 
   // -----------------------------------------------------------------------
   // 仿真期间合法性断言（综合时跳过）
@@ -124,12 +125,14 @@ module fifo_sync #(
   // $fatal(1, ...) 在仿真初始化（elaboration 阶段）立即终止，防止带病运行。
   // -----------------------------------------------------------------------
 `ifndef SYNTHESIS
-  initial begin
-    if ((DEPTH & (DEPTH - 1)) != 0)
-      $fatal(1, "[fifo_sync] DEPTH(%0d) must be power of 2 for pointer wrap-around", DEPTH);
-    if (DEPTH == 0)
-      $fatal(1, "[fifo_sync] DEPTH must be > 0");
-  end
+  generate
+    if (DEPTH <= 0) begin : g_depth_zero
+      initial $fatal(1, "[fifo_sync] DEPTH must be > 0");
+    end
+    if (!DEPTH_IS_POW2) begin : g_depth_non_pow2
+      initial $fatal(1, "[fifo_sync] DEPTH(%0d) must be power of 2 for pointer wrap-around", DEPTH);
+    end
+  endgenerate
 `endif
 
   // -----------------------------------------------------------------------
