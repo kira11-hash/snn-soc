@@ -269,8 +269,8 @@ module snn_soc_top (
   logic [NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data;
 
   // 来自 reg_bank 的控制寄存器
-  // neuron_threshold: LIF 膜电位阈值（32-bit，默认 THRESHOLD_DEFAULT=10200）
-  // timesteps       : 推理时间步数（8-bit，定版默认 10）
+  // neuron_threshold: LIF 膜电位阈值（32-bit，默认 THRESHOLD_DEFAULT=3060）
+  // timesteps       : 推理时间步数（8-bit，工程默认 3）
   // reset_mode      : LIF 复位模式：0=减法复位（soft），1=归零复位（hard）
   // snn_busy        : SNN 子系统忙标志（cim_array_ctrl → reg_bank，SW 轮询）
   // snn_done_pulse  : SNN 推理完成脉冲（单拍，cim_array_ctrl → reg_bank）
@@ -565,7 +565,7 @@ module snn_soc_top (
   //   - REG_CTRL: snn_start_pulse / snn_soft_reset_pulse / reset_mode / cim_test_mode
   //   - REG_STATUS: snn_busy / snn_done_pulse / timestep_counter 等
   //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（定版默认 4 = 0x04）
-  //   - REG_TIMESTEPS: 时间步数（定版默认 10）
+  //   - REG_TIMESTEPS: 时间步数（工程默认 3）
   //   - REG_CIM_TEST: test_mode + test_data_pos/test_data_neg（测试模式用）
   //   - REG_ADC_SAT: ADC 饱和计数高/低
   //   - REG_DBG_*: 4 个调试计数器
@@ -658,7 +658,7 @@ module snn_soc_top (
     .rst_n           (rst_n),
     .soft_reset_pulse(snn_soft_reset_pulse), // SW 软复位：FSM 回到 IDLE，不清 debug 计数器
     .start_pulse     (snn_start_pulse),      // SW 启动推理（单拍触发）
-    .timesteps       (timesteps),            // 时间步总数（默认 10，可寄存器配置）
+    .timesteps       (timesteps),            // 时间步总数（默认 3，可寄存器配置）
     .in_fifo_rdata   (in_fifo_rdata),        // 从 input FIFO 读出的 64-bit bitmap
     .in_fifo_empty   (in_fifo_empty),        // FIFO 空则无法启动
     .in_fifo_pop     (in_fifo_pop),          // FSM 控制的 FIFO pop 信号
@@ -759,7 +759,7 @@ module snn_soc_top (
   //   每次 spike 事件都会把神经元编号 push 到 output FIFO（事件流输出）
   // 关键信号：
   //   bitplane_shift : 比特平面偏移（0~7，对应 8-bit 输入位平面）
-  //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 10200）
+  //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 3060）
   //   reset_mode     : 0=减法复位（membrane -= threshold），1=归零（membrane=0）
   lif_neurons u_lif (
     .clk            (clk),

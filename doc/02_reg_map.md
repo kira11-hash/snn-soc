@@ -6,7 +6,7 @@
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x00 | NEURON_THRESHOLD | threshold | [31:0] | RW | THRESHOLD_DEFAULT | LIF 阈值 |
-| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd10 | 推理帧数（每帧含 PIXEL_BITS 子时间步，定版 T=10） |
+| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd3 | 推理帧数（每帧含 PIXEL_BITS 子时间步，工程默认 T=3） |
 | 0x08 | NUM_INPUTS | num_inputs | [15:0] | RO | 16'd64 | 输入维度（8x8 离线投影后特征） |
 | 0x0C | NUM_OUTPUTS | num_outputs | [7:0] | RO | 8'd10 | 输出类别 |
 | 0x10 | RESET_MODE | reset_mode | [0] | RW | 1'b0 | 0=soft reset, 1=hard reset |
@@ -34,9 +34,9 @@
 
 说明：
 - THRESHOLD 和 THRESHOLD_RATIO 为双寄存器模式：固件可读取 ratio 计算绝对阈值后写入 THRESHOLD，或直接写入绝对阈值。
-- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 10 = 10200（定版）。
+- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 3 = 3060（工程默认）。
 - CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake CIM/ADC 响应（cim_done 延迟 2 拍, adc_done 延迟 1 拍）；bl_data 按 bl_sel 分路返回：ch 0~9 返回 test_data_pos，ch 10~19 返回 test_data_neg；DAC 阶段仍按固定 `DAC_LATENCY_CYCLES` 时序运行（无 `dac_ready` 握手）。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
-- 推荐写法（全链路自检）：写 `test_mode=1, test_data_pos=100, test_data_neg=0`，Scheme B 差分 = 100，T=10 推理后 OUT_FIFO_COUNT 应明显非零（验证 DMA→FIFO→FSM→ADC→LIF→输出FIFO 全通路）。单写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111）即可同时配置三字段。
+- 推荐写法（全链路自检）：写 `test_mode=1, test_data_pos=100, test_data_neg=0`，Scheme B 差分 = 100，T=3 推理后 OUT_FIFO_COUNT 应明显非零（验证 DMA→FIFO→FSM→ADC→LIF→输出FIFO 全通路）。单写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111）即可同时配置三字段。
 - 用途边界：CIM_TEST 仅用于时序/通路自检，不用于分类数值链路正确性验证（差分结果非真实权重，推理结果无意义）。
 - DBG_CNT_0/1：16-bit 饱和计数器，仅 rst_n 清零。用于运行时诊断 DMA 搬运量、推理耗时、spike 输出量、WL mux 协议违规。
 

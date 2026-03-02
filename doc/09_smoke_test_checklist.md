@@ -59,7 +59,7 @@ LIGHT_SMOKETEST_PASS
 ```
 
 **OUT_FIFO_COUNT 说明**：
-- 当前轻量测试已按定版参数跑 `TIMESTEPS=10`（不再是早期 `T=1`）
+- 当前轻量测试已按工程默认参数跑 `TIMESTEPS=3`（不再是早期 `T=1`）
 - 通过标准是：`LIGHT_SMOKETEST_PASS` 且 DMA/CIM DONE 位按预期置位
 - `OUT_FIFO_COUNT` 属于业务数据结果，允许随输入激励变化；通常为非零（当前回归样例为 20）
 - 测试意图：验证**端到端数字链路**（DMA → FIFO → FSM → ADC → LIF → output_fifo）可稳定运行

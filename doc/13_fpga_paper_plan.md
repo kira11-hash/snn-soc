@@ -111,6 +111,52 @@ parameter int NOISE_LSB            = 2;   // ±2 LSB 随机噪声
 
 这些参数来自器件组的实测数据（见本文第 7 节参数来源表及引用标签说明）。
 
+#### 工程实现补充（答疑新增）
+
+在实现层面可按三层叠加噪声：
+
+1. **D2D（静态）**：每个权重单元一个固定偏移，初始化后全程不变。  
+2. **C2C/读噪声（动态）**：每次 `cim_start` 或每次列读时，用 `LFSR` 生成扰动加到累加结果。  
+3. **ADC 量化误差**：量化前后做截断/抖动。
+
+常用表达：
+
+```
+acc_noisy = acc_ideal + noise_dyn
+w_eff     = w_base + d2d_offset[idx]
+```
+
+并在输出前 `clamp` 到 `0..255`，避免越界。
+
+建议增加可配置控制位（便于消融实验）：
+
+```
+noise_en
+noise_level
+```
+
+权重写入 ROM 的工程建议：
+
+1. Python 导出 `weight_pos.mem`、`weight_neg.mem`（按 RTL 列映射导出，确保 pos/neg 列顺序一致）。  
+2. RTL 采用 ROM/BRAM 数组 + `$readmemh` 初始化。  
+3. 展平寻址最稳妥：`idx = row*10 + cls`。
+
+可用示例（展平）：
+
+```systemverilog
+(* rom_style="block" *) reg [3:0] w_pos_rom [0:639]; // 64*10
+(* rom_style="block" *) reg [3:0] w_neg_rom [0:639]; // 64*10
+initial begin
+  $readmemh("weight_pos.mem", w_pos_rom);
+  $readmemh("weight_neg.mem", w_neg_rom);
+end
+```
+
+说明：
+
+- 上述方式是“随 bitstream 固化”，运行时不可修改。  
+- 若需要在线更新权重，将 ROM 改为可写 BRAM，并增加总线写口。
+
 ### 2.4 模块接口（与 blackbox 100% 兼容）
 
 ```systemverilog
@@ -424,7 +470,7 @@ fpga/
 | Python baseline 精度 | 90.42% (spike-only) | J2/J3 | Python 管线 `proj_sup_64` 最终锁定配置 |
 | Zero-spike rate | 0.00% | J3 | Python 校准后验证（calibrate_threshold.py）|
 | ADC 位宽 | 8-bit | A3 | Python 建模 sweep：6/8/12-bit 对比 |
-| 阈值 | 10200 (= 4×255×10) | J2 | ratio_code=4, T=10 下计算值 |
+| 阈值 | 3060 (= 4×255×3) | J2 | 工程默认值（论文高精度对照可用 T=10，对应 10200） |
 
 ### 引用标签清单
 

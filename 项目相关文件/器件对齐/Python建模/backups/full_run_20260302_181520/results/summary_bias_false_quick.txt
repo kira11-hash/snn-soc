@@ -1,0 +1,104 @@
+============================================================
+  SNN SoC 寤烘ā缁撴灉 - 鍙傛暟鎺ㄨ崘
+============================================================
+
+璇勪及鍙ｅ緞: tuning_split=val (閫夋柟妗?璋冨弬), final_split=test (鏈€缁堜竴娆℃姤鍛?
+鍏ㄩ噺缁勫悎鎵弿鏁? 900, 鎺ㄨ崘绮惧害瀹瑰繊杈圭晫: 0.50%
+
+鏈€浣充笅閲囨牱鏂规硶(8/4/1鍩虹嚎): maxpool_8x8
+  tuning SNN(ADC=8,W=4,T=1): 76.80%
+  ANN float 鍩虹嚎鍑嗙‘鐜?test): 72.00%
+  ANN quantized 鍩虹嚎鍑嗙‘鐜?test): 70.80%
+
+best-case(鍏ㄩ噺缃戞牸鏈€楂樼簿搴?:
+  method=maxpool_8x8, scheme=B, ADC=6, W=8, T=1, ratio=0.30, acc=77.80%
+
+recommendation(绮惧害杈炬爣涓嬩綆鎴愭湰浼樺厛):
+  method=maxpool_8x8, scheme=B, ADC=6, W=8, T=1, ratio=0.30, tuning_acc=77.80%
+
+Final test (recommendation): 71.00%
+Final test (best-case): 71.00%
+
+Top full-grid combinations:
+  #01: method=maxpool_8x8, scheme=B, ADC=6, W=8, T=1, ratio=0.30, acc=77.80%
+  #02: method=maxpool_8x8, scheme=B, ADC=6, W=8, T=3, ratio=0.30, acc=77.80%
+  #03: method=maxpool_8x8, scheme=B, ADC=6, W=8, T=5, ratio=0.30, acc=77.80%
+  #04: method=maxpool_8x8, scheme=B, ADC=6, W=8, T=10, ratio=0.30, acc=77.80%
+  #05: method=maxpool_8x8, scheme=B, ADC=6, W=8, T=20, ratio=0.30, acc=77.80%
+  #06: method=maxpool_8x8, scheme=B, ADC=8, W=6, T=1, ratio=0.30, acc=77.40%
+  #07: method=maxpool_8x8, scheme=B, ADC=8, W=6, T=3, ratio=0.30, acc=77.40%
+  #08: method=maxpool_8x8, scheme=B, ADC=8, W=6, T=5, ratio=0.30, acc=77.40%
+  #09: method=maxpool_8x8, scheme=B, ADC=8, W=6, T=10, ratio=0.30, acc=77.40%
+  #10: method=maxpool_8x8, scheme=B, ADC=8, W=6, T=20, ratio=0.30, acc=77.40%
+
+Per-method calibrated ratio (by scheme):
+  avgpool_8x8         [B] ratio=0.30, val_acc=75.60%
+  bilinear_8x8        [B] ratio=0.30, val_acc=74.00%
+  maxpool_8x8         [B] ratio=0.30, val_acc=76.80%
+  nearest_8x8         [B] ratio=0.30, val_acc=72.80%
+  pad32_reflect_8x8   [B] ratio=0.30, val_acc=73.00%
+  pad32_replicate_8x8 [B] ratio=0.30, val_acc=73.00%
+  pad32_zero_8x8      [B] ratio=0.30, val_acc=75.20%
+  proj_pca_64         [B] ratio=0.30, val_acc=39.00%
+  proj_sup_64         [B] ratio=0.30, val_acc=60.00%
+
+ADC sweep (val):
+   6-bit: 77.00% <- 鎺ㄨ崘
+   8-bit: 76.80%
+  10-bit: 77.40%
+  12-bit: 77.00%
+
+Weight sweep (val):
+  2-bit: 71.20%
+  3-bit: 76.60%
+  4-bit: 76.80%
+  6-bit: 77.40%
+  8-bit: 77.20% <- 鎺ㄨ崘
+
+Timesteps sweep (val):
+  T= 1: 76.80% <- 鎺ㄨ崘
+  T= 3: 76.80%
+  T= 5: 76.80%
+  T=10: 76.80%
+  T=20: 76.80%
+
+鍣ㄤ欢闈炵悊鎯冲奖鍝?(val):
+  鐞嗘兂鍑嗙‘鐜?      76.80%
+  鍚櫔鍑嗙‘鐜?      76.88% +/- 0.0027
+  鍑嗙‘鐜囬€€鍖?      -0.08%
+
+宸垎鏂规瀵规瘮 (val):
+  鏂规 B: 76.80% <- 鎺ㄨ崘
+
+鍐崇瓥瑙勫垯瀵规瘮 (val):
+  spike   : 76.80%
+  membrane: 76.80%
+
+鑷€傚簲闃堝€?(val):
+  鍥哄畾闃堝€?spike): 76.80%
+  鑷€傚簲闃堝€?      74.40%
+  鎻愬崌:            -2.40%
+  conclusion: not recommended
+
+鍥哄畾閰嶇疆澶歴eed澶嶈窇 (test):
+  seeds: [42, 43, 44, 45, 46]
+  clean: 71.00% +/- 0.0000
+  noisy: 71.76% +/- 0.0023
+
+Device backend:
+  use_device_model=True
+  plugin_path_exists=True
+  plugin_levels_loaded=True
+  plugin_sim_available=True
+  backend_mode=plugin
+
+============================================================
+  RTL 鍙傛暟鎺ㄨ崘 (鐢ㄤ簬鏇存柊 snn_soc_pkg.sv)
+============================================================
+  NUM_INPUTS  = 64
+  NUM_OUTPUTS = 10
+  ADC_BITS    = 6
+  PIXEL_BITS  = 8
+  // WEIGHT_BITS = 8 (device-side parameter)
+  // SCHEME = B
+  // ADAPTIVE_THRESHOLD = OFF

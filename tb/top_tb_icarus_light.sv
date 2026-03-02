@@ -143,13 +143,13 @@ module top_tb_icarus_light;
 
     $display("[INFO] Icarus light smoke test start");
 
-    // Keep pattern deterministic; run full T=10 smoke path.
-    bus_write(REG_TIMESTEPS, 32'd10);
-    bus_write(REG_THRESHOLD, 32'd10200);
+    // Keep pattern deterministic; run default T=3 smoke path.
+    bus_write(REG_TIMESTEPS, 32'd3);
+    bus_write(REG_THRESHOLD, 32'd3060);
     bus_write(REG_CIM_TEST, 32'h0000_0000);
 
-    // 10 frames * 8 bit-planes * 2 words per bit-plane = 160 words.
-    for (f = 0; f < 10; f = f + 1) begin
+    // 3 frames * 8 bit-planes * 2 words per bit-plane = 48 words.
+    for (f = 0; f < 3; f = f + 1) begin
       for (i = 0; i < PIXEL_BITS; i = i + 1) begin
         bus_write(ADDR_DATA_BASE + (f * PIXEL_BITS * 8) + (i * 8) + 32'h0, 32'h0000_00FF >> i);
         bus_write(ADDR_DATA_BASE + (f * PIXEL_BITS * 8) + (i * 8) + 32'h4, 32'h0000_0000);
@@ -157,7 +157,7 @@ module top_tb_icarus_light;
     end
 
     bus_write(DMA_SRC_ADDR, ADDR_DATA_BASE);
-    bus_write(DMA_LEN_WORDS, 32'd160);
+    bus_write(DMA_LEN_WORDS, 32'd48);
     bus_write(DMA_CTRL, 32'h0000_0001);
 
     begin : dma_poll
