@@ -22,7 +22,7 @@
 //
 //   Phase 1: 寄存器配置
 //     - 写 REG_THRESHOLD（0x4000_0000）：设置 LIF 神经元阈值
-//     - 写 REG_TIMESTEPS（0x4000_0004）：设置时步数/帧数（=10，定版 TIMESTEPS_DEFAULT）
+//     - 写 REG_TIMESTEPS（0x4000_0004）：设置时步数/帧数（=3，工程默认 TIMESTEPS_DEFAULT）
 //     - 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值（期望 4，ratio_code=4/255≈0.0157）
 //
 //   Phase 2: 写入 data_sram（bit-plane 编码）
