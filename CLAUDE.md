@@ -75,7 +75,7 @@
 
 ## 当前迭代路径（顺序固定，不可跳步）
 
-1. **AXI-Lite 基础骨架** ✅（进行中）：`axi_lite_if` + `axi2simple_bridge` 已完成，TB 待跑通；下一步集成进 snn_soc_top.sv。
+1. **AXI-Lite 基础骨架** ✅（进行中）：`axi_lite_if` + `axi2simple_bridge` + AXI TB（T1~T9）已完成；下一步是 `axi_lite_interconnect` 与 `snn_soc_top.sv` 集成。
 2. **UART**：最小可用（TX/RX + 状态寄存器），用于 bring-up 打印日志。
 3. **SPI**：先做 Flash 读路径（读 ID + 连续读），暂不追求复杂模式，为 boot/data load 做准备。
 4. **DMA 扩展**：先打通 SPI → SRAM，再 SRAM → input_fifo，每条路径单独写 TB，确认 done/err/busy。
