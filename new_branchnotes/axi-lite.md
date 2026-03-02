@@ -191,7 +191,7 @@ test_regs[0:7]（8 × 32-bit 内置寄存器，挂载于 ADDR_REG_BASE=0x4000_00
 其余从机（INSTR/DATA/WEIGHT SRAM，DMA，UART，SPI，FIFO）→ rdata 恒 0
 ```
 
-**7 个测试项：**
+**9 个测试项：**
 
 | 测试 | 地址 | 操作 | 验证内容 |
 |------|------|------|---------|
@@ -203,7 +203,7 @@ test_regs[0:7]（8 × 32-bit 内置寄存器，挂载于 ADDR_REG_BASE=0x4000_00
 | T6 | REG_BASE+0x0C | AW 先到，W 后到（用 `axi_write_aw_first` task）| AW/W 错拍支持 |
 | T7 | REG_BASE+0x14 | W 先到，AW 后到（用 `axi_write_w_first` task）| AW/W 错拍支持（反向）|
 
-**3 个 BFM task：**
+**4 个 BFM task：**
 
 | Task | 参数 | 说明 |
 |------|------|------|
@@ -223,7 +223,7 @@ logic [31:0] test_regs [0:7];  // 8 个 32-bit 寄存器
 
 **通过标准：**
 ```
-AXI_BRIDGE_SMOKETEST_PASS  （所有 7 个测试项均 PASS）
+AXI_BRIDGE_SMOKETEST_PASS  （所有 9 个测试项均 PASS）
 ```
 
 **Icarus 兼容性措施：**
