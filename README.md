@@ -60,12 +60,13 @@ doc/   中文说明文档
 - TIMESTEPS 表示帧数；总子时间步 = TIMESTEPS × PIXEL_BITS。
 - 当 TIMESTEPS=0 时，推理立即结束。
 - LIF 位宽建议：`LIF_MEM_WIDTH >= ADC_BITS + PIXEL_BITS`。
-- 默认阈值为 `THRESHOLD_DEFAULT`（定版计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 10 = 10200`，可软件覆盖）。
+- 默认阈值为 `THRESHOLD_DEFAULT`（工程默认计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 3 = 3060`，可软件覆盖）。
 - CIM Macro 在仿真中为行为模型，综合时为黑盒，可替换真实宏。
 - UART/SPI/JTAG 仅为 stub，不产生真实协议，仅占位可读写寄存器。
 
 ## 建模定版补充（复位模式，2026-02-10）
-- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=10, ratio_code=4`）。
+- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=3, ratio_code=4`）。
+- 论文写作口径：可将 `T=10` 作为高精度对照档位，与默认 `T=3` 形成精度/时延 trade-off 图。
 - 对比入口：`run_all.py` 的 `[3f]`（噪声影响，`add_noise=True`）和 `[3l]`（test 多 seed noisy，`add_noise=True`）。
 - soft（历史基线）：
   - val noisy mean：`90.41% +/- 0.0031`
