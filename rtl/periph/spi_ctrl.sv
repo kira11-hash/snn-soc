@@ -52,8 +52,8 @@ module spi_ctrl (
   wire spi_en = ctrl_reg[0];
   wire [2:0] clk_div_sel = ctrl_reg[3:1];
   wire cs_force = ctrl_reg[8];
-  // Safety clamp: if software enables SPI with clk_div=0, force clk_div=2 (12.5MHz @ 100MHz sys_clk).
-  // This avoids accidentally driving 50MHz SCK on boards/flash parts that are not margin-tested yet.
+  // Safety clamp: if software enables SPI with clk_div=0, force clk_div=2 (6.25MHz @ 50MHz sys_clk).
+  // This avoids accidentally driving 25MHz SCK (clk_div=0) on boards/flash parts that are not margin-tested yet.
   wire [31:0] ctrl_write_data = (req_wdata[0] && (req_wdata[3:1] == 3'd0))
                               ? {req_wdata[31:4], 3'd2, req_wdata[0]}
                               : req_wdata;
