@@ -193,6 +193,12 @@ ARM 全量结果、E203 最小演示、非理想注入与消融。
 ---
 
 ## 9. 执行里程碑（首稿版本）
+### 9.0 最新进度快照（截至 2026-03-04）
+1. `Step2/FSM` 路线已在 ZCU102 上实测 PASS，已形成可追溯产物（bit + runme.log + impl 报告）。
+2. 当前已冻结基线分支：`fpga-zcu102-step2-baseline`。
+3. 当前开发分支：`fpga-zcu102-step3-arm`，进入 ARM 路径（Path B）阶段。
+4. 当前工程结论：`timing clean + DRC clean + route clean`，Methodology 告警作为非阻塞风险跟踪。
+
 1. 03-04 至 03-12  
 固定实验口径，跑通 ARM 批量脚本，锁权重版本。
 

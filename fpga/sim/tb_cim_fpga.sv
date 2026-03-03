@@ -136,26 +136,26 @@ module tb_cim_fpga;
 
     // =====================================================================
     // T3: Known spike pattern → verify bl_data values
-    //     With all-1 input and test weights:
-    //       For each pos column j: acc = Σ weight_pos[i][j] for i=0..63
-    //       Expected: all non-zero (weights have structure)
+    //     With all-1 input:
+    //       acc_pos[j] = Σ weight_pos[i][j]
+    //       acc_neg[j] = Σ weight_neg[i][j]
+    //       bl = clamp(acc, 0, 255)
     // =====================================================================
     $display("\n=== T3: Known spike verification ===");
-    // Verify positive columns have larger values than negative columns
     begin
-      int pos_sum, neg_sum;
-      pos_sum = 0;
-      neg_sum = 0;
+      int expected_pos, expected_neg;
       for (int ch = 0; ch < 10; ch++) begin
-        pos_sum = pos_sum + bl_result[ch];
-        neg_sum = neg_sum + bl_result[ch + 10];
-      end
-      $display("  Sum(pos_cols) = %0d, Sum(neg_cols) = %0d", pos_sum, neg_sum);
-      if (pos_sum > neg_sum) begin
-        $display("[PASS] T3: Positive columns > negative columns (Scheme B diff > 0)");
-      end else begin
-        $display("[FAIL] T3: Expected pos > neg for Scheme B");
-        err_count = err_count + 1;
+        expected_pos = 0;
+        expected_neg = 0;
+        for (int row = 0; row < NUM_INPUTS; row++) begin
+          expected_pos += dut.weight_pos[row][ch];
+          expected_neg += dut.weight_neg[row][ch];
+        end
+        if (expected_pos > 255) expected_pos = 255;
+        if (expected_neg > 255) expected_neg = 255;
+
+        check($sformatf("T3_pos_ch%0d", ch), bl_result[ch],      expected_pos);
+        check($sformatf("T3_neg_ch%0d", ch), bl_result[ch + 10], expected_neg);
       end
     end
 
@@ -186,13 +186,18 @@ module tb_cim_fpga;
     $display("\n=== T5: Single-row activation ===");
     pulse_dac(64'h1);  // Only row 0 active
     run_cim();
-    for (int ch = 0; ch < 10; ch++) begin
+    for (int ch = 0; ch < ADC_CHANNELS; ch++) begin
       read_adc(ch[$clog2(ADC_CHANNELS)-1:0], bl_result[ch]);
     end
-    // Row 0 is in class 0's receptive field → col 0 should have weight 15
-    // Other columns should have small values (0-3)
-    $display("  Row 0 only: bl_pos[0]=%0d (expect 15)", bl_result[0]);
-    check("T5_col0", bl_result[0], 15);
+    begin
+      int expected_pos, expected_neg;
+      for (int ch = 0; ch < 10; ch++) begin
+        expected_pos = dut.weight_pos[0][ch];
+        expected_neg = dut.weight_neg[0][ch];
+        check($sformatf("T5_pos_ch%0d", ch), bl_result[ch],      expected_pos);
+        check($sformatf("T5_neg_ch%0d", ch), bl_result[ch + 10], expected_neg);
+      end
+    end
 
     // =====================================================================
     // Summary
