@@ -1,4 +1,4 @@
-# 14_fpga_fullversion_execution.md
+﻿# 14_fpga_fullversion_execution.md
 # FPGA Full-Version SNN SoC 完整实施文档
 
 > 分支：`fpga-fullversion-snnsoc`
@@ -1118,7 +1118,7 @@ ILA 抓取信号清单：
   - TB: sram_to_fifo_tb.sv (SRAM 预载 → DMA → input_fifo → 内容校验)
 
 依赖:
-  - feature/spi 已合入 main（spi_ctrl.sv 可用）
+  - feature/spi 已完成 IP+TB 验证（9/9 PASS），但 main 顶层仍待 `spi_stub -> spi_ctrl` 集成
   - spi_stub 需替换为 spi_ctrl（主线集成）
 
 预计时间: 3-5 天
@@ -1608,3 +1608,4 @@ main -> fpga-fullversion-snnsoc
 > - 2026-03-03 新增 §9.2.1 / §11.5 / §11.6：baseline-first 执行图 + A/B硬约束 + 日志脚本模板
 > - 2026-03-04 新增 §5.8：补录 ZCU102 FSM 实测通过证据（timing/util/power/DRC/route）并冻结 Step2 基线
 > - 2026-03-04 修复 `fpga/sim/tb_cim_fpga.sv`：将 T3/T5 从硬编码期望改为按实际权重计算，恢复 `CIM_FPGA_UNIT_PASS`
+
