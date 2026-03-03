@@ -42,6 +42,13 @@ Smoke test 是"冒烟测试"（点火后不冒烟就算过），但要保证质�
    - E203 全量推迟到二期，不作为首稿门槛
 8. 采样框架是“观测基础设施”，不等于创新点已经实现；创新点收益必须通过 OFF/ON 对比表给出。
 
+### 截至 2026-03-04 的 FPGA 实测补充（Step2 冻结基线）
+
+1. ZCU102（`xczu9eg-ffvb1156-2-e`）FSM 路线已上板 PASS。
+2. `project_2` 实现报告结论：`WNS=6.271ns`、`TNS=0`、`DRC=0`、`Route error=0`。
+3. 当前冻结基线分支：`fpga-zcu102-step2-baseline`；当前开发分支：`fpga-zcu102-step3-arm`。
+4. Methodology 仍有非阻塞告警（LUTAR-1 / SYNTH-5 / CLKC-40/56），进入 Step3 时持续跟踪。
+
 
 ```
 阶段1 (2周)：跑通smoke test + 学习06文档 ✅

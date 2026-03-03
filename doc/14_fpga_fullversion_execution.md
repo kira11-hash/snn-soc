@@ -569,7 +569,8 @@ void smoke_test() {
 ### 5.5 最小冒烟序列（7 步检查清单）
 
 ```
-□ Step 1: 上电 → LED[1] 亮（MMCM lock）→ LED[2] 亮（bringup 运行中/失败锁存）→ LED[0] 闪烁（heartbeat）
+□ Step 1: 上电 → LED[1] 亮（MMCM lock）→ LED[0] 闪烁（heartbeat）
+         运行过程中 LED[2] 可亮；PASS 稳态应为 LED[2] 灭、LED[3] 亮
 □ Step 2: 读 REG_THRESHOLD（0x4000_0000） → 返回 0x00000BF4（=3060）
 □ Step 3: 写 REG_THRESHOLD = 0xDEAD → 读回 0xDEAD → 确认读写正常
 □ Step 4: 加载测试图片到 data_sram（24 个 64-bit 字 = 48 个 32-bit 字）
@@ -597,6 +598,52 @@ void smoke_test() {
 | CIM 超时 | input_fifo 为空 / DMA 未完成 | 先确认 DMA 完成（DONE=1, ERR=0） |
 | OUT_FIFO_COUNT = 0 | LIF 阈值太高 / 权重全零 | 先用 CIM test mode（REG 0x2C = 0x6401）验证 |
 | 结果与 Python 不一致 | 权重未正确量化 / bit-plane 编码错误 | 打印中间变量（BL_DATA, diff, membrane） |
+
+### 5.8 2026-03-04 实测归档（Step2 冻结基线）
+
+本节记录本次 ZCU102 FSM 路线实测通过证据，作为 Step2 冻结基线。
+
+实测环境与产物：
+
+1. Vivado 版本：`2022.2`（Windows GUI 工程 `project_2`）。
+2. 器件：`xczu9eg-ffvb1156-2-e`（ZCU102）。
+3. 关键产物：
+   - `project_2/project_2.runs/impl_1/top_fpga.bit`
+   - `project_2/project_2.runs/impl_1/runme.log`
+   - `project_2/project_2.runs/impl_1/top_fpga_timing_summary_routed.rpt`
+   - `project_2/project_2.runs/impl_1/top_fpga_utilization_placed.rpt`
+   - `project_2/project_2.runs/impl_1/top_fpga_power_routed.rpt`
+   - `project_2/project_2.runs/impl_1/top_fpga_drc_routed.rpt`
+   - `project_2/project_2.runs/impl_1/top_fpga_methodology_drc_routed.rpt`
+4. 归档副本：`fpga/boards/zcu102/output/` 下已有 bit 与核心 report 拷贝。
+
+实现报告关键结论（来自 impl 后 routed 报告）：
+
+| 项 | 结果 | 结论 |
+|---|---|---|
+| 时序 | `WNS=6.271ns`, `TNS=0`, `WHS=0.016ns` | 50MHz 约束满足 |
+| 时钟 | `clk_mmcm_out = 50.005MHz` | 与设计目标一致 |
+| 利用率 | LUT `6268(2.29%)`, FF `7544(1.38%)`, BRAM `0`, DSP `0` | 资源余量充足 |
+| 功耗 | Total `0.792W`（Dynamic `0.143W`） | 低负载运行可行 |
+| DRC | `Violations found: 0` | 无阻塞 DRC |
+| Route | fully routed `12184/12184`, routing error `0` | 布线完成 |
+
+板级结论：
+
+1. FSM 路线已 PASS（LED 心跳/lock/pass 行为符合当前 `top_fpga.sv` 定义）。
+2. 当前基线可进入 Step3（ARM 路线）开发，不需要回退 FSM 方案。
+3. 同步回归（本地）通过：
+   - `sim/run_icarus_light.sh` → `LIGHT_SMOKETEST_PASS`
+   - `sim/run_axi_bridge_icarus.sh` → `AXI_BRIDGE_SMOKETEST_PASS`
+   - `sim/run_uart_icarus.sh` → `UART_SMOKETEST_PASS`
+   - `sim/run_spi_icarus.sh` → `SPI_SMOKETEST_PASS`
+   - `fpga/sim/run_cim_fpga_test.sh` → `CIM_FPGA_UNIT_PASS`（已修复 testbench 硬编码期望）
+
+非阻塞风险（需在论文和后续优化中明确）：
+
+1. Methodology 报告有 23 条告警（`LUTAR-1`、`SYNTH-5`、`CLKC-40/56`），当前不阻塞 bit 生成和上板。
+2. `SYNTH-5` 显示部分 SRAM 被映射为分布式 RAM（LUTRAM），与“BRAM+流水优化版”仍有差距。
+3. 功耗报告 `Confidence Level = Medium`（未喂 SAIF/VCD 活动），论文需标注为估算口径。
 
 ---
 
@@ -1032,8 +1079,9 @@ ILA 抓取信号清单：
 **Pass 标准**：
 - LED[0] 闪烁（heartbeat，证明时钟正常）
 - LED[1] 亮（MMCM locked）
-- LED[2] 亮（bringup 运行中或失败锁存）
+- LED[2] 运行中可亮；**PASS 稳态应灭**（该灯表示 busy/fail）
 - LED[3] 亮（bringup FSM PASS）
+- 若失败：LED[2] 常亮、LED[3] 灭
 - ILA 中 OUT_FIFO_COUNT > 0
 
 **预计时间**：1-2 天（Vivado 综合 + 下板 + 观察 LED/ILA）
@@ -1558,3 +1606,5 @@ main -> fpga-fullversion-snnsoc
 > - 2026-03-03 修订 §10：按实时 diff 口径校正为“新增+修改并存”，并补充最新学习路径与 `doc/15` 联动
 > - 2026-03-03 新增 §11：落地版创新点、计数器口径、中断模式与 ARM/E203 分工
 > - 2026-03-03 新增 §9.2.1 / §11.5 / §11.6：baseline-first 执行图 + A/B硬约束 + 日志脚本模板
+> - 2026-03-04 新增 §5.8：补录 ZCU102 FSM 实测通过证据（timing/util/power/DRC/route）并冻结 Step2 基线
+> - 2026-03-04 修复 `fpga/sim/tb_cim_fpga.sv`：将 T3/T5 从硬编码期望改为按实际权重计算，恢复 `CIM_FPGA_UNIT_PASS`

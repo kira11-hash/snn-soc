@@ -152,6 +152,19 @@ FPGA 通过后，建议立即做三件事：
 - 与 RTL 对齐记录（至少一份对照表）。
 - `fpga_gate_report.md`（通过项/未覆盖项/后续动作）。
 
+## 8.1 已执行记录（2026-03-04）
+
+本仓库已完成一轮可追溯 FPGA gate 记录（FSM bringup 路线）：
+
+1. bitstream：`project_2/project_2.runs/impl_1/top_fpga.bit`。
+2. 关键日志：`project_2/project_2.runs/impl_1/runme.log`。
+3. routed 报告结论：
+   - Timing：`WNS=6.271ns`，`TNS=0`（50MHz 目标达成）。
+   - Utilization：LUT `2.29%`，FF `1.38%`，BRAM `0`，DSP `0`。
+   - DRC：`Violations found: 0`。
+4. 归档副本：`fpga/boards/zcu102/output/`（bit + 核心 report）。
+5. 当前状态：可进入 ARM 路径（Step3）数据链路开发。
+
 ## 9. 与现有文档关系
 
 - 本文是 FPGA 详细执行文档。
