@@ -146,6 +146,13 @@ test -f fpga/cim_model/weight_neg.hex
 
 ### 4.0 先做真实权重导出（在 Linux 服务器上）
 
+先区分两类脚本：
+
+- `项目相关文件/器件对齐/Python建模/run_all.py`：产出训练权重 `.pt` 和结果图表；
+- `fpga/scripts/export_weights.py`：把 `.pt` 转成 FPGA 需要的 `weight_pos.hex` / `weight_neg.hex`。
+
+也就是说，仅运行 `run_all.py` 并不会直接生成 `.hex`，还需要执行下面的 `export_weights.py` 步骤。
+
 ```bash
 # 进入 Python 建模目录（按你的 Linux 目录）
 export SOC_ROOT=~/SoCDesign
@@ -399,7 +406,8 @@ ila_0 u_ila (
 
 #### 步骤 2：上电自检 FSM（当前默认方案）
 
-在 `top_fpga.sv` 中添加一个 bringup FSM，上电后自动完成测试序列：
+当前 `fpga-fullversion-snnsoc` 分支的 `top_fpga.sv` 已内置 bringup FSM，无需再改 RTL。
+下面代码仅用于理解状态机流程：
 
 ```systemverilog
 // 在 top_fpga.sv 中添加 bringup 状态机（简化，仅用于上板调试）
