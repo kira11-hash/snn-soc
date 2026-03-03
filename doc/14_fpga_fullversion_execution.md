@@ -839,12 +839,25 @@ CLAUDE.md 中定义的 ASIC 主线迭代路径：
 ```
 阶段 1: VIO 验证（零 CPU 依赖，最快上板）
     │
-    │   跑通后，两条线并行 ↓
+    │   跑通后 ↓
     │
-    ├─→ Path A (main 分支): DMA 扩展 → E203 接入 → ASIC 流片
+    ├─→ FPGA 分支（两步走，均在 fpga-fullversion-snnsoc 上）
+    │     ├─ Step B: PS ARM 先跑通 → 批量 MNIST → 论文数据（快速路径）
+    │     └─ Step C: E203 再接入 → 完整 SoC 演示（完整性展示）
     │
-    └─→ Path B (fpga 分支): PS ARM 通过 AXI 驱动 PL → 批量测试 → 论文数据
+    └─→ main 分支（ASIC 主线）
+          └─ DMA 扩展 → E203 接入 → 流片准备
 ```
+
+**FPGA 上两个 CPU 都要做，各有侧重**：
+
+| | PS ARM (Step B) | E203 RISC-V (Step C) |
+|---|---|---|
+| **目的** | 快速跑通批量测试、收集论文数据 | 展示完整 SoC 设计能力，体现 CPU 集成度 |
+| **论文角色** | "快速原型验证"、精度/延迟/资源数据来源 | "完整系统集成"、证明 SoC 数字链路可独立工作 |
+| **优先级** | 高（先做） | 中（数据收集后补做） |
+| **依赖** | Vivado Block Design + Vitis | DMA 扩展 + ICB 桥 + 固件 |
+| **分支** | fpga-fullversion-snnsoc | fpga-fullversion-snnsoc（或独立 sub-branch） |
 
 ### 9.3 阶段 1：VIO 先行验证（当前最高优先级）
 
@@ -893,11 +906,22 @@ ILA 抓取信号清单：
 
 **预计时间**：1-2 天（Vivado 综合 + 下板 + 观察 LED/ILA）
 
-### 9.4 Path A：DMA 扩展 + E203 接入（ASIC 主线）
+### 9.4 Step C / Path A：DMA 扩展 + E203 接入
 
-**分支**：`main`（或从 main 拉新的 feature 分支）
+**分支**：
+- FPGA 上：`fpga-fullversion-snnsoc`（Step C，ARM 数据跑完后再做）
+- ASIC 主线：`main`（Path A，流片必需，与 FPGA 并行开发）
 
-**目标**：完成 ASIC 流片所需的完整 CPU 集成
+**目标**：
+- FPGA 侧：完整 SoC 集成演示，体现 E203 + SNN 加速器协同工作
+- ASIC 侧：完成流片所需的全 CPU 集成
+
+> **为什么 FPGA 上也要做 E203**：
+> PS ARM 是 Zynq 内置的，不是我们设计的一部分。E203 接入 FPGA 才能真正验证
+> "自研 RISC-V CPU + 自研 SNN SoC" 的完整性，这在论文里是显著区别于其他工作的亮点。
+> 论文图表中可以呈现：
+> - Table 1: 用 PS ARM 跑的精度/延迟/资源（工程验证）
+> - Table 2 / Figure X: E203 + SNN SoC 联合跑通（系统完整性验证）
 
 #### Step A1: DMA 扩展
 
@@ -975,11 +999,11 @@ A3 E203 接入    ░░░░░░░█████   5-7 天
 总计                            ~2-3 周
 ```
 
-### 9.5 Path B：PS ARM 接入（FPGA 论文快速路径）
+### 9.5 Step B：PS ARM 接入（FPGA 论文快速路径，优先做）
 
 **分支**：`fpga-fullversion-snnsoc`
 
-**目标**：用 ZCU102 的 PS 端 ARM Cortex-A53 驱动 PL，实现批量 MNIST 测试
+**目标**：用 ZCU102 的 PS 端 ARM Cortex-A53 驱动 PL，实现批量 MNIST 测试，快速拿到论文数据
 
 #### 为什么 Path B 更快
 
@@ -1110,17 +1134,45 @@ Path A → Path B 的复用:
   ✓ E203 固件的寄存器操作序列，可以直接翻译为 ARM C 程序
 ```
 
-### 9.8 决策记录
+### 9.8 FPGA 上两 CPU 的论文定位
+
+```
+论文结构建议：
+
+§ System Implementation
+  ├── 4.1 FPGA Prototype (ZCU102)
+  │     ├── 4.1.1 SNN Accelerator (CIM FPGA model + LIF + DMA)  ← 核心贡献
+  │     ├── 4.1.2 Control Path A: PS ARM (Cortex-A53)
+  │     │         "Rapid validation using onboard ARM processor"
+  │     │         → 精度/延迟/资源/功耗数据在此获取
+  │     └── 4.1.3 Control Path B: E203 RISC-V SoC
+  │               "Full SoC integration with custom RISC-V CPU"
+  │               → 证明数字链路完整自洽，CPU + Accelerator 协同工作
+
+§ Experimental Results
+  ├── Table 1: Resource Utilization (LUT/FF/BRAM/DSP)
+  ├── Table 2: Accuracy (FPGA vs Python golden)
+  ├── Table 3: Inference Latency (ARM-measured / E203-measured)
+  └── Figure X: E203 + SNN SoC 完整系统框图
+```
+
+**两者的互补价值**：
+- PS ARM：工业界熟悉，数据可靠性高，batch test 速度快
+- E203：学术界展示 full-stack 自研能力，是区别同类 FPGA 加速器论文的关键
+
+### 9.9 决策记录
 
 | 日期 | 决策 | 理由 |
 |------|------|------|
-| 2026-03-03 | FPGA 分支跳过 DMA 扩展和 E203，直接做 CIM 模型 | 论文最快路径 |
-| 2026-03-03 | 先 VIO 验证，再双线并行 | VIO 零依赖，最快拿到板上结果 |
-| 2026-03-03 | Path B 用 PS ARM 而非 E203 | FPGA 上 ARM 是"免费的"，省 2-3 周 |
-| 2026-03-03 | Path A 保留在 main 分支 | ASIC 流片需要完整 E203 集成，不污染 FPGA 分支 |
+| 2026-03-03 | FPGA 分支跳过 DMA 扩展和 E203，直接做 CIM 模型 | 论文最快路径，先跑通加速器核心 |
+| 2026-03-03 | 先 VIO 验证，再双路并行 | VIO 零依赖，最快拿到板上第一个结果 |
+| 2026-03-03 | FPGA 上 PS ARM 先行（Step B） | ARM 是"免费的"，省 2-3 周，快速收集论文数据 |
+| 2026-03-03 | FPGA 上 E203 后补（Step C） | 展示完整 SoC 集成能力，是论文区别于同类工作的亮点 |
+| 2026-03-03 | main 分支独立推进 E203（Path A） | ASIC 流片必需，与 FPGA 工作并行不相互阻塞 |
 
 ---
 
 > **更新记录**：
 > - 2026-03-03 初版，基于 `fpga-fullversion-snnsoc` 分支 commit `feabb267`
 > - 2026-03-03 新增 §9 CPU 接入双线路径规划（VIO 先行 + Path A/B 并行）
+> - 2026-03-03 §9.2/9.4/9.8 更新：明确 FPGA 上两 CPU 均需实现（ARM 先行快速验证 + E203 后补完整性展示），并补充论文定位分析
