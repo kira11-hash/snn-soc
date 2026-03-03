@@ -38,6 +38,8 @@ oldverision/
 sim/*_check.out
 sim/*_fix_check.out
 sim/*_final_check.out
+sim/a.out
+sim/xilinx_prim_stubs.sv
 sim/axi_bridge_test
 sim/uart_test
 sim/spi_test

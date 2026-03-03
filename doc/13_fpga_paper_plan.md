@@ -110,7 +110,7 @@ bl_data_neg[j] = pop_count / 2 + j;     // j = 0~9，负列
 
 | 方案 | 描述 | 论文价值 | 复杂度 | 推荐 |
 |------|------|---------|--------|------|
-| A. 纯数字 MAC | BRAM 存权重 + 1-bit×4-bit 乘累加 | 中 | 低 | 保底 |
+| A. 纯数字 MAC | `$readmemh` 权重数组/BRAM（取决于实现）+ 1-bit×4-bit 条件累加 | 中 | 低 | 保底 |
 | **B. 数字 MAC + 非理想注入** | A + D2D/C2C 变异 + 噪声 + ADC 量化 | **高** | **中** | **强烈推荐** |
 | C. 混合仿真联合 | Verilog-AMS / SPICE 联合 | 最高 | 极高 | 不推荐 |
 
@@ -133,11 +133,11 @@ bl_data_neg[j] = pop_count / 2 + j;     // j = 0~9，负列
 
 关键优势：`wl_spike[i]` 是 1-bit，"乘法"退化为 AND 门 + 条件加法，不消耗 DSP。
 
-#### 权重存储
+#### 权重存储（当前实现 vs BRAM升级）
 
 ```
 // 64 inputs × 20 columns × 4-bit = 5120 bit = 640 Bytes
-// 一个 18Kb BRAM 绑绑有余
+// 容量上可放入 1 个 18Kb BRAM，但当前实现未强制 BRAM 端口化
 logic [3:0] weight_pos [0:63][0:9];   // 正列权重
 logic [3:0] weight_neg [0:63][0:9];   // 负列权重
 
@@ -148,6 +148,8 @@ end
 ```
 
 权重从 Python 训练管线导出（已有 4-bit 量化流程）。
+当前 `fpga-fullversion-snnsoc` 分支默认是“组合并行读取 + 组合累加”，
+综合更可能落在 LUT/LUTRAM 或复制存储；`BRAM+流水` 是建议升级路径，不是当前已完成事实。
 
 #### 器件非理想效应注入（论文加分关键）
 
@@ -230,7 +232,7 @@ module cim_fpga_model #(
   input  logic [$clog2(P_ADC_CHANNELS)-1:0] bl_sel,
   output logic [7:0] bl_data
 );
-  // ... 内部用 BRAM 权重 + MAC + 可选噪声注入
+  // ... 当前实现：readmemh 权重数组 + 组合 MAC；可升级为 BRAM+流水 + 可选噪声注入
 endmodule
 ```
 
@@ -265,7 +267,7 @@ CIM 宏:          cim_macro_blackbox.sv         cim_fpga_model.sv（数字 MAC �
 
 ```
 ASIC:  cim_macro_blackbox.sv   →  实际连接 RRAM analog macro
-FPGA:  cim_fpga_model.sv       →  BRAM 权重 + 数字 MAC + 可选噪声
+FPGA:  cim_fpga_model.sv       →  `$readmemh` 权重数组 + 数字 MAC（当前偏LUT/组合，BRAM+流水为升级项）
 ```
 
 通过 `ifdef FPGA` 或 Vivado filelist 切换，不影响 ASIC 主线 RTL。
@@ -319,7 +321,7 @@ ASIC 主线                               FPGA 论文兜底线
 |------|---------|------|
 | LUT | 3000~5000 | SoC 控制逻辑 + MAC 加法树 |
 | FF | 1500~3000 | 寄存器 + 状态机 + 计数器 |
-| BRAM (18Kb) | ~27 | 3×SRAM(16KB) + FIFO + 权重存储 |
+| BRAM (18Kb) | ~27（BRAM化目标估算） | 3×SRAM(16KB) + FIFO + 权重存储（若启用 BRAM 方案） |
 | DSP | 0 | 1-bit×4-bit 乘法不需要 DSP，纯 LUT 实现 |
 
 **BRAM 详细估算（基于 RTL 实际参数）：**
@@ -333,7 +335,7 @@ ASIC 主线                               FPGA 论文兜底线
 | OUTPUT_FIFO | 4-bit宽，256深 | 最小分配 | 1 |
 | 合计 | - | - | ~27 |
 
-> 注：3 个 16KB SRAM 就需要约 24 个 RAMB18；加上 FIFO/权重存储后总量约 27。
+> 注：3 个 16KB SRAM 就需要约 24 个 RAMB18；加上 FIFO/权重存储后总量约 27（该值对应“BRAM化目标估算”，当前组合基线可能出现更高 LUT、不同 BRAM 分布）。
 
 ### 4.2 推荐开发板
 
@@ -357,7 +359,7 @@ ASIC 主线                               FPGA 论文兜底线
 |------|-------------------------|------------------|------|
 | CLB LUT | 274,080 | 3,000~15,000 | >18× |
 | CLB FF | 548,160 | 1,500~20,000 | >27× |
-| BRAM 36Kb | 912 块 (32.1 Mb) | 约14 块（≈27 块 18Kb 当量） | >65× |
+| BRAM 36Kb | 912 块 (32.1 Mb) | 约14 块（≈27 块 18Kb 当量，BRAM化目标估算） | >65× |
 | UltraRAM 288Kb | 80 块 | 0 | 全部空闲 |
 | DSP48E2 | 2,520 | 0（1-bit MAC 不需要 DSP） | 全部空闲 |
 | DDR4 | PS: 4 GB + PL: 512 MB | 几十 KB（MNIST 数据） | 极富余 |
@@ -439,7 +441,7 @@ fpga/
   ip/
     clk_wiz_wrapper.sv        # 时钟 PLL 封装
   cim_model/
-    cim_fpga_model.sv         # 数字 CIM 等效模型（BRAM 权重 + MAC）
+    cim_fpga_model.sv         # 数字 CIM 等效模型（当前 readmemh+组合 MAC；可升级 BRAM+流水）
     weight_pos.hex            # 正列权重（Python 导出）
     weight_neg.hex            # 负列权重（Python 导出）
   scripts/

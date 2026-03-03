@@ -32,8 +32,12 @@ ASIC 主线                     FPGA 分支
 ─────────────────────────────────────────────────────
 cim_macro_blackbox (RRAM 行为模型)
           ↓                        ↓
-    流片后替换为真实 RRAM    cim_fpga_model.sv（权重ROM+数字MAC）
+    流片后替换为真实 RRAM    cim_fpga_model.sv（`$readmemh`权重数组+数字MAC，当前偏LUT/组合）
 ```
+
+口径统一（避免误读）：
+- 当前 `cim_fpga_model` 是可综合数字替代模型，但不是“已完成 BRAM+流水”的最终形态。
+- `BRAM+流水` 是建议升级路径，用于降低组合关键路径压力并提升规模可扩展性。
 
 FPGA 验证的意义：
 - 端到端推理跑通（bus → DMA → CIM → LIF → spike 全链路）
@@ -88,7 +92,7 @@ cd sim && bash run_icarus_light.sh     # LIGHT_SMOKETEST_PASS ✅
 
 | 文件 | 内容 |
 |------|------|
-| `fpga/cim_model/cim_fpga_model.sv` | 核心：权重ROM + 1-bit×4-bit MAC，接口与 blackbox 100% 兼容 |
+| `fpga/cim_model/cim_fpga_model.sv` | 核心：`$readmemh`权重数组 + 1-bit×4-bit 条件累加（当前偏LUT/组合）；接口与 blackbox 100% 兼容 |
 | `fpga/cim_model/weight_pos.hex` | 正列权重（当前为测试用结构化权重，需替换为真实训练权重） |
 | `fpga/cim_model/weight_neg.hex` | 负列权重 |
 | `fpga/cim_model/test_image.hex` | 测试图片 bit-plane 编码（24 行 = T=3 × 8 bit-planes） |
@@ -299,6 +303,10 @@ grep -E "CLB LUTs|CLB Registers|Block RAM|DSPs" fpga/boards/zcu102/output/post_i
   2. 降低时钟频率（改为 25MHz，latency 加倍但 timing 更容易过）
   3. Vivado 自动约束松弛：set_multicycle_path 对 CIM 路径
 ```
+
+补充口径（BRAM相关）：
+- 当前 `cim_fpga_model` 采用组合并行读取与组合累加，重点风险是 LUT/布线压力与关键路径长度。
+- `BRAM+流水` 是下一步优化方案，不是当前基线事实；论文里应按“当前组合基线 vs BRAM+流水优化版”做 A/B 对比。
 
 **功耗报告** (`post_impl_power.rpt`)：
 
