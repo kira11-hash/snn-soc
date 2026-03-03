@@ -1,0 +1,670 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
+-------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2022.2 (win64) Build 3671981 Fri Oct 14 05:00:03 MDT 2022
+| Date         : Wed Mar  4 00:38:12 2026
+| Host         : Sakura running 64-bit major release  (build 9200)
+| Command      : report_control_sets -verbose -file top_fpga_control_sets_placed.rpt
+| Design       : top_fpga
+| Device       : xczu9eg
+-------------------------------------------------------------------------------------
+
+Control Set Information
+
+Table of Contents
+-----------------
+1. Summary
+2. Histogram
+3. Flip-Flop Distribution
+4. Detailed Control Set Information
+
+1. Summary
+----------
+
++----------------------------------------------------------+-------+
+|                          Status                          | Count |
++----------------------------------------------------------+-------+
+| Total control sets                                       |   592 |
+|    Minimum number of control sets                        |   592 |
+|    Addition due to synthesis replication                 |     0 |
+|    Addition due to physical synthesis replication        |     0 |
+| Unused register locations in slices containing registers |    60 |
++----------------------------------------------------------+-------+
+* Control sets can be merged at opt_design using control_set_merge or merge_equivalent_drivers
+** Run report_qor_suggestions for automated merging and remapping suggestions
+
+
+2. Histogram
+------------
+
++--------------------+-------+
+|       Fanout       | Count |
++--------------------+-------+
+| Total control sets |   592 |
+| >= 0 to < 4        |    13 |
+| >= 4 to < 6        |   262 |
+| >= 6 to < 8        |     0 |
+| >= 8 to < 10       |    29 |
+| >= 10 to < 12      |     5 |
+| >= 12 to < 14      |     1 |
+| >= 14 to < 16      |     2 |
+| >= 16              |   280 |
++--------------------+-------+
+* Control sets can be remapped at either synth_design or opt_design
+
+
+3. Flip-Flop Distribution
+-------------------------
+
++--------------+-----------------------+------------------------+-----------------+--------------+
+| Clock Enable | Synchronous Set/Reset | Asynchronous Set/Reset | Total Registers | Total Slices |
++--------------+-----------------------+------------------------+-----------------+--------------+
+| No           | No                    | No                     |               0 |            0 |
+| No           | No                    | Yes                    |              85 |           32 |
+| No           | Yes                   | No                     |               0 |            0 |
+| Yes          | No                    | No                     |            6272 |         1035 |
+| Yes          | No                    | Yes                    |            1187 |          234 |
+| Yes          | Yes                   | No                     |               0 |            0 |
++--------------+-----------------------+------------------------+-----------------+--------------+
+
+
+4. Detailed Control Set Information
+-----------------------------------
+
++--------------+---------------------------------------------------------+---------------------+------------------+----------------+--------------+
+| Clock Signal |                      Enable Signal                      |   Set/Reset Signal  | Slice Load Count | Bel Load Count | Bels / Slice |
++--------------+---------------------------------------------------------+---------------------+------------------+----------------+--------------+
+|  clk_50m     | u_soc/u_macro/adc_cnt[1]_i_1_n_0                        | rst_n               |                1 |              2 |         2.00 |
+|  clk_50m     | u_soc/u_adc/settle_cnt[1]_i_1_n_0                       | rst_n               |                1 |              2 |         2.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/req_addr_reg[2]_3              | rst_n               |                1 |              2 |         2.00 |
+|  clk_50m     | wr_frame_idx[1]_i_1_n_0                                 | rst_n               |                1 |              2 |         2.00 |
+|  clk_50m     |                                                         | rst_sync[1]_i_1_n_0 |                2 |              3 |         1.50 |
+|  clk_50m     | u_soc/u_wl_mux_wrapper/grp_idx                          | rst_n               |                1 |              3 |         3.00 |
+|  clk_50m     | u_soc/u_wl_mux_wrapper/FSM_onehot_state[2]_i_1_n_0      | rst_n               |                1 |              3 |         3.00 |
+|  clk_50m     | u_soc/u_dma/FSM_sequential_state[2]_i_1_n_0             | rst_n               |                3 |              3 |         1.00 |
+|  clk_50m     | u_soc/u_cim_ctrl/bitplane_shift[2]_i_1_n_0              | rst_n               |                1 |              3 |         3.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/FSM_onehot_txn_state_reg[1][0] | rst_n               |                1 |              3 |         3.00 |
+|  clk_50m     | u_soc/u_cim_ctrl/FSM_sequential_state[2]_i_1__0_n_0     | rst_n               |                2 |              3 |         1.50 |
+|  clk_50m     | wr_plane_idx[2]_i_1_n_0                                 | rst_n               |                2 |              3 |         1.50 |
+|  clk_50m     | bringup_fail_i_1_n_0                                    | rst_n               |                1 |              3 |         3.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[68][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_cim_ctrl/test_cim_cnt_reg[2][0]                 | rst_n               |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[30][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[206][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_adc/FSM_onehot_state[3]_i_1_n_0                 | rst_n               |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[207][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[203][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[235][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[209][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[244][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[51][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[218][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[199][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[238][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[211][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[229][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[214][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[224][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[242][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[86][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[237][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[25][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[26][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[252][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[24][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[250][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[251][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[255][3]_i_1__0_n_0              |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[249][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[254][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[253][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[27][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_adc/test_adc_cnt_reg[2][0]                      | rst_n               |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[28][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[85][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[29][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[79][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[236][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[151][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[39][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[66][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[50][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[73][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[87][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[36][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[53][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[57][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[84][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[40][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[43][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[75][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[37][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[41][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[54][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[35][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[76][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[78][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[60][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[34][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[82][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[4][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[67][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[5][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[56][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[70][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[46][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[48][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[52][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[62][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[69][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[33][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[45][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[61][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[71][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[81][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[49][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[32][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[64][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[44][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[58][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[6][3]_i_1_n_0                   |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[2][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[42][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[72][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[77][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[80][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[3][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[74][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[31][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[7][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[63][3]_i_1__0_n_0               |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[65][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[59][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[47][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[83][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[38][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[55][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[88][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[8][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[90][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[92][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[94][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[89][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[93][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[98][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[96][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[91][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[95][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[97][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[99][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[9][3]_i_1_n_0                   |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[124][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[112][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[116][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[118][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[135][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[125][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[139][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[11][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[13][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[108][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[110][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[117][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[122][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[123][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[113][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[126][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[0][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[101][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[128][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[106][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[120][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[129][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[130][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[131][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[133][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[119][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[127][3]_i_1__0_n_0              |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[12][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[132][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[134][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[102][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[109][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[111][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[104][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[103][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[114][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[121][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[136][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[107][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[115][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[137][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[138][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[100][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[105][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[10][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[148][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[194][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[197][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[145][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[160][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[167][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[158][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[171][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[184][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[186][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[187][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[195][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[155][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[175][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[140][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[191][3]_i_1__0_n_0              |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[161][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[153][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[163][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[141][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[196][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[14][3]_i_1_n_0                  |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[150][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[198][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[143][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[147][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[144][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[162][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[172][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[176][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[149][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[179][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[18][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[165][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[177][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[142][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[181][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[188][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[189][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[190][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[154][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[156][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[152][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[166][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[16][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[164][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[174][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[192][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[193][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[15][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[159][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[168][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[180][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[17][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[183][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[169][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[146][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[170][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[173][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[157][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[178][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[182][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[185][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[243][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[228][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[245][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[208][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[212][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[231][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[19][3]_i_1_n_0                  |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[202][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[201][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[21][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[20][3]_i_1_n_0                  |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[216][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[225][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[210][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[232][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[217][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[221][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[234][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[22][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[230][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[223][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[213][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[226][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[227][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[240][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[241][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[1][3]_i_1_n_0                   |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[200][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[233][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[222][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[23][3]_i_1_n_0                  |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[246][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[219][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[247][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[220][3]_i_1_n_0                 |                     |                4 |              4 |         1.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[239][3]_i_1_n_0                 |                     |                2 |              4 |         2.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[215][3]_i_1_n_0                 |                     |                1 |              4 |         4.00 |
+|  clk_50m     | u_soc/u_output_fifo/mem[205][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[248][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_output_fifo/mem[204][3]_i_1_n_0                 |                     |                3 |              4 |         1.33 |
+|  clk_50m     | u_soc/u_adc/sel_idx[4]_i_1_n_0                          | rst_n               |                2 |              5 |         2.50 |
+|  clk_50m     | u_soc/u_reg_bank/soft_reset_pulse_reg_rep_1[0]          | rst_n               |                2 |              5 |         2.50 |
+|  clk_50m     | FSM_sequential_br_state[4]_i_1_n_0                      | rst_n               |                4 |              5 |         1.25 |
+|  clk_50m     | u_soc/u_dac/lat_cnt0                                    | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_cim_ctrl/timestep_counter[7]_i_1_n_0            | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_adc/raw_data[19][7]_i_1_n_0                     | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[0][7]_i_1_n_0                      | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[14][7]_i_1_n_0                     | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[12][7]_i_1_n_0                     | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[15][7]_i_1_n_0                     | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_adc/raw_data[11][7]_i_1_n_0                     | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[17][7]_i_1_n_0                     | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[16][7]_i_1_n_0                     | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_adc/raw_data[13][7]_i_1_n_0                     | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[18][7]_i_1_n_0                     | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[10][7]_i_1_n_0                     | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[5][7]_i_1_n_0                      | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_adc/raw_data[8][7]_i_1_n_0                      | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[6][7]_i_1_n_0                      | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[3][7]_i_1_n_0                      | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[4][7]_i_1_n_0                      | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[1][7]_i_1_n_0                      | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[2][7]_i_1_n_0                      | rst_n               |                1 |              8 |         8.00 |
+|  clk_50m     | u_soc/u_adc/raw_data[7][7]_i_1_n_0                      | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_adc/raw_data[9][7]_i_1_n_0                      | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/E[0]                           | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/u_input_fifo/p_0_in[1]                            | rst_n               |                4 |              8 |         2.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/req_write_reg_2[0]             | rst_n               |                3 |              8 |         2.67 |
+|  clk_50m     | u_soc/cim_cnt[7]_i_1_n_0                                | rst_n               |                2 |              8 |         4.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/req_write_reg_0[0]             | rst_n               |                7 |              8 |         1.14 |
+|  clk_50m     | u_soc/u_input_fifo/count[8]_i_1_n_0                     | rst_n               |                2 |              9 |         4.50 |
+|  clk_50m     | u_soc/u_output_fifo/count[8]_i_1__0_n_0                 | rst_n               |                2 |              9 |         4.50 |
+|  clk_50m     | u_soc/u_dma/state__1[2]                                 | rst_n               |                3 |             10 |         3.33 |
+|  clk_50m     | u_soc/u_dma/word0_reg                                   | rst_n               |                3 |             10 |         3.33 |
+|  clk_50m     | u_soc/u_bus_interconnect/req_addr_reg[2]_2[0]           | rst_n               |                5 |             10 |         2.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/req_write_reg_1[0]             | rst_n               |                6 |             10 |         1.67 |
+|  clk_50m     | u_soc/u_bus_interconnect/req_addr_reg[2]_1[0]           | rst_n               |                6 |             10 |         1.67 |
+|  clk_50m     | u_soc/u_dma/addr_ptr                                    | rst_n               |                3 |             13 |         4.33 |
+|  clk_50m     | u_soc/u_lif/out_fifo_push_i_1_n_0                       | rst_n               |                3 |             14 |         4.67 |
+|  clk_50m     | u_soc/u_output_fifo/p_0_in[0]                           | rst_n               |                4 |             14 |         3.50 |
+|  clk_50m     | u_soc/u_wl_mux_wrapper/E[0]                             | rst_n               |                3 |             16 |         5.33 |
+|  clk_50m     | u_soc/u_dma/E[0]                                        | rst_n               |                3 |             16 |         5.33 |
+|  clk_50m     | u_soc/u_adc/adc_sat_low[15]_i_1_n_0                     | rst_n               |                9 |             16 |         1.78 |
+|  clk_50m     | u_soc/u_cim_ctrl/E[0]                                   | rst_n               |                3 |             16 |         5.33 |
+|  clk_50m     | u_soc/u_adc/adc_sat_high[15]_i_1_n_0                    | rst_n               |                7 |             16 |         2.29 |
+|  clk_50m     | dma_poll_cnt[15]_i_1_n_0                                | rst_n               |                5 |             16 |         3.20 |
+|  clk_50m     | cim_poll_cnt[15]_i_1_n_0                                | rst_n               |                4 |             16 |         4.00 |
+|  clk_50m     | u_soc/u_lif/E[0]                                        | rst_n               |                3 |             16 |         5.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[46][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[29][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[34][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[253][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[36][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[37][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[27][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[51][48]_i_1_n_0                  |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[45][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[48][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[30][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[54][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[57][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[252][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[33][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[38][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[2][48]_i_1_n_0                   |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[52][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[26][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[35][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[41][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[58][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[59][48]_i_1_n_0                  |                     |               17 |             20 |         1.18 |
+|  clk_50m     | u_soc/u_input_fifo/mem[55][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[31][48]_i_1_n_0                  |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[28][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[251][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[255][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[25][48]_i_1_n_0                  |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[39][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[3][48]_i_1_n_0                   |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[68][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[98][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[89][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[8][48]_i_1_n_0                   |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[91][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[7][48]_i_1_n_0                   |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[84][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[9][48]_i_1_n_0                   |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[78][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[83][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[88][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[61][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[240][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[76][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[94][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[64][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[62][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[65][48]_i_1_n_0                  |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[72][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[79][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[82][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[77][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[85][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[87][48]_i_1_n_0                  |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[69][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[67][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[92][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[6][48]_i_1_n_0                   |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[63][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[70][48]_i_1_n_0                  |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[90][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[95][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[86][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[66][48]_i_1_n_0                  |                     |                5 |             20 |         4.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[96][48]_i_1_n_0                  |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[97][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[99][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[60][48]_i_1_n_0                  |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[74][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[75][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[93][48]_i_1_n_0                  |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[73][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[81][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[71][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[80][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[5][48]_i_1_n_0                   |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[119][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[107][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[114][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[118][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[109][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[102][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[103][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[104][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[105][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[106][48]_i_1_n_0                 |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[108][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[10][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[110][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[113][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[115][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[116][48]_i_1_n_0                 |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[100][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[101][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[111][48]_i_1_n_0                 |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[117][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[0][48]_i_1_n_0                   |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[112][48]_i_1_n_0                 |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[121][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[134][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[157][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[12][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[138][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[160][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[120][48]_i_1_n_0                 |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[161][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[125][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[153][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[137][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[140][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[141][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[148][48]_i_1_n_0                 |                     |                5 |             20 |         4.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[131][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[13][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[142][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[11][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[123][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[147][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[126][48]_i_1_n_0                 |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[124][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[129][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[128][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[149][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[14][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[139][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[143][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[146][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[135][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[136][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[150][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[151][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[152][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[156][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[133][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[158][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[159][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[15][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[127][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[155][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[122][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[132][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[144][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[130][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[145][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[154][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[195][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[19][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[1][48]_i_1_n_0                   |                     |               19 |             20 |         1.05 |
+|  clk_50m     | u_soc/u_input_fifo/mem[165][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[179][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[192][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[168][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[191][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[200][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[184][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[196][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[197][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[199][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[16][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[163][48]_i_1_n_0                 |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[172][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[183][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[186][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[166][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[188][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[198][48]_i_1_n_0                 |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[164][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[173][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[17][48]_i_1_n_0                  |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[181][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[169][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[178][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[185][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[18][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[190][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[189][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[187][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[175][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[193][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[180][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[194][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[170][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[176][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[177][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[167][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[162][48]_i_1_n_0                 |                     |               16 |             20 |         1.25 |
+|  clk_50m     | u_soc/u_input_fifo/mem[171][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[182][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[202][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[174][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[21][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[235][48]_i_1_n_0                 |                     |               17 |             20 |         1.18 |
+|  clk_50m     | u_soc/u_input_fifo/mem[242][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[229][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[201][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[219][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[224][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[241][48]_i_1_n_0                 |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[232][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[210][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[223][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[205][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[234][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[207][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[213][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[203][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[215][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[206][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[222][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[211][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[212][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[209][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[218][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[204][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[227][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[208][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[226][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[22][48]_i_1_n_0                  |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[230][48]_i_1_n_0                 |                     |               14 |             20 |         1.43 |
+|  clk_50m     | u_soc/u_input_fifo/mem[231][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[233][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[225][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[236][48]_i_1_n_0                 |                     |               15 |             20 |         1.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[237][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[216][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[238][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[23][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[214][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[217][48]_i_1_n_0                 |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[20][48]_i_1_n_0                  |                     |                6 |             20 |         3.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[221][48]_i_1_n_0                 |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[228][48]_i_1_n_0                 |                     |               17 |             20 |         1.18 |
+|  clk_50m     | u_soc/u_input_fifo/mem[239][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[254][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[220][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[247][48]_i_1_n_0                 |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[24][48]_i_1_n_0                  |                     |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[249][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[250][48]_i_1_n_0                 |                     |               16 |             20 |         1.25 |
+|  clk_50m     | u_soc/u_input_fifo/mem[245][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[246][48]_i_1_n_0                 |                     |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[243][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_input_fifo/mem[248][48]_i_1_n_0                 |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[244][48]_i_1_n_0                 |                     |               10 |             20 |         2.00 |
+|  clk_50m     | u_soc/u_dac/E[0]                                        | rst_n               |                5 |             20 |         4.00 |
+|  clk_50m     | u_soc/u_cim_ctrl/wl_reg[48]_i_1_n_0                     | rst_n               |                3 |             20 |         6.67 |
+|  clk_50m     | u_soc/u_wl_mux_wrapper/wl_valid_pulse_out_reg_0[0]      | rst_n               |                7 |             20 |         2.86 |
+|  clk_50m     | u_soc/u_input_fifo/mem[40][48]_i_1_n_0                  |                     |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[42][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[43][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[49][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_wl_mux_wrapper/wl_buf                           | rst_n               |               11 |             20 |         1.82 |
+|  clk_50m     | u_soc/u_input_fifo/mem[44][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | u_soc/u_input_fifo/mem[50][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_input_fifo/mem[47][48]_i_1_n_0                  |                     |               16 |             20 |         1.25 |
+|  clk_50m     | u_soc/u_input_fifo/mem[4][48]_i_1_n_0                   |                     |                6 |             20 |         3.33 |
+|  clk_50m     | u_soc/u_input_fifo/mem[56][48]_i_1_n_0                  |                     |                9 |             20 |         2.22 |
+|  clk_50m     | ext_bus_m_valid                                         | rst_n               |                9 |             20 |         2.22 |
+|  clk_50m     | ext_bus_m_valid_reg_n_0                                 | rst_n               |                8 |             20 |         2.50 |
+|  clk_50m     | u_soc/u_input_fifo/mem[32][48]_i_1_n_0                  |                     |               12 |             20 |         1.67 |
+|  clk_50m     | u_soc/u_input_fifo/mem[53][48]_i_1_n_0                  |                     |               13 |             20 |         1.54 |
+|  clk_50m     | u_soc/u_output_fifo/p_0_in[1]                           | rst_n               |                6 |             21 |         3.50 |
+|  clk_50m     | u_soc/u_dma/words_rem                                   | rst_n               |               10 |             32 |         3.20 |
+|  clk_50m     | u_soc/u_bus_interconnect/FSM_onehot_txn_state_reg[2][0] | rst_n               |               12 |             32 |         2.67 |
+|  clk_50m     | u_soc/u_input_fifo/p_0_in[0]                            | rst_n               |               17 |             55 |         3.24 |
+|  clk_50m     | u_soc/u_bus_interconnect/p_0_in[0]                      |                     |               10 |             80 |         8.00 |
+|  clk_50m     | u_soc/u_bus_interconnect/p_0_in__0[0]                   |                     |               10 |             80 |         8.00 |
+|  clk_50m     |                                                         | rst_n               |               30 |             82 |         2.73 |
+|  clk_50m     | u_soc/u_adc/neuron_in_data                              | rst_n               |               20 |             90 |         4.50 |
+|  clk_50m     | u_soc/u_reg_bank/rst_sync_reg[1][0]                     |                     |               79 |            128 |         1.62 |
+|  clk_50m     | u_soc/u_adc/E[0]                                        | rst_n               |               67 |            325 |         4.85 |
++--------------+---------------------------------------------------------+---------------------+------------------+----------------+--------------+
+
+
