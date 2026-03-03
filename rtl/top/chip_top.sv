@@ -64,7 +64,16 @@ module chip_top (
     .jtag_tck (jtag_tck_pad),
     .jtag_tms (jtag_tms_pad),
     .jtag_tdi (jtag_tdi_pad),
-    .jtag_tdo (jtag_tdo_pad)
+    .jtag_tdo (jtag_tdo_pad),
+    .ext_bus_enable  (1'b0),
+    .ext_bus_m_valid (1'b0),
+    .ext_bus_m_write (1'b0),
+    .ext_bus_m_addr  (32'h0),
+    .ext_bus_m_wdata (32'h0),
+    .ext_bus_m_wstrb (4'h0),
+    .ext_bus_m_ready (),
+    .ext_bus_m_rdata (),
+    .ext_bus_m_rvalid()
   );
 
   // 占位默认值（后续由 pad-wrapper 正式连接替换）

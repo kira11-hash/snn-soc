@@ -14,6 +14,8 @@ set project_root [file normalize "$script_dir/../../.."]
 set fpga_dir     [file normalize "$script_dir/../.."]
 set rtl_dir      "$project_root/rtl"
 set output_dir   "$script_dir/output"
+set weight_pos_src "$fpga_dir/cim_model/weight_pos.hex"
+set weight_neg_src "$fpga_dir/cim_model/weight_neg.hex"
 
 file mkdir $output_dir
 
@@ -22,6 +24,7 @@ puts "SNN SoC FPGA Build"
 puts "  Part:    $part"
 puts "  Top:     $top_module"
 puts "  RTL dir: $rtl_dir"
+puts "  Out dir: $output_dir"
 puts "============================================"
 
 # ---------------------------------------------------------------------------
@@ -56,9 +59,20 @@ read_xdc "$script_dir/constraints.xdc"
 # Define SYNTHESIS and FPGA macros
 set_property verilog_define {SYNTHESIS FPGA} [current_fileset]
 
-# Copy weight hex files to output directory (for $readmemh)
-file copy -force "$fpga_dir/cim_model/weight_pos.hex" "$output_dir/"
-file copy -force "$fpga_dir/cim_model/weight_neg.hex" "$output_dir/"
+# Prepare weight files in synthesis working directory for $readmemh.
+if {![file exists $weight_pos_src]} {
+  error "Missing weight file: $weight_pos_src"
+}
+if {![file exists $weight_neg_src]} {
+  error "Missing weight file: $weight_neg_src"
+}
+file copy -force $weight_pos_src "$output_dir/weight_pos.hex"
+file copy -force $weight_neg_src "$output_dir/weight_neg.hex"
+puts "Copied weight init files to $output_dir"
+
+# Make CWD deterministic so $readmemh(\"weight_*.hex\") resolves reliably.
+cd $output_dir
+puts "Vivado CWD: [pwd]"
 
 # ---------------------------------------------------------------------------
 # Step 2: Synthesis
@@ -71,6 +85,7 @@ synth_design -top $top_module -part $part \
 # Post-synthesis reports
 report_utilization -file "$output_dir/post_synth_utilization.rpt"
 report_timing_summary -file "$output_dir/post_synth_timing.rpt"
+report_io -file "$output_dir/post_synth_io.rpt"
 
 # Save checkpoint
 write_checkpoint -force "$output_dir/post_synth.dcp"
@@ -95,6 +110,16 @@ report_utilization -file "$output_dir/post_impl_utilization.rpt"
 report_timing_summary -file "$output_dir/post_impl_timing.rpt" -max_paths 20
 report_power -file "$output_dir/post_impl_power.rpt"
 report_drc -file "$output_dir/post_impl_drc.rpt"
+
+# Fail fast on IO-standard/location/bank-voltage issues.
+set io_drc [get_drc_violations -quiet -filter {NAME =~ "NSTD-1" || NAME =~ "UCIO-1" || NAME =~ "BIVC-1"}]
+if {[llength $io_drc] > 0} {
+  puts "ERROR: IO DRC violations detected:"
+  foreach v $io_drc {
+    puts "  [get_property NAME $v] :: [get_property DESCRIPTION $v]"
+  }
+  exit 1
+}
 
 # Check timing
 set timing_slack [get_property SLACK [get_timing_paths -max_paths 1]]

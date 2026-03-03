@@ -79,7 +79,20 @@ module snn_soc_top (
   input  logic        jtag_tck,
   input  logic        jtag_tms,
   input  logic        jtag_tdi,
-  output logic        jtag_tdo
+  output logic        jtag_tdo,
+
+  // Optional external simple-bus master.
+  // ext_bus_enable=0: keep legacy TB bus_if drive path.
+  // ext_bus_enable=1: use external bus pins as SoC master.
+  input  logic        ext_bus_enable,
+  input  logic        ext_bus_m_valid,
+  input  logic        ext_bus_m_write,
+  input  logic [31:0] ext_bus_m_addr,
+  input  logic [31:0] ext_bus_m_wdata,
+  input  logic [3:0]  ext_bus_m_wstrb,
+  output logic        ext_bus_m_ready,
+  output logic [31:0] ext_bus_m_rdata,
+  output logic        ext_bus_m_rvalid
 );
   // 导入 snn_soc_pkg 中的全局参数与地址常量
   // 例如：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 等
@@ -92,6 +105,42 @@ module snn_soc_top (
   // MVP 阶段 Testbench 直接写 dut.bus_if.m_valid 等信号来模拟 CPU 总线事务。
   // ----------------------------------------------------------
   bus_simple_if bus_if(.clk(clk));
+
+  // Bus master MUX:
+  // - legacy mode: bus_if from hierarchical TB drive
+  // - external mode: top-level wrapper drives this master port
+  logic        bus_m_valid;
+  logic        bus_m_write;
+  logic [31:0] bus_m_addr;
+  logic [31:0] bus_m_wdata;
+  logic [3:0]  bus_m_wstrb;
+  logic        bus_m_ready;
+  logic [31:0] bus_m_rdata;
+  logic        bus_m_rvalid;
+
+  assign bus_m_valid = ext_bus_enable ? ext_bus_m_valid : bus_if.m_valid;
+  assign bus_m_write = ext_bus_enable ? ext_bus_m_write : bus_if.m_write;
+  assign bus_m_addr  = ext_bus_enable ? ext_bus_m_addr  : bus_if.m_addr;
+  assign bus_m_wdata = ext_bus_enable ? ext_bus_m_wdata : bus_if.m_wdata;
+  assign bus_m_wstrb = ext_bus_enable ? ext_bus_m_wstrb : bus_if.m_wstrb;
+
+  always_comb begin
+    if (ext_bus_enable) begin
+      ext_bus_m_ready  = bus_m_ready;
+      ext_bus_m_rdata  = bus_m_rdata;
+      ext_bus_m_rvalid = bus_m_rvalid;
+      bus_if.m_ready   = 1'b0;
+      bus_if.m_rdata   = 32'h0;
+      bus_if.m_rvalid  = 1'b0;
+    end else begin
+      ext_bus_m_ready  = 1'b0;
+      ext_bus_m_rdata  = 32'h0;
+      ext_bus_m_rvalid = 1'b0;
+      bus_if.m_ready   = bus_m_ready;
+      bus_if.m_rdata   = bus_m_rdata;
+      bus_if.m_rvalid  = bus_m_rvalid;
+    end
+  end
 
   // ----------------------------------------------------------
   // bus_interconnect → slave 连接信号组
@@ -366,14 +415,14 @@ module snn_soc_top (
     .rst_n          (rst_n),
 
     // 主设备侧：来自 bus_if 接口（Testbench 直接驱动）
-    .m_valid        (bus_if.m_valid),   // 主设备请求有效
-    .m_write        (bus_if.m_write),   // 1=写，0=读
-    .m_addr         (bus_if.m_addr),    // 32-bit 字节地址
-    .m_wdata        (bus_if.m_wdata),   // 32-bit 写数据
-    .m_wstrb        (bus_if.m_wstrb),   // 4-bit 字节写使能
-    .m_ready        (bus_if.m_ready),   // 写操作完成握手（互联 → 主设备）
-    .m_rdata        (bus_if.m_rdata),   // 32-bit 读数据返回（互联 → 主设备）
-    .m_rvalid       (bus_if.m_rvalid),  // 读数据有效（互联 → 主设备）
+    .m_valid        (bus_m_valid),      // 主设备请求有效
+    .m_write        (bus_m_write),      // 1=写，0=读
+    .m_addr         (bus_m_addr),       // 32-bit 字节地址
+    .m_wdata        (bus_m_wdata),      // 32-bit 写数据
+    .m_wstrb        (bus_m_wstrb),      // 4-bit 字节写使能
+    .m_ready        (bus_m_ready),      // 写操作完成握手（互联 → 主设备）
+    .m_rdata        (bus_m_rdata),      // 32-bit 读数据返回（互联 → 主设备）
+    .m_rvalid       (bus_m_rvalid),     // 读数据有效（互联 → 主设备）
 
     // 从设备侧：各从设备接口信号（已在上方声明）
     .instr_req_valid(instr_req_valid),
@@ -712,7 +761,7 @@ module snn_soc_top (
   );
 
   // cim_fpga_model：FPGA 可综合 CIM 替代模块
-  // 功能：使用 BRAM 权重存储 + 1-bit×4-bit 条件累加，替代 RRAM 行为模型
+  // 功能：使用 ROM 风格权重存储 + 1-bit×4-bit 条件累加，替代 RRAM 行为模型
   //   - 接口与 cim_macro_blackbox 100% 兼容（即插即换）
   //   - 权重通过 $readmemh 从 .hex 文件加载（训练后导出）
   //   - 保留相同的时序模型（CIM_LATENCY_CYCLES / ADC_SAMPLE_CYCLES）

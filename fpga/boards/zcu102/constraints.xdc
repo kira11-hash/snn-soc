@@ -2,6 +2,10 @@
 ## ZCU102 Constraints for SNN SoC FPGA Prototype
 ## Target: XCZU9EG-2FFVB1156E (Zynq UltraScale+ MPSoC)
 ## =============================================================================
+## Note:
+##   Pin/IOSTANDARD assumptions are validated by post-impl DRC checks in
+##   fpga/boards/zcu102/build.tcl (NSTD-1 / UCIO-1 / BIVC-1).
+##   If board revision or connector mapping differs, update this XDC first.
 
 ## ---------------------------------------------------------------------------
 ## System Clock: USER_SI570 (programmable, default 300 MHz differential)
@@ -62,22 +66,14 @@ set_property IOSTANDARD LVCMOS33 [get_ports {led[3]}]
 ## ---------------------------------------------------------------------------
 ## Timing constraints
 ## ---------------------------------------------------------------------------
-# Input delay for async signals (buttons, UART RX)
-set_input_delay -clock sys_clk -max 5.0 [get_ports btn_rst]
-set_input_delay -clock sys_clk -min 0.0 [get_ports btn_rst]
-set_input_delay -clock sys_clk -max 5.0 [get_ports uart_rxd]
-set_input_delay -clock sys_clk -min 0.0 [get_ports uart_rxd]
-set_input_delay -clock sys_clk -max 5.0 [get_ports spi_miso]
-set_input_delay -clock sys_clk -min 0.0 [get_ports spi_miso]
-
-# Output delay for UART TX, SPI
-set_output_delay -clock sys_clk -max 5.0 [get_ports uart_txd]
-set_output_delay -clock sys_clk -min 0.0 [get_ports uart_txd]
-set_output_delay -clock sys_clk -max 5.0 [get_ports {spi_cs_n spi_sck spi_mosi}]
-set_output_delay -clock sys_clk -min 0.0 [get_ports {spi_cs_n spi_sck spi_mosi}]
-
-# False path for async reset and LED outputs
+# btn_rst/uart_rxd/spi_miso are asynchronous in this bringup flow.
+# Do not constrain them with sys_clk-based IO delay numbers.
 set_false_path -from [get_ports btn_rst]
+set_false_path -from [get_ports uart_rxd]
+set_false_path -from [get_ports spi_miso]
+
+# UART/SPI outputs are also used asynchronously in this phase.
+set_false_path -to [get_ports {uart_txd spi_cs_n spi_sck spi_mosi}]
 set_false_path -to [get_ports {led[*]}]
 
 ## ---------------------------------------------------------------------------

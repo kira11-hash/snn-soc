@@ -2,7 +2,7 @@
 //======================================================================
 // 文件名: cim_fpga_model.sv
 // 描述: FPGA 可综合 CIM 替代模块（替代 cim_macro_blackbox.sv）
-//       - 使用 BRAM 存储 4-bit 量化权重（$readmemh 加载）
+//       - 使用 ROM 风格数组存储 4-bit 量化权重（$readmemh 加载）
 //       - 1-bit input × 4-bit weight 条件累加（纯 LUT，不用 DSP）
 //       - 接口与 cim_macro_blackbox 100% 端口兼容（即插即换）
 //
@@ -48,8 +48,12 @@ module cim_fpga_model #(
   localparam int WEIGHT_BITS = 4;                       // 4-bit quantized weights
 
   // -----------------------------------------------------------------------
-  // Weight storage: 4-bit weights, 64 rows × 10 columns (pos and neg)
-  // Loaded from .hex files via $readmemh at elaboration
+  // Weight storage: 4-bit weights, 64 rows × 10 columns (pos and neg).
+  // Loaded from .hex files via $readmemh at elaboration.
+  // NOTE: this model reads all rows/cols in parallel; Vivado may map storage
+  // to LUT/LUTRAM replication rather than true BRAM. This is functionally
+  // correct for bringup and simulation, but area/timing should be judged from
+  // post-implementation reports.
   // Memory layout: weight_pos[row] = {col9, col8, ..., col1, col0} packed
   // But for clarity, we use unpacked 2D arrays
   // -----------------------------------------------------------------------
@@ -103,9 +107,15 @@ module cim_fpga_model #(
   always_comb begin
     for (int j = 0; j < NUM_POS; j++) begin
       // Positive column: ch[j] (j = 0..9)
-      bl_data_internal[j]          = (acc_pos[j] > 10'd255) ? 8'd255 : acc_pos[j][7:0];
+      if (acc_pos[j] > 10'd255)
+        bl_data_internal[j] = 8'd255;
+      else
+        bl_data_internal[j] = ADC_BITS'(acc_pos[j]);
       // Negative column: ch[j+10] (j+10 = 10..19)
-      bl_data_internal[j + NUM_POS] = (acc_neg[j] > 10'd255) ? 8'd255 : acc_neg[j][7:0];
+      if (acc_neg[j] > 10'd255)
+        bl_data_internal[j + NUM_POS] = 8'd255;
+      else
+        bl_data_internal[j + NUM_POS] = ADC_BITS'(acc_neg[j]);
     end
   end
 

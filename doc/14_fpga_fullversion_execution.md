@@ -32,7 +32,7 @@ ASIC 主线                     FPGA 分支
 ─────────────────────────────────────────────────────
 cim_macro_blackbox (RRAM 行为模型)
           ↓                        ↓
-    流片后替换为真实 RRAM    cim_fpga_model.sv（BRAM权重+数字MAC）
+    流片后替换为真实 RRAM    cim_fpga_model.sv（权重ROM+数字MAC）
 ```
 
 FPGA 验证的意义：
@@ -88,7 +88,7 @@ cd sim && bash run_icarus_light.sh     # LIGHT_SMOKETEST_PASS ✅
 
 | 文件 | 内容 |
 |------|------|
-| `fpga/cim_model/cim_fpga_model.sv` | 核心：BRAM权重 + 1-bit×4-bit MAC，接口与 blackbox 100% 兼容 |
+| `fpga/cim_model/cim_fpga_model.sv` | 核心：权重ROM + 1-bit×4-bit MAC，接口与 blackbox 100% 兼容 |
 | `fpga/cim_model/weight_pos.hex` | 正列权重（当前为测试用结构化权重，需替换为真实训练权重） |
 | `fpga/cim_model/weight_neg.hex` | 负列权重 |
 | `fpga/cim_model/test_image.hex` | 测试图片 bit-plane 编码（24 行 = T=3 × 8 bit-planes） |
@@ -241,7 +241,7 @@ source D:/SoC_Design/SoC_Design/fpga/boards/zcu102/build.tcl
 | 错误 | 原因 | 解决 |
 |------|------|------|
 | `MMCM not found` | MMCME4_ADV 原语需要 UltraScale+ | 确认 part 是 xczu9eg（不是 xc7xxx） |
-| `$readmemh: file not found` | .hex 文件路径问题 | build.tcl 会先 copy hex 到 output/，确认 copy 成功 |
+| `$readmemh: file not found` | .hex 文件路径问题 | build.tcl 会先 copy hex 到 output/ 并切换到该目录执行，确保相对路径可解析 |
 | `Multiple drivers` | 某信号被两个地方驱动 | 检查 snn_soc_top 中 CIM 信号的 MUX 逻辑 |
 | `Timing not met (WNS<0)` | MAC 树组合延迟太大 | 见 4.4 时序处理方法 |
 | `BRAM inference failed` | sram_simple.sv 未被推断为 BRAM | 手动加 RAM_STYLE attribute 或用 XPM_MEMORY |
@@ -487,7 +487,7 @@ void smoke_test() {
 ### 5.5 最小冒烟序列（7 步检查清单）
 
 ```
-□ Step 1: 上电 → LED[1] 亮（MMCM lock）→ LED[2] 亮（reset 释放）→ LED[0] 闪烁（heartbeat）
+□ Step 1: 上电 → LED[1] 亮（MMCM lock）→ LED[2] 亮（bringup 运行中/失败锁存）→ LED[0] 闪烁（heartbeat）
 □ Step 2: 读 REG_THRESHOLD（0x4000_0000） → 返回 0x00000BF4（=3060）
 □ Step 3: 写 REG_THRESHOLD = 0xDEAD → 读回 0xDEAD → 确认读写正常
 □ Step 4: 加载测试图片到 data_sram（24 个 64-bit 字 = 48 个 32-bit 字）
@@ -830,7 +830,7 @@ CLAUDE.md 中定义的 ASIC 主线迭代路径：
 当前 `fpga-fullversion-snnsoc` 分支的做法是**跳过第 4、5 步**，先用最短路径验证 CIM 数字逻辑：
 - Phase 0-3 完成了 CIM FPGA 模型 + 板级 wrapper
 - 推理链路用 `$readmemh` 预加载 SRAM + TB 自动灌数据跑通
-- 板上 bringup 计划先用 VIO 手动驱动，不依赖任何 CPU
+- 板上 bringup 计划已切换为 top_fpga 内置 FSM 自动驱动，不依赖任何 CPU
 
 **为什么可以跳步**：FPGA 分支的 `snn_soc_top` 内部总线仍然正常工作，DMA、寄存器、FIFO 都在。只是"谁来发起总线事务"这个问题，在 FPGA 上有比 E203 更快的选项（VIO / PS ARM）。
 
@@ -859,23 +859,23 @@ CLAUDE.md 中定义的 ASIC 主线迭代路径：
 | **依赖** | Vivado Block Design + Vitis | DMA 扩展 + ICB 桥 + 固件 |
 | **分支** | fpga-fullversion-snnsoc | fpga-fullversion-snnsoc（或独立 sub-branch） |
 
-### 9.3 阶段 1：VIO 先行验证（当前最高优先级）
+### 9.3 阶段 1：自动 FSM 先行验证（当前最高优先级）
 
-**目标**：用 Vivado VIO + ILA 在 ZCU102 上跑通第一次推理，不依赖任何 CPU 固件。
+**目标**：直接使用 `top_fpga.sv` 内置 bringup FSM 在 ZCU102 上跑通第一次推理，不依赖任何 CPU 固件。
 
-**原理**：VIO（Virtual IO）让你从 PC 的 Vivado GUI 直接控制 PL 内部信号。相当于一个"虚拟 CPU"，但操作是手动的、非编程的。
+**原理**：板级 `top_fpga.sv` 已内置简单 bus master + bringup FSM。上电后自动完成寄存器配置、DMA/CIM 触发和结果检查；VIO/ILA 仅用于可选调试。
 
 **具体做法**：
 
-1. 在 `top_fpga.sv` 中实例化 VIO IP（Vivado 生成）：
+1. 直接烧录 bitstream，执行内置 bringup FSM：
 
 ```systemverilog
-// VIO: 输出 = 虚拟寄存器写入，输入 = 状态读回
-// 这些信号直接连到 snn_soc_top 的内部 bus 接口
-// 需要在 top_fpga 中额外引出一个简单的 "debug bus master" FSM
+// 内置流程：
+// 配置寄存器 -> 写 data_sram(48 words) -> DMA start/poll
+// -> CIM start/poll -> 读取 OUT_FIFO_COUNT -> LED 判定
 ```
 
-2. 更实用的方案 — 在 `top_fpga.sv` 中写一个**上电自动跑**的 bringup FSM：
+2. 可选增强：加入 ILA/VIO 观察或手动注入调试事务（不是必需）：
 
 ```systemverilog
 // bringup FSM: 上电后自动执行 smoke test 序列
@@ -900,8 +900,8 @@ ILA 抓取信号清单：
 **Pass 标准**：
 - LED[0] 闪烁（heartbeat，证明时钟正常）
 - LED[1] 亮（MMCM locked）
-- LED[2] 亮（reset released）
-- LED[3] 亮（bringup FSM 跑到 DONE 状态）
+- LED[2] 亮（bringup 运行中或失败锁存）
+- LED[3] 亮（bringup FSM PASS）
 - ILA 中 OUT_FIFO_COUNT > 0
 
 **预计时间**：1-2 天（Vivado 综合 + 下板 + 观察 LED/ILA）
@@ -1021,7 +1021,7 @@ Path B (PS ARM):
 关键区别:
   - Path B 不需要 DMA 扩展 — ARM 直接 mmap 写 PL SRAM
   - Path B 不需要 E203 — ARM 自己就是 CPU
-  - Path B 不需要 AXI Interconnect — Zynq PS-PL AXI 端口是硬件内置的
+  - Path B 不需要自研 `bus_interconnect`；在 Vivado BD 中仍可使用 AXI Interconnect IP 做地址分发
 ```
 
 #### Step B1: Vivado Block Design
@@ -1047,6 +1047,8 @@ Zynq PS (ARM A53)
   8. 综合 → 实现 → 生成 bitstream
   9. Export Hardware (含 bitstream) → 给 Vitis 用
 ```
+
+说明：上图中的 `AXI Interconnect` 指 Vivado/PS-PL 体系里的 AXI 互连 IP（或等效地址分发结构），不是我们 RTL 里自研的 `bus_interconnect.sv`。
 
 #### Step B2: Vitis/Petalinux 固件
 
@@ -1214,7 +1216,7 @@ Path A → Path B 的复用:
 
 | 文件 | 作用 | 关键设计决策 |
 |------|------|-------------|
-| `fpga/cim_model/cim_fpga_model.sv` | **核心**：BRAM 权重 + 数字 MAC，替代 RRAM blackbox | 4-bit 权重 × 1-bit spike，组合逻辑累加，无 DSP |
+| `fpga/cim_model/cim_fpga_model.sv` | **核心**：权重ROM + 数字 MAC，替代 RRAM blackbox | 4-bit 权重 × 1-bit spike，组合逻辑累加，无 DSP |
 | `fpga/cim_model/weight_pos.hex` | 正列权重（64×10 个 4-bit 值，$readmemh 格式） | 当前为测试权重，需替换为训练权重 |
 | `fpga/cim_model/weight_neg.hex` | 负列权重 | 同上 |
 | `fpga/cim_model/test_image.hex` | 测试图片 bit-plane 编码（T=3 × 8 planes） | 用于 CIM 单元测试 |
@@ -1413,6 +1415,6 @@ main → fpga-fullversion-snnsoc 改动总览
 
 > **更新记录**：
 > - 2026-03-03 初版，基于 `fpga-fullversion-snnsoc` 分支 commit `feabb267`
-> - 2026-03-03 新增 §9 CPU 接入双线路径规划（VIO 先行 + Path A/B 并行）
+> - 2026-03-03 新增 §9 CPU 接入双线路径规划（自动FSM先行 + Path A/B 并行）
 > - 2026-03-03 §9.2/9.4/9.8 更新：明确 FPGA 上两 CPU 均需实现（ARM 先行快速验证 + E203 后补完整性展示），并补充论文定位分析
 > - 2026-03-03 新增 §10 从 main 到 FPGA 分支的改动清单与学习路径

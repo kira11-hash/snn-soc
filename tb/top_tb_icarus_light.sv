@@ -46,7 +46,16 @@ module top_tb_icarus_light;
     .jtag_tck (jtag_tck),
     .jtag_tms (jtag_tms),
     .jtag_tdi (jtag_tdi),
-    .jtag_tdo (jtag_tdo)
+    .jtag_tdo (jtag_tdo),
+    .ext_bus_enable  (1'b0),
+    .ext_bus_m_valid (1'b0),
+    .ext_bus_m_write (1'b0),
+    .ext_bus_m_addr  (32'h0),
+    .ext_bus_m_wdata (32'h0),
+    .ext_bus_m_wstrb (4'h0),
+    .ext_bus_m_ready (),
+    .ext_bus_m_rdata (),
+    .ext_bus_m_rvalid()
   );
 
   task automatic bus_write;

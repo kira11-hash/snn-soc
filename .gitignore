@@ -41,3 +41,4 @@ sim/*_final_check.out
 sim/axi_bridge_test
 sim/uart_test
 sim/spi_test
+fpga/sim/*.vvp
