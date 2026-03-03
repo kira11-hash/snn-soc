@@ -124,38 +124,59 @@ cd sim && bash run_icarus_light.sh     # LIGHT_SMOKETEST_PASS ✅
 - ZCU102 板型支持包已安装
 - **真实权重 .hex 文件已生成**（见第 4.0 节）
 
+### 4.1.1 Linux 目录改名适配（`SoCDesign`）
+
+你当前是在 Linux 上将仓库放在 `~/SoCDesign`（无空格路径）。当前 `build.tcl` 使用脚本相对路径解析：
+- `script_dir = fpga/boards/zcu102`
+- `project_root = script_dir/../../..`
+- `fpga_dir = script_dir/../..`
+
+因此目录改名不会影响构建，只要仓库内部相对结构不变即可。建议先做一次结构自检：
+
+```bash
+export SOC_ROOT=~/SoCDesign
+cd "$SOC_ROOT"
+
+test -f fpga/boards/zcu102/build.tcl
+test -f fpga/boards/zcu102/top_fpga.sv
+test -f fpga/boards/zcu102/constraints.xdc
+test -f fpga/cim_model/weight_pos.hex
+test -f fpga/cim_model/weight_neg.hex
+```
+
 ### 4.0 先做真实权重导出（在 Linux 服务器上）
 
 ```bash
-# 进入 Python 建模目录
-cd "SoC Design/SoC Design/项目相关文件/器件对齐/Python建模"
+# 进入 Python 建模目录（按你的 Linux 目录）
+export SOC_ROOT=~/SoCDesign
+cd "$SOC_ROOT/项目相关文件/器件对齐/Python建模"
 
 # 激活你的 Python 环境（conda 或 venv）
 conda activate snn_env   # 或 source .venv/bin/activate
 
 # 运行权重导出脚本
-python "../../fpga/scripts/export_weights.py" \
+python "$SOC_ROOT/fpga/scripts/export_weights.py" \
   --method proj_sup_64 \
-  --out-dir "../../fpga/cim_model"
+  --out-dir "$SOC_ROOT/fpga/cim_model"
 
 # 如果器件模型可用，会自动使用器件感知量化
 # 否则回退到均匀量化（精度略有差异，但 RTL 可以跑通）
 
 # 可选：同时导出一张测试图
-python "../../fpga/scripts/export_weights.py" \
+python "$SOC_ROOT/fpga/scripts/export_weights.py" \
   --method proj_sup_64 \
-  --out-dir "../../fpga/cim_model" \
+  --out-dir "$SOC_ROOT/fpga/cim_model" \
   --export-image
 
 # 检查输出
-ls ../../fpga/cim_model/
+ls "$SOC_ROOT/fpga/cim_model/"
 # 应该有: weight_pos.hex weight_neg.hex (可选: test_image.hex)
 ```
 
 > **注意**：权重文件格式是每行一个 16 进制数字（4-bit），共 640 行（64 rows × 10 cols）。
 > $readmemh 读取顺序：weight[row=0][col=0], weight[0][1], ..., weight[0][9], weight[1][0], ...
 
-将生成的 .hex 文件同步回 Windows（或在 Git 中提交）：
+如果你直接在 Linux 仓库上开发，直接在当前仓库提交即可：
 
 ```bash
 git add fpga/cim_model/weight_pos.hex fpga/cim_model/weight_neg.hex
@@ -168,22 +189,68 @@ git push origin fpga-fullversion-snnsoc
 #### 方法 A：命令行（推荐，可重复，适合服务器）
 
 ```bash
-# 进入项目根目录
-cd "SoC Design/SoC Design"
+# 进入项目根目录（按你的 Linux 目录）
+export SOC_ROOT=~/SoCDesign
+cd "$SOC_ROOT"
 
 # 非交互式批处理模式
-vivado -mode batch -source fpga/boards/zcu102/build.tcl 2>&1 | tee vivado_build.log
+vivado -mode batch -source fpga/boards/zcu102/build.tcl 2>&1 | tee fpga/boards/zcu102/output/vivado_build.log
 
 # 查看关键结果
-grep -E "(Timing|WNS|LUT|BRAM|DSP|WARNING|ERROR)" vivado_build.log
+grep -E "(Timing|WNS|TNS|LUT|BRAM|DSP|WARNING|ERROR)" fpga/boards/zcu102/output/vivado_build.log
 ```
 
 #### 方法 B：Vivado GUI（调试阶段更方便）
 
 ```tcl
 # 在 Vivado Tcl Console 中执行
-source D:/SoC_Design/SoC_Design/fpga/boards/zcu102/build.tcl
+source ~/SoCDesign/fpga/boards/zcu102/build.tcl
 ```
+
+#### 4.2.1 下一步执行清单（Linux `~/SoCDesign`）
+
+按下面顺序执行，不要跳步：
+
+```bash
+export SOC_ROOT=~/SoCDesign
+cd "$SOC_ROOT"
+
+# Step 0: 基础工具检查
+which vivado
+which iverilog
+
+# Step 1: 先做仿真冒烟（确认 RTL 逻辑）
+bash sim/run_icarus_light.sh
+bash sim/run_axi_bridge_icarus.sh
+bash sim/run_uart_icarus.sh
+bash sim/run_spi_icarus.sh
+
+# Step 2: 跑 Vivado 全流程（synth + impl + bit）
+vivado -mode batch -source fpga/boards/zcu102/build.tcl 2>&1 | tee fpga/boards/zcu102/output/vivado_build.log
+
+# Step 3: 生成物检查
+test -f fpga/boards/zcu102/output/snn_soc_fpga.bit
+test -f fpga/boards/zcu102/output/post_impl_timing.rpt
+test -f fpga/boards/zcu102/output/post_impl_utilization.rpt
+test -f fpga/boards/zcu102/output/post_impl_drc.rpt
+
+# Step 4: 关键通过指标检查（门槛）
+grep -E "WNS|TNS" fpga/boards/zcu102/output/post_impl_timing.rpt
+grep -E "NSTD-1|UCIO-1|BIVC-1" fpga/boards/zcu102/output/post_impl_drc.rpt
+grep -E "CLB LUTs|CLB Registers|Block RAM|DSPs" fpga/boards/zcu102/output/post_impl_utilization.rpt
+```
+
+通过标准（必须同时满足）：
+
+1. 仿真 4 项都 PASS：
+   - `LIGHT_SMOKETEST_PASS`
+   - `AXI_BRIDGE_SMOKETEST_PASS`
+   - `UART_SMOKETEST_PASS`
+   - `SPI_SMOKETEST_PASS`
+2. Bitstream 生成成功：`fpga/boards/zcu102/output/snn_soc_fpga.bit` 存在。
+3. 时序通过：`post_impl_timing.rpt` 中 `WNS >= 0`。
+4. 关键 IO DRC 无违规：`NSTD-1 / UCIO-1 / BIVC-1` 不应出现违规。
+5. 板上状态通过：`LED[1]` 亮、`LED[0]` 闪、最终 `LED[3]` 亮（PASS）；若 `LED[3]` 不亮且 `LED[2]` 常亮，视为 bringup 失败。
 
 ### 4.3 综合过程各步骤说明
 
@@ -305,9 +372,9 @@ refresh_hw_device [get_hw_devices xczu9eg_0]
 
 ### 5.4 最小冒烟序列（7 步）
 
-上板后第一件事：用 Vivado **VIO（Virtual IO）** 替代 CPU 发起总线事务，不需要 E203 固件。
+上板后第一件事：直接使用 `top_fpga.sv` 内置 bringup FSM 自动跑通，不需要 E203 固件。
 
-#### 步骤 1：在 top_fpga.sv 中添加 VIO/ILA（如需调试）
+#### 步骤 1：可选加入 VIO/ILA（仅调试）
 
 ```systemverilog
 // 在 top_fpga.sv 中的 u_soc 实例化之前插入
@@ -327,11 +394,10 @@ ila_0 u_ila (
 // （实际上 VIO 无法直接发总线事务，需要自定义简单接口）
 ```
 
-> **推荐更简单的调试方案**：
-> 不用 VIO，直接在 top_fpga.sv 中写一个上电自动运行的**状态机**（FSM）：
-> 上电 → 配置寄存器 → 触发 DMA → 触发 CIM → 等待完成 → 点亮 LED
+> 当前分支已内置该 FSM：
+> 上电 → 配置寄存器 → 触发 DMA → 触发 CIM → 等待完成 → LED 给出 PASS/FAIL。
 
-#### 步骤 2：上电自检 FSM（最简方案）
+#### 步骤 2：上电自检 FSM（当前默认方案）
 
 在 `top_fpga.sv` 中添加一个 bringup FSM，上电后自动完成测试序列：
 
