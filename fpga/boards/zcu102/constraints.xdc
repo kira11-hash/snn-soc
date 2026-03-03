@@ -45,7 +45,9 @@ set_property IOSTANDARD LVCMOS33 [get_ports uart_rxd]
 set_property PACKAGE_PIN A17 [get_ports spi_cs_n]
 set_property PACKAGE_PIN A18 [get_ports spi_sck]
 set_property PACKAGE_PIN B16 [get_ports spi_mosi]
-set_property PACKAGE_PIN B17 [get_ports spi_miso]
+# NOTE: Disabled for current bring-up because B17 is invalid on the active device/package map.
+# Re-enable with a validated SPI_MISO pin after board-pin confirmation.
+# set_property PACKAGE_PIN B17 [get_ports spi_miso]
 set_property IOSTANDARD LVCMOS33 [get_ports spi_cs_n]
 set_property IOSTANDARD LVCMOS33 [get_ports spi_sck]
 set_property IOSTANDARD LVCMOS33 [get_ports spi_mosi]
@@ -80,4 +82,5 @@ set_false_path -to [get_ports {led[*]}]
 ## Bitstream settings
 ## ---------------------------------------------------------------------------
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
-set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]
+# NOTE: Disabled to avoid tool/version property compatibility warning in current flow.
+# set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]

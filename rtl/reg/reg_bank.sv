@@ -117,7 +117,7 @@ module reg_bank (
   input  logic        out_fifo_empty,   // 输出 FIFO 空（无 spike 可读）
   input  logic        out_fifo_full,    // 输出 FIFO 满（LIF 暂停输出）
   input  logic [3:0]  out_fifo_rdata,   // 输出 FIFO 队头 spike_id（4-bit，fall-through）
-  input  logic [$clog2(OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count, // 当前 spike 数量
+  input logic [$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count, // 当前 spike 数量
 
   // ADC 饱和监控（来自 adc_ctrl）
   // adc_sat_high: 高阈值饱和次数（ADC 输出 >= 最大正值）
@@ -382,7 +382,7 @@ module reg_bank (
           rdata = {{(32-4){1'b0}}, out_fifo_rdata}; // 高 28 位填 0，低 4 位 = spike_id
         end
       end
-      REG_OUT_COUNT:  rdata = {{(32-$clog2(OUTPUT_FIFO_DEPTH+1)){1'b0}}, out_fifo_count}; // entry 数
+      REG_OUT_COUNT: rdata = {{(32-$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)){1'b0}}, out_fifo_count}; // entry 数
       REG_THRESHOLD_RATIO: rdata = {24'h0, threshold_ratio}; // 高 24 位填 0，低 8 位 = ratio
       // ADC 饱和计数：sat_low 在高 16 位，sat_high 在低 16 位（见顶部注释）
       REG_ADC_SAT_COUNT:   rdata = {adc_sat_low, adc_sat_high};
