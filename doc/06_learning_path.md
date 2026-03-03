@@ -1088,6 +1088,137 @@ int snn_wait_done(void) {
 
 ---
 
-*最后更新：2026-01-30*
+## Part C：FPGA全量执行与论文落地路径（2026-03 补充）
 
-**学习建议**：Part A 必须完全掌握后再开始 Part B。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。
+> 适用对象：已经理解 Part A/B，希望把当前 `fpga-fullversion-snnsoc` 分支跑通，并形成可投稿论文结果。
+> 建议先按这个文档顺序读：`doc/15_fpga_execution_master_plan.md` → `doc/14_fpga_fullversion_execution.md`（重点看 §10/§11）→ `doc/13_fpga_paper_plan.md`（重点看 §0.1）→ `SNNSoC工程主文档.md`（前言补充）。
+
+### 阶段 C1：分支真实差异校验（Day 30）
+
+目标：确认相对 `main` 不是“只新增”，而是“新增 + 修改并存”。
+
+建议命令：
+
+```bash
+git diff --name-status main...fpga-fullversion-snnsoc
+git diff main...fpga-fullversion-snnsoc -- rtl/top/snn_soc_top.sv rtl/top/chip_top.sv
+```
+
+检验标准：
+- [ ] 能说清 `ext_bus_*` 是做什么的
+- [ ] 能说清 `cim_macro_blackbox` 和 `cim_fpga_model` 的替换关系
+- [ ] 能说清哪些是新增，哪些是修改
+
+### 阶段 C2：仿真主链路回归（Day 31-32）
+
+目标：确保当前分支基础功能完整、可复现。
+
+建议顺序：
+1. `sim/run_icarus_light.sh`
+2. `sim/run_axi_bridge_icarus.sh`
+3. `sim/run_uart_icarus.sh`
+4. `sim/run_spi_icarus.sh`
+5. `fpga/sim/run_cim_fpga_test.sh`
+
+检验标准：
+- [ ] 各回归脚本可正常结束
+- [ ] 不出现新增编译错误
+- [ ] 核心日志结果稳定复现
+
+### 阶段 C3：权重导出与数据链路核验（Day 33）
+
+目标：打通“训练权重 -> hex -> 仿真/FPGA”的一致链路。
+
+建议阅读：
+- `fpga/scripts/export_weights.py`
+- `fpga/scripts/gen_test_weights.py`
+- `sim/run_icarus_light.sh`
+
+检验标准：
+- [ ] 知道何时要重新导出权重
+- [ ] 知道为什么仿真前要同步 `weight_pos/neg.hex`
+- [ ] 知道 weight 文件放置路径和优先级
+
+### 阶段 C4：Vivado 路线与板级 bring-up（Day 34-36）
+
+目标：在 Linux + Vivado 环境完成可综合、可实现、可下载的硬件路径。
+
+建议阅读：
+- `fpga/boards/zcu102/top_fpga.sv`
+- `fpga/boards/zcu102/constraints.xdc`
+- `fpga/boards/zcu102/build.tcl`
+- `doc/12_fpga_validation_guide.md`
+- `doc/14_fpga_fullversion_execution.md`
+
+检验标准：
+- [ ] `synth` / `place` / `route` 全部通过
+- [ ] 关键时序指标可读（WNS/TNS）
+- [ ] bitstream 可生成
+
+### 阶段 C5：论文实验主线（Day 37-45）
+
+目标：形成投稿主结果和补充结果。
+
+固定口径：
+1. `ARM完整量化` 作为主实验
+2. `E203最小演示` 作为系统完整性补充
+3. 5.1 创新点优先做低风险可量化项
+4. 执行顺序固定：先 baseline，后创新 A/B 对比
+
+检验标准：
+- [ ] 至少 3 组量化配置（如 W8A8/W6A6/W4A4）
+- [ ] 至少 1000 样本完整统计
+- [ ] 有消融实验与误差解释
+
+### 阶段 C5.5：计数器/日志脚本最小实践任务（Day 45）
+
+目标：先把“观测工具”做稳，再做创新点实现。
+
+最小任务：
+1. 在同一配置下跑两次 baseline，输出 `before/after/delta`。
+2. 检查 16-bit 回绕处理是否正确。
+3. 导出 `CSV + JSON` 两类日志文件，字段含 `git_commit`。
+
+检验标准：
+- [ ] 能解释 `delta = (after - before) mod 65536`
+- [ ] 能证明两次 baseline 结果一致性
+- [ ] 能给出后续 A/B 复用的日志模板
+
+### 阶段 C6：性能计数器与中断模式（Day 46-50）
+
+目标：建立“可测、可证、可复现”的证据链。
+
+当前已存在计数器寄存器口径：
+- `0x30`: `cim_cycle_cnt[31:16]`, `dma_frame_cnt[15:0]`
+- `0x34`: `wl_stall_cnt[31:16]`, `spike_cnt[15:0]`
+
+建议实现口径（论文增强）：
+- 增加 `IRQ_STATUS/IRQ_MASK/IRQ_CLEAR/TIMEOUT` 四类寄存器
+- 保留轮询模式作为回退路径
+
+检验标准：
+- [ ] 能按差分法统计性能计数器（处理 16-bit 回绕）
+- [ ] 能演示中断模式与轮询模式结果一致
+- [ ] 能输出用于论文作图的原始日志
+- [ ] 能解释为什么“采样框架前置”不等于“创新点已实现”
+
+### 阶段 C7：文档与答辩准备（Day 51-55）
+
+目标：保证代码、逻辑、文档三者口径一致。
+
+建议同步文档：
+- `doc/13_fpga_paper_plan.md`
+- `doc/14_fpga_fullversion_execution.md`
+- `doc/15_fpga_execution_master_plan.md`
+- `SNNSoC工程主文档.md`（仅补充截至日期说明，不改历史结论）
+
+检验标准：
+- [ ] 主线状态与分支状态描述不冲突
+- [ ] 学习路径和执行路径一致
+- [ ] 创新点描述可落到代码与实验
+
+---
+
+*最后更新：2026-03-03*
+
+**学习建议**：Part A 保证基础，Part B 补系统能力，Part C 直达工程闭环和论文交付。每阶段都要有“可复现证据”（脚本、日志、图表），不要只停留在口头描述。

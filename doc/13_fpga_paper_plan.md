@@ -11,6 +11,61 @@
 
 ---
 
+## 0.1 2026-03-03 优先执行口径（覆盖旧冲突描述）
+
+> 本小节为当前执行与投稿口径。若与本文后续历史段落冲突，以本小节为准。
+
+### A. 当前工程事实
+
+1. `main` 仍是 MVP 主线状态，AXI/UART/SPI/E203 并未全部主线集成完成。
+2. `fpga-fullversion-snnsoc` 已具备 FPGA 论文可用的核心基础：可综合 CIM 替代、板级 wrapper、AXI/UART/SPI 相关代码与回归脚本。
+3. 论文路线不要求先把所有 feature 回灌 `main`，而是优先形成可复现实验闭环。
+
+### B. 双 CPU 路线的明确分工
+
+1. 主结果：`ARM（PS）完整量化实验`。
+2. 补充结果：`E203 最小演示`（证明自研 SoC 完整性）。
+3. 首稿不做 E203 全量的原因：
+   - 工程链路成熟度不如 ARM 路线；
+   - 内存与 I/O 条件不利于大样本批量评测；
+   - 6.30 前时间成本过高，显著增加联调风险；
+   - 审稿更看重可复现主结果，不要求所有控制路径都做全量。
+4. 固定顺序（baseline first）：
+   - 先完成 ARM 无创新点基线采集；
+   - 再完成 E203 最小闭环演示；
+   - 最后做创新点 A/B 对比（同一数据集/同一时钟/同一配置）。
+
+### C. 5.1 创新点（首稿落地版）
+
+1. 稀疏感知计算跳过：输入活动低时跳过无效计算，输出“跳过率/时延收益/精度变化”。
+2. 稀疏性统计可解释化：把活动度、阻塞、帧吞吐转成可复现实验数据。
+3. Shadow Buffer（可选增强）：重叠数据准备与计算，提高帧吞吐；时序风险高时可降级。
+4. 可观测性创新：统一性能计数器协议 + 中断模式，使实验结论可证据化。
+
+### D. 性能计数器与中断模式（论文证据链口径）
+
+1. 现有计数器读口径：
+   - `0x30`: `[31:16] cim_cycle_cnt`, `[15:0] dma_frame_cnt`
+   - `0x34`: `[31:16] wl_stall_cnt`, `[15:0] spike_cnt`
+2. 统计方法：必须使用 `before/after` 差分并处理 16-bit 回绕，不用瞬时值直接作图。
+3. 中断模式（增强项）建议寄存器：
+   - `0x38 IRQ_STATUS`
+   - `0x3C IRQ_MASK`
+   - `0x40 IRQ_CLEAR (W1C)`
+   - `0x44 TIMEOUT_CYC`
+4. 回退策略：中断异常时可退回轮询模式，主实验不失效。
+5. 重要说明：采样框架/日志脚本属于“观测基础设施”，可前置建设，但不等于创新点已实现。
+
+### E. 首稿验收门槛（硬条件）
+
+1. ARM 路径完成完整量化：至少 3 组量化配置 + 至少 1000 样本统计。
+2. E203 路径完成最小演示：固定样本可稳定跑通，证明体系完整。
+3. 具备消融结果：至少包含“关闭创新点”或“关闭中断/统计增强”的对比。
+4. 图表可复现：脚本可重复生成精度、时延、吞吐、计数器关联图。
+5. 顺序门槛：禁止未建 baseline 直接汇报优化收益。
+
+---
+
 ## 1. 为什么 FPGA 能发论文
 
 ### 1.1 论文定位（最关键）
@@ -160,7 +215,7 @@ end
 ### 2.4 模块接口（与 blackbox 100% 兼容）
 
 ```systemverilog
-module cim_macro_fpga #(
+module cim_fpga_model #(
   parameter int P_NUM_INPUTS   = 64,
   parameter int P_ADC_CHANNELS = 20
 ) (
@@ -203,14 +258,14 @@ ADC 控制:        adc_ctrl.sv                  核心逻辑相同
 LIF 神经元:      lif_neurons.sv               核心逻辑相同
 寄存器:          reg_bank.sv                  核心逻辑相同
 板级适配:        chip_top.sv（pad ring）       top_fpga.sv + XDC + PLL（FPGA 专用）
-CIM 宏:          cim_macro_blackbox.sv         cim_macro_fpga.sv（数字 MAC 替代）
+CIM 宏:          cim_macro_blackbox.sv         cim_fpga_model.sv（数字 MAC 替代）
 ```
 
 ### 3.2 CIM 宏差异（唯一的功能逻辑差异）
 
 ```
 ASIC:  cim_macro_blackbox.sv   →  实际连接 RRAM analog macro
-FPGA:  cim_macro_fpga.sv       →  BRAM 权重 + 数字 MAC + 可选噪声
+FPGA:  cim_fpga_model.sv       →  BRAM 权重 + 数字 MAC + 可选噪声
 ```
 
 通过 `ifdef FPGA` 或 Vivado filelist 切换，不影响 ASIC 主线 RTL。
@@ -247,7 +302,7 @@ ASIC 主线                               FPGA 论文兜底线
    状态：未开始（依赖 ①②③④ 全部合并到 main）
                                           │
                                           ▼
-                                    ⑥ cim_macro_fpga.sv（替换 blackbox）
+                                    ⑥ cim_fpga_model.sv（替换 blackbox）
                                     ⑦ 权重导出 + $readmemh 加载
                                     ⑧ fpga/ 目录结构 + Vivado 工程
                                     ⑨ 上板验证 + 数据收集
@@ -350,9 +405,9 @@ ZCU102 的 PS 侧有硬核 ARM Cortex-A53（四核，1.5GHz，可跑 Linux），
 4. **功耗对比**：ARM 纯软件推理 vs SNN 硬件加速，直接出 speedup 和能效比数据
 5. **AXI 天然对接**：PS 通过 AXI HP/HPC 端口驱动 PL，而我们的 `axi2simple_bridge` 恰好做这个转换
 
-**推荐策略**：先做方案 A（纯 PL + E203）拿到基线数据和 ASIC 等效验证；
-再做方案 B（ARM + 加速器）做批量实验和 demo。论文里两条路线都能写，
-方案 A 证明"架构设计正确"，方案 B 提供"大规模实验数据"。
+**推荐策略（2026-03-03 更新）**：先做方案 B（ARM + 加速器）拿到完整量化主数据；
+再做方案 A（E203 最小演示）作为系统完整性补充。论文里两条路线都写，
+方案 B 提供主图主表，方案 A 证明自研 SoC 控制链路可跑通。
 
 #### 4.3.4 FPGA 适配层清单（不可省略）
 
@@ -384,7 +439,7 @@ fpga/
   ip/
     clk_wiz_wrapper.sv        # 时钟 PLL 封装
   cim_model/
-    cim_macro_fpga.sv         # 数字 CIM 等效模型（BRAM 权重 + MAC）
+    cim_fpga_model.sv         # 数字 CIM 等效模型（BRAM 权重 + MAC）
     weight_pos.hex            # 正列权重（Python 导出）
     weight_neg.hex            # 负列权重（Python 导出）
   scripts/
@@ -398,11 +453,22 @@ fpga/
 
 ### 6.1 必须有的数据
 
-1. **端到端推理演示**：E203 固件驱动 SPI 读 Flash → CPU 写 data_sram → DMA 搬运至 input_fifo → SNN 推理 → UART 打印分类结果
-2. **精度对比**：FPGA 推理精度 vs Python golden model（应一致或差距 <0.5%）
-3. **FPGA 资源报告**：Vivado 综合后 LUT/FF/BRAM/DSP utilization
-4. **推理延迟**：每帧推理 cycle 数（可从 debug 计数器读取）
-5. **功耗估算**：Vivado Power Report（粗略即可）
+1. **Baseline 表（主表）**：ARM 路径无创新点配置下的精度/延迟/吞吐/计数器差分结果。
+2. **端到端推理演示**：E203 最小闭环可稳定跑通（作为完整性补充，不做全量主表）。
+3. **精度对比**：FPGA 推理精度 vs Python golden model（应一致或差距 <0.5%）。
+4. **FPGA 资源报告**：Vivado 综合后 LUT/FF/BRAM/DSP utilization。
+5. **推理延迟**：每帧推理 cycle 数（由计数器差分口径计算）。
+6. **功耗估算**：Vivado Power Report（粗略即可）。
+
+### 6.1A 论文表格结构要求（固定）
+
+1. **Table-Baseline（必须先有）**：
+   - 字段：`mode`、`quant_cfg`、`dataset`、`clock_mhz`、`accuracy`、`latency`、`throughput`、`cycles_per_frame`、`stall_ratio`、`spike_per_frame`。
+2. **Table-A/B（创新对比）**：
+   - 字段：`feature_name`、`OFF_baseline`、`ON_feature`、`delta_abs`、`delta_pct`。
+3. **公平性约束**：
+   - A/B 比较必须同一数据集、同一时钟、同一量化配置。
+   - 采样公式固定为 `delta = (after - before) mod 65536`。
 
 ### 6.2 加分项（区分度，冲 SCI）
 
@@ -495,15 +561,13 @@ fpga/
 
 | 阶段 | 内容 | 预计周期 |
 |------|------|---------|
-| 当前 | ASIC 主线迭代（DMA → E203） | 进行中 |
-| E203 接入后 | 开 feature/fpga 分支，写 cim_macro_fpga.sv | 1~2 天 |
-| 权重导出 | Python 脚本导出 .hex，$readmemh 验证 | 半天 |
-| Vivado 综合 | fpga/ 目录、XDC、PLL、综合 + 实现 | 1~2 天 |
-| 上板调试 | UART printf 验证 → SPI Flash 加载 → 端到端 | 1~3 天 |
-| 数据收集 | 跑 MNIST 测试集 + 消融实验 | 1~2 天 |
-| 论文撰写 | 初稿 | 1~2 周 |
+| 当前 | FPGA 分支基础能力已具备（`cim_fpga_model` + 板级 wrapper + 回归脚本） | 已完成 |
+| P1 | ARM 路径完整量化（主结果） | 2~3 周 |
+| P2 | 计数器证据链 + 中断模式（增强） | 1 周 |
+| P3 | E203 最小演示（补充结果） | 1 周 |
+| P4 | 消融实验与论文初稿 | 1~2 周 |
 
-**总计约 2~3 周**（与 ASIC 后端并行，不占额外时间）。
+**总计约 5~7 周**（可与 ASIC 后端并行推进）。
 
 ---
 

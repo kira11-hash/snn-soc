@@ -694,6 +694,37 @@ def run_full_eval(pl, proj_weight=None):
     return final_acc
 ```
 
+### 6.2A 计数器采样框架与日志脚本模板（先做，不算创新点实现）
+
+采样协议（强制）：
+1. 运行前读`0x30/0x34`作为`before`。
+2. 跑N帧后再读一次作为`after`。
+3. 每个16位字段计算`delta = (after - before) mod 65536`。
+4. 禁止直接用瞬时寄存器值作图。
+
+指标口径（统一）：
+- `cycles_per_frame = delta_cim_cycle / max(delta_dma_frame,1)`
+- `stall_ratio = delta_wl_stall / max(delta_cim_cycle,1)`
+- `spike_per_frame = delta_spike / max(delta_dma_frame,1)`
+
+日志脚本最低字段：
+- `run_id`、`git_commit`、`mode(ARM/E203)`、`dataset`、`clock_mhz`
+- `quant_cfg`、`frames`、`before_raw`、`after_raw`、`delta_*`
+- `accuracy`、`latency`、`throughput`
+
+建议CLI（先文档定义，后续实现）：
+```bash
+perf_collect --mode {arm|e203} --frames N --quant CFG --out result.csv
+perf_analyze --in result.csv --out summary.json
+```
+
+常见错误：
+1. 不做差分，直接读瞬时值。
+2. 忽略16-bit回绕。
+3. 混入warm-up数据导致不可比。
+4. 跨配置横向比较（时钟/数据集/量化不一致）。
+5. 不记录commit导致结果不可追溯。
+
 ### 6.3 论文必需实验（MVP）
 
 #### 实验 1: 端到端精度对比
@@ -932,6 +963,25 @@ CLAUDE.md 中定义的 ASIC 主线迭代路径：
 | **优先级** | 高（先做） | 中（数据收集后补做） |
 | **依赖** | Vivado Block Design + Vitis | DMA 扩展 + ICB 桥 + 固件 |
 | **分支** | fpga-fullversion-snnsoc | fpga-fullversion-snnsoc（或独立 sub-branch） |
+
+#### 9.2.1 执行顺序固定图（baseline-first）
+
+```text
+Step 1: ARM 主路径完整量化（无创新点 baseline）
+        -> 产出主结果：accuracy / latency / throughput / counter-delta
+        -> 锁定“可复现基线”
+
+Step 2: E203 最小闭环演示（不做全量）
+        -> 证明 SoC 自主控制链路完整
+
+Step 3: 创新点 A/B 对比
+        -> 同一数据集 + 同一时钟 + 同一配置
+        -> 比较 OFF(基线) vs ON(创新)
+```
+
+约束：
+1. 禁止未建基线先报优化收益。
+2. 计数器采样框架/日志脚本可前置，因为它是观测工具，不改变功能行为。
 
 ### 9.3 阶段 1：自动 FSM 先行验证（当前最高优先级）
 
@@ -1252,238 +1302,243 @@ Path A → Path B 的复用:
 
 ## 10. 从 main 到 FPGA 分支：改动清单与学习路径
 
-> **面向读者**：已熟悉 `main` 分支全部代码，想快速理解 `fpga-fullversion-snnsoc`
-> 分支新增了什么、改了什么、为什么这样改。
+> **面向读者**：已熟悉 `main` 分支代码，想快速把握 `fpga-fullversion-snnsoc` 的真实差异、风险点与执行顺序。
+> 本节口径基于 `git diff --name-status main...fpga-fullversion-snnsoc`（2026-03-03）。
 
-### 10.1 相对 main 的完整改动清单
+### 10.1 相对 main 的完整改动清单（已校正）
 
-共 37 个文件发生变化，按性质分为三类：
+本分支相对 `main` 共 **44** 个文件变化：
+- **新增**：34 个
+- **修改**：10 个
+- **删除/重命名**：0 个
 
-#### 类型 A：合并自 feature 分支（原样带入，逻辑未改）
-
-这些文件在 main 上不存在，是从三个 feature 分支合并进来的：
+#### 类型 A：合并自 feature 分支（新增文件）
 
 | 文件 | 来源分支 | 作用 |
 |------|----------|------|
-| `rtl/bus/axi_lite_if.sv` | feature/axi-lite | AXI-Lite 接口定义（SystemVerilog interface） |
-| `rtl/bus/axi2simple_bridge.sv` | feature/axi-lite | AXI-Lite Slave → bus_simple Master 桥（5态 FSM） |
-| `tb/axi_bridge_tb.sv` | feature/axi-lite | AXI 桥单元测试（T1~T9，9/9 PASS） |
+| `rtl/bus/axi_lite_if.sv` | feature/axi-lite | AXI-Lite 接口定义 |
+| `rtl/bus/axi2simple_bridge.sv` | feature/axi-lite | AXI-Lite Slave → bus_simple Master 桥 |
+| `tb/axi_bridge_tb.sv` | feature/axi-lite | AXI 桥单测（T1~T9） |
 | `sim/sim_axi_bridge.f` | feature/axi-lite | AXI 桥 Icarus 文件列表 |
 | `sim/run_axi_bridge_icarus.sh` | feature/axi-lite | AXI 桥测试入口 |
-| `new_branchnotes/axi-lite.md` | feature/axi-lite | AXI 分支开发记录 |
-| `rtl/periph/uart_ctrl.sv` | feature/uart-tx | UART 控制器（TX/RX，可配置波特率） |
-| `tb/uart_tb.sv` | feature/uart-tx | UART 单元测试 |
-| `sim/sim_uart.f` | feature/uart-tx | UART Icarus 文件列表 |
+| `new_branchnotes/axi-lite.md` | feature/axi-lite | AXI 分支记录 |
+| `rtl/periph/uart_ctrl.sv` | feature/uart-tx | UART 控制器 |
+| `tb/uart_tb.sv` | feature/uart-tx | UART 单测 |
+| `sim/sim_uart.f` | feature/uart-tx | UART 文件列表 |
 | `sim/run_uart_icarus.sh` | feature/uart-tx | UART 测试入口 |
-| `new_branchnotes/uart.md` | feature/uart-tx | UART 分支开发记录 |
-| `rtl/periph/spi_ctrl.sv` | feature/spi | SPI Master（Mode0，MSB first） |
-| `tb/spi_flash_model.sv` | feature/spi | SPI Flash 行为模型（仿真用） |
-| `tb/spi_tb.sv` | feature/spi | SPI 单元测试（T1~T4+T1b，9/9 PASS） |
-| `sim/sim_spi.f` | feature/spi | SPI Icarus 文件列表 |
+| `new_branchnotes/uart.md` | feature/uart-tx | UART 分支记录 |
+| `rtl/periph/spi_ctrl.sv` | feature/spi | SPI Master |
+| `tb/spi_flash_model.sv` | feature/spi | SPI Flash 仿真模型 |
+| `tb/spi_tb.sv` | feature/spi | SPI 单测 |
+| `sim/sim_spi.f` | feature/spi | SPI 文件列表 |
 | `sim/run_spi_icarus.sh` | feature/spi | SPI 测试入口 |
-| `new_branchnotes/spi.md` | feature/spi | SPI 分支开发记录 |
+| `new_branchnotes/spi.md` | feature/spi | SPI 分支记录 |
 
-> **注意**：这 17 个文件在 `main` 上也有对应的 feature 分支，只是未合入。
-> 如果你已读过 feature 分支的代码，这部分可以跳过。
-
-#### 类型 B：FPGA 分支新建（fpga 专属，main 上无对应）
+#### 类型 B：FPGA 分支专属新增文件
 
 | 文件 | 作用 | 关键设计决策 |
 |------|------|-------------|
-| `fpga/cim_model/cim_fpga_model.sv` | **核心**：权重ROM + 数字 MAC，替代 RRAM blackbox | 4-bit 权重 × 1-bit spike，组合逻辑累加，无 DSP |
-| `fpga/cim_model/weight_pos.hex` | 正列权重（64×10 个 4-bit 值，$readmemh 格式） | 当前为测试权重，需替换为训练权重 |
+| `fpga/cim_model/cim_fpga_model.sv` | 可综合数字 CIM 模型 | 4-bit 权重 + 1-bit spike 条件累加 |
+| `fpga/cim_model/weight_pos.hex` | 正列权重 | 64x10，`$readmemh` |
 | `fpga/cim_model/weight_neg.hex` | 负列权重 | 同上 |
-| `fpga/cim_model/test_image.hex` | 测试图片 bit-plane 编码（T=3 × 8 planes） | 用于 CIM 单元测试 |
-| `fpga/cim_model/test_golden.txt` | 预期推理结果（膜电位 + spike） | 验证 MAC 计算正确性 |
-| `fpga/scripts/export_weights.py` | PyTorch → .hex 权重导出（Linux 服务器用） | 器件感知量化 or 均匀量化 |
-| `fpga/scripts/gen_test_weights.py` | 纯 Python 测试权重生成器（无 PyTorch 依赖） | 结构化权重，类 j 对 rows [j×6, j×6+5] 响应强 |
-| `fpga/sim/tb_cim_fpga.sv` | CIM FPGA 模型单元测试（5/5 PASS） | 独立验证 CIM 时序 + MAC 正确性 |
-| `fpga/sim/run_cim_fpga_test.sh` | CIM 单元测试入口 | |
-| `fpga/sim/weight_{pos,neg}.hex` | Icarus 仿真用权重副本（$readmemh 搜索 CWD） | 与 fpga/cim_model/ 内容相同 |
-| `fpga/boards/zcu102/top_fpga.sv` | ZCU102 板级顶层 wrapper | MMCM 300→50MHz，2-FF 复位同步，LED |
-| `fpga/boards/zcu102/constraints.xdc` | ZCU102 引脚约束 | 时钟 AL8/AL7，复位 AM13，UART A20/B20 |
-| `fpga/boards/zcu102/build.tcl` | Vivado 非工程模式自动化综合 | synth→opt→place→route→bitstream |
-| `doc/14_fpga_fullversion_execution.md` | 本文档 | |
-| `sim/weight_{pos,neg}.hex` | Icarus 主仿真用权重副本 | 端到端 smoke test 需要 |
+| `fpga/cim_model/test_image.hex` | 测试输入 | bit-plane 编码 |
+| `fpga/cim_model/test_golden.txt` | 期望输出 | 单元比对 |
+| `fpga/scripts/export_weights.py` | 训练权重导出 | PyTorch → `.hex` |
+| `fpga/scripts/gen_test_weights.py` | 测试权重生成 | 无 PyTorch 依赖 |
+| `fpga/sim/tb_cim_fpga.sv` | CIM 单元测试 | 覆盖时序与结果 |
+| `fpga/sim/run_cim_fpga_test.sh` | CIM 单测脚本 | Icarus 路径 |
+| `fpga/sim/weight_pos.hex` | 仿真权重副本 | 与源权重同步 |
+| `fpga/sim/weight_neg.hex` | 仿真权重副本 | 与源权重同步 |
+| `fpga/boards/zcu102/top_fpga.sv` | 板级 wrapper | MMCM + reset sync + debug I/O |
+| `fpga/boards/zcu102/constraints.xdc` | 引脚约束 | ZCU102 绑定 |
+| `fpga/boards/zcu102/build.tcl` | Vivado 构建脚本 | 非工程模式流程 |
+| `doc/14_fpga_fullversion_execution.md` | 执行文档 | 本文档 |
+| `sim/weight_pos.hex` | 主仿真权重副本 | 端到端 smoke 依赖 |
+| `sim/weight_neg.hex` | 主仿真权重副本 | 端到端 smoke 依赖 |
 
-#### 类型 C：对已有文件的修改（最关键，影响集成行为）
+#### 类型 C：已有文件被修改（不是“只新增”）
 
 | 文件 | 改动内容 | 影响 |
 |------|----------|------|
-| `rtl/top/snn_soc_top.sv` | `cim_macro_blackbox u_macro` → `cim_fpga_model u_macro`（仅实例化名+模块名，接口完全兼容） | **FPGA 分支与 ASIC 主线最核心的区别** |
-| `sim/sim_icarus_light.f` | 第 15 行：`cim_macro_blackbox.sv` → `fpga/cim_model/cim_fpga_model.sv` | Icarus 编译时引入 FPGA 模型而非 blackbox |
-| `sim/icarus_light.out` | 仿真输出日志更新（OUT_FIFO_COUNT=42，原为 20） | 非代码改动，仅记录 |
+| `.gitignore` | 新增 `fpga/sim/*.vvp` 忽略规则 | 工程卫生，避免仿真中间产物污染 |
+| `rtl/top/chip_top.sv` | 增加 `ext_bus_*` 端口并默认 tie-off | 为外部主控接入预留总线路径 |
+| `rtl/top/snn_soc_top.sv` | 1) `cim_macro_blackbox` 替换为 `cim_fpga_model`；2) 新增 `ext_bus_*` + bus master MUX | FPGA 可综合路径成立；支持外部主控驱动 |
+| `tb/top_tb.sv` | 补 `ext_bus_*` 端口连接（默认关闭） | 保持老 TB 行为兼容 |
+| `tb/top_tb_icarus_light.sv` | 同上 | 保持轻量仿真兼容 |
+| `sim/sim.f` | blackbox 文件替换为 `cim_fpga_model` | 仿真编译改走 FPGA 模型 |
+| `sim/sim_icarus_light.f` | 同上 | 轻量仿真改走 FPGA 模型 |
+| `sim/rtl_with_chip_top_check.f` | 同上 | chip_top 检查改走 FPGA 模型 |
+| `sim/run_icarus_light.sh` | 运行前自动同步 `weight_pos/neg.hex` | 防止权重副本陈旧导致结果偏差 |
+| `sim/icarus_light.out` | 仿真日志更新 | 非源码，仅产物记录 |
 
-**总结：整个 FPGA 分支在逻辑层面只改了 2 行代码**——`snn_soc_top.sv` 和 `sim_icarus_light.f` 各改了 1 行，其余全是新增文件。
+**结论修正**：
+- 旧口径“逻辑层面只改 2 行”已过时。
+- 当前真实状态是：**既有大量新增，也有多处已存在文件的功能性修改**，其中最关键是 `snn_soc_top.sv` 的 `ext_bus` 接入和 `cim_fpga_model` 替换。
 
 ---
 
-### 10.2 学习路径建议
+### 10.2 学习路径建议（已按当前分支状态重排）
 
-> 假设你已完整读过 `main` 分支代码（包括 snn_soc_top、cim_macro_blackbox、cim_array_ctrl、adc_ctrl 等），
-> 按以下顺序学习 FPGA 分支新增内容。
-
-#### 第 1 步：理解 FPGA 分支的核心改动（10 分钟）
-
-先看那 2 行关键修改：
+#### 步骤 1：先看“真实差异”，不要沿用旧认知（15 分钟）
 
 ```bash
-git diff main...fpga-fullversion-snnsoc -- rtl/top/snn_soc_top.sv
-git diff main...fpga-fullversion-snnsoc -- sim/sim_icarus_light.f
+git diff --name-status main...fpga-fullversion-snnsoc
+git diff main...fpga-fullversion-snnsoc -- rtl/top/snn_soc_top.sv rtl/top/chip_top.sv
+git diff main...fpga-fullversion-snnsoc -- sim/sim.f sim/sim_icarus_light.f sim/rtl_with_chip_top_check.f
 ```
 
-你会看到：`snn_soc_top.sv` 只改了模块名（`cim_macro_blackbox` → `cim_fpga_model`），
-接口信号名一字未动。这就是 "100% 端口兼容" 的含义。
+目标：确认这是“新增 + 修改并存”的分支，而不是“纯新增分支”。
 
-#### 第 2 步：读 cim_fpga_model.sv（核心，30-45 分钟）
+#### 步骤 2：读顶层总线改动（30 分钟）
 
-**路径**：[fpga/cim_model/cim_fpga_model.sv](fpga/cim_model/cim_fpga_model.sv)
+优先阅读：
+- `rtl/top/snn_soc_top.sv`
+- `rtl/top/chip_top.sv`
+- `tb/top_tb.sv`
+- `tb/top_tb_icarus_light.sv`
 
-**带着这些问题读**：
+重点问题：
+- `ext_bus_enable` 何时接管总线？
+- `ext_bus` 与 TB 旧驱动路径如何互斥？
+- 默认 tie-off 是否会改变旧仿真行为？
 
-```
-Q1: 权重是怎么存的？（$readmemh 格式，4-bit，weight_pos/neg 各 64×10）
-Q2: MAC 怎么计算的？（组合逻辑 for 循环，wl_latched[i] ? weight[i][j] : 0）
-Q3: 和 cim_macro_blackbox 的时序模型有什么区别？（相同：CIM_LATENCY_CYCLES + ADC_SAMPLE_CYCLES）
-Q4: adc_start/bl_sel/bl_data 的时序是什么？（adc_start 触发，ADC_SAMPLE_CYCLES 后输出，拉 adc_done）
-Q5: 为什么用 10-bit 累加器？（max = 64 × 15 = 960 < 1024，需要 10-bit 防溢出）
-Q6: 差分是在哪里计算的？（不在这里！adc_ctrl.sv 做 diff = raw[i] - raw[i+10]，与 main 一致）
-```
+#### 步骤 3：读 FPGA CIM 模型与权重链路（45 分钟）
 
-**读完对照参考**：[rtl/snn/cim_macro_blackbox.sv](rtl/snn/cim_macro_blackbox.sv)（main 分支），
-体会两者的接口完全一样，只是内部实现从 RRAM 行为模型换成了 BRAM 数字 MAC。
+优先阅读：
+- `fpga/cim_model/cim_fpga_model.sv`
+- `fpga/scripts/export_weights.py`
+- `fpga/scripts/gen_test_weights.py`
+- `sim/run_icarus_light.sh`
 
-#### 第 3 步：读 CIM 单元测试（20 分钟）
+重点问题：
+- `.hex` 是如何被加载与同步的？
+- 何时必须重新导出权重？
+- 为什么脚本里先 copy 再仿真？
 
-**路径**：[fpga/sim/tb_cim_fpga.sv](fpga/sim/tb_cim_fpga.sv)
+#### 步骤 4：读板级与构建脚本（20 分钟）
 
-5 个测试用例帮助理解 cim_fpga_model 的行为：
+优先阅读：
+- `fpga/boards/zcu102/top_fpga.sv`
+- `fpga/boards/zcu102/constraints.xdc`
+- `fpga/boards/zcu102/build.tcl`
 
-| 测试 | 验证内容 | 学习点 |
-|------|----------|--------|
-| T1: 基本时序 | cim_start → cim_done 延迟 | CIM_LATENCY_CYCLES 的含义 |
-| T2: ADC 扫描 | adc_start → bl_data × 20 列 | ADC_SAMPLE_CYCLES + bl_sel 遍历 |
-| T3: Scheme B 验证 | pos - neg 差分结果 | 差分在 adc_ctrl 做，这里只输出原始值 |
-| T4: 全零输入 | spike=0 时 bl_data=0 | MAC 的条件性（spike=0 → 不累加） |
-| T5: 单行激活 | 只激活 row 0 → 只有 j=0 列有响应 | 权重结构验证 |
+重点问题：
+- 时钟与复位域是否稳定？
+- wrapper 与 SoC 顶层的接口是否一一对应？
+- 构建脚本是否包含从综合到 bitstream 的全流程？
 
-#### 第 4 步：读权重格式（10 分钟）
+#### 步骤 5：读“可观测性与论文路线”文档（20 分钟）
 
-**路径**：[fpga/scripts/gen_test_weights.py](fpga/scripts/gen_test_weights.py)
+优先阅读：
+- `doc/13_fpga_paper_plan.md`
+- `doc/15_fpga_execution_master_plan.md`
 
-理解 `.hex` 文件格式规范：
+重点问题：
+- ARM 全量和 E203 最小演示的边界是否清晰？
+- 5.1 创新点是否可测量、可复现？
+- 性能计数器/中断是否有明确验收口径？
 
-```
-weight_pos.hex / weight_neg.hex:
-  640 行，每行 1 个 16 进制数字（0-f，代表 4-bit 权重 0-15）
-  存储顺序（行优先）：
-    weight[row=0][col=0]   ← 第 1 行
-    weight[0][1]           ← 第 2 行
-    ...
-    weight[0][9]           ← 第 10 行
-    weight[1][0]           ← 第 11 行
-    ...
-    weight[63][9]          ← 第 640 行
+#### 步骤 6：跑最小回归并记录证据（按环境执行）
 
-  $readmemh 自动按此顺序填充 2D 数组
-```
+建议顺序：
+1. `sim/run_icarus_light.sh`
+2. `sim/run_axi_bridge_icarus.sh`
+3. `sim/run_uart_icarus.sh`
+4. `sim/run_spi_icarus.sh`
+5. `fpga/sim/run_cim_fpga_test.sh`
 
-如果有 PyTorch 环境，可以顺便看 [fpga/scripts/export_weights.py](fpga/scripts/export_weights.py) 了解
-训练权重如何量化到 4-bit 并导出。
-
-#### 第 5 步：读板级 wrapper（20 分钟）
-
-**路径**：[fpga/boards/zcu102/top_fpga.sv](fpga/boards/zcu102/top_fpga.sv)
-
-这是纯 FPGA 板级代码，与 SNN 逻辑无关，重点理解：
-
-```
-1. IBUFDS：差分输入缓冲（300MHz 差分时钟 → 单端）
-2. MMCME4_ADV：MMCM 原语（300MHz × 4/24 = 50MHz）
-   参数：CLKIN1_PERIOD=3.333，CLKFBOUT_MULT_F=4.0，CLKOUT0_DIVIDE_F=24.0
-3. BUFG：全局时钟缓冲（避免时序违例）
-4. 2-FF 复位同步器：异步断言（!mmcm_locked | btn_rst），同步释放
-5. snn_soc_top 实例化：时钟/复位/UART/SPI 连线（与 chip_top.sv 类比）
-6. LED 指示逻辑：heartbeat 计数器（[25] bit → ~1 Hz），mmcm_locked，rst_n
-```
-
-#### 第 6 步：读约束和构建脚本（10 分钟）
-
-**路径**：[fpga/boards/zcu102/constraints.xdc](fpga/boards/zcu102/constraints.xdc)，
-[fpga/boards/zcu102/build.tcl](fpga/boards/zcu102/build.tcl)
-
-不需要精读，只需了解：
-- `.xdc` = FPGA 引脚约束，`PACKAGE_PIN` + `IOSTANDARD` + `create_clock`
-- `build.tcl` = Vivado 非工程模式流程，`synth_design` → `place_design` → `route_design` → `write_bitstream`
-
-#### 第 7 步（可选）：了解合并进来的外设
-
-如果你还没读过 feature 分支，可以按以下顺序补充：
-
-```
-优先级高：
-  rtl/bus/axi2simple_bridge.sv     ← AXI-Lite → bus_simple 桥，Path B 必需
-  new_branchnotes/axi-lite.md      ← 设计说明，比代码更易入门
-
-优先级中：
-  rtl/periph/uart_ctrl.sv          ← UART 控制器
-  rtl/periph/spi_ctrl.sv           ← SPI Master
-
-优先级低（仅在 feature/spi 做单独测试时才需要）：
-  tb/axi_bridge_tb.sv / tb/uart_tb.sv / tb/spi_tb.sv
-```
+通过标准：
+- 功能仿真通过
+- 无新增编译告警级错误
+- 结果日志与预期一致
 
 ---
 
 ### 10.3 改动一览表（快速索引版）
 
+```text
+main -> fpga-fullversion-snnsoc
+===========================================
+
+[新增 34]
+  - 来自 feature/axi-lite: AXI-Lite interface + bridge + TB + scripts + notes
+  - 来自 feature/uart-tx: uart_ctrl + TB + scripts + notes
+  - 来自 feature/spi: spi_ctrl + flash model + TB + scripts + notes
+  - FPGA专属: cim_fpga_model / weights / fpga board wrapper / vivado build / 文档
+
+[修改 10]
+  - 顶层功能: snn_soc_top.sv / chip_top.sv （ext_bus + FPGA CIM 替换）
+  - TB兼容: top_tb.sv / top_tb_icarus_light.sv
+  - 仿真入口: sim.f / sim_icarus_light.f / rtl_with_chip_top_check.f / run_icarus_light.sh
+  - 工程卫生: .gitignore
+  - 产物记录: sim/icarus_light.out
+
+[关键事实]
+  - 不是“只新增”
+  - 也不是“只改2行”
+  - 当前分支已包含真实功能性改动
 ```
-main → fpga-fullversion-snnsoc 改动总览
-═══════════════════════════════════════════════════════════════
 
-【逻辑改动】仅 2 处，其余全是新增文件
+---
 
-  rtl/top/snn_soc_top.sv  line 714:  cim_macro_blackbox → cim_fpga_model
-  sim/sim_icarus_light.f  line 15:   cim_macro_blackbox.sv → fpga/cim_model/cim_fpga_model.sv
+## 11. 创新点与论文证据链（执行版）
 
-【新增：FPGA CIM 模型（核心）】
-  fpga/cim_model/cim_fpga_model.sv    ← 替代 RRAM 的可综合数字 MAC
-  fpga/cim_model/weight_{pos,neg}.hex ← 4-bit 权重
-  fpga/cim_model/test_image.hex       ← 测试输入
-  fpga/cim_model/test_golden.txt      ← 期望输出
+> 本节用于把“能落地、能量化、能答辩”的创新点绑定到具体工程动作。
 
-【新增：权重工具】
-  fpga/scripts/export_weights.py      ← PyTorch 权重导出（Linux 用）
-  fpga/scripts/gen_test_weights.py    ← 纯 Python 测试权重生成
+### 11.1 首稿创新点范围（锁定）
 
-【新增：CIM 单元测试】
-  fpga/sim/tb_cim_fpga.sv             ← 5 测试用例，5/5 PASS
-  fpga/sim/run_cim_fpga_test.sh
-  fpga/sim/{weight_pos,weight_neg}.hex  ← Icarus 仿真副本
+1. 稀疏感知计算跳过（必做）：输入活动低时跳过无效计算，输出跳过率与时延收益。
+2. 稀疏统计可解释化（必做）：把活动/阻塞/帧吞吐转成结构化计数器数据。
+3. Shadow Buffer（建议做）：重叠数据准备与计算，提升帧吞吐；有时序风险可降级。
+4. 可观测性创新（必做）：统一计数器差分协议 + 中断模式，保证结果可复现。
 
-【新增：ZCU102 板级】
-  fpga/boards/zcu102/top_fpga.sv      ← 板级 wrapper（MMCM + 复位 + LED）
-  fpga/boards/zcu102/constraints.xdc  ← 引脚约束
-  fpga/boards/zcu102/build.tcl        ← Vivado 综合自动化
+### 11.2 性能计数器寄存器口径（当前实现）
 
-【来自 feature/axi-lite】
-  rtl/bus/axi_lite_if.sv
-  rtl/bus/axi2simple_bridge.sv        ← PS ARM 接入的关键桥
-  tb/axi_bridge_tb.sv，sim/sim_axi_bridge.f，sim/run_axi_bridge_icarus.sh
+1. `0x30`：`[31:16] cim_cycle_cnt`, `[15:0] dma_frame_cnt`
+2. `0x34`：`[31:16] wl_stall_cnt`, `[15:0] spike_cnt`
+3. 统计方法：统一使用 `before/after` 差分，并处理 16-bit 回绕。
+4. 作图规则：论文图表必须使用差分值，不直接使用瞬时寄存器值。
 
-【来自 feature/uart-tx】
-  rtl/periph/uart_ctrl.sv
-  tb/uart_tb.sv，sim/sim_uart.f，sim/run_uart_icarus.sh
+### 11.3 中断模式口径（增强项）
 
-【来自 feature/spi】
-  rtl/periph/spi_ctrl.sv
-  tb/spi_{tb,flash_model}.sv，sim/sim_spi.f，sim/run_spi_icarus.sh
+建议新增寄存器：
+- `0x38`: `IRQ_STATUS`
+- `0x3C`: `IRQ_MASK`
+- `0x40`: `IRQ_CLEAR`（W1C）
+- `0x44`: `TIMEOUT_CYC`
 
-【文档】
-  doc/14_fpga_fullversion_execution.md  ← 本文档
-  new_branchnotes/{axi-lite,uart,spi}.md
-  sim/weight_{pos,neg}.hex（端到端仿真副本）
-```
+行为规范：
+1. 事件置位 `IRQ_STATUS`。
+2. `IRQ_MASK` 使能时拉高 `irq_out`。
+3. 软件读状态并写 `IRQ_CLEAR` 清除。
+4. 中断路径异常时回退轮询，不影响主实验交付。
+
+### 11.4 ARM 与 E203 的论文分工（固定）
+
+1. ARM（PS）负责完整量化主实验，产出主图主表。
+2. E203 负责最小演示，证明 SoC 自主控制链路完整。
+3. 首稿不做 E203 全量，避免 6.30 前联调风险失控。
+
+### 11.5 基线 → A/B 的执行顺序（硬约束）
+
+1. 先完成`ARM主路径完整量化 baseline`（无创新点）。
+2. 再完成`E203最小闭环`（功能完整性补充）。
+3. 最后做创新点A/B对比（OFF=基线，ON=创新）。
+4. 比较必须同口径：同一数据集、同一时钟、同一量化配置。
+5. 计数器采样框架和日志脚本允许前置，不计入“创新点已实现”。
+
+### 11.6 日志脚本执行模板（验收版）
+
+执行顺序：
+1. 先采样`before`计数器。
+2. 跑指定帧数并记录推理结果。
+3. 再采样`after`计数器并计算`delta`。
+4. 导出原始CSV与汇总JSON。
+
+验收项：
+- [ ] 能解释差分公式和16-bit回绕处理。
+- [ ] 能复现实验并得到一致结论。
+- [ ] 能提供“基线表 + A/B消融表”两类结果。
 
 ---
 
@@ -1492,3 +1547,6 @@ main → fpga-fullversion-snnsoc 改动总览
 > - 2026-03-03 新增 §9 CPU 接入双线路径规划（自动FSM先行 + Path A/B 并行）
 > - 2026-03-03 §9.2/9.4/9.8 更新：明确 FPGA 上两 CPU 均需实现（ARM 先行快速验证 + E203 后补完整性展示），并补充论文定位分析
 > - 2026-03-03 新增 §10 从 main 到 FPGA 分支的改动清单与学习路径
+> - 2026-03-03 修订 §10：按实时 diff 口径校正为“新增+修改并存”，并补充最新学习路径与 `doc/15` 联动
+> - 2026-03-03 新增 §11：落地版创新点、计数器口径、中断模式与 ARM/E203 分工
+> - 2026-03-03 新增 §9.2.1 / §11.5 / §11.6：baseline-first 执行图 + A/B硬约束 + 日志脚本模板
