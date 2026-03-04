@@ -1,7 +1,9 @@
 `timescale 1ns/1ps
 
 // Board-level FPGA wrapper with autonomous bringup bus master.
-module top_fpga (
+module top_fpga #(
+  parameter int BRINGUP_EXPECTED_OUT_COUNT = 14
+) (
   input  logic sys_clk_p,
   input  logic sys_clk_n,
   input  logic btn_rst,
@@ -604,7 +606,8 @@ module top_fpga (
               br_state  <= BR_FAIL;
             end else begin
               out_fifo_count <= txn_rdata;
-              if (txn_rdata != 32'd0) begin
+              // Strict pass condition: OUT_FIFO_COUNT must match expected golden value.
+              if (txn_rdata == BRINGUP_EXPECTED_OUT_COUNT[31:0]) begin
                 br_state <= BR_PASS;
               end else begin
                 fail_code <= 8'h31;
