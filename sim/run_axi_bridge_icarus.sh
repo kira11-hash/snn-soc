@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # sim/run_axi_bridge_icarus.sh
-# AXI-Lite 桥接模块 Icarus 轻量烟雾测试
-#
-# 用法（在 sim/ 目录下）：
-#   bash run_axi_bridge_icarus.sh
-#
-# 通过标准：输出包含 AXI_BRIDGE_SMOKETEST_PASS
-# 产出日志：sim/axi_bridge_sim.log
+# AXI-Lite bridge Icarus smoke test.
+# Usage (from sim/): bash run_axi_bridge_icarus.sh
+# Pass criteria: log contains AXI_BRIDGE_SMOKETEST_PASS.
 
-set -e
-cd "$(dirname "$0")"
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$SCRIPT_DIR"
 
 echo "[INFO] Compiling AXI-Lite bridge test (Icarus)..."
 iverilog -g2012 -gno-assertions \
@@ -34,7 +32,7 @@ if grep -q "AXI_BRIDGE_SMOKETEST_PASS" axi_bridge_sim.log; then
 else
   echo "============================================"
   echo "[RESULT] AXI_BRIDGE_SMOKETEST_FAIL"
-  echo "  → 查看 axi_bridge_sim.log 定位 [FAIL] 项"
+  echo "  -> Check sim/axi_bridge_sim.log for [FAIL] lines"
   echo "============================================"
   exit 1
 fi
