@@ -228,7 +228,8 @@ module dma_engine (
     end else begin
       // ── W1C 清零（DONE bit[1]、ERR bit[2]）──────────────────────────
       // 写 1 to bit 位即清零对应 sticky；如果同时有 START，见下方 case 处理
-      if (write_en && (addr_offset == REG_DMA_CTRL)) begin
+      // START/DONE/ERR 均在 byte0，需 wstrb[0]=1 才允许触发 W1P/W1C
+      if (write_en && (addr_offset == REG_DMA_CTRL) && req_wstrb[0]) begin
         if (req_wdata[1]) done_sticky <= 1'b0;
         if (req_wdata[2]) err_sticky  <= 1'b0;
       end
@@ -236,7 +237,7 @@ module dma_engine (
       case (state)
         // ── IDLE：等待 START W1P ──────────────────────────────────────
         ST_IDLE: begin
-          if (write_en && (addr_offset == REG_DMA_CTRL) && req_wdata[0]) begin
+          if (write_en && (addr_offset == REG_DMA_CTRL) && req_wstrb[0] && req_wdata[0]) begin
             // START W1P（bit[0]=1）：进行合法性检查后决定是否启动
             if (len_words_reg[0]) begin
               // 奇数长度：无法组成整数个 64-bit 对，报错

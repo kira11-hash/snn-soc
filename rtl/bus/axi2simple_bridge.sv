@@ -84,6 +84,32 @@ module axi2simple_bridge (
   input  logic [31:0] m_rdata,    // 读返回数据
   input  logic        m_rvalid    // 读数据有效（m_valid 后固定 1 拍）
 );
+  import snn_soc_pkg::*;
+
+  localparam logic [1:0] AXI_RESP_OKAY   = 2'b00;
+  localparam logic [1:0] AXI_RESP_DECERR = 2'b11;
+
+  function automatic logic in_range (
+    input logic [31:0] addr,
+    input logic [31:0] base,
+    input logic [31:0] last
+  );
+    in_range = (addr >= base) && (addr <= last);
+  endfunction
+
+  function automatic logic addr_mapped (
+    input logic [31:0] addr
+  );
+    addr_mapped =
+      in_range(addr, ADDR_INSTR_BASE,  ADDR_INSTR_END)  ||
+      in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)   ||
+      in_range(addr, ADDR_WEIGHT_BASE, ADDR_WEIGHT_END) ||
+      in_range(addr, ADDR_REG_BASE,    ADDR_REG_END)    ||
+      in_range(addr, ADDR_DMA_BASE,    ADDR_DMA_END)    ||
+      in_range(addr, ADDR_UART_BASE,   ADDR_UART_END)   ||
+      in_range(addr, ADDR_SPI_BASE,    ADDR_SPI_END)    ||
+      in_range(addr, ADDR_FIFO_BASE,   ADDR_FIFO_END);
+  endfunction
 
   // ── FSM 状态定义 ──────────────────────────────────────────────────────────
   typedef enum logic [2:0] {
@@ -101,6 +127,7 @@ module axi2simple_bridge (
   logic        aw_pending, w_pending;
   logic [31:0] awaddr_pending, wdata_pending;
   logic [3:0]  wstrb_pending;
+  logic        wr_decerr_rsp, rd_decerr_rsp;
 
   // ── 握手与请求发起条件（组合逻辑）────────────────────────────────────────
   logic        aw_hs, w_hs, ar_hs;
@@ -108,6 +135,7 @@ module axi2simple_bridge (
   logic        fire_wr, fire_rd;
   logic [31:0] wr_addr_eff, wr_data_eff;
   logic [3:0]  wr_wstrb_eff;
+  logic        wr_addr_miss, rd_addr_miss;
 
   // 仅在 IDLE 才接受新的 AXI-Lite 地址/数据通道请求
   assign s_awready = (state == ST_IDLE) && !aw_pending;
@@ -129,22 +157,24 @@ module axi2simple_bridge (
   assign wr_addr_eff  = aw_pending ? awaddr_pending : s_awaddr;
   assign wr_data_eff  = w_pending  ? wdata_pending  : s_wdata;
   assign wr_wstrb_eff = w_pending  ? wstrb_pending  : s_wstrb;
+  assign wr_addr_miss = fire_wr && !addr_mapped(wr_addr_eff);
+  assign rd_addr_miss = fire_rd && !addr_mapped(s_araddr);
 
   // ── bus_simple 主机输出（组合逻辑）──────────────────────────────────────
   // m_valid 在请求发起同一拍驱动（cycle N），
   // bus_interconnect 寄存一拍后在 cycle N+1 产生 m_ready/m_rvalid
-  assign m_valid = fire_wr || fire_rd;
-  assign m_write = fire_wr;
+  assign m_valid = (fire_wr && !wr_addr_miss) || (fire_rd && !rd_addr_miss);
+  assign m_write = fire_wr && !wr_addr_miss;
   assign m_addr  = fire_wr ? wr_addr_eff : s_araddr;
   assign m_wdata = wr_data_eff;
-  assign m_wstrb = fire_wr ? wr_wstrb_eff : 4'b0;
+  assign m_wstrb = (fire_wr && !wr_addr_miss) ? wr_wstrb_eff : 4'b0;
 
   // ── AXI-Lite 响应通道（组合，从状态机输出）──────────────────────────────
   assign s_bvalid = (state == ST_WR_RSP);
-  assign s_bresp  = 2'b00;  // OKAY（V1 不产生错误响应）
+  assign s_bresp  = wr_decerr_rsp ? AXI_RESP_DECERR : AXI_RESP_OKAY;
   assign s_rvalid = (state == ST_RD_RSP);
   assign s_rdata  = rdata_reg;
-  assign s_rresp  = 2'b00;  // OKAY
+  assign s_rresp  = rd_decerr_rsp ? AXI_RESP_DECERR : AXI_RESP_OKAY;
 
   // ── FSM 状态寄存器 ────────────────────────────────────────────────────────
   always_ff @(posedge clk or negedge rst_n) begin
@@ -156,6 +186,8 @@ module axi2simple_bridge (
       awaddr_pending <= 32'h0;
       wdata_pending  <= 32'h0;
       wstrb_pending  <= 4'h0;
+      wr_decerr_rsp  <= 1'b0;
+      rd_decerr_rsp  <= 1'b0;
     end else begin
       case (state)
         //----------------------------------------------------------------
@@ -180,8 +212,18 @@ module axi2simple_bridge (
             state      <= ST_WR_PEND;
             aw_pending <= 1'b0;  // 当前写事务已消耗地址
             w_pending  <= 1'b0;  // 当前写事务已消耗数据
+            wr_decerr_rsp <= wr_addr_miss;
+            if (wr_addr_miss) begin
+              state <= ST_WR_RSP;
+            end
           end else if (fire_rd) begin
-            state <= ST_RD_PEND;
+            rd_decerr_rsp <= rd_addr_miss;
+            if (rd_addr_miss) begin
+              rdata_reg <= 32'h0;
+              state <= ST_RD_RSP;
+            end else begin
+              state <= ST_RD_PEND;
+            end
           end
         end
 

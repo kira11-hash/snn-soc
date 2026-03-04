@@ -12,6 +12,7 @@ module top_tb_icarus_light;
   localparam [31:0] DMA_SRC_ADDR  = ADDR_DMA_BASE + 32'h00;
   localparam [31:0] DMA_LEN_WORDS = ADDR_DMA_BASE + 32'h04;
   localparam [31:0] DMA_CTRL      = ADDR_DMA_BASE + 32'h08;
+  localparam integer EXPECTED_OUT_COUNT = 14;
 
   logic clk;
   logic rst_n;
@@ -73,6 +74,35 @@ module top_tb_icarus_light;
       @(posedge clk);
       if (dut.bus_if.m_ready !== 1'b1) begin
         $display("[ERR] bus_write timeout addr=0x%08h data=0x%08h t=%0t", addr, data, $time);
+        error_count = error_count + 1;
+      end
+
+      @(negedge clk);
+      dut.bus_if.m_valid = 1'b0;
+      dut.bus_if.m_write = 1'b0;
+      dut.bus_if.m_addr  = 32'h0;
+      dut.bus_if.m_wdata = 32'h0;
+      dut.bus_if.m_wstrb = 4'h0;
+    end
+  endtask
+
+  task automatic bus_write_masked;
+    input [31:0] addr;
+    input [31:0] data;
+    input [3:0]  wstrb;
+    begin
+      @(negedge clk);
+      dut.bus_if.m_valid = 1'b1;
+      dut.bus_if.m_write = 1'b1;
+      dut.bus_if.m_addr  = addr;
+      dut.bus_if.m_wdata = data;
+      dut.bus_if.m_wstrb = wstrb;
+
+      @(posedge clk);
+      @(posedge clk);
+      if (dut.bus_if.m_ready !== 1'b1) begin
+        $display("[ERR] bus_write_masked timeout addr=0x%08h data=0x%08h wstrb=0x%0h t=%0t",
+                 addr, data, wstrb, $time);
         error_count = error_count + 1;
       end
 
@@ -189,6 +219,25 @@ module top_tb_icarus_light;
       error_count = error_count + 1;
     end
 
+    // W1P/W1C must only be effective when byte0 is selected.
+    bus_write_masked(DMA_CTRL, 32'h0000_0001, 4'b0010); // masked START
+    bus_read(DMA_CTRL, rd);
+    if (!rd[1]) begin
+      $display("[ERR] DMA done cleared by non-byte0 write, DMA_CTRL=0x%08h", rd);
+      error_count = error_count + 1;
+    end
+    if (rd[3]) begin
+      $display("[ERR] DMA busy set by masked START, DMA_CTRL=0x%08h", rd);
+      error_count = error_count + 1;
+    end
+
+    bus_write_masked(DMA_CTRL, 32'h0000_0002, 4'b0001); // clear DONE (W1C)
+    bus_read(DMA_CTRL, rd);
+    if (rd[1]) begin
+      $display("[ERR] DMA done W1C clear failed, DMA_CTRL=0x%08h", rd);
+      error_count = error_count + 1;
+    end
+
     bus_write(REG_CIM_CTRL, 32'h0000_0001);
 
     begin : cim_poll
@@ -207,8 +256,26 @@ module top_tb_icarus_light;
       error_count = error_count + 1;
     end
 
+    bus_write_masked(REG_CIM_CTRL, 32'h0000_0080, 4'b0010); // masked DONE W1C
+    bus_read(REG_CIM_CTRL, rd);
+    if (!rd[7]) begin
+      $display("[ERR] CIM done cleared by non-byte0 write, CIM_CTRL=0x%08h", rd);
+      error_count = error_count + 1;
+    end
+
+    bus_write_masked(REG_CIM_CTRL, 32'h0000_0080, 4'b0001); // clear DONE (W1C)
+    bus_read(REG_CIM_CTRL, rd);
+    if (rd[7]) begin
+      $display("[ERR] CIM done W1C clear failed, CIM_CTRL=0x%08h", rd);
+      error_count = error_count + 1;
+    end
+
     bus_read(REG_OUT_COUNT, rd);
     $display("[INFO] OUT_FIFO_COUNT=0x%08h (%0d)", rd, rd);
+    if (rd !== EXPECTED_OUT_COUNT) begin
+      $display("[ERR] OUT_FIFO_COUNT mismatch got=%0d expected=%0d", rd, EXPECTED_OUT_COUNT);
+      error_count = error_count + 1;
+    end
 
     if (error_count == 0) begin
       $display("LIGHT_SMOKETEST_PASS");
