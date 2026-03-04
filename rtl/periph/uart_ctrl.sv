@@ -59,7 +59,8 @@ module uart_ctrl (
 
   // ── 内部寄存器 ────────────────────────────────────────────────────────────
   logic [7:0]  txdata_shadow;   // TXDATA 影子寄存器（供读回，不参与发送移位）
-  logic [15:0] baud_div_reg;    // 每个 baud 周期的时钟数（默认868）
+  logic [15:0] baud_div_reg;    // 波特率配置寄存器（写 CTRL 更新）
+  logic [15:0] baud_div_active; // 当前帧有效分频，在发送启动时锁存
 
   // ── TX FSM ────────────────────────────────────────────────────────────────
   // 状态编码
@@ -82,14 +83,15 @@ module uart_ctrl (
   // ── 寄存器写逻辑 ──────────────────────────────────────────────────────────
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      txdata_shadow <= 8'h0;
-      baud_div_reg  <= BAUD_DIV_DEFAULT;
+      txdata_shadow   <= 8'h0;
+      baud_div_reg    <= BAUD_DIV_DEFAULT;
+      baud_div_active <= BAUD_DIV_DEFAULT;
     end else begin
       if (write_en) begin
         case (addr_off)
           // TXDATA：忙时写入忽略（由 TX FSM 单独处理 tx_shift 的加载）
           REG_TXDATA: if (!tx_busy) txdata_shadow <= req_wdata[7:0];
-          // CTRL：任何时候均可更新波特率（下次发送生效）
+          // CTRL：任何时候均可更新波特率（发送中写入在下一帧生效）
           // 防御：写 0 视为非法配置，钳位到 1，避免 baud_cnt 装载为 16'hFFFF
           REG_CTRL:   baud_div_reg <= (req_wdata[15:0] == 16'd0) ? 16'd1 : req_wdata[15:0];
           default: ;
@@ -116,6 +118,7 @@ module uart_ctrl (
         ST_IDLE: begin
           if (write_en && (addr_off == REG_TXDATA) && !tx_busy) begin
             tx_shift <= req_wdata[7:0];     // 加载发送字节
+            baud_div_active <= baud_div_reg; // 锁存本帧分频，避免发送中热更新
             baud_cnt <= baud_div_reg - 1;   // 从 baud_div-1 开始倒数
             tx_busy  <= 1'b1;
             tx_state <= ST_START;
@@ -127,7 +130,7 @@ module uart_ctrl (
         //--------------------------------------------------------------------
         ST_START: begin
           if (baud_last) begin
-            baud_cnt <= baud_div_reg - 1;
+            baud_cnt <= baud_div_active - 1;
             bit_cnt  <= 3'd0;
             tx_state <= ST_DATA;
           end else begin
@@ -143,10 +146,10 @@ module uart_ctrl (
             tx_shift <= (tx_shift >> 1);           // 逻辑右移，MSB填0，准备下一位
             if (bit_cnt == 3'd7) begin
               // 8 bit 发完，进入停止位
-              baud_cnt <= baud_div_reg - 1;
+              baud_cnt <= baud_div_active - 1;
               tx_state <= ST_STOP;
             end else begin
-              baud_cnt <= baud_div_reg - 1;
+              baud_cnt <= baud_div_active - 1;
               bit_cnt  <= bit_cnt + 1;
             end
           end else begin

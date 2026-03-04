@@ -297,6 +297,26 @@ module uart_tb;
     repeat (20) @(posedge clk);
 
     // ──────────────────────────────────────────────────────────────────────
+    // T8: 发送中修改 CTRL，当前帧分频不变；下一帧生效
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T8] CTRL update should take effect on next frame");
+    bus_write(REG_CTRL, 32'd8);
+    bus_write(REG_TXDATA, 32'h5A);
+    repeat (2) @(posedge clk);
+    bus_write(REG_CTRL, 32'd4); // 发送中改分频
+    check({16'h0, dut.baud_div_active}, 32'd8, "T8_ACTV0");
+
+    wait (dut.tx_busy == 1'b0);
+    baud_clk = 4;
+    fork
+      bus_write(REG_TXDATA, 32'hC3);
+      uart_decode(decoded_byte);
+    join
+    check({16'h0, dut.baud_div_active}, 32'd4, "T8_ACTV1");
+    check({24'h0, decoded_byte}, 32'hC3, "T8_0xC3 ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
     // 结果汇总
     // ──────────────────────────────────────────────────────────────────────
     $display("============================================================");

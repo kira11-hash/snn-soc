@@ -177,6 +177,7 @@ module axi_bridge_tb;
   // ── 测试计数 ──────────────────────────────────────────────────────────────
   integer pass_cnt;
   integer fail_cnt;
+  integer fail_mark;
   logic [31:0] rd_data;
 
   // ── AXI-Lite BFM tasks ───────────────────────────────────────────────────
@@ -224,6 +225,48 @@ module axi_bridge_tb;
       s_arvalid = 1'b0;
       while (!s_rvalid) begin @(posedge clk); #1; end
       data = s_rdata;
+      @(posedge clk); #1;
+    end
+  endtask
+
+  task axi_write_check_resp;
+    input [31:0] addr;
+    input [31:0] data;
+    input [3:0]  strb;
+    input [1:0]  exp_resp;
+    begin
+      @(posedge clk); #1;
+      s_awvalid = 1'b1; s_awaddr = addr;
+      s_wvalid  = 1'b1; s_wdata  = data; s_wstrb = strb;
+      while (!(s_awready && s_wready)) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_awvalid = 1'b0;
+      s_wvalid  = 1'b0;
+      while (!s_bvalid) begin @(posedge clk); #1; end
+      if (s_bresp !== exp_resp) begin
+        $display("[FAIL] AXI write resp mismatch: addr=0x%08X got=%0b exp=%0b", addr, s_bresp, exp_resp);
+        fail_cnt = fail_cnt + 1;
+      end
+      @(posedge clk); #1;
+    end
+  endtask
+
+  task axi_read_check_resp;
+    input  [31:0] addr;
+    input  [1:0]  exp_resp;
+    output [31:0] data;
+    begin
+      @(posedge clk); #1;
+      s_arvalid = 1'b1; s_araddr = addr;
+      while (!s_arready) begin @(posedge clk); #1; end
+      @(posedge clk); #1;
+      s_arvalid = 1'b0;
+      while (!s_rvalid) begin @(posedge clk); #1; end
+      data = s_rdata;
+      if (s_rresp !== exp_resp) begin
+        $display("[FAIL] AXI read resp mismatch: addr=0x%08X got=%0b exp=%0b", addr, s_rresp, exp_resp);
+        fail_cnt = fail_cnt + 1;
+      end
       @(posedge clk); #1;
     end
   endtask
@@ -452,6 +495,26 @@ module axi_bridge_tb;
       pass_cnt = pass_cnt + 1;
     end else begin
       $display("[FAIL] T9 rdata backpressure: got=0x%08X exp=0x0BADF00D", rd_data);
+      fail_cnt = fail_cnt + 1;
+    end
+
+    // ── T10/T11: 未映射地址返回 DECERR（2'b11）──────────────────────────────
+    fail_mark = fail_cnt;
+    axi_write_check_resp(32'h5000_0000, 32'hA5A5_5A5A, 4'hF, 2'b11);
+    if (fail_cnt == fail_mark) begin
+      $display("[PASS] T10 unmapped write DECERR");
+      pass_cnt = pass_cnt + 1;
+    end else begin
+      $display("[FAIL] T10 unmapped write DECERR");
+    end
+
+    fail_mark = fail_cnt;
+    axi_read_check_resp(32'h5000_0000, 2'b11, rd_data);
+    if ((fail_cnt == fail_mark) && (rd_data === 32'h0000_0000)) begin
+      $display("[PASS] T11 unmapped read DECERR + zero data");
+      pass_cnt = pass_cnt + 1;
+    end else begin
+      $display("[FAIL] T11 unmapped read data: got=0x%08X exp=0x00000000", rd_data);
       fail_cnt = fail_cnt + 1;
     end
 
