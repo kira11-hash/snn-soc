@@ -280,13 +280,14 @@ module reg_bank (
           end
           REG_CIM_CTRL: begin
             // W1P: START / RESET
+            // 这三个控制位都位于 byte0，需同时满足 wstrb[0]=1 才生效
             // 写 bit[0]=1 → start_pulse 被置 1，覆盖本拍开头的默认清零
-            if (req_wdata[0]) start_pulse <= 1'b1;
+            if (req_wstrb[0] && req_wdata[0]) start_pulse <= 1'b1;
             // 写 bit[1]=1 → soft_reset_pulse 被置 1，同上
-            if (req_wdata[1]) soft_reset_pulse <= 1'b1;
+            if (req_wstrb[0] && req_wdata[1]) soft_reset_pulse <= 1'b1;
             // W1C: DONE
             // 写 bit[7]=1 → done_sticky 清零（SW 确认完成）
-            if (req_wdata[7]) done_sticky <= 1'b0;
+            if (req_wstrb[0] && req_wdata[7]) done_sticky <= 1'b0;
           end
           default: begin
             // 其他地址忽略（包括只读寄存器：写入无效）
