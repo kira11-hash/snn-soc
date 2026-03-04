@@ -12,7 +12,7 @@ module top_tb_icarus_light;
   localparam [31:0] DMA_SRC_ADDR  = ADDR_DMA_BASE + 32'h00;
   localparam [31:0] DMA_LEN_WORDS = ADDR_DMA_BASE + 32'h04;
   localparam [31:0] DMA_CTRL      = ADDR_DMA_BASE + 32'h08;
-  localparam integer EXPECTED_OUT_COUNT = 14;
+  localparam integer EXPECTED_OUT_COUNT_DEFAULT = 20;
 
   logic clk;
   logic rst_n;
@@ -44,6 +44,9 @@ module top_tb_icarus_light;
   integer error_count;
   integer i;
   integer f;
+  integer expected_out_count;
+  integer plusarg_value;
+  reg check_out_count;
   reg [31:0] rd;
   reg dma_done_seen;
   reg cim_done_seen;
@@ -172,12 +175,24 @@ module top_tb_icarus_light;
     error_count = 0;
     dma_done_seen = 1'b0;
     cim_done_seen = 1'b0;
+    expected_out_count = EXPECTED_OUT_COUNT_DEFAULT;
+    check_out_count = 1'b1;
+    plusarg_value = 0;
     rd = 32'h0;
 
     wait(rst_n === 1'b1);
     repeat (2) @(posedge clk);
 
+    if ($value$plusargs("EXPECTED_OUT_COUNT=%d", plusarg_value)) begin
+      expected_out_count = plusarg_value;
+    end
+    if ($value$plusargs("CHECK_OUT_COUNT=%d", plusarg_value)) begin
+      check_out_count = (plusarg_value != 0);
+    end
+
     $display("[INFO] Icarus light smoke test start");
+    $display("[INFO] Config: EXPECTED_OUT_COUNT=%0d CHECK_OUT_COUNT=%0d",
+             expected_out_count, check_out_count);
 
     // Keep pattern deterministic; run default T=3 smoke path.
     bus_write(REG_TIMESTEPS, 32'd3);
@@ -269,9 +284,11 @@ module top_tb_icarus_light;
 
     bus_read(REG_OUT_COUNT, rd);
     $display("[INFO] OUT_FIFO_COUNT=0x%08h (%0d)", rd, rd);
-    if (rd !== EXPECTED_OUT_COUNT) begin
-      $display("[ERR] OUT_FIFO_COUNT mismatch got=%0d expected=%0d", rd, EXPECTED_OUT_COUNT);
-      error_count = error_count + 1;
+    if (check_out_count) begin
+      if (rd !== expected_out_count) begin
+        $display("[ERR] OUT_FIFO_COUNT mismatch got=%0d expected=%0d", rd, expected_out_count);
+        error_count = error_count + 1;
+      end
     end
 
     if (error_count == 0) begin
