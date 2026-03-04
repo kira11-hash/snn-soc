@@ -28,6 +28,19 @@ module top_tb_icarus_light;
   logic jtag_tdi;
   logic jtag_tdo;
 
+  // Optional external bus override ports exist on some branches.
+  // Keep these signals in TB so wildcard port binding works on both
+  // old/new snn_soc_top signatures.
+  logic        ext_bus_enable;
+  logic        ext_bus_m_valid;
+  logic        ext_bus_m_write;
+  logic [31:0] ext_bus_m_addr;
+  logic [31:0] ext_bus_m_wdata;
+  logic [3:0]  ext_bus_m_wstrb;
+  logic        ext_bus_m_ready;
+  logic [31:0] ext_bus_m_rdata;
+  logic        ext_bus_m_rvalid;
+
   integer error_count;
   integer i;
   integer f;
@@ -35,29 +48,7 @@ module top_tb_icarus_light;
   reg dma_done_seen;
   reg cim_done_seen;
 
-  snn_soc_top dut (
-    .clk      (clk),
-    .rst_n    (rst_n),
-    .uart_rx  (uart_rx),
-    .uart_tx  (uart_tx),
-    .spi_cs_n (spi_cs_n),
-    .spi_sck  (spi_sck),
-    .spi_mosi (spi_mosi),
-    .spi_miso (spi_miso),
-    .jtag_tck (jtag_tck),
-    .jtag_tms (jtag_tms),
-    .jtag_tdi (jtag_tdi),
-    .jtag_tdo (jtag_tdo),
-    .ext_bus_enable  (1'b0),
-    .ext_bus_m_valid (1'b0),
-    .ext_bus_m_write (1'b0),
-    .ext_bus_m_addr  (32'h0),
-    .ext_bus_m_wdata (32'h0),
-    .ext_bus_m_wstrb (4'h0),
-    .ext_bus_m_ready (),
-    .ext_bus_m_rdata (),
-    .ext_bus_m_rvalid()
-  );
+  snn_soc_top dut (.*);
 
   task automatic bus_write;
     input [31:0] addr;
@@ -155,6 +146,12 @@ module top_tb_icarus_light;
     jtag_tck = 1'b0;
     jtag_tms = 1'b0;
     jtag_tdi = 1'b0;
+    ext_bus_enable  = 1'b0;
+    ext_bus_m_valid = 1'b0;
+    ext_bus_m_write = 1'b0;
+    ext_bus_m_addr  = 32'h0;
+    ext_bus_m_wdata = 32'h0;
+    ext_bus_m_wstrb = 4'h0;
 
     dut.bus_if.m_valid = 1'b0;
     dut.bus_if.m_write = 1'b0;
