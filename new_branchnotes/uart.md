@@ -1,4 +1,4 @@
-﻿# UART 分支开发说明（中文详细版）
+# UART 分支开发说明（中文详细版）
 
 ## 1. 文档目的
 本文件记录 `feature/uart-tx` 分支中 UART 控制器的开发目标、实现细节、验证方法、已知边界与后续集成步骤。
@@ -110,6 +110,7 @@
 6. T5：发送 `0x00` 并解码校验
 7. T6：发送中读取 `STATUS.tx_busy=1`，发送后为 `0`
 8. T7：忙时写入忽略，空闲后再发字节验证
+9. T8：发送中改写 CTRL 分频，当前帧不变，仅下一帧生效
 
 通过判据：
 - 所有检查点 PASS
@@ -160,7 +161,7 @@ bash run_uart_icarus.sh
 已完成：
 1. `uart_ctrl` RTL 实现
 2. `uart_tb` 独立验证
-3. Icarus 烟雾测试通过（PASS=9, FAIL=0）
+3. Icarus 烟雾测试通过：PASS=12, FAIL=0（含 T1b/T6 双检查/T8 生效时序检查）
 
 未完成（下一阶段）：
 1. 顶层 `snn_soc_top.sv` 替换 `uart_stub -> uart_ctrl`
