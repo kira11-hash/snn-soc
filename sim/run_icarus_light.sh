@@ -20,14 +20,16 @@ if [ -f ../fpga/cim_model/weight_pos.hex ] && [ -f ../fpga/cim_model/weight_neg.
   WEIGHT_SRC_DIR="../fpga/cim_model"
 elif [ -f ./weight_pos.hex ] && [ -f ./weight_neg.hex ]; then
   WEIGHT_SRC_DIR="."
-else
-  echo "[ERR] weight hex files not found in ../fpga/cim_model or ./sim" >&2
-  exit 1
 fi
 
 # Copy to isolated runtime directory to avoid dirtying tracked sim/*.hex.
-cp "$WEIGHT_SRC_DIR/weight_pos.hex" "$RUN_DIR/weight_pos.hex"
-cp "$WEIGHT_SRC_DIR/weight_neg.hex" "$RUN_DIR/weight_neg.hex"
+# For main/tapeout-oriented branches, light smoke may not require weight files.
+if [ -n "$WEIGHT_SRC_DIR" ]; then
+  cp "$WEIGHT_SRC_DIR/weight_pos.hex" "$RUN_DIR/weight_pos.hex"
+  cp "$WEIGHT_SRC_DIR/weight_neg.hex" "$RUN_DIR/weight_neg.hex"
+else
+  echo "[INFO] No weight hex source found; run light smoke without staged weights."
+fi
 
 # Disable SVA assertions for Icarus compatibility ($past is not fully supported).
 iverilog -g2012 -gno-assertions -f sim_icarus_light.f -s top_tb_icarus_light -o "$RUN_DIR/icarus_light.out"
