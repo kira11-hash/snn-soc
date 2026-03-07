@@ -323,10 +323,24 @@ grep -E "CLB LUTs|CLB Registers|Block RAM|DSPs" fpga/boards/zcu102/output/post_i
 | 错误 | 原因 | 解决 |
 |------|------|------|
 | `MMCM not found` | MMCME4_ADV 原语需要 UltraScale+ | 确认 part 是 xczu9eg（不是 xc7xxx） |
-| `$readmemh: file not found` | .hex 文件路径问题 | build.tcl 会先 copy hex 到 output/ 并切换到该目录执行，确保相对路径可解析 |
+| `$readmemh: file not found` | .hex 文件路径问题 | 批处理流：`build.tcl` 会先 copy 到运行目录；Step3 ARM GUI 工程流（仅 `fpga-zcu102-step3-arm` / `fpga-fullversion-snnsoc`）：先 `source fpga/boards/zcu102/vivado_setup_step3_arm.tcl`，该脚本会自动配置 Memory Init 并安装综合前自动拷贝 hook；`fpga-zcu102-step2-baseline` 继续使用 `build.tcl` 即可 |
 | `Multiple drivers` | 某信号被两个地方驱动 | 检查 snn_soc_top 中 CIM 信号的 MUX 逻辑 |
 | `Timing not met (WNS<0)` | MAC 树组合延迟太大 | 见 4.4 时序处理方法 |
 | `BRAM inference failed` | sram_simple.sv 未被推断为 BRAM | 手动加 RAM_STYLE attribute 或用 XPM_MEMORY |
+
+GUI 工程流（Step3 ARM，仅 `fpga-zcu102-step3-arm` / `fpga-fullversion-snnsoc`）推荐在 Tcl Console 固定执行一次：
+
+```tcl
+source F:/SoC Design/fpga/boards/zcu102/vivado_setup_step3_arm.tcl
+```
+
+该脚本会：
+- 固定 top 为 `top_fpga_arm`
+- 仅启用 `constraints_arm.xdc`
+- 绑定 `weight_pos.hex/weight_neg.hex` 为 Memory Init Files
+- 给 `synth_1` 安装 `vivado_pre_synth_copy_weights.tcl`，每次综合前自动拷贝权重
+
+`fpga-zcu102-step2-baseline` 不包含上述 ARM 顶层和 Tcl 脚本，保持 `build.tcl` 批处理流即可。
 
 ### 4.6 BRAM 推断帮助（如果 SRAM 未被自动推断）
 
