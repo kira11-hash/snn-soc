@@ -59,3 +59,13 @@ sim/icarus_light_now.out
 sim/rtl_only_iverilog.out
 sim/rtl_chip_top_check.out
 项目进展报告.md
+
+# Python modeling generated artifacts
+项目相关文件/器件对齐/Python建模/results/
+项目相关文件/器件对齐/Python建模/backups/
+项目相关文件/器件对齐/Python建模/weights/
+项目相关文件/器件对齐/Python建模/weights_quick/
+项目相关文件/器件对齐/Python建模/*.log
+项目相关文件/器件对齐/Python建模/run_all.py.bak*
+项目相关文件/器件对齐/Python建模/config_bias_ab_backup.py
+项目相关文件/器件对齐/Python建模/__pycache__/

@@ -1,29 +1,32 @@
-﻿"""
-==========================================================
-  SNN SoC Python 寤烘ā - 涓荤▼搴?
-==========================================================
-鐢ㄦ硶:
-    python run_all.py              # 瀹屾暣杩愯 (绾?10-30 鍒嗛挓)
-    python run_all.py --quick      # 蹇€熸祴璇?(绾?2-3 鍒嗛挓)
-    python run_all.py --skip-train # 璺宠繃璁粌锛屽姞杞藉凡淇濆瓨鐨勬潈閲?
-
-杩愯娴佺▼:
-    姝ラ 1: 鍑嗗 MNIST 鏁版嵁 (澶氱闄嶉噰鏍锋柟娉?
-    姝ラ 2: 璁粌 ANN (鑾峰彇 float 鍩虹嚎鏉冮噸)
-    姝ラ 3: SNN 鎺ㄧ悊 + 鍙傛暟鎵弿 (鏍稿績!)
-    姝ラ 4: 鐢熸垚鍥捐〃 + 杈撳嚭鎺ㄨ崘鍙傛暟
-
-杈撳嚭鏂囦欢 (淇濆瓨鍦?results/ 鐩綍):
-    fig1_downsample_comparison.png  - 涓嶅悓闄嶉噰鏍锋柟娉曠殑 ANN 鍑嗙‘鐜?
-    fig2_adc_bits_sweep.png         - ADC 浣嶅 vs SNN 鍑嗙‘鐜?
-    fig3_weight_bits_sweep.png      - 鏉冮噸浣嶅 vs SNN 鍑嗙‘鐜?
-    fig4_timesteps_sweep.png        - 鎺ㄧ悊甯ф暟 vs SNN 鍑嗙‘鐜?
-    fig5_noise_impact.png           - 鍣ㄤ欢闈炵悊鎯虫€у鍑嗙‘鐜囩殑褰卞搷
-    fig6_scheme_comparison.png      - 鏂规A vs B 瀵规瘮
-    fig7_adaptive_threshold.png     - 鑷€傚簲闃堝€?vs 鍥哄畾闃堝€?
-    summary.txt                     - 鍙傛暟鎺ㄨ崘鎬荤粨
 """
+==========================================================
+  SNN SoC Python 建模 - 主程序
+==========================================================
+用法：
+    python run_all.py              # 完整运行（约 10-30 分钟）
+    python run_all.py --quick      # 快速测试（约 2-3 分钟）
+    python run_all.py --skip-train # 跳过训练，直接加载已保存权重
 
+运行流程：
+    步骤 1：准备 MNIST 数据（多种输入方式）
+    步骤 2：训练 ANN（得到 float 基线权重）
+    步骤 3：SNN 推理 + 参数扫描（核心步骤）
+    步骤 4：生成图表 + 输出推荐参数
+
+输出文件（保存在 results/ 目录）：
+    fig1_downsample_comparison.png  - 不同输入方式的 ANN / SNN 对比
+    fig2_adc_bits_sweep.png         - ADC 位宽对准确率的影响
+    fig3_weight_bits_sweep.png      - 权重量化位宽对准确率的影响
+    fig4_timesteps_sweep.png        - 推理时步数对准确率的影响
+    fig5_noise_impact.png           - 器件非理想性对准确率的影响
+    fig6_scheme_comparison.png      - Scheme A / B 对比
+    fig7_adaptive_threshold.png     - 自适应阈值与固定阈值对比
+    summary.txt                     - 参数推荐总结
+    exports/*.csv                   - 推荐配置 / best-case 的权重映射导出
+    exports/*weight_pos.hex         - 推荐配置 / best-case 的正权重 HEX
+    exports/*weight_neg.hex         - 推荐配置 / best-case 的负权重 HEX
+    exports/weight_export_manifest.json - 权重导出清单
+"""
 import sys
 import os
 import argparse
@@ -31,6 +34,7 @@ import time
 import random
 import shutil
 import hashlib
+import json
 import subprocess
 from datetime import datetime
 import torch
@@ -44,20 +48,21 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-# 璁?matplotlib 鍦ㄦ病鏈?GUI 鐨勭幆澧冧篃鑳戒繚瀛樺浘鐗?
+# 让 matplotlib 在无 GUI 环境下也能保存图片
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# 瀵煎叆鏈」鐩殑妯″潡
+# 导入本项目模块
 import config as cfg
 import data_utils
 import train_ann
 import snn_engine
+import export_weight_map
 
 
 # =====================================================
-#  杈呭姪鍑芥暟
+#  辅助函数
 # =====================================================
 
 def setup_chinese_font():
@@ -416,39 +421,77 @@ def _resolve_eval_schemes():
     return schemes, primary
 
 
-def _combo_cost_key(item, primary_scheme):
+def _run_spike_only_inference(images, labels, weights, **kwargs):
     """
-    Cost-oriented ordering for recommendation under an accuracy margin.
-    Lower ADC/weight/timesteps first, then prefer primary scheme, then higher acc.
+    Run SNN inference in hardware-aligned spike-only mode.
+    """
+    acc, membranes, stats = snn_engine.snn_inference(
+        images, labels, weights,
+        decision='spike',
+        spike_fallback_to_membrane=False,
+        return_stats=True,
+        **kwargs,
+    )
+    stats = dict(stats or {})
+    stats["acc"] = float(acc)
+    stats["spike_only_acc"] = float(stats.get("spike_only_acc", acc))
+    stats["zero_spike_rate"] = float(stats.get("zero_spike_rate", 0.0))
+    stats["zero_spike_count"] = int(stats.get("zero_spike_count", 0))
+    stats["decision_mode"] = "spike_only_no_fallback"
+    return float(stats["spike_only_acc"]), membranes, stats
+
+
+def _best_case_rank_key(item):
+    """
+    Order exhaustive combinations by hardware-aligned quality first.
+    Higher spike_only_acc wins; lower zero_spike_rate breaks ties.
     """
     return (
+        -float(item.get("spike_only_acc", item.get("snn_acc", 0.0))),
+        float(item.get("zero_spike_rate", 1.0)),
+        int(item.get("adc_bits", 1_000_000)),
+        int(item.get("weight_bits", 1_000_000)),
+        int(item.get("timesteps", 1_000_000)),
+        0 if str(item.get("reset_mode", "soft")).lower() == "soft" else 1,
+        str(item.get("method", "")),
+    )
+
+
+def _combo_cost_key(item, primary_scheme):
+    """
+    Recommendation ordering after filtering to near-best spike accuracy.
+    Lower zero-spike rate wins first, then lower cost, then prefer primary scheme.
+    """
+    return (
+        float(item.get("zero_spike_rate", 1.0)),
         int(item["adc_bits"]),
         int(item["weight_bits"]),
         int(item["timesteps"]),
         0 if str(item["scheme"]).upper() == str(primary_scheme).upper() else 1,
-        -float(item["snn_acc"]),
+        0 if str(item.get("reset_mode", "soft")).lower() == "soft" else 1,
+        -float(item.get("spike_only_acc", item.get("snn_acc", 0.0))),
         str(item["method"]),
     )
 
 # =====================================================
-#  姝ラ 2: 璁粌 ANN
+#  步骤 2: 训练 ANN
 # =====================================================
 
 def run_training(all_datasets, skip_train=False, quick=False):
     """
-    瀵规瘡绉嶉檷閲囨牱鏂规硶璁粌涓€涓?ANN锛岃褰?float 鍩虹嚎鍑嗙‘鐜囥€?
+    对每种降采样方法分别训练一个 ANN，并记录 float 基线准确率。
 
-    杩斿洖:
-        results: dict, {鏂规硶鍚? {"float_acc": 鍑嗙‘鐜? "weights": W鐭╅樀}}
+    返回：
+        results: dict, {方法名: {"float_acc": 准确率, "weights": W 矩阵}}
     """
-    print("\n[姝ラ 2/4] 璁粌 ANN (鑾峰彇 float 鏉冮噸)...")
+    print("\n[步骤 2/4] 训练 ANN（获取 float 权重）...")
 
     epochs = cfg.QUICK_EPOCHS if quick else cfg.ANN_EPOCHS
     results = {}
 
     for name, ds in all_datasets.items():
         if skip_train:
-            # 鍔犺浇宸蹭繚瀛樼殑鏉冮噸
+            # 加载已保存的权重
             try:
                 model = train_ann.load_weights(name, ds["input_dim"])
                 W = train_ann.get_weights(model)
@@ -469,7 +512,7 @@ def run_training(all_datasets, skip_train=False, quick=False):
                 results[name] = {"float_acc": acc, "weights": W, "quant_acc": quant_acc}
                 continue
             except FileNotFoundError:
-                print(f"  {name}: 鏈壘鍒板凡淇濆瓨鏉冮噸锛岄噸鏂拌缁?.")
+                print(f"  {name}: 未找到已保存权重，重新训练。")
 
         # +/-+/-
         model, history = train_ann.train_model(
@@ -515,29 +558,46 @@ def run_training(all_datasets, skip_train=False, quick=False):
 
 
 # =====================================================
-#  姝ラ 3: 鍙傛暟鎵弿
+#  步骤 3: 参数扫描
 # =====================================================
 
 def run_parameter_sweep(all_datasets, training_results, quick=False):
     """
-    鏍稿績: 鍦ㄤ笉鍚岀‖浠跺弬鏁颁笅杩愯 SNN 鎺ㄧ悊锛屾敹闆嗗噯纭巼鏁版嵁銆?
+    核心步骤：在不同硬件参数下运行 SNN 推理，收集准确率和零脉冲统计。
 
-    鎵弿缁村害:
-        1. 闄嶉噰鏍锋柟娉?
-        2. ADC 浣嶅 (6/8/10/12)
-        3. 鏉冮噸浣嶅 (2/3/4/6/8)
-        4. 鎺ㄧ悊甯ф暟 (1/3/5/10/20)
-        5. 鍣ㄤ欢鍣０ (鏈?鏃?
-        6. 宸垎鏂规 (A/B)
-        7. 鑷€傚簲闃堝€?(鏈?鏃?
+    扫描维度：
+        1. 降采样方法
+        2. threshold ratio
+        3. ADC 位宽 (6/8/10/12)
+        4. 权重量化位宽 (2/3/4/6/8)
+        5. 推理时步数 (1/3/5/10/20)
+        6. reset_mode (soft/hard)
+        7. 差分方案 (A/B)
+        8. 自适应阈值（作为单独对比项）
     """
-    print("\n[姝ラ 3/4] SNN 鎺ㄧ悊 + 鍙傛暟鎵弿...")
+    print("\n[步骤 3/4] SNN 推理 + 参数扫描...")
 
     tune_split = str(getattr(cfg, "TUNE_SPLIT", "val")).lower()
     final_split = str(getattr(cfg, "FINAL_REPORT_SPLIT", "test")).lower()
     target_input_dim = int(getattr(cfg, "TARGET_INPUT_DIM_FOR_RECOMMEND", 0) or 0)
     schemes, primary_scheme = _resolve_eval_schemes()
+    reset_modes = [str(mode).lower() for mode in getattr(cfg, "RESET_MODE_SWEEP", ["soft"])]
+    if not reset_modes:
+        reset_modes = [str(getattr(cfg, "SPIKE_RESET_MODE", "soft")).lower()]
     default_ratio = float(getattr(cfg, "SPIKE_THRESHOLD_RATIO", 0.6))
+    if getattr(cfg, "FULL_GRID_INCLUDE_RATIO", False):
+        full_grid_ratio_candidates = [
+            float(x) for x in getattr(cfg, "FULL_GRID_RATIO_CANDIDATES", [])
+        ]
+    else:
+        full_grid_ratio_candidates = []
+    if not full_grid_ratio_candidates:
+        full_grid_ratio_candidates = [
+            float(x) for x in getattr(cfg, "THRESHOLD_RATIO_CANDIDATES", [])
+        ]
+    if not full_grid_ratio_candidates:
+        full_grid_ratio_candidates = [default_ratio]
+    full_grid_ratio_candidates = sorted({float(x) for x in full_grid_ratio_candidates})
 
     results = {
         "downsample": {},       # tuning split
@@ -557,8 +617,12 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
             "final_split": final_split,
             "primary_scheme": primary_scheme,
             "schemes": schemes,
+            "reset_modes": reset_modes,
+            "ratio_candidates": full_grid_ratio_candidates,
             "target_input_dim": target_input_dim,
             "allow_signed_scheme_a": bool(getattr(cfg, "ALLOW_SIGNED_SCHEME_A", False)),
+            "ranking_metric": "spike_only_acc",
+            "ranking_secondary_metric": "zero_spike_rate",
         },
         "recommendation": {},
         "final_test": {},
@@ -588,9 +652,12 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         f"  Tuning on split='{tune_split}', final report on split='{final_split}', "
         f"primary scheme={primary_scheme}, methods={len(eligible_methods)}"
     )
+    print("  Recommendation objective: maximize spike_only_acc, then minimize zero_spike_rate.")
+    print(f"  Ratio candidates in full-grid: {full_grid_ratio_candidates}")
+    print(f"  Reset modes in full-grid: {reset_modes}")
 
-    # ---- 3a. 楠岃瘉 SNN-ANN 绛変环鎬?(ideal, tuning split) ----
-    print(f"\n  [3a] 楠岃瘉 SNN 涓?ANN 鐨勬暟瀛︾瓑浠锋€?(split={tune_split})...")
+    # ---- 3a. 验证 SNN-ANN 数学等价性（ideal, tuning split） ----
+    print(f"\n  [3a] 验证 SNN 与 ANN 的数学等价性（split={tune_split}）...")
     for name in eligible_methods:
         ds = all_datasets[name]
         images_eval, labels_eval = _get_split_tensors(ds, tune_split)
@@ -598,7 +665,7 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         ideal_acc = snn_engine.snn_inference_ideal(images_eval, labels_eval, W, timesteps=1)
         print(f"    {name:20s}: SNN(ideal)={ideal_acc:.2%}")
 
-    # ---- 3b-0. 姣忕鏂规硶銆佹瘡绉嶆柟妗堝崟鐙仛闃堝€兼爣瀹?----
+    # ---- 3b-0. 每种方法、每种方案分别标定阈值 ratio ----
     method_ratio = {name: {} for name in eligible_methods}
     if getattr(cfg, "CALIBRATE_THRESHOLD_RATIO", False):
         print(f"\n  [3b-0] Calibrate threshold ratio (split={tune_split}, per-method/per-scheme)...")
@@ -634,14 +701,14 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
             for scheme in schemes:
                 method_ratio[name][scheme] = default_ratio
 
-    # ---- 3b. 鏂规硶閫夋嫨锛堝彧鐢?tuning split锛?--
-    print(f"\n  [3b] 闄嶉噰鏍锋柟娉曞姣?(split={tune_split}, scheme={primary_scheme})...")
+    # ---- 3b. 方法选择（只用 tuning split） ----
+    print(f"\n  [3b] 输入方式对比（split={tune_split}, scheme={primary_scheme}）...")
     for name in eligible_methods:
         ds = all_datasets[name]
         W = training_results[name]["weights"]
         images_eval, labels_eval = _get_split_tensors(ds, tune_split)
         ratio = method_ratio[name].get(primary_scheme, default_ratio)
-        acc, _ = snn_engine.snn_inference(
+        acc, _, stats = _run_spike_only_inference(
             images_eval, labels_eval, W,
             adc_bits=8, weight_bits=4, timesteps=1,
             scheme=primary_scheme, threshold_ratio=ratio
@@ -649,26 +716,42 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         results["downsample"][name] = {
             "float_acc": training_results[name]["float_acc"],
             "snn_acc": acc,
+            "spike_only_acc": acc,
+            "zero_spike_rate": float(stats["zero_spike_rate"]),
+            "zero_spike_count": int(stats["zero_spike_count"]),
             "threshold_ratio": ratio,
             "input_dim": int(ds["input_dim"]),
+            "scheme": primary_scheme,
+            "adc_bits": 8,
+            "weight_bits": 4,
+            "timesteps": 1,
         }
-        print(f"    {name:20s}: SNN={acc:.2%} (ratio={ratio:.2f}, dim={int(ds['input_dim'])})")
+        print(
+            f"    {name:20s}: spike_only={acc:.2%}, zero-spike={stats['zero_spike_rate']:.2%} "
+            f"(ratio={ratio:.2f}, dim={int(ds['input_dim'])})"
+        )
 
-    downsample_best_method = max(results["downsample"], key=lambda k: results["downsample"][k]["snn_acc"])
+    downsample_best_method = min(
+        results["downsample"], key=lambda k: _best_case_rank_key(results["downsample"][k])
+    )
     downsample_best_ratio = results["downsample"][downsample_best_method]["threshold_ratio"]
     print(
-        f"\n  鏈€浣虫柟娉?(鍩虹嚎 8/4/1, {tune_split}): {downsample_best_method} "
-        f"(SNN={results['downsample'][downsample_best_method]['snn_acc']:.2%}, ratio={downsample_best_ratio:.2f})"
+        f"\n  最佳方法（基线 8/4/1, {tune_split}）: {downsample_best_method} "
+        f"(spike_only={results['downsample'][downsample_best_method]['snn_acc']:.2%}, "
+        f"zero-spike={results['downsample'][downsample_best_method]['zero_spike_rate']:.2%}, "
+        f"ratio={downsample_best_ratio:.2f})"
     )
 
-    # ---- 3b-1. 鍏ㄩ噺缁勫悎鎵弿 (method/scheme/ADC/W/T) ----
-    print(f"\n  [3b-1] 鍏ㄩ噺缁勫悎鎵弿 (split={tune_split})...")
+    # ---- 3b-1. 全量组合扫描 (method/scheme/ratio/ADC/W/T/reset) ----
+    print(f"\n  [3b-1] 全量组合扫描（split={tune_split}）...")
     grid_total = (
         len(eligible_methods)
         * len(schemes)
+        * len(full_grid_ratio_candidates)
         * len(cfg.ADC_BITS_SWEEP)
         * len(cfg.WEIGHT_BITS_SWEEP)
         * len(cfg.TIMESTEPS_SWEEP)
+        * len(reset_modes)
     )
     grid_idx = 0
     for method_name in eligible_methods:
@@ -676,115 +759,133 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         W = training_results[method_name]["weights"]
         images_eval, labels_eval = _get_split_tensors(ds, tune_split)
         for scheme in schemes:
-            ratio = method_ratio[method_name].get(scheme, default_ratio)
-            for adc_bits in cfg.ADC_BITS_SWEEP:
-                for weight_bits in cfg.WEIGHT_BITS_SWEEP:
-                    for timesteps in cfg.TIMESTEPS_SWEEP:
-                        acc, _ = snn_engine.snn_inference(
-                            images_eval, labels_eval, W,
-                            adc_bits=adc_bits,
-                            weight_bits=weight_bits,
-                            timesteps=timesteps,
-                            scheme=scheme,
-                            threshold_ratio=ratio
-                        )
-                        results["full_grid"].append({
-                            "method": method_name,
-                            "scheme": scheme,
-                            "threshold_ratio": float(ratio),
-                            "adc_bits": int(adc_bits),
-                            "weight_bits": int(weight_bits),
-                            "timesteps": int(timesteps),
-                            "snn_acc": float(acc),
-                        })
-                        grid_idx += 1
-                        progress_bar(grid_idx, grid_total, prefix="鍏ㄩ噺缁勫悎")
+            for ratio in full_grid_ratio_candidates:
+                for adc_bits in cfg.ADC_BITS_SWEEP:
+                    for weight_bits in cfg.WEIGHT_BITS_SWEEP:
+                        for timesteps in cfg.TIMESTEPS_SWEEP:
+                            for reset_mode in reset_modes:
+                                acc, _, stats = _run_spike_only_inference(
+                                    images_eval, labels_eval, W,
+                                    adc_bits=adc_bits,
+                                    weight_bits=weight_bits,
+                                    timesteps=timesteps,
+                                    scheme=scheme,
+                                    threshold_ratio=ratio,
+                                    reset_mode=reset_mode,
+                                )
+                                results["full_grid"].append({
+                                    "method": method_name,
+                                    "scheme": scheme,
+                                    "reset_mode": str(reset_mode),
+                                    "threshold_ratio": float(ratio),
+                                    "adc_bits": int(adc_bits),
+                                    "weight_bits": int(weight_bits),
+                                    "timesteps": int(timesteps),
+                                    "snn_acc": float(acc),
+                                    "spike_only_acc": float(acc),
+                                    "zero_spike_rate": float(stats["zero_spike_rate"]),
+                                    "zero_spike_count": int(stats["zero_spike_count"]),
+                                })
+                                grid_idx += 1
+                                progress_bar(grid_idx, grid_total, prefix="全量组合")
 
     if not results["full_grid"]:
         raise RuntimeError("full-grid sweep produced no records")
 
-    best_case = max(results["full_grid"], key=lambda x: x["snn_acc"])
+    best_case = min(results["full_grid"], key=_best_case_rank_key)
     margin = float(getattr(cfg, "RECOMMEND_ACC_MARGIN", 0.005))
-    acc_floor = float(best_case["snn_acc"]) - margin
-    near_best = [x for x in results["full_grid"] if float(x["snn_acc"]) >= acc_floor]
+    zero_spike_max = float(getattr(cfg, "RECOMMEND_ZERO_SPIKE_MAX", 1.0))
+    acc_floor = float(best_case["spike_only_acc"]) - margin
+    near_best = [x for x in results["full_grid"] if float(x["spike_only_acc"]) >= acc_floor]
     if not near_best:
         near_best = [best_case]
-    recommendation = min(near_best, key=lambda x: _combo_cost_key(x, primary_scheme))
+    zero_spike_filtered = [
+        x for x in near_best if float(x.get("zero_spike_rate", 1.0)) <= zero_spike_max
+    ]
+    recommendation_pool = zero_spike_filtered or near_best
+    recommendation = min(recommendation_pool, key=lambda x: _combo_cost_key(x, primary_scheme))
 
     topk_n = int(getattr(cfg, "SUMMARY_TOPK_COMBOS", 10))
     results["full_grid_top"] = sorted(
-        results["full_grid"], key=lambda x: float(x["snn_acc"]), reverse=True
+        results["full_grid"], key=_best_case_rank_key
     )[:max(1, topk_n)]
     results["best_case"] = dict(best_case)
     results["recommendation"] = dict(recommendation)
     results["meta"]["recommend_margin"] = margin
+    results["meta"]["recommend_zero_spike_max"] = zero_spike_max
     results["meta"]["full_grid_total"] = len(results["full_grid"])
     results["meta"]["downsample_best_method"] = downsample_best_method
 
     print(
-        f"    鏈€浣?(best-case): method={best_case['method']}, scheme={best_case['scheme']}, "
-        f"ADC={best_case['adc_bits']}, W={best_case['weight_bits']}, T={best_case['timesteps']}, "
-        f"ratio={best_case['threshold_ratio']:.2f}, acc={best_case['snn_acc']:.2%}"
+        f"    最优(best-case): method={best_case['method']}, scheme={best_case['scheme']}, "
+        f"reset={best_case['reset_mode']}, ADC={best_case['adc_bits']}, "
+        f"W={best_case['weight_bits']}, T={best_case['timesteps']}, "
+        f"ratio={best_case['threshold_ratio']:.2f}, spike_only={best_case['spike_only_acc']:.2%}, "
+        f"zero-spike={best_case['zero_spike_rate']:.2%}"
     )
     print(
-        f"    鎺ㄨ崘 (low-cost, within {margin:.2%}): method={recommendation['method']}, "
-        f"scheme={recommendation['scheme']}, ADC={recommendation['adc_bits']}, "
+        f"    推荐 (within {margin:.2%}, zero-spike <= {zero_spike_max:.2%} preferred): "
+        f"method={recommendation['method']}, scheme={recommendation['scheme']}, "
+        f"reset={recommendation['reset_mode']}, ADC={recommendation['adc_bits']}, "
         f"W={recommendation['weight_bits']}, T={recommendation['timesteps']}, "
-        f"ratio={recommendation['threshold_ratio']:.2f}, acc={recommendation['snn_acc']:.2%}"
+        f"ratio={recommendation['threshold_ratio']:.2f}, spike_only={recommendation['spike_only_acc']:.2%}, "
+        f"zero-spike={recommendation['zero_spike_rate']:.2%}"
     )
 
-    # 鍚庣画鍗曠淮鎵弿鍥捐〃鍥哄畾鍦ㄦ帹鑽愭柟娉曚笂鍋氾紝渚夸簬瑙ｉ噴瓒嬪娍
+    # 后续单维扫描图表固定在推荐方法上，便于解释趋势
     best_method = recommendation["method"]
     best_ratio = recommendation["threshold_ratio"]
+    best_scheme = str(recommendation["scheme"]).upper()
+    best_reset_mode = str(recommendation["reset_mode"]).lower()
     best_ds = all_datasets[best_method]
     best_W = training_results[best_method]["weights"]
     best_images_tune, best_labels_tune = _get_split_tensors(best_ds, tune_split)
 
     # ---- 3c. ADC sweep (tuning split) ----
-    print(f"\n  [3c] ADC 浣嶅鎵弿 (split={tune_split}, {best_method})...")
+    print(f"\n  [3c] ADC 位宽扫描（split={tune_split}, {best_method}）...")
     for adc in cfg.ADC_BITS_SWEEP:
-        acc, _ = snn_engine.snn_inference(
+        acc, _, _ = _run_spike_only_inference(
             best_images_tune, best_labels_tune, best_W,
             adc_bits=adc, weight_bits=4, timesteps=1,
-            scheme=primary_scheme, threshold_ratio=best_ratio
+            scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
         )
         results["adc_sweep"][adc] = acc
         print(f"    ADC={adc:2d}-bit: {acc:.2%}")
 
     # ---- 3d. Weight sweep (tuning split) ----
-    print(f"\n  [3d] 鏉冮噸浣嶅鎵弿 (split={tune_split}, {best_method})...")
+    print(f"\n  [3d] 权重量化位宽扫描（split={tune_split}, {best_method}）...")
     for wb in cfg.WEIGHT_BITS_SWEEP:
-        acc, _ = snn_engine.snn_inference(
+        acc, _, _ = _run_spike_only_inference(
             best_images_tune, best_labels_tune, best_W,
             adc_bits=8, weight_bits=wb, timesteps=1,
-            scheme=primary_scheme, threshold_ratio=best_ratio
+            scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
         )
         results["weight_sweep"][wb] = acc
         print(f"    W={wb}-bit: {acc:.2%}")
 
     # ---- 3e. Timestep sweep (tuning split) ----
-    print(f"\n  [3e] 鎺ㄧ悊甯ф暟鎵弿 (split={tune_split}, {best_method})...")
+    print(f"\n  [3e] 推理时步数扫描（split={tune_split}, {best_method}）...")
     for ts in cfg.TIMESTEPS_SWEEP:
-        acc, _ = snn_engine.snn_inference(
+        acc, _, _ = _run_spike_only_inference(
             best_images_tune, best_labels_tune, best_W,
             adc_bits=8, weight_bits=4, timesteps=ts,
-            scheme=primary_scheme, threshold_ratio=best_ratio
+            scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
         )
         results["timestep_sweep"][ts] = acc
         print(f"    T={ts:2d}: {acc:.2%}")
 
-    # ---- 3f. 鍣ㄤ欢闈炵悊鎯虫€у奖鍝?tuning split) ----
-    print(f"\n  [3f] 鍣ㄤ欢闈炵悊鎯虫€у奖鍝?split={tune_split}, {best_method})...")
+    # ---- 3f. 器件非理想性影响 (tuning split) ----
+    print(f"\n  [3f] 器件非理想性影响（split={tune_split}, {best_method}）...")
     n_trials = cfg.NOISE_TRIALS_QUICK if quick else cfg.NOISE_TRIALS_FULL
     noise_accs = []
     for trial in range(n_trials):
-        acc, _ = snn_engine.snn_inference(
+        acc, _, _ = _run_spike_only_inference(
             best_images_tune, best_labels_tune, best_W,
             adc_bits=8, weight_bits=4, timesteps=1, add_noise=True,
-            scheme=primary_scheme, threshold_ratio=best_ratio
+            scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
         )
         noise_accs.append(acc)
-        progress_bar(trial + 1, n_trials, prefix="鍣０瀹為獙")
+        progress_bar(trial + 1, n_trials, prefix="噪声实验")
 
     ideal_acc = results["adc_sweep"].get(8, 0.0)
     noise_mean = float(np.mean(noise_accs))
@@ -796,44 +897,51 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         "degradation": ideal_acc - noise_mean,
         "split": tune_split,
     }
-    print(f"    鐞嗘兂:   {ideal_acc:.2%}")
-    print(f"    鏈夊櫔澹? {noise_mean:.2%} +/- {noise_std:.4f}")
-    print(f"    閫€鍖?   {results['noise_impact']['degradation']:.2%}")
+    print(f"    理想:   {ideal_acc:.2%}")
+    print(f"    有噪声: {noise_mean:.2%} +/- {noise_std:.4f}")
+    print(f"    退化:   {results['noise_impact']['degradation']:.2%}")
 
-    # ---- 3g. 宸垎鏂规瀵规瘮 (tuning split, per-scheme ratio) ----
-    print(f"\n  [3g] 宸垎鏂规瀵规瘮 (split={tune_split}, {best_method})...")
+    # ---- 3g. 差分方案对比 (tuning split, per-scheme ratio) ----
+    print(f"\n  [3g] 差分方案对比（split={tune_split}, {best_method}）...")
     for scheme in schemes:
         ratio = method_ratio[best_method].get(scheme, default_ratio)
-        acc, _ = snn_engine.snn_inference(
+        acc, _, _ = _run_spike_only_inference(
             best_images_tune, best_labels_tune, best_W,
             adc_bits=8, weight_bits=4, timesteps=1,
-            scheme=scheme, threshold_ratio=ratio
+            scheme=scheme, threshold_ratio=ratio, reset_mode=best_reset_mode
         )
         results["scheme_compare"][scheme] = acc
-        print(f"    鏂规 {scheme}: {acc:.2%} (ratio={ratio:.2f})")
+        print(f"    方案 {scheme}: {acc:.2%} (ratio={ratio:.2f})")
 
-    # ---- 3h. 鍐崇瓥瑙勫垯瀵规瘮 (tuning split) ----
-    print(f"\n  [3h] 鍐崇瓥瑙勫垯瀵规瘮 (split={tune_split}, {best_method})...")
+    # ---- 3h. 决策规则对比 (tuning split) ----
+    print(f"\n  [3h] 决策规则对比（split={tune_split}, {best_method}）...")
     for decision in ["spike", "membrane"]:
-        acc, _ = snn_engine.snn_inference(
-            best_images_tune, best_labels_tune, best_W,
-            adc_bits=8, weight_bits=4, timesteps=1, decision=decision,
-            scheme=primary_scheme, threshold_ratio=best_ratio
-        )
+        if decision == "spike":
+            acc, _, _ = _run_spike_only_inference(
+                best_images_tune, best_labels_tune, best_W,
+                adc_bits=8, weight_bits=4, timesteps=1,
+                scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
+            )
+        else:
+            acc, _ = snn_engine.snn_inference(
+                best_images_tune, best_labels_tune, best_W,
+                adc_bits=8, weight_bits=4, timesteps=1, decision=decision,
+                scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
+            )
         results["decision_compare"][decision] = acc
         print(f"    decision={decision:8s}: {acc:.2%}")
 
-    # ---- 3i. 鑷€傚簲闃堝€?(tuning split) ----
-    print(f"\n  [3i] 鑷€傚簲闃堝€煎姣?(split={tune_split}, {best_method})...")
-    fixed_acc, _ = snn_engine.snn_inference(
+    # ---- 3i. 自适应阈值对比 (tuning split) ----
+    print(f"\n  [3i] 自适应阈值对比（split={tune_split}, {best_method}）...")
+    fixed_acc, _, _ = _run_spike_only_inference(
         best_images_tune, best_labels_tune, best_W,
         adc_bits=8, weight_bits=4, timesteps=10,
-        scheme=primary_scheme, threshold_ratio=best_ratio
+        scheme=best_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
     )
     adaptive_acc, _ = snn_engine.snn_inference_adaptive_threshold(
         best_images_tune, best_labels_tune, best_W,
         adc_bits=8, weight_bits=4, timesteps=10,
-        scheme=primary_scheme, add_noise=False
+        scheme=best_scheme, add_noise=False, reset_mode=best_reset_mode
     )
     results["adaptive"] = {
         "fixed": fixed_acc,
@@ -841,11 +949,11 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         "improvement": adaptive_acc - fixed_acc,
         "split": tune_split,
     }
-    print(f"    鍥哄畾闃堝€?(spike):   {fixed_acc:.2%}")
-    print(f"    鑷€傚簲闃堝€?(spike): {adaptive_acc:.2%}")
-    print(f"    鎻愬崌: {results['adaptive']['improvement']:+.2%}")
+    print(f"    固定阈值(spike):   {fixed_acc:.2%}")
+    print(f"    自适应阈值(spike): {adaptive_acc:.2%}")
+    print(f"    提升: {results['adaptive']['improvement']:+.2%}")
 
-    # ---- 3j. 鍩轰簬 tuning split 鐢熸垚鎺ㄨ崘閰嶇疆 ----
+    # ---- 3j. 基于 tuning split 生成推荐配置 ----
     rec_cfg = dict(results.get("recommendation", {}))
     if not rec_cfg:
         raise RuntimeError("recommendation is missing after full-grid sweep")
@@ -857,55 +965,40 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
     best_wb = int(rec_cfg["weight_bits"])
     best_ts = int(rec_cfg["timesteps"])
     primary_scheme = str(rec_cfg["scheme"]).upper()
+    best_reset_mode = str(rec_cfg["reset_mode"]).lower()
     print(
-        f"\n  鎺ㄨ崘閰嶇疆 (鍩轰簬 {tune_split}): "
+        f"\n  推荐配置（基于 {tune_split}）: "
         f"method={best_method}, scheme={primary_scheme}, "
-        f"ADC={best_adc}, W={best_wb}, T={best_ts}, ratio={best_ratio:.2f}"
+        f"reset={best_reset_mode}, ADC={best_adc}, W={best_wb}, T={best_ts}, ratio={best_ratio:.2f}"
     )
 
-    # ---- 3k. 浠呬竴娆?final split 璇勪及 ----
+    # ---- 3k. 仅一次 final split 评估 ----
     final_images, final_labels = _get_split_tensors(best_ds, final_split)
-    final_acc, _, final_stats = snn_engine.snn_inference(
+    final_acc, _, final_stats = _run_spike_only_inference(
         final_images, final_labels, best_W,
         adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
-        scheme=primary_scheme, threshold_ratio=best_ratio,
-        return_stats=True
+        scheme=primary_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode,
     )
     results["final_test"] = {
         "split": final_split,
         "method": best_method,
         "scheme": primary_scheme,
+        "reset_mode": best_reset_mode,
         "threshold_ratio": best_ratio,
         "adc_bits": int(best_adc),
         "weight_bits": int(best_wb),
         "timesteps": int(best_ts),
         "snn_acc": final_acc,
+        "spike_only_acc": float(final_stats["spike_only_acc"]),
+        "zero_spike_rate": float(final_stats.get("zero_spike_rate", 0.0)),
+        "zero_spike_count": int(final_stats.get("zero_spike_count", 0)),
+        "decision_mode": str(final_stats.get("decision_mode", "spike_only_no_fallback")),
     }
-    if "spike_only_acc" in final_stats:
-        results["final_test"]["spike_only_acc"] = float(final_stats["spike_only_acc"])
-        results["final_test"]["zero_spike_rate"] = float(final_stats.get("zero_spike_rate", 0.0))
-        results["final_test"]["zero_spike_count"] = int(final_stats.get("zero_spike_count", 0))
-        results["final_test"]["decision_mode"] = str(final_stats.get("decision_mode", "spike"))
-        results["final_test_hw_aligned"] = {
-            "split": final_split,
-            "method": best_method,
-            "scheme": primary_scheme,
-            "threshold_ratio": best_ratio,
-            "adc_bits": int(best_adc),
-            "weight_bits": int(best_wb),
-            "timesteps": int(best_ts),
-            "snn_acc": float(final_stats["spike_only_acc"]),
-            "zero_spike_rate": float(final_stats.get("zero_spike_rate", 0.0)),
-            "zero_spike_count": int(final_stats.get("zero_spike_count", 0)),
-            "decision_mode": "spike_only_no_fallback",
-        }
-    print(f"  Final {final_split} 涓€娆¤瘎浼? {final_acc:.2%}")
-    if "spike_only_acc" in final_stats:
-        print(
-            f"  Final {final_split} 硬件对齐口径(spike-only): "
-            f"{float(final_stats['spike_only_acc']):.2%} "
-            f"(zero-spike={float(final_stats.get('zero_spike_rate', 0.0)):.2%})"
-        )
+    results["final_test_hw_aligned"] = dict(results["final_test"])
+    print(
+        f"  Final {final_split} 硬件对齐口径(spike-only): "
+        f"{final_acc:.2%} (zero-spike={float(final_stats.get('zero_spike_rate', 0.0)):.2%})"
+    )
 
     best_case_cfg = dict(results.get("best_case", {}))
     if best_case_cfg:
@@ -913,68 +1006,55 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
         best_case_ds = all_datasets[best_case_method]
         best_case_W = training_results[best_case_method]["weights"]
         best_case_images, best_case_labels = _get_split_tensors(best_case_ds, final_split)
-        best_case_final_acc, _, best_case_final_stats = snn_engine.snn_inference(
+        best_case_final_acc, _, best_case_final_stats = _run_spike_only_inference(
             best_case_images, best_case_labels, best_case_W,
             adc_bits=int(best_case_cfg["adc_bits"]),
             weight_bits=int(best_case_cfg["weight_bits"]),
             timesteps=int(best_case_cfg["timesteps"]),
             scheme=str(best_case_cfg["scheme"]).upper(),
             threshold_ratio=float(best_case_cfg["threshold_ratio"]),
-            return_stats=True
+            reset_mode=str(best_case_cfg["reset_mode"]).lower(),
         )
         results["final_test_best_case"] = {
             "split": final_split,
             "method": best_case_method,
             "scheme": str(best_case_cfg["scheme"]).upper(),
+            "reset_mode": str(best_case_cfg["reset_mode"]).lower(),
             "threshold_ratio": float(best_case_cfg["threshold_ratio"]),
             "adc_bits": int(best_case_cfg["adc_bits"]),
             "weight_bits": int(best_case_cfg["weight_bits"]),
             "timesteps": int(best_case_cfg["timesteps"]),
             "snn_acc": float(best_case_final_acc),
+            "spike_only_acc": float(best_case_final_stats["spike_only_acc"]),
+            "zero_spike_rate": float(best_case_final_stats.get("zero_spike_rate", 0.0)),
+            "zero_spike_count": int(best_case_final_stats.get("zero_spike_count", 0)),
+            "decision_mode": str(best_case_final_stats.get("decision_mode", "spike_only_no_fallback")),
         }
-        if "spike_only_acc" in best_case_final_stats:
-            results["final_test_best_case"]["spike_only_acc"] = float(best_case_final_stats["spike_only_acc"])
-            results["final_test_best_case"]["zero_spike_rate"] = float(best_case_final_stats.get("zero_spike_rate", 0.0))
-            results["final_test_best_case"]["zero_spike_count"] = int(best_case_final_stats.get("zero_spike_count", 0))
-            results["final_test_best_case"]["decision_mode"] = str(best_case_final_stats.get("decision_mode", "spike"))
-            results["final_test_best_case_hw_aligned"] = {
-                "split": final_split,
-                "method": best_case_method,
-                "scheme": str(best_case_cfg["scheme"]).upper(),
-                "threshold_ratio": float(best_case_cfg["threshold_ratio"]),
-                "adc_bits": int(best_case_cfg["adc_bits"]),
-                "weight_bits": int(best_case_cfg["weight_bits"]),
-                "timesteps": int(best_case_cfg["timesteps"]),
-                "snn_acc": float(best_case_final_stats["spike_only_acc"]),
-                "zero_spike_rate": float(best_case_final_stats.get("zero_spike_rate", 0.0)),
-                "zero_spike_count": int(best_case_final_stats.get("zero_spike_count", 0)),
-                "decision_mode": "spike_only_no_fallback",
-            }
-        print(f"  Final {final_split} best-case 璇勪及: {best_case_final_acc:.2%}")
-        if "spike_only_acc" in best_case_final_stats:
-            print(
-                f"  Final {final_split} best-case 硬件对齐口径(spike-only): "
-                f"{float(best_case_final_stats['spike_only_acc']):.2%} "
-                f"(zero-spike={float(best_case_final_stats.get('zero_spike_rate', 0.0)):.2%})"
-            )
+        results["final_test_best_case_hw_aligned"] = dict(results["final_test_best_case"])
+        print(
+            f"  Final {final_split} best-case 硬件对齐口径(spike-only): "
+            f"{float(best_case_final_stats['spike_only_acc']):.2%} "
+            f"(zero-spike={float(best_case_final_stats.get('zero_spike_rate', 0.0)):.2%})"
+        )
 
-    # ---- 3l. 鍥哄畾閰嶇疆澶?seed 澶嶈窇锛堟帹鐞嗕晶锛?--
+    # ---- 3l. 固定配置多 seed 复跑（推理侧） ----
     seed_list = [int(s) for s in getattr(cfg, "FINAL_MULTI_SEEDS", [])]
     if seed_list:
         clean_accs = []
         noisy_accs = []
-        print(f"\n  [3l] 鍥哄畾閰嶇疆澶歴eed澶嶈窇 ({len(seed_list)} seeds)...")
+        print(f"\n  [3l] 固定配置多 seed 复跑（{len(seed_list)} seeds）...")
         for seed in seed_list:
             set_global_seed(seed)
-            clean_acc, _ = snn_engine.snn_inference(
+            clean_acc, _, _ = _run_spike_only_inference(
                 final_images, final_labels, best_W,
                 adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
-                scheme=primary_scheme, threshold_ratio=best_ratio
+                scheme=primary_scheme, threshold_ratio=best_ratio, reset_mode=best_reset_mode
             )
-            noisy_acc, _ = snn_engine.snn_inference(
+            noisy_acc, _, _ = _run_spike_only_inference(
                 final_images, final_labels, best_W,
                 adc_bits=best_adc, weight_bits=best_wb, timesteps=best_ts,
-                scheme=primary_scheme, threshold_ratio=best_ratio, add_noise=True
+                scheme=primary_scheme, threshold_ratio=best_ratio,
+                reset_mode=best_reset_mode, add_noise=True
             )
             clean_accs.append(clean_acc)
             noisy_accs.append(noisy_acc)
@@ -995,17 +1075,17 @@ def run_parameter_sweep(all_datasets, training_results, quick=False):
 
 
 # =====================================================
-#  姝ラ 4: 鐢熸垚鍥捐〃 + 杈撳嚭鎺ㄨ崘
+#  步骤 4: 生成图表 + 输出推荐
 # =====================================================
 
 def generate_plots(results, training_results, best_method):
     """Generate all result figures."""
-    print("\n[姝ラ 4/4] 鐢熸垚缁撴灉鍥捐〃...")
+    print("\n[步骤 4/4] 生成结果图表...")
     os.makedirs(cfg.RESULTS_DIR, exist_ok=True)
 
     has_chinese = setup_chinese_font()
 
-    # ---- 鍥?: 闄嶉噰鏍锋柟娉曞姣?----
+    # ---- 图1: 输入方式对比 ----
     fig, ax = plt.subplots(figsize=(10, 5))
     methods = list(results["downsample"].keys())
     float_accs = [results["downsample"][m]["float_acc"] for m in methods]
@@ -1027,7 +1107,7 @@ def generate_plots(results, training_results, best_method):
     plt.close()
     print("  fig1_downsample_comparison.png")
 
-    # ---- 鍥?: ADC 浣嶅 ----
+    # ---- 图2: ADC 位宽 ----
     fig, ax = plt.subplots(figsize=(8, 5))
     adc_bits = sorted(results["adc_sweep"].keys())
     adc_accs = [results["adc_sweep"][b] * 100 for b in adc_bits]
@@ -1048,7 +1128,7 @@ def generate_plots(results, training_results, best_method):
     plt.close()
     print("  fig2_adc_bits_sweep.png")
 
-    # ---- 鍥?: 鏉冮噸浣嶅 ----
+    # ---- 图3: 权重量化位宽 ----
     fig, ax = plt.subplots(figsize=(8, 5))
     w_bits = sorted(results["weight_sweep"].keys())
     w_accs = [results["weight_sweep"][b] * 100 for b in w_bits]
@@ -1068,7 +1148,7 @@ def generate_plots(results, training_results, best_method):
     plt.close()
     print("  fig3_weight_bits_sweep.png")
 
-    # ---- 鍥?: 鎺ㄧ悊甯ф暟 ----
+    # ---- 图4: 推理时步数 ----
     fig, ax = plt.subplots(figsize=(8, 5))
     ts_list = sorted(results["timestep_sweep"].keys())
     ts_accs = [results["timestep_sweep"][t] * 100 for t in ts_list]
@@ -1088,7 +1168,7 @@ def generate_plots(results, training_results, best_method):
     plt.close()
     print("  fig4_timesteps_sweep.png")
 
-    # ---- 鍥?: 鍣０褰卞搷 ----
+    # ---- 图5: 器件非理想性影响 ----
     fig, ax = plt.subplots(figsize=(6, 5))
     labels = ['Ideal', 'With Device\nNon-ideality']
     vals = [results["noise_impact"]["ideal"] * 100,
@@ -1108,7 +1188,7 @@ def generate_plots(results, training_results, best_method):
     plt.close()
     print("  fig5_noise_impact.png")
 
-    # ---- 鍥?: 宸垎鏂规 ----
+    # ---- 图6: 差分方案 ----
     fig, ax = plt.subplots(figsize=(6, 5))
     scheme_items = sorted(results["scheme_compare"].items(), key=lambda kv: kv[0])
     labels = [f"Scheme {k}" for k, _ in scheme_items]
@@ -1126,7 +1206,7 @@ def generate_plots(results, training_results, best_method):
     plt.close()
     print("  fig6_scheme_comparison.png")
 
-    # ---- 鍥?: 鑷€傚簲闃堝€?----
+    # ---- 图7: 自适应阈值 ----
     fig, ax = plt.subplots(figsize=(6, 5))
     labels = ['Fixed Threshold\n(spike)', 'Adaptive\nThreshold']
     vals = [results["adaptive"]["fixed"] * 100,
@@ -1156,46 +1236,54 @@ def generate_summary(results, training_results, best_method, all_datasets):
     final_best_hw = results.get("final_test_best_case_hw_aligned", {})
     backend = results.get("device_backend", {})
     top_grid = results.get("full_grid_top", [])
+    weight_exports = results.get("weight_exports", {})
 
     lines = []
     lines.append("=" * 60)
-    lines.append("  SNN SoC 寤烘ā缁撴灉 - 鍙傛暟鎺ㄨ崘")
+    lines.append("  SNN SoC 建模结果 - 参数推荐")
     lines.append("=" * 60)
     lines.append(
-        f"\n璇勪及鍙ｅ緞: tuning_split={meta.get('tune_split', 'val')} "
-        f"(閫夋柟妗?璋冨弬), final_split={meta.get('final_split', 'test')} (鏈€缁堜竴娆℃姤鍛?"
+        f"\n评估口径: tuning_split={meta.get('tune_split', 'val')}（用于选方法和调参），"
+        f"final_split={meta.get('final_split', 'test')}（用于最终一次性报告）"
     )
     lines.append(
-        f"鍏ㄩ噺缁勫悎鎵弿鏁? {meta.get('full_grid_total', 0)}, "
-        f"鎺ㄨ崘绮惧害瀹瑰繊杈圭晫: {meta.get('recommend_margin', 0.0):.2%}"
+        f"全量组合扫描数: {meta.get('full_grid_total', 0)}, "
+        f"推荐精度容忍边界: {meta.get('recommend_margin', 0.0):.2%}, "
+        f"零脉冲偏好上限: {meta.get('recommend_zero_spike_max', 1.0):.2%}"
     )
 
-    lines.append(f"\n鏈€浣充笅閲囨牱鏂规硶(8/4/1鍩虹嚎): {best_method}")
-    lines.append(
-        f"  tuning SNN(ADC=8,W=4,T=1): "
-        f"{results['downsample'][best_method]['snn_acc']:.2%}"
-    )
-    lines.append(f"  ANN float 鍩虹嚎鍑嗙‘鐜?test): {training_results[best_method]['float_acc']:.2%}")
+    best_downsample = results.get("downsample", {}).get(best_method, {})
+    lines.append(f"\n最佳输入方式(8/4/1 基线): {best_method}")
+    if best_downsample:
+        lines.append(
+            f"  tuning spike-only: {best_downsample.get('spike_only_acc', best_downsample.get('snn_acc', 0.0)):.2%} "
+            f"(zero-spike={best_downsample.get('zero_spike_rate', 0.0):.2%}, "
+            f"ratio={best_downsample.get('threshold_ratio', 0.0):.2f}, "
+            f"scheme={best_downsample.get('scheme', meta.get('primary_scheme', 'B'))})"
+        )
+    lines.append(f"  ANN float 基线准确率(test): {training_results[best_method]['float_acc']:.2%}")
     quant_acc = training_results[best_method].get("quant_acc")
     if quant_acc is not None:
-        lines.append(f"  ANN quantized 鍩虹嚎鍑嗙‘鐜?test): {quant_acc:.2%}")
+        lines.append(f"  ANN quantized 基线准确率(test): {quant_acc:.2%}")
 
     if best_case:
-        lines.append("\nbest-case(鍏ㄩ噺缃戞牸鏈€楂樼簿搴?:")
+        lines.append("\nbest-case（全量网格最高纯 spike 精度）:")
         lines.append(
             f"  method={best_case.get('method')}, scheme={best_case.get('scheme')}, "
-            f"ADC={best_case.get('adc_bits')}, W={best_case.get('weight_bits')}, "
+            f"reset={best_case.get('reset_mode')}, ADC={best_case.get('adc_bits')}, W={best_case.get('weight_bits')}, "
             f"T={best_case.get('timesteps')}, ratio={best_case.get('threshold_ratio', 0.0):.2f}, "
-            f"acc={best_case.get('snn_acc', 0.0):.2%}"
+            f"spike_only={best_case.get('spike_only_acc', best_case.get('snn_acc', 0.0)):.2%}, "
+            f"zero-spike={best_case.get('zero_spike_rate', 0.0):.2%}"
         )
 
     if rec:
-        lines.append("\nrecommendation(绮惧害杈炬爣涓嬩綆鎴愭湰浼樺厛):")
+        lines.append("\nrecommendation（先保 spike_only_acc，再压低 zero_spike_rate 与成本）:")
         lines.append(
             f"  method={rec.get('method')}, scheme={rec.get('scheme')}, "
-            f"ADC={rec.get('adc_bits')}, W={rec.get('weight_bits')}, "
+            f"reset={rec.get('reset_mode')}, ADC={rec.get('adc_bits')}, W={rec.get('weight_bits')}, "
             f"T={rec.get('timesteps')}, ratio={rec.get('threshold_ratio', 0.0):.2f}, "
-            f"tuning_acc={rec.get('snn_acc', 0.0):.2%}"
+            f"tuning_spike_only={rec.get('spike_only_acc', rec.get('snn_acc', 0.0)):.2%}, "
+            f"zero-spike={rec.get('zero_spike_rate', 0.0):.2%}"
         )
 
     if final:
@@ -1228,13 +1316,14 @@ def generate_summary(results, training_results, best_method, all_datasets):
         for i, item in enumerate(top_grid, start=1):
             lines.append(
                 f"  #{i:02d}: method={item.get('method')}, scheme={item.get('scheme')}, "
-                f"ADC={item.get('adc_bits')}, W={item.get('weight_bits')}, "
+                f"reset={item.get('reset_mode')}, ADC={item.get('adc_bits')}, W={item.get('weight_bits')}, "
                 f"T={item.get('timesteps')}, ratio={item.get('threshold_ratio', 0.0):.2f}, "
-                f"acc={item.get('snn_acc', 0.0):.2%}"
+                f"spike_only={item.get('spike_only_acc', item.get('snn_acc', 0.0)):.2%}, "
+                f"zero-spike={item.get('zero_spike_rate', 0.0):.2%}"
             )
 
     if results.get("threshold_calibration"):
-        lines.append("\nPer-method calibrated ratio (by scheme):")
+        lines.append("\n各方法阈值 ratio 标定结果（按 scheme 区分）:")
         for name in sorted(results["threshold_calibration"].keys()):
             sch_map = results["threshold_calibration"][name]
             for scheme in sorted(sch_map.keys()):
@@ -1250,57 +1339,57 @@ def generate_summary(results, training_results, best_method, all_datasets):
                     cand_line = ", ".join(
                         f"{c.get('ratio', 0.0):.5f}->{c.get('val_acc', 0.0):.2%}" for c in cand_items
                     )
-                    lines.append(f"    candidates: {cand_line}")
+                    lines.append(f"    候选: {cand_line}")
 
     adc_sorted = sorted(results["adc_sweep"].items())
-    lines.append(f"\nADC sweep ({meta.get('tune_split', 'val')}):")
+    lines.append(f"\nADC 扫描 ({meta.get('tune_split', 'val')}):")
     for bits, acc in adc_sorted:
-        marker = " <- 鎺ㄨ崘" if bits == rec.get("adc_bits") else ""
+        marker = " <- 推荐" if bits == rec.get("adc_bits") else ""
         lines.append(f"  {bits:2d}-bit: {acc:.2%}{marker}")
 
     w_sorted = sorted(results["weight_sweep"].items())
-    lines.append(f"\nWeight sweep ({meta.get('tune_split', 'val')}):")
+    lines.append(f"\n权重量化位宽扫描 ({meta.get('tune_split', 'val')}):")
     for bits, acc in w_sorted:
-        marker = " <- 鎺ㄨ崘" if bits == rec.get("weight_bits") else ""
+        marker = " <- 推荐" if bits == rec.get("weight_bits") else ""
         lines.append(f"  {bits}-bit: {acc:.2%}{marker}")
 
     ts_sorted = sorted(results["timestep_sweep"].items())
-    lines.append(f"\nTimesteps sweep ({meta.get('tune_split', 'val')}):")
+    lines.append(f"\n时步扫描 ({meta.get('tune_split', 'val')}):")
     for ts, acc in ts_sorted:
-        marker = " <- 鎺ㄨ崘" if ts == rec.get("timesteps") else ""
+        marker = " <- 推荐" if ts == rec.get("timesteps") else ""
         lines.append(f"  T={ts:2d}: {acc:.2%}{marker}")
 
     ni = results["noise_impact"]
-    lines.append(f"\n鍣ㄤ欢闈炵悊鎯冲奖鍝?({ni.get('split', meta.get('tune_split', 'val'))}):")
-    lines.append(f"  鐞嗘兂鍑嗙‘鐜?      {ni['ideal']:.2%}")
-    lines.append(f"  鍚櫔鍑嗙‘鐜?      {ni['noisy_mean']:.2%} +/- {ni['noisy_std']:.4f}")
-    lines.append(f"  鍑嗙‘鐜囬€€鍖?      {ni['degradation']:.2%}")
+    lines.append(f"\n器件非理想性影响 ({ni.get('split', meta.get('tune_split', 'val'))}):")
+    lines.append(f"  理想准确率:      {ni['ideal']:.2%}")
+    lines.append(f"  有噪声准确率:    {ni['noisy_mean']:.2%} +/- {ni['noisy_std']:.4f}")
+    lines.append(f"  准确率退化:      {ni['degradation']:.2%}")
 
     sc = results.get("scheme_compare", {})
     if sc:
-        lines.append(f"\n宸垎鏂规瀵规瘮 ({meta.get('tune_split', 'val')}):")
+        lines.append(f"\n差分方案对比 ({meta.get('tune_split', 'val')}):")
         for scheme, acc in sorted(sc.items(), key=lambda kv: kv[0]):
-            marker = " <- 鎺ㄨ崘" if scheme == rec.get("scheme") else ""
-            lines.append(f"  鏂规 {scheme}: {acc:.2%}{marker}")
+            marker = " <- 推荐" if scheme == rec.get("scheme") else ""
+            lines.append(f"  方案 {scheme}: {acc:.2%}{marker}")
 
     dc = results.get("decision_compare", {})
     if dc:
-        lines.append(f"\n鍐崇瓥瑙勫垯瀵规瘮 ({meta.get('tune_split', 'val')}):")
+        lines.append(f"\n决策规则对比 ({meta.get('tune_split', 'val')}):")
         for decision in ["spike", "membrane"]:
             if decision in dc:
                 lines.append(f"  {decision:8s}: {dc[decision]:.2%}")
 
     ad = results["adaptive"]
     do_adaptive = ad["improvement"] >= 0.01
-    lines.append(f"\n鑷€傚簲闃堝€?({ad.get('split', meta.get('tune_split', 'val'))}):")
-    lines.append(f"  鍥哄畾闃堝€?spike): {ad['fixed']:.2%}")
-    lines.append(f"  鑷€傚簲闃堝€?      {ad['adaptive']:.2%}")
-    lines.append(f"  鎻愬崌:            {ad['improvement']:+.2%}")
-    lines.append(f"  conclusion: {'recommended' if do_adaptive else 'not recommended'}")
+    lines.append(f"\n自适应阈值对比 ({ad.get('split', meta.get('tune_split', 'val'))}):")
+    lines.append(f"  固定阈值(spike): {ad['fixed']:.2%}")
+    lines.append(f"  自适应阈值:      {ad['adaptive']:.2%}")
+    lines.append(f"  提升:            {ad['improvement']:+.2%}")
+    lines.append(f"  结论: {'recommended' if do_adaptive else 'not recommended'}")
 
     ms = results.get("multi_seed", {})
     if ms:
-        lines.append(f"\n鍥哄畾閰嶇疆澶歴eed澶嶈窇 ({ms.get('split', meta.get('final_split', 'test'))}):")
+        lines.append(f"\n固定配置多 seed 复跑 ({ms.get('split', meta.get('final_split', 'test'))}):")
         lines.append(f"  seeds: {ms.get('seeds')}")
         lines.append(f"  clean: {ms.get('clean_mean', 0.0):.2%} +/- {ms.get('clean_std', 0.0):.4f}")
         lines.append(f"  noisy: {ms.get('noisy_mean', 0.0):.2%} +/- {ms.get('noisy_std', 0.0):.4f}")
@@ -1316,11 +1405,31 @@ def generate_summary(results, training_results, best_method, all_datasets):
         notes = backend.get("runtime_notes") or []
         for note in notes:
             lines.append(f"  note: {note}")
+    if weight_exports:
+        lines.append("\nWeight export:")
+        lines.append(f"  enabled={weight_exports.get('enabled')}")
+        lines.append(f"  hex_enabled={weight_exports.get('hex_enabled')}")
+        if weight_exports.get("manifest_path"):
+            lines.append(f"  manifest={weight_exports.get('manifest_path')}")
+        for item in weight_exports.get("artifacts", []):
+            lines.append(
+                f"  {item.get('label')}: {item.get('csv_path')} "
+                f"(method={item.get('method')}, scheme={item.get('scheme')}, reset={item.get('reset_mode')}, "
+                f"ADC={item.get('adc_bits')}, W={item.get('weight_bits')}, T={item.get('timesteps')})"
+            )
+            if item.get("pos_hex_path") and item.get("neg_hex_path"):
+                lines.append(f"    HEX(pos)={item.get('pos_hex_path')}")
+                lines.append(f"    HEX(neg)={item.get('neg_hex_path')}")
+            if item.get("staged_pos_hex_path") and item.get("staged_neg_hex_path"):
+                lines.append(f"    staged_pos={item.get('staged_pos_hex_path')}")
+                lines.append(f"    staged_neg={item.get('staged_neg_hex_path')}")
+        for warning in weight_exports.get("warnings", []):
+            lines.append(f"  warning: {warning}")
     if final_hw:
         lines.append("\n注：Hardware-aligned 口径禁用“零脉冲时回退到 membrane”兜底，用于与当前 RTL 输出能力对齐。")
 
     lines.append(f"\n{'=' * 60}")
-    lines.append("  RTL 鍙傛暟鎺ㄨ崘 (鐢ㄤ簬鏇存柊 snn_soc_pkg.sv)")
+    lines.append("  RTL 参数推荐（用于更新 snn_soc_pkg.sv）")
     lines.append(f"{'=' * 60}")
     rec_method = rec.get("method", best_method)
     input_dim = int(all_datasets[rec_method]["input_dim"])
@@ -1330,6 +1439,8 @@ def generate_summary(results, training_results, best_method, all_datasets):
     lines.append("  PIXEL_BITS  = 8")
     lines.append(f"  // WEIGHT_BITS = {rec.get('weight_bits')} (device-side parameter)")
     lines.append(f"  // SCHEME = {rec.get('scheme')}")
+    lines.append(f"  // RESET_MODE = {rec.get('reset_mode', 'soft')}")
+    lines.append(f"  // THRESHOLD_RATIO = {rec.get('threshold_ratio', 0.0):.5f}")
     lines.append(f"  // ADAPTIVE_THRESHOLD = {'ON' if do_adaptive else 'OFF'}")
     if meta.get("target_input_dim", 0) > 0 and input_dim != int(meta["target_input_dim"]):
         lines.append(
@@ -1342,31 +1453,165 @@ def generate_summary(results, training_results, best_method, all_datasets):
         f.write(summary_text)
 
     print(f"\n{summary_text}")
-    print(f"\n缁撴灉宸蹭繚瀛樺埌: {cfg.RESULTS_DIR}")
+    print(f"\n结果已保存到: {cfg.RESULTS_DIR}")
+
+
+def _artifact_tag(value):
+    """Convert config fields into stable filename-safe fragments."""
+    text = str(value)
+    keep = []
+    for ch in text:
+        if ch.isalnum() or ch in ("-", "_", "."):
+            keep.append(ch)
+        else:
+            keep.append("_")
+    return "".join(keep).strip("_") or "na"
+
+
+def export_weight_artifacts(results):
+    """
+    Export weight maps for the recommendation and best-case configurations.
+
+    The export format reuses export_weight_map.py and writes CSV artifacts under
+    results/exports/ by default. Failures are recorded as warnings and do not
+    abort the modeling run.
+    """
+    export_info = {
+        "enabled": bool(getattr(cfg, "AUTO_EXPORT_WEIGHT_MAP", False)),
+        "hex_enabled": bool(getattr(cfg, "AUTO_EXPORT_WEIGHT_HEX", False)),
+        "artifacts": [],
+        "warnings": [],
+    }
+    if not export_info["enabled"]:
+        return export_info
+
+    export_dir = os.path.join(
+        cfg.RESULTS_DIR,
+        str(getattr(cfg, "WEIGHT_EXPORT_SUBDIR", "exports")),
+    )
+    col_map = str(getattr(cfg, "WEIGHT_EXPORT_COL_MAP", "grouped")).lower()
+    os.makedirs(export_dir, exist_ok=True)
+
+    targets = []
+    recommendation = results.get("recommendation") or {}
+    best_case = results.get("best_case") or {}
+    if recommendation:
+        targets.append(("recommendation", recommendation))
+    if best_case:
+        targets.append(("best_case", best_case))
+
+    if not targets:
+        export_info["warnings"].append("No recommendation/best-case configuration available for export.")
+        return export_info
+
+    for label, item in targets:
+        method = str(item.get("method", "")).strip()
+        if not method:
+            export_info["warnings"].append(f"{label}: missing method, skipped export.")
+            continue
+
+        try:
+            weight_bits = int(item.get("weight_bits", 4))
+            scheme = _artifact_tag(item.get("scheme", "na"))
+            reset_mode = _artifact_tag(item.get("reset_mode", cfg.SPIKE_RESET_MODE))
+            adc_bits = int(item.get("adc_bits", 8))
+            timesteps = int(item.get("timesteps", 1))
+            ratio = float(item.get("threshold_ratio", getattr(cfg, "SPIKE_THRESHOLD_RATIO", 0.0)))
+            ratio_tag = f"{ratio:.5f}".replace(".", "p")
+            out_csv = os.path.join(
+                export_dir,
+                f"{label}_{method}_scheme{scheme}_reset{reset_mode}_adc{adc_bits}_w{weight_bits}_t{timesteps}_r{ratio_tag}.csv",
+            )
+            export_weight_map.export_weight_map(
+                method=method,
+                weight_bits=weight_bits,
+                out_csv=out_csv,
+                weights_dir=cfg.WEIGHTS_DIR,
+                col_map=col_map,
+            )
+            artifact = {
+                "label": label,
+                "method": method,
+                "scheme": str(item.get("scheme", "")),
+                "reset_mode": str(item.get("reset_mode", cfg.SPIKE_RESET_MODE)),
+                "adc_bits": adc_bits,
+                "weight_bits": weight_bits,
+                "timesteps": timesteps,
+                "threshold_ratio": ratio,
+                "col_map": col_map,
+                "weights_dir": cfg.WEIGHTS_DIR,
+                "csv_path": out_csv,
+            }
+
+            require_4bit = bool(getattr(cfg, "WEIGHT_HEX_REQUIRE_4BIT", True))
+            can_export_hex = bool(getattr(cfg, "AUTO_EXPORT_WEIGHT_HEX", False))
+            if can_export_hex and require_4bit and weight_bits != 4:
+                export_info["warnings"].append(
+                    f"{label}: skipped HEX export because current RTL staging expects 4-bit, got weight_bits={weight_bits}."
+                )
+                can_export_hex = False
+
+            if can_export_hex:
+                pos_hex = os.path.join(
+                    export_dir,
+                    f"{label}_{method}_scheme{scheme}_reset{reset_mode}_adc{adc_bits}_w{weight_bits}_t{timesteps}_r{ratio_tag}_weight_pos.hex",
+                )
+                neg_hex = os.path.join(
+                    export_dir,
+                    f"{label}_{method}_scheme{scheme}_reset{reset_mode}_adc{adc_bits}_w{weight_bits}_t{timesteps}_r{ratio_tag}_weight_neg.hex",
+                )
+                export_weight_map.export_weight_hex(
+                    method=method,
+                    weight_bits=weight_bits,
+                    out_pos_hex=pos_hex,
+                    out_neg_hex=neg_hex,
+                    weights_dir=cfg.WEIGHTS_DIR,
+                )
+                artifact["pos_hex_path"] = pos_hex
+                artifact["neg_hex_path"] = neg_hex
+
+                if label == "recommendation":
+                    staged_pos = os.path.join(export_dir, "weight_pos.hex")
+                    staged_neg = os.path.join(export_dir, "weight_neg.hex")
+                    shutil.copy2(pos_hex, staged_pos)
+                    shutil.copy2(neg_hex, staged_neg)
+                    artifact["staged_pos_hex_path"] = staged_pos
+                    artifact["staged_neg_hex_path"] = staged_neg
+
+            export_info["artifacts"].append(artifact)
+        except Exception as exc:
+            export_info["warnings"].append(f"{label}: {exc}")
+
+    manifest_path = os.path.join(export_dir, "weight_export_manifest.json")
+    export_info["manifest_path"] = manifest_path
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(export_info, f, ensure_ascii=False, indent=2)
+
+    return export_info
 # =====================================================
-#  涓诲叆鍙?
+#  主入口
 # =====================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='SNN SoC Python 寤烘ā绯荤粺')
+    parser = argparse.ArgumentParser(description='SNN SoC Python 建模系统')
     parser.add_argument('--quick', action='store_true',
-                        help='蹇€熸ā寮?(灏戦噺鏍锋湰锛岄€傚悎璋冭瘯)')
+                        help='快速模式（少量样本，适合调试）')
     parser.add_argument('--skip-train', action='store_true',
-                        help='璺宠繃璁粌锛屽姞杞藉凡淇濆瓨鏉冮噸')
+                        help='跳过训练，加载已保存权重')
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  SNN SoC Python 寤烘ā绯荤粺 v1.0")
+    print("  SNN SoC Python 建模系统 v1.0")
     print("=" * 60)
     if args.quick:
-        print("  妯″紡: 蹇€熸祴璇?(--quick)")
+        print("  模式: 快速测试 (--quick)")
 
     set_global_seed(cfg.RANDOM_SEED)
-    print(f"  闅忔満绉嶅瓙: {cfg.RANDOM_SEED}")
-    print(f"  ADC婊￠噺绋嬫ā寮? {cfg.ADC_FULL_SCALE_MODE}")
+    print(f"  随机种子: {cfg.RANDOM_SEED}")
+    print(f"  ADC 满量程模式: {cfg.ADC_FULL_SCALE_MODE}")
     backend = snn_engine.get_device_backend_status()
     print(
-        "  鍣ㄤ欢妯″瀷鎺ュ叆: "
+        "  器件模型接入: "
         f"use_device_model={backend['use_device_model']}, "
         f"path_exists={backend['plugin_path_exists']}, "
         f"levels_loaded={backend['plugin_levels_loaded']}, "
@@ -1378,25 +1623,26 @@ def main():
     # Separate quick/full weights to avoid accidental overwrite.
     _ensure_mode_weight_dir(args)
 
-    # 姝ラ 1: 鍑嗗鏁版嵁
+    # 步骤 1: 准备数据
     all_datasets = data_utils.prepare_all_datasets(quick_mode=args.quick)
 
-    # 姝ラ 2: 璁粌 ANN
+    # 步骤 2: 训练 ANN
     training_results = run_training(
         all_datasets, skip_train=args.skip_train, quick=args.quick
     )
 
-    # 姝ラ 3: SNN 鎺ㄧ悊 + 鍙傛暟鎵弿
+    # 步骤 3: SNN 推理 + 参数扫描
     sweep_results, best_method = run_parameter_sweep(
         all_datasets, training_results, quick=args.quick
     )
 
-    # 姝ラ 4: 鐢熸垚鍥捐〃 + 鎺ㄨ崘
+    # 步骤 4: 生成图表 + 输出推荐
     generate_plots(sweep_results, training_results, best_method)
+    sweep_results["weight_exports"] = export_weight_artifacts(sweep_results)
     generate_summary(sweep_results, training_results, best_method, all_datasets)
 
     elapsed = time.time() - start_time
-    print(f"\n鎬昏€楁椂: {elapsed:.1f} 绉?({elapsed / 60:.1f} 鍒嗛挓)")
+    print(f"\n总耗时: {elapsed:.1f} 秒 ({elapsed / 60:.1f} 分钟)")
     try:
         backup_info = _auto_backup_full_run(args, elapsed)
         if backup_info is not None:
@@ -1408,7 +1654,7 @@ def main():
             print(f"  [backup] Manifest: {backup_info['manifest_path']}")
     except Exception as e:
         print(f"  [backup] WARNING: auto-backup failed: {e}")
-    print("瀹屾垚!")
+    print("完成!")
 
 
 if __name__ == '__main__':

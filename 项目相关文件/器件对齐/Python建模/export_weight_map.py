@@ -6,6 +6,7 @@
   1) 读取训练好的 ANN 权重 (weights/<method>.pt)
   2) 按器件模型做量化 (默认 4-bit)
   3) 导出可给器件/模拟同学使用的写阵列表 CSV
+  4) 导出给 RTL/行为模型使用的 weight_pos.hex / weight_neg.hex
 
 输出列:
   row,col_pos,col_neg,level_pos,level_neg,G_pos,G_neg
@@ -21,8 +22,9 @@
 
 import argparse
 import csv
+import math
 import os
-from typing import Tuple
+from typing import Dict, Tuple
 
 import torch
 
@@ -119,6 +121,31 @@ def _quantize_to_conductance(
     return g_pos.cpu(), g_neg.cpu(), levels.cpu()
 
 
+def _prepare_export_payload(method: str, weight_bits: int, weights_dir: str) -> Dict[str, object]:
+    """统一准备导出所需的量化结果与索引。"""
+    w = _load_weight_tensor(method=method, weights_dir=weights_dir)
+    num_outputs, num_inputs = int(w.shape[0]), int(w.shape[1])
+    rows = int(getattr(cfg, "ARRAY_ROWS", 128))
+    cols = int(getattr(cfg, "ARRAY_COLS", 256))
+    g_pos, g_neg, levels = _quantize_to_conductance(
+        w=w, weight_bits=weight_bits, rows=rows, cols=cols
+    )
+    idx_pos = _nearest_level_index(g_pos, levels).cpu()
+    idx_neg = _nearest_level_index(g_neg, levels).cpu()
+    return {
+        "weights": w.cpu(),
+        "num_outputs": num_outputs,
+        "num_inputs": num_inputs,
+        "rows": rows,
+        "cols": cols,
+        "g_pos": g_pos.cpu(),
+        "g_neg": g_neg.cpu(),
+        "levels": levels.cpu(),
+        "idx_pos": idx_pos,
+        "idx_neg": idx_neg,
+    }
+
+
 def export_weight_map(
     method: str,
     weight_bits: int,
@@ -126,14 +153,15 @@ def export_weight_map(
     weights_dir: str,
     col_map: str,
 ) -> None:
-    w = _load_weight_tensor(method=method, weights_dir=weights_dir)
-    num_outputs, num_inputs = int(w.shape[0]), int(w.shape[1])
-
-    rows = int(getattr(cfg, "ARRAY_ROWS", 128))
-    cols = int(getattr(cfg, "ARRAY_COLS", 256))
-    g_pos, g_neg, levels = _quantize_to_conductance(
-        w=w, weight_bits=weight_bits, rows=rows, cols=cols
+    payload = _prepare_export_payload(
+        method=method, weight_bits=weight_bits, weights_dir=weights_dir
     )
+    num_outputs = int(payload["num_outputs"])
+    num_inputs = int(payload["num_inputs"])
+    cols = int(payload["cols"])
+    g_pos = payload["g_pos"]
+    g_neg = payload["g_neg"]
+    levels = payload["levels"]
 
     # 防误用检查：保证导出列号不会越界物理列数。
     max_col = -1
@@ -148,8 +176,8 @@ def export_weight_map(
             "请检查 NUM_OUTPUTS / ARRAY_COLS / col_map 配置。"
         )
 
-    idx_pos = _nearest_level_index(g_pos, levels)
-    idx_neg = _nearest_level_index(g_neg, levels)
+    idx_pos = payload["idx_pos"]
+    idx_neg = payload["idx_neg"]
 
     os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
@@ -185,10 +213,67 @@ def export_weight_map(
     print(f"  输出文件={out_csv}")
 
 
+def _write_hex_levels(level_idx: torch.Tensor, out_hex: str, hex_width: int) -> None:
+    """
+    按当前 RTL 行优先布局写出 HEX。
+
+    布局顺序：
+      index = input_row * NUM_OUTPUTS + output_col
+    即：
+      row0-col0, row0-col1, ... row0-col9,
+      row1-col0, row1-col1, ... row63-col9
+    """
+    os.makedirs(os.path.dirname(out_hex) or ".", exist_ok=True)
+    num_outputs, num_inputs = int(level_idx.shape[0]), int(level_idx.shape[1])
+    with open(out_hex, "w", encoding="utf-8") as f:
+        for row in range(num_inputs):
+            for col in range(num_outputs):
+                val = int(level_idx[col, row].item())
+                f.write(f"{val:0{hex_width}X}\n")
+
+
+def export_weight_hex(
+    method: str,
+    weight_bits: int,
+    out_pos_hex: str,
+    out_neg_hex: str,
+    weights_dir: str,
+) -> None:
+    """
+    导出 RTL / 行为模型可用的差分权重 HEX。
+
+    当前假定布局与已编译行为模型一致：
+      - `weight_pos.hex` / `weight_neg.hex`
+      - 每个文件 64 * 10 = 640 行
+      - 每行一个量化级编号（HEX 文本）
+      - 展平顺序：input_row 优先，再 output_col
+    """
+    payload = _prepare_export_payload(
+        method=method, weight_bits=weight_bits, weights_dir=weights_dir
+    )
+    hex_width = max(1, int(math.ceil(int(weight_bits) / 4.0)))
+    _write_hex_levels(payload["idx_pos"], out_pos_hex, hex_width=hex_width)
+    _write_hex_levels(payload["idx_neg"], out_neg_hex, hex_width=hex_width)
+
+    print("HEX 导出完成:")
+    print(f"  method={method}")
+    print(f"  weight_bits={weight_bits}")
+    print("  layout=row-major by input_row (index = row * NUM_OUTPUTS + col)")
+    print(f"  输出文件(pos)={out_pos_hex}")
+    print(f"  输出文件(neg)={out_neg_hex}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="导出 RRAM 写阵列映射表 (Scheme B)")
     parser.add_argument("--method", type=str, default="proj_sup_64", help="权重文件名(不含 .pt)")
     parser.add_argument("--weight-bits", type=int, default=4, help="权重量化位宽")
+    parser.add_argument(
+        "--emit",
+        type=str,
+        choices=["csv", "hex", "both"],
+        default="csv",
+        help="导出格式：csv、hex 或 both",
+    )
     parser.add_argument(
         "--weights-dir",
         type=str,
@@ -202,6 +287,18 @@ def main():
         help="输出 CSV 路径，默认 results/weight_map_<method>_w<bits>.csv",
     )
     parser.add_argument(
+        "--out-pos-hex",
+        type=str,
+        default=None,
+        help="输出正权重 HEX 路径，默认 results/weight_pos_<method>_w<bits>.hex",
+    )
+    parser.add_argument(
+        "--out-neg-hex",
+        type=str,
+        default=None,
+        help="输出负权重 HEX 路径，默认 results/weight_neg_<method>_w<bits>.hex",
+    )
+    parser.add_argument(
         "--col-map",
         type=str,
         choices=["grouped", "interleaved"],
@@ -213,19 +310,38 @@ def main():
     )
     args = parser.parse_args()
 
-    out_csv = args.out
-    if out_csv is None:
-        out_csv = os.path.join(
-            cfg.RESULTS_DIR, f"weight_map_{args.method}_w{int(args.weight_bits)}.csv"
+    if args.emit in ("csv", "both"):
+        out_csv = args.out
+        if out_csv is None:
+            out_csv = os.path.join(
+                cfg.RESULTS_DIR, f"weight_map_{args.method}_w{int(args.weight_bits)}.csv"
+            )
+        export_weight_map(
+            method=args.method,
+            weight_bits=int(args.weight_bits),
+            out_csv=out_csv,
+            weights_dir=args.weights_dir,
+            col_map=args.col_map,
         )
 
-    export_weight_map(
-        method=args.method,
-        weight_bits=int(args.weight_bits),
-        out_csv=out_csv,
-        weights_dir=args.weights_dir,
-        col_map=args.col_map,
-    )
+    if args.emit in ("hex", "both"):
+        out_pos_hex = args.out_pos_hex
+        out_neg_hex = args.out_neg_hex
+        if out_pos_hex is None:
+            out_pos_hex = os.path.join(
+                cfg.RESULTS_DIR, f"weight_pos_{args.method}_w{int(args.weight_bits)}.hex"
+            )
+        if out_neg_hex is None:
+            out_neg_hex = os.path.join(
+                cfg.RESULTS_DIR, f"weight_neg_{args.method}_w{int(args.weight_bits)}.hex"
+            )
+        export_weight_hex(
+            method=args.method,
+            weight_bits=int(args.weight_bits),
+            out_pos_hex=out_pos_hex,
+            out_neg_hex=out_neg_hex,
+            weights_dir=args.weights_dir,
+        )
 
 
 if __name__ == "__main__":
