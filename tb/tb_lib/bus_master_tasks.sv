@@ -44,6 +44,12 @@
 // -----------------------------------------------------------------------
 /* verilator lint_off DECLFILENAME */
 /* verilator lint_off UNUSEDSIGNAL */
+`ifdef __ICARUS__
+package tb_bus_pkg;
+  // Icarus does not support virtual-interface task arguments in packages.
+  // top_tb.sv provides local fallback tasks for that simulator path.
+endpackage
+`else
 package tb_bus_pkg;
   // -----------------------------------------------------------------------
   // task bus_write32：32-bit 寄存器写操作
@@ -156,5 +162,6 @@ package tb_bus_pkg;
     data = vif.m_rdata;
   endtask
 endpackage
+`endif
 /* verilator lint_on UNUSEDSIGNAL */
 /* verilator lint_on DECLFILENAME */

@@ -1,0 +1,114 @@
+============================================================
+  SNN SoC 建模结果 - 参数推荐
+============================================================
+
+评估口径: tuning_split=val（用于选方法和调参），final_split=test（用于最终一次性报告）
+全量组合扫描数: 7, 推荐精度容忍边界: 0.50%, 零脉冲偏好上限: 10.00%
+
+最佳输入方式(8/4/1 基线): avgpool_8x8
+  tuning spike-only: 46.40% (zero-spike=0.00%, ratio=0.00, scheme=B)
+  ANN float 基线准确率(test): 87.60%
+  ANN quantized 基线准确率(test): 87.58%
+
+best-case（全量网格最高纯 spike 精度）:
+  method=avgpool_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=86.74%, zero-spike=0.00%
+
+recommendation（先保 spike_only_acc，再压低 zero_spike_rate 与成本）:
+  method=avgpool_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, tuning_spike_only=86.74%, zero-spike=0.00%
+
+Final test (recommendation): 87.76%
+  Hardware-aligned (spike-only, no fallback): 87.76% (zero-spike=0.00%, count=0)
+Final test (best-case): 87.76%
+  Hardware-aligned best-case (spike-only, no fallback): 87.76% (zero-spike=0.00%, count=0)
+
+Top full-grid combinations:
+  #01: method=avgpool_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=86.74%, zero-spike=0.00%
+  #02: method=pad32_reflect_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=85.86%, zero-spike=0.00%
+  #03: method=pad32_replicate_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=85.84%, zero-spike=0.00%
+  #04: method=pad32_zero_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=85.80%, zero-spike=0.00%
+  #05: method=maxpool_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=83.68%, zero-spike=0.00%
+  #06: method=bilinear_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=81.62%, zero-spike=0.00%
+  #07: method=nearest_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10, ratio=0.00, spike_only=79.50%, zero-spike=0.00%
+
+各方法阈值 ratio 标定结果（按 scheme 区分）:
+  avgpool_8x8         [B] ratio=0.00, val_acc=46.40%
+    候选: 0.00392->46.40%
+  bilinear_8x8        [B] ratio=0.00, val_acc=38.26%
+    候选: 0.00392->38.26%
+  maxpool_8x8         [B] ratio=0.00, val_acc=33.20%
+    候选: 0.00392->33.20%
+  nearest_8x8         [B] ratio=0.00, val_acc=39.94%
+    候选: 0.00392->39.94%
+  pad32_reflect_8x8   [B] ratio=0.00, val_acc=41.18%
+    候选: 0.00392->41.18%
+  pad32_replicate_8x8 [B] ratio=0.00, val_acc=41.68%
+    候选: 0.00392->41.68%
+  pad32_zero_8x8      [B] ratio=0.00, val_acc=42.02%
+    候选: 0.00392->42.02%
+
+ADC 扫描 (val):
+   8-bit: 46.40% <- 推荐
+
+权重量化位宽扫描 (val):
+  4-bit: 46.40% <- 推荐
+
+时步扫描 (val):
+  T=10: 86.74% <- 推荐
+
+器件非理想性影响 (val):
+  理想准确率:      46.40%
+  有噪声准确率:    46.17% +/- 0.0097
+  准确率退化:      0.23%
+
+差分方案对比 (val):
+  方案 B: 46.40% <- 推荐
+
+决策规则对比 (val):
+  spike   : 46.40%
+  membrane: 86.72%
+
+自适应阈值对比 (val):
+  固定阈值(spike): 86.74%
+  自适应阈值:      85.16%
+  提升:            -1.58%
+  结论: not recommended
+
+固定配置多 seed 复跑 (test):
+  seeds: [42, 43, 44, 45, 46]
+  clean: 87.76% +/- 0.0000
+  noisy: 87.64% +/- 0.0012
+
+Device backend:
+  use_device_model=True
+  plugin_path_exists=True
+  plugin_levels_loaded=True
+  plugin_sim_available=True
+  backend_mode=plugin
+
+Weight export:
+  enabled=True
+  hex_enabled=True
+  manifest=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/weight_export_manifest.json
+  recommendation: /home/caiqiang/Desktop/器件对齐/Python建模/results/exports/recommendation_avgpool_8x8_schemeB_resetsoft_adc8_w4_t10_r0p00392.csv (method=avgpool_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10)
+    HEX(pos)=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/recommendation_avgpool_8x8_schemeB_resetsoft_adc8_w4_t10_r0p00392_weight_pos.hex
+    HEX(neg)=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/recommendation_avgpool_8x8_schemeB_resetsoft_adc8_w4_t10_r0p00392_weight_neg.hex
+    staged_pos=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/weight_pos.hex
+    staged_neg=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/weight_neg.hex
+  best_case: /home/caiqiang/Desktop/器件对齐/Python建模/results/exports/best_case_avgpool_8x8_schemeB_resetsoft_adc8_w4_t10_r0p00392.csv (method=avgpool_8x8, scheme=B, reset=soft, ADC=8, W=4, T=10)
+    HEX(pos)=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/best_case_avgpool_8x8_schemeB_resetsoft_adc8_w4_t10_r0p00392_weight_pos.hex
+    HEX(neg)=/home/caiqiang/Desktop/器件对齐/Python建模/results/exports/best_case_avgpool_8x8_schemeB_resetsoft_adc8_w4_t10_r0p00392_weight_neg.hex
+
+注：Hardware-aligned 口径禁用“零脉冲时回退到 membrane”兜底，用于与当前 RTL 输出能力对齐。
+
+============================================================
+  RTL 参数推荐（用于更新 snn_soc_pkg.sv）
+============================================================
+  NUM_INPUTS  = 64
+  NUM_OUTPUTS = 10
+  ADC_BITS    = 8
+  PIXEL_BITS  = 8
+  // WEIGHT_BITS = 4 (device-side parameter)
+  // SCHEME = B
+  // RESET_MODE = soft
+  // THRESHOLD_RATIO = 0.00392
+  // ADAPTIVE_THRESHOLD = OFF

@@ -84,7 +84,7 @@ A: 数据流走固定通路（data_sram → DMA → input_fifo → CIM → outpu
 
 | 参数 | 值 | 含义 |
 |------|------|------|
-| NUM_INPUTS | 64 | 输入维度（8×8 离线投影后特征） |
+| NUM_INPUTS | 64 | 输入维度（默认 `avgpool8x8` 的 8×8 离线特征） |
 | NUM_OUTPUTS | 10 | 输出类别数（0-9 数字分类） |
 | PIXEL_BITS | 8 | 每像素位宽，决定子时间步数 |
 | ADC_BITS | 8 | ADC 输出位宽 |
@@ -248,7 +248,7 @@ ST_IDLE ──start_pulse──> ST_SETUP
 ...
 帧N-1: bitplane_shift = 7,6,5,4,3,2,1,0
 
-总子时间步数 = TIMESTEPS × PIXEL_BITS = 3 × 8 = 24（工程默认 T=3）
+总子时间步数 = TIMESTEPS × PIXEL_BITS = 10 × 8 = 80（当前工程默认 T=10）
 ```
 
 ### ADC 时分复用详解
@@ -314,8 +314,9 @@ Q: 为什么用 MSB-first（bitplane_shift 从 7 开始）？
 A: 高位权重大，先处理高位可以更早判断是否超过阈值
 
 Q: 膜电位为什么不会溢出？
-A: 工程默认（T=3）：3帧 × 8步 × 255（8-bit ADC max）= 6120，约需 13 位；32 位有符号留有充足余量
-   即使 T=20：20 × 8 × 255 = 40800，约需 16 位；使用 32 位留有充足余量
+A: 按当前工程默认（T=10）做保守估算：
+   最大单帧累积 = `(2^ADC_BITS-1) × ((1<<PIXEL_BITS)-1) = 255 × 255 = 65025`
+   10 帧总和 ≈ `650250 < 2^20`，考虑符号位后 32 位有符号仍有充足余量。
 ```
 
 ### 检验标准
@@ -354,11 +355,11 @@ A: 工程默认（T=3）：3帧 × 8步 × 255（8-bit ADC max）= 6120，约需
 
 | 地址 | 名称 | 关键位段 |
 |------|------|----------|
-| 0x4000_0000 | THRESHOLD | [31:0] 阈值，默认 THRESHOLD_DEFAULT = 3060（4×255×3，工程默认） |
-| 0x4000_0004 | TIMESTEPS | [7:0] 帧数，默认 3（工程默认） |
+| 0x4000_0000 | THRESHOLD | [31:0] 阈值，默认 THRESHOLD_DEFAULT = 2550（1×255×10，当前工程默认） |
+| 0x4000_0004 | TIMESTEPS | [7:0] 帧数，默认 10（当前工程默认） |
 | 0x4000_0014 | CIM_CTRL | bit0=START(W1P), bit1=SOFT_RESET(W1P), bit7=DONE(W1C) |
 | 0x4000_0018 | STATUS | bit0=BUSY(RO), bit[15:8]=TIMESTEP_CNT(RO) |
-| 0x4000_0024 | THRESHOLD_RATIO | [7:0] 阈值比例，默认 4 (ratio_code=4, 4/255≈0.0157, 定版) |
+| 0x4000_0024 | THRESHOLD_RATIO | [7:0] 阈值比例，默认 1 (ratio_code=1, 1/255≈0.00392, 定版) |
 | 0x4000_0028 | ADC_SAT_COUNT | [15:0]=sat_high, [31:16]=sat_low (RO) |
 
 ### 重点理解
@@ -402,15 +403,15 @@ A: 1. 写 THRESHOLD
 
 ```
 Step 1: 配置寄存器
-        ├─ 写 THRESHOLD = 200（低阈值，易触发 spike）
-        └─ 写 TIMESTEPS = 5
+        ├─ 写 THRESHOLD = THRESHOLD_DEFAULT（当前默认 2550）
+        └─ 写 TIMESTEPS = TIMESTEPS_DEFAULT（当前默认 10）
 
 Step 2: 准备数据
-        └─ 写入 data_sram（5 个 timestep × 2 word = 10 word）
+        └─ 写入 data_sram（TIMESTEPS × PIXEL_BITS × 2 word）
 
 Step 3: 启动 DMA
         ├─ 写 DMA_SRC_ADDR = 0x0001_0000
-        ├─ 写 DMA_LEN_WORDS = 10
+        ├─ 写 DMA_LEN_WORDS = TIMESTEPS × PIXEL_BITS × 2
         ├─ 写 DMA_CTRL.START = 1
         └─ 轮询 DMA_CTRL.DONE
 
@@ -435,7 +436,7 @@ $fsdbDumpvars(0, top_tb);
 - [ ] 能说出 TB 的 5 个步骤
 - [ ] 能修改 wl_vec 数据观察不同输出
 - [ ] 理解 do-while 轮询的作用
-- [ ] 能解释为什么 DMA_LEN_WORDS = 10（5 帧 × 2 word/帧）
+- [ ] 能解释为什么 `DMA_LEN_WORDS = TIMESTEPS × PIXEL_BITS × 2`
 
 ---
 
@@ -456,7 +457,7 @@ cd sim
 ```
 - vcs.log 无 Error
 - sim.log 出现 "[TB] Simulation finished."
-- sim.log 出现 "[TB] OUT_FIFO_COUNT = N"（N 随输入激励变化，当前回归样例约 20；若长期为 0 参考 `doc/09` 问题 3）
+- sim.log 出现 "[TB] OUT_FIFO_COUNT = N"（N 随输入激励变化；默认黑盒全量回归样例可到数百，若长期为 0 参考 `doc/09` 问题 3）
 - waves/snn_soc.fsdb 文件生成
 ```
 
@@ -794,9 +795,9 @@ pop = popcount(wl_latched)  // 0-64（在 dac_valid 单拍触发后锁存）
 ### Q8: soft reset 和 hard reset 怎么选？
 ```
 - soft reset: 膜电位减去阈值，保留超出部分
-  → 更接近生物神经元
+  → 更接近当前工程口径，也是当前 RTL 默认值 (`reset_mode=0`)
 - hard reset: 膜电位直接清零
-  → 更简单，推荐 MVP 阶段使用 (reset_mode=1)
+  → 更简单，适合做对照实验或特定算法探索 (`reset_mode=1`)
 ```
 
 ### Q9: 片外/片上数模混合集成需要注意什么？

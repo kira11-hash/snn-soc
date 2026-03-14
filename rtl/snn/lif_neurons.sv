@@ -71,11 +71,11 @@ module lif_neurons (
   // bitplane_shift：当前 bit-plane 的位权（7=MSB,6,5,...,0=LSB）
   // 用于算术左移（等效于乘以 2^shift），实现 bit-plane 加权
   input  logic [$clog2(snn_soc_pkg::PIXEL_BITS)-1:0] bitplane_shift,
-  input  logic [31:0] threshold,  // 脉冲阈值（来自 reg_bank.neuron_threshold，工程默认 3060）
+  input  logic [31:0] threshold,  // 脉冲阈值（来自 reg_bank.neuron_threshold，工程默认 2550）
   input  logic reset_mode,        // 复位模式：0=soft，1=hard（来自 reg_bank.reset_mode）
 
   // ── 到 output FIFO 的写接口 ──────────────────────────────────────────────
-  // output FIFO 实例在 snn_soc_top 中，容量 OUTPUT_FIFO_DEPTH=256（足够容纳全部 spike）
+  // output FIFO 实例在 snn_soc_top 中，容量 OUTPUT_FIFO_DEPTH=4096（覆盖默认口径下的最坏 spike 数）
   output logic out_fifo_push,       // 写 FIFO 请求（1 拍高）
   output logic [3:0] out_fifo_wdata,// 写 FIFO 数据：神经元编号（0~9）
   input  logic out_fifo_full        // FIFO 满标志：1=不能 push（背压）

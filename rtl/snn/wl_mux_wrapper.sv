@@ -240,14 +240,6 @@ module wl_mux_wrapper #(
         end
       endcase
 
-`ifndef SYNTHESIS
-      // 异常保护（仅仿真）：忙期间若再次收到新帧，提示协议使用错误
-      // 正确使用：上游（cim_array_ctrl）必须等待 wl_busy=0 才能发送下一帧
-      // 若违反此约束（wl_valid_pulse_in 在 SEND/DONE 期间拉高），当前帧会丢失
-      if (wl_valid_pulse_in && (state != ST_IDLE)) begin
-        $warning("[wl_mux_wrapper] 收到重入 wl_valid_pulse_in，当前帧尚未完成发送");
-      end
-`endif
     end
   end
 
@@ -269,6 +261,14 @@ module wl_mux_wrapper #(
   assign wl_latch = (state == ST_SEND);
 
 `ifndef SYNTHESIS
+  // 异常保护（仅仿真）：忙期间若再次收到新帧，提示协议使用错误
+  // 单独放在 always 块中，避免 Icarus 对 always_ff 中 $warning 给出综合告警。
+  always @(posedge clk) begin
+    if ((wl_valid_pulse_in === 1'b1) && (state != ST_IDLE)) begin
+      $warning("[wl_mux_wrapper] 收到重入 wl_valid_pulse_in，当前帧尚未完成发送");
+    end
+  end
+
   // -----------------------------------------------------------------------
   // 参数合法性检查（仅仿真，综合时跳过）
   //

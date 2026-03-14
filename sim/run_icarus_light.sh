@@ -24,14 +24,14 @@ fi
 
 # OUT_FIFO expected count defaults:
 # - with staged weights: 14
-# - without weights (main blackbox path): 20
+# - without weights (main blackbox path, T=10 default): 100
 EXPECTED_OUT_COUNT="${SMOKE_EXPECTED_OUT_COUNT:-}"
 CHECK_OUT_COUNT="${SMOKE_CHECK_OUT_COUNT:-1}"
 if [ -z "$EXPECTED_OUT_COUNT" ]; then
   if [ -n "$WEIGHT_SRC_DIR" ]; then
     EXPECTED_OUT_COUNT=14
   else
-    EXPECTED_OUT_COUNT=20
+    EXPECTED_OUT_COUNT=100
   fi
 fi
 

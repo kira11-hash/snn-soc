@@ -395,7 +395,7 @@ main                    # 主分支：始终保持可流片状态
 
 | ⑩ | 输入 Spike FIFO 256×64bit | ✅ 有 | ✅ 匹配 |
 
-| ⑪ | 输出 Spike FIFO 256×4bit | ✅ 有 | ✅ 匹配 |
+| ⑪ | 输出 Spike FIFO 4096×4bit | ✅ 有 | ✅ 匹配 |
 
 | ⑫ | CIM 阵列控制器 | ✅ 有 | ✅ 匹配 |
 
@@ -1256,7 +1256,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 （已从"改动纪要"整理，便于对齐与回顾）
 
 > 注：本节按时间顺序保留历史记录，包含旧参数（如 `T=1 / ratio=0.40 / 91.24%`）。
-> 当前定版口径请以“关键决策点”“参数定版表”以及 `snn_soc_pkg.sv` 为准（`T=3 / ratio_code=4 / THRESHOLD_DEFAULT=3060（默认）；T=10 仅用于论文高精度对照`）。
+> 当前定版口径请以“关键决策点”“参数定版表”以及 `snn_soc_pkg.sv` 为准（`T=10 / ratio_code=1 / THRESHOLD_DEFAULT=2550 / reset_mode=soft` 为当前工程默认）。
 
 1) **建模路线与论文准备落地**
    - 明确 Phase 1~5 建模流程与"Phase 2/3 等价校验"
@@ -1322,28 +1322,28 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
    - A2: **确认 ADC 8-bit**
    - A3: 1 ADC × 20 MUX（推荐方案，模拟团队接受）
    - J1: **不做自适应阈值**（建模证明无益 -1.80%）
-   - J2: **在 reg_bank 新增 8-bit THRESHOLD_RATIO 寄存器**，定版默认 4（ratio_code=4，4/255≈0.0157），UART 可覆写（原会议确认值 102 已由 2026-02-27 定版更新取代）
+   - J2: **在 reg_bank 新增 8-bit THRESHOLD_RATIO 寄存器**，当前默认 1（ratio_code=1，1/255≈0.00392），UART 可覆写
 
 9) **RTL 参数更新完成（2026-02-06）**
-   - 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=3, THRESHOLD_RATIO_DEFAULT=4, THRESHOLD_DEFAULT=3060, NEURON_DATA_WIDTH=9（2026-02-27 定版更新）
+   - 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=10, THRESHOLD_RATIO_DEFAULT=1, THRESHOLD_DEFAULT=2550, NEURON_DATA_WIDTH=9（当前工程默认）
    - 4b. `adc_ctrl.sv`: 20通道 MUX + 数字差分减法（Scheme B），signed 9-bit 输出
    - 4c. `lif_neurons.sv`: signed 膜电位 + 符号扩展 + 算术左移 + signed 阈值比较
    - 4d. `reg_bank.sv`: 新增 REG_THRESHOLD_RATIO (0x24, 8-bit, 默认4)，双寄存器模式（2026-02-27 定版）
    - 4e. `cim_macro_blackbox.sv`: P_ADC_CHANNELS=20，Scheme B 行为模型（正列/负列公式）
    - 4f. `dma_engine.sv`: 64-bit 打包（2×32 整拼接，word1_reg 扩展为 32-bit）
    - 4g. `snn_soc_top.sv`: bl_sel 位宽→$clog2(ADC_CHANNELS)=5, neuron_in_data 位宽→NEURON_DATA_WIDTH
-   - TB: `top_tb.sv` 适配新参数（64-bit patterns, T=3, signed diff 显示, THRESHOLD_RATIO 读回测试）
+   - TB: `top_tb.sv` 适配当前默认参数（64-bit patterns, T=10, signed diff 显示, THRESHOLD_RATIO 读回测试）
    - **全部文档同步更新**：00_overview, 01_memory_map, 02_reg_map, 03_cim_if_protocol, 04_walkthrough, 05_debug_guide, 08_cim_analog_interface
 
 10) **V1 输入说明修订（2026-02-06）**
-    - **V1 芯片输入是离线预处理后的 64 维特征向量**（proj_sup_64: 784→64），不是原始 28×28 像素
+   - **V1 芯片输入是离线预处理后的 64 维特征向量**（当前默认口径为 `avgpool8x8`，但 RTL 仅固定 64 维输入接口，不在硬件里绑定具体前处理算法），不是原始 28×28 像素
     - 预处理在 PC/MCU 端完成，芯片只负责 SNN 推理
     - 这意味着 V1 不需要片上降采样/投影硬件
 
 11) **双寄存器阈值模式（2026-02-06）**
     - REG_THRESHOLD (0x00, 32-bit): 绝对阈值，直接用于 LIF 比较
-    - REG_THRESHOLD_RATIO (0x24, 8-bit): 阈值比率（默认 4/255≈0.0157），供固件计算绝对阈值
-    - THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 3 = 3060
+    - REG_THRESHOLD_RATIO (0x24, 8-bit): 阈值比率（默认 1/255≈0.00392），供固件计算绝对阈值
+    - THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 1 × 255 × 10 = 2550
     - 固件可: (a) 直接写 THRESHOLD 绝对值, 或 (b) 读 RATIO 计算后写 THRESHOLD
 
 12) **ADC 饱和计数器（2026-02-06）**
@@ -1413,7 +1413,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 #### 2) ✅ Python 建模与参数决策（已完成 2026-02-08）
 
 > 全量建模已完成。结果见上方"已完成的更改"第 7 项。
-> 参数已定版（2026-02-27 更新）：proj_sup_64, Scheme B, ADC=8, W=4, T=3（工程默认）, ratio_code=4 (4/255≈0.0157); final test=90.35%（论文 T=10 作高精度对照）
+> 当前工程默认参数：Scheme B, ADC=8, W=4, T=10, ratio_code=1, THRESHOLD_DEFAULT=2550, reset_mode=soft。
 > （原旧配置 T=1, ratio=0.40, test=91.24% 使用 hybrid metric，含 96% membrane fallback，不代表硬件对齐精度）
 
 #### 3) ✅ 器件/模拟团队会议确认（已完成 2026-02-06）
@@ -1422,20 +1422,20 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 > - 差分方案: 方案 B（数字侧差分，20 通道）
 > - ADC: 8-bit
 > - 自适应阈值: 不做
-> - THRESHOLD_RATIO: 8-bit 寄存器，定版默认 4（ratio_code=4，4/255≈0.0157）
+> - THRESHOLD_RATIO: 8-bit 寄存器，当前默认 1（ratio_code=1，1/255≈0.00392）
 
 #### 4) ✅ RTL 参数更新（已完成 2026-02-06）
 
-> **参数已定版（2026-02-27 更新）**：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=3, ratio_code=4, Scheme B（T=10 用于论文高精度对照）
+> **当前工程默认参数**：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=10, ratio_code=1, THRESHOLD_DEFAULT=2550, Scheme B, reset_mode=soft
 > **注意**：修改顺序很重要，pkg 是上游，其余模块依赖 pkg 参数。
 
 **4a. `snn_soc_pkg.sv`（最先改，所有参数的源头）**
 - [x] `NUM_INPUTS` = 49 → **64**
 - [x] `ADC_BITS` = 12 → **8**
 - [x] 新增 `ADC_CHANNELS` = **20**（Scheme B: 10 pos + 10 neg）
-- [x] `TIMESTEPS_DEFAULT` = 20 → **1** → **10** → **3**（2026-03-02 按精度/时延性价比更新为工程默认）
-- [x] 新增/更新 `THRESHOLD_RATIO_DEFAULT` = ~~102（0x66, ratio=0.40）~~ → **4**（ratio_code=4, 4/255≈0.0157，定版）
-- [x] 更新 `THRESHOLD_DEFAULT` 计算公式（适配 ADC=8, T=3, ratio_code=4）→ **3060**
+- [x] `TIMESTEPS_DEFAULT` = 20 → **1** → **10** → 3 → **10**（当前工程默认回归到 T=10）
+- [x] 新增/更新 `THRESHOLD_RATIO_DEFAULT` = ~~102（0x66, ratio=0.40）~~ → 4 → **1**（ratio_code=1, 1/255≈0.00392，当前默认）
+- [x] 更新 `THRESHOLD_DEFAULT` 计算公式（适配 ADC=8, T=10, ratio_code=1）→ **2550**
 - [x] 更新 `ADC_PEAK_EST` 和 `THRESHOLD_REPEAT_FRAMES` = 1
 - [x] `LIF_MEM_WIDTH` 保持 32（重新验算：T=1 × 8bp × 255(8-bit ADC) × 128(shift7) = 261120，约需 18 bit，32-bit signed 足够）
 - [x] 新增 `NEURON_DATA_WIDTH` = ADC_BITS + 1 = **9**（signed，用于 Scheme B 差分结果）
@@ -1456,7 +1456,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 **4d. `reg_bank.sv`（新增 THRESHOLD_RATIO 寄存器）**
 - [x] 新增 `REG_THRESHOLD_RATIO` at offset **0x24**（8-bit, R/W）
-- [x] 默认值 = `THRESHOLD_RATIO_DEFAULT`（4 = 0x04，定版）
+- [x] 默认值 = `THRESHOLD_RATIO_DEFAULT`（1 = 0x01，当前定版）
 - [x] 新增 output port `threshold_ratio [7:0]`
 - [x] 读回逻辑 + 写入逻辑（仅 byte 0 有效）
 
@@ -1519,13 +1519,13 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 | 参数 | 定版值 | 来源 |
 |------|--------|------|
-| 输入维度 | 64 (proj_sup_64) | 建模最佳 |
+| 输入维度 | 64（默认 `avgpool8x8` 的离线特征接口） | 当前 RTL 固定 64 维输入 |
 | ADC 位宽 | 8-bit | 建模 + A2 确认 |
 | 权重位宽 | 4-bit | 建模 + D1 确认 |
 | 差分方案 | B（数字侧） | A1 确认 |
 | ADC 通道数 | 20 (10 pos + 10 neg) | Scheme B |
-| 推理帧数 | T=3（默认） | 工程默认配置（论文可用 T=10 作为高精度对照） |
-| 阈值比率 | ratio_code=4（寄存器值 4，4/255≈0.0157） | 建模定版（纯 spike 标定） |
+| 推理帧数 | T=10（默认） | 当前工程默认配置 |
+| 阈值比率 | ratio_code=1（寄存器值 1，1/255≈0.00392） | 当前工程默认配置 |
 | 阈值自适应 | 不做 | 建模证明下降 1.80%, J1 确认 |
 | 复位模式 | soft (V=V-Vth) | 建模对比（soft/hard 在当前推荐配置下等效）+ 与现有 RTL 路径一致 |
 | 决策规则 | spike count | 与 RTL 对齐 |
@@ -1533,7 +1533,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 复位模式定版补充（2026-02-10）：
 
-- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`，其余参数固定为推荐配置（`proj_sup_64, Scheme B, ADC=8, W=4, T=3, ratio_code=4`）。
+- 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`；当前 RTL 默认 `reset_mode=soft`，其余建模参数以各次对比实验冻结配置为准。
 - 对比入口：`run_all.py` 中 `[3f]`（噪声影响，`add_noise=True`）与 `[3l]`（test 多 seed noisy，`add_noise=True`）。
 - soft（历史基线）：
   - val noisy mean：`90.41% +/- 0.0031`
@@ -1592,7 +1592,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 | 2 | 写 data_sram 数据，再读回 | 读回一致 | SRAM 读写正常 |
 | 3 | 配置 DMA 搬运 160 words，启动，轮询 DMA_CTRL[1]=1 | 约 200 拍后 DONE | DMA FSM + input FIFO 正常 |
 | 4 | 写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111，neg=0, pos=100, mode=1）| 读回一致 | test_mode 寄存器可写 + 差分链路可激活 |
-| 5 | 写 `REG_TIMESTEPS=3, REG_THRESHOLD=3060`，启动 CIM | 约 3000 拍后 DONE | CIM FSM 全状态流转正常 |
+| 5 | 写 `REG_TIMESTEPS=10, REG_THRESHOLD=2550`，启动 CIM | 约 10000 拍后 DONE | CIM FSM 全状态流转正常 |
 | 6 | 读 `REG_OUT_COUNT` | **非零（预期 >10）** | LIF 膜电位积累 + 输出 FIFO 正常 |
 | 7 | 关闭 test_mode，接入模拟芯片，重跑推理 | OUT_FIFO_COUNT 非零 + 结果合理 | 模拟芯片可用 |
 
@@ -1603,9 +1603,9 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 **数值验证（步骤 6 预期值计算）**：
 - 差分 = pos - neg = 100 - 0 = 100
 - 每帧（PIXEL_BITS=8 bit-plane）累积 = 100 × (128+64+32+16+8+4+2+1) = 100 × 255 = 25,500
-- T=3 帧后膜电位 ≈ 76,500（远超 THRESHOLD=3,060）
-- 每次 spike 后软复位：255,000 ÷ 10,200 ≈ 25 次 spike/neuron × 10 neurons = ~250 个 spike
-- OUT_FIFO_COUNT 可能填满 FIFO（256 深度），但任何 >0 值均可认为通过
+- T=10 帧后膜电位 ≈ 255,000（远超 THRESHOLD=2,550）
+- 每次 spike 后软复位：255,000 ÷ 2,550 ≈ 100 次 spike/neuron × 10 neurons = ~1,000 个 spike
+- 在当前默认口径下，full TB 可能产生数百个 spike；默认输出 FIFO 已扩到 4096 深度，避免黑盒回归被 256 深度截断
 
 **快速写法**（TB 或固件均可用）：
 ```systemverilog
@@ -1784,7 +1784,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 3. ✅ 确定 IO 方案：WL 8组×8 时分复用 + 8-bit ADC + 方案B 差分 + 保留 JTAG = 45 pin（会议后更新）
 4. ✅ 获取器件 Python 模型（memristor_plugin.py + I-V.xlsx）
 5. ✅ 分析器件参数：4-bit 权重、5000:1 开关比、8-bit ADC、pA~nA 级电流
-6. ✅ Python 全量建模完成（初版 T=1, ratio=0.40, test=91.24%）→ **定版更新（2026-03-02）**: T=3 作为工程默认，ratio_code=4；T=10 作为论文高精度对照
+6. ✅ Python 全量建模完成（初版 T=1, ratio=0.40, test=91.24%）；当前工程口径已收口为 T=10 / ratio_code=1 / reset_mode=soft
 7. ✅ 器件/模拟团队会议确认：Scheme B, 8-bit ADC, 无自适应阈值, THRESHOLD_RATIO 寄存器
 8. ✅ RTL 参数更新 + TB 适配 + 文档同步（2026-02-06）
 9. ✅ CIM Test Mode + Debug 计数器 + FIFO 断言（2026-02-08）
@@ -1824,9 +1824,9 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 | ADC 位宽 | **8-bit** | 建模最优 (90.78%) + A2 确认 |
 | 差分方案 | **B（数字侧减，20通道）** | A1 确认 |
 | 阈值自适应 | **不做** | 建模下降 1.80% + J1 确认 |
-| 阈值比率 | **ratio_code=4（寄存器值 4，4/255≈0.0157）** | 建模定版（纯spike标定）+ J2 确认 |
+| 阈值比率 | **ratio_code=1（寄存器值 1，1/255≈0.00392）** | 当前工程默认配置 |
 | 阵列规模 | **64×20 固定窗口**（V1） | 建模确认 + V2 可配 |
-| 帧数 | **T=3（工程默认）** | 论文中保留 T=10 作为高精度对照档位 |
+| 帧数 | **T=10（工程默认）** | 当前工程默认配置 |
 
 *(旧的 IO pad 行动项已合并到上方“更新后的执行计划”中)*
 
@@ -1976,7 +1976,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
                      ┌───────────┐
                      │output_fifo│
                      │ (4-bit    │
-                     │  ×256)    │
+                     │ ×4096)    │
                      └──┬────────┘
                         │ out_fifo_rdata
                         ▼
@@ -2005,7 +2005,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 ### 关键时序：一次完整推理循环
 
 ```
-示例采用 T=1, PIXEL_BITS=8：共 8 个 bit-plane 子步（仅用于解释编码流程；工程默认为 T=3，论文对照可取 T=10）
+示例采用 T=1, PIXEL_BITS=8：共 8 个 bit-plane 子步（仅用于解释编码流程；当前工程默认 T=10）
 
 bitplane_shift:  7 → 6 → 5 → 4 → 3 → 2 → 1 → 0
                  ↑                                ↑

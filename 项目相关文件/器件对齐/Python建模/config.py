@@ -154,13 +154,7 @@ INPUT_GAIN_MAX = 1.5
 # =====================================================
 CALIBRATE_THRESHOLD_RATIO = True
 THRESHOLD_RATIO_CANDIDATES = [
-    # ratio_code / 255.0 — 1~16 逐1全覆盖 + 16以上对数间距
-    # ratio_code:  1   2   3   4   5   6   7   8
-    1/255, 2/255, 3/255, 4/255, 5/255, 6/255, 7/255, 8/255,
-    # ratio_code:  9  10  11  12  13  14  15  16
-    9/255, 10/255, 11/255, 12/255, 13/255, 14/255, 15/255, 16/255,
-    # ratio_code: 20  25  32  40  50  64  80 100 128 160 200
-    20/255, 25/255, 32/255, 40/255, 50/255, 64/255, 80/255, 100/255, 128/255, 160/255, 200/255,
+    1/255,  # ratio_code=1，验证单点
 ]
 FULL_GRID_INCLUDE_RATIO = True
 FULL_GRID_RATIO_CANDIDATES = list(THRESHOLD_RATIO_CANDIDATES)
@@ -219,10 +213,10 @@ DOWNSAMPLE_METHODS = {
 # =====================================================
 # 参数扫描范围
 # =====================================================
-ADC_BITS_SWEEP = [6, 8, 10, 12]
-WEIGHT_BITS_SWEEP = [2, 3, 4, 6, 8]
-TIMESTEPS_SWEEP = [1, 2, 3, 4, 5, 10, 20]
-RESET_MODE_SWEEP = ["soft", "hard"]
+ADC_BITS_SWEEP = [8]              # 锁定 8-bit ADC（硬件已定，6-bit 留 V2）
+WEIGHT_BITS_SWEEP = [4]           # 锁定 4-bit（RRAM 物理限制）
+TIMESTEPS_SWEEP = [10]            # 锁定 T=10 验证单点
+RESET_MODE_SWEEP = ["soft"]       # 锁定 soft（推荐结果）
 
 # =====================================================
 # 权重导出

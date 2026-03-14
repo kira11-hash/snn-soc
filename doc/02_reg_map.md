@@ -6,8 +6,8 @@
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x00 | NEURON_THRESHOLD | threshold | [31:0] | RW | THRESHOLD_DEFAULT | LIF 阈值 |
-| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd3 | 推理帧数（每帧含 PIXEL_BITS 子时间步，工程默认 T=3） |
-| 0x08 | NUM_INPUTS | num_inputs | [15:0] | RO | 16'd64 | 输入维度（8x8 离线投影后特征） |
+| 0x04 | TIMESTEPS | timesteps | [7:0] | RW | 8'd10 | 推理帧数（每帧含 PIXEL_BITS 子时间步，当前工程默认 T=10） |
+| 0x08 | NUM_INPUTS | num_inputs | [15:0] | RO | 16'd64 | 输入维度（默认 `avgpool8x8` 的 8x8 离线特征） |
 | 0x0C | NUM_OUTPUTS | num_outputs | [7:0] | RO | 8'd10 | 输出类别 |
 | 0x10 | RESET_MODE | reset_mode | [0] | RW | 1'b0 | 0=soft reset, 1=hard reset |
 | 0x14 | CIM_CTRL | START | [0] | W1P | 0 | 写 1 启动一次推理 |
@@ -20,8 +20,8 @@
 | 0x18 | STATUS | OUT_FIFO_FULL | [4] | RO | 0 | 输出 FIFO 满 |
 | 0x18 | STATUS | TIMESTEP_CNT | [15:8] | RO | 0 | 已完成帧计数 |
 | 0x1C | OUT_FIFO_DATA | spike_id | [3:0] | RO | 0 | 读一次弹出一个 spike_id，空则返回 0 |
-| 0x20 | OUT_FIFO_COUNT | count | [8:0] | RO | 0 | 输出 FIFO 当前计数（有效位 [8:0]，其余为 0） |
-| 0x24 | THRESHOLD_RATIO | ratio | [7:0] | RW | 8'd4 | 阈值比例（4/255≈0.0157，定版 ratio_code），供固件计算绝对阈值 |
+| 0x20 | OUT_FIFO_COUNT | count | [12:0] | RO | 0 | 输出 FIFO 当前计数（有效位 [12:0]，其余为 0；默认深度 4096） |
+| 0x24 | THRESHOLD_RATIO | ratio | [7:0] | RW | 8'd1 | 阈值比例（1/255≈0.00392，定版 ratio_code），供固件计算绝对阈值 |
 | 0x28 | ADC_SAT_COUNT | sat_high | [15:0] | RO | 0 | ADC 采样 == MAX (0xFF) 累计次数，每次推理自动清零 |
 | 0x28 | ADC_SAT_COUNT | sat_low | [31:16] | RO | 0 | ADC 采样 == 0 累计次数，每次推理自动清零 |
 | 0x2C | CIM_TEST | test_mode | [0] | RW | 0 | CIM 测试模式使能（1=旁路模拟宏，用数字假响应） |
@@ -34,9 +34,9 @@
 
 说明：
 - THRESHOLD 和 THRESHOLD_RATIO 为双寄存器模式：固件可读取 ratio 计算绝对阈值后写入 THRESHOLD，或直接写入绝对阈值。
-- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 4 × 255 × 3 = 3060（工程默认）。
+- THRESHOLD_DEFAULT = THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 1 × 255 × 10 = 2550（当前工程默认）。
 - CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake CIM/ADC 响应（cim_done 延迟 2 拍, adc_done 延迟 1 拍）；bl_data 按 bl_sel 分路返回：ch 0~9 返回 test_data_pos，ch 10~19 返回 test_data_neg；DAC 阶段仍按固定 `DAC_LATENCY_CYCLES` 时序运行（无 `dac_ready` 握手）。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
-- 推荐写法（全链路自检）：写 `test_mode=1, test_data_pos=100, test_data_neg=0`，Scheme B 差分 = 100，T=3 推理后 OUT_FIFO_COUNT 应明显非零（验证 DMA→FIFO→FSM→ADC→LIF→输出FIFO 全通路）。单写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111）即可同时配置三字段。
+- 推荐写法（全链路自检）：写 `test_mode=1, test_data_pos=100, test_data_neg=0`，Scheme B 差分 = 100；按当前默认 `T=10` 推理后 `OUT_FIFO_COUNT` 应明显非零（验证 DMA→FIFO→FSM→ADC→LIF→输出FIFO 全通路）。若只想做更快冒烟，也可先将 `TIMESTEPS` 软件写成更小值。单写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111）即可同时配置三字段。
 - 用途边界：CIM_TEST 仅用于时序/通路自检，不用于分类数值链路正确性验证（差分结果非真实权重，推理结果无意义）。
 - DBG_CNT_0/1：16-bit 饱和计数器，仅 rst_n 清零。用于运行时诊断 DMA 搬运量、推理耗时、spike 输出量、WL mux 协议违规。
 
@@ -54,7 +54,7 @@
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x00 | IN_FIFO_COUNT | count | [8:0] | RO | 0 | 输入 FIFO 计数（有效位 [8:0]，其余为 0） |
-| 0x04 | OUT_FIFO_COUNT | count | [8:0] | RO | 0 | 输出 FIFO 计数（有效位 [8:0]，其余为 0） |
+| 0x04 | OUT_FIFO_COUNT | count | [12:0] | RO | 0 | 输出 FIFO 计数（有效位 [12:0]，其余为 0；默认深度 4096） |
 | 0x08 | FIFO_STATUS | in_empty | [0] | RO | 0 | 输入 FIFO 空 |
 | 0x08 | FIFO_STATUS | in_full | [1] | RO | 0 | 输入 FIFO 满 |
 | 0x08 | FIFO_STATUS | out_empty | [2] | RO | 0 | 输出 FIFO 空 |

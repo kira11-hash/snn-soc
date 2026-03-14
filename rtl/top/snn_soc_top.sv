@@ -269,8 +269,8 @@ module snn_soc_top (
   logic [NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data;
 
   // 来自 reg_bank 的控制寄存器
-  // neuron_threshold: LIF 膜电位阈值（32-bit，默认 THRESHOLD_DEFAULT=3060）
-  // timesteps       : 推理时间步数（8-bit，工程默认 3）
+  // neuron_threshold: LIF 膜电位阈值（32-bit，默认 THRESHOLD_DEFAULT=2550）
+  // timesteps       : 推理时间步数（8-bit，工程默认 10）
   // reset_mode      : LIF 复位模式：0=减法复位（soft），1=归零复位（hard）
   // snn_busy        : SNN 子系统忙标志（cim_array_ctrl → reg_bank，SW 轮询）
   // snn_done_pulse  : SNN 推理完成脉冲（单拍，cim_array_ctrl → reg_bank）
@@ -564,8 +564,8 @@ module snn_soc_top (
   // reg_bank：核心控制/状态寄存器，包含：
   //   - REG_CTRL: snn_start_pulse / snn_soft_reset_pulse / reset_mode / cim_test_mode
   //   - REG_STATUS: snn_busy / snn_done_pulse / timestep_counter 等
-  //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（定版默认 4 = 0x04）
-  //   - REG_TIMESTEPS: 时间步数（工程默认 3）
+  //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（定版默认 1 = 0x01）
+  //   - REG_TIMESTEPS: 时间步数（工程默认 10）
   //   - REG_CIM_TEST: test_mode + test_data_pos/test_data_neg（测试模式用）
   //   - REG_ADC_SAT: ADC 饱和计数高/低
   //   - REG_DBG_*: 4 个调试计数器
@@ -644,7 +644,7 @@ module snn_soc_top (
   //   周期 5 : cim_macro_blackbox 接收 spike，发出 cim_done（模拟/fake 延迟）
   //   周期 6 : cim_array_ctrl 发出 adc_kick_pulse → adc_ctrl 开始 20 路扫描
   //   周期 7~26: adc_ctrl 逐列扫描（每列: adc_start → adc_done → 采样 bl_data）
-  //   周期 27: adc_ctrl 发出 neuron_in_valid + neuron_in_data[19:0]（20 个 9-bit）
+  //   周期 27: adc_ctrl 发出 neuron_in_valid + neuron_in_data[9:0]（10 个 9-bit 差分结果）
   //   周期 28: lif_neurons 更新膜电位，判断阈值，push spike 到 output FIFO
   //   周期 29: cim_array_ctrl 完成当前时间步；若达到 timesteps 则发出 snn_done_pulse
   //======================
@@ -746,7 +746,7 @@ module snn_soc_top (
     .bl_sel         (bl_sel),           // 输出给 cim_macro_blackbox：当前列编号
     .bl_data        (bl_data),          // 来自 MUX：当前列 ADC 结果（hw 或 test）
     .neuron_in_valid(neuron_in_valid),  // 输出：所有列扫描完成，数据就绪
-    .neuron_in_data (neuron_in_data),   // 输出：20 个 9-bit 有符号差分结果
+    .neuron_in_data (neuron_in_data),   // 输出：10 个 9-bit 有符号差分结果
     .adc_sat_high   (adc_sat_high),     // 输出：高饱和计数 → reg_bank
     .adc_sat_low    (adc_sat_low)       // 输出：低饱和计数 → reg_bank
   );
@@ -759,14 +759,14 @@ module snn_soc_top (
   //   每次 spike 事件都会把神经元编号 push 到 output FIFO（事件流输出）
   // 关键信号：
   //   bitplane_shift : 比特平面偏移（0~7，对应 8-bit 输入位平面）
-  //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 3060）
+  //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 2550）
   //   reset_mode     : 0=减法复位（membrane -= threshold），1=归零（membrane=0）
   lif_neurons u_lif (
     .clk            (clk),
     .rst_n          (rst_n),
     .soft_reset_pulse(snn_soft_reset_pulse), // 软复位：清空所有膜电位，回到初始状态
     .neuron_in_valid(neuron_in_valid),       // adc_ctrl 产生：输入数据就绪
-    .neuron_in_data (neuron_in_data),        // 20 个 9-bit 有符号差分结果（输入电流）
+    .neuron_in_data (neuron_in_data),        // 10 个 9-bit 有符号差分结果（输入电流）
     .bitplane_shift (bitplane_shift),        // 比特平面偏移（来自 cim_array_ctrl）
     .threshold      (neuron_threshold),      // LIF 阈值（来自 reg_bank）
     .reset_mode     (reset_mode),            // 复位模式（来自 reg_bank）

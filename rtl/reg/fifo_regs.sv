@@ -48,8 +48,8 @@ module fifo_regs (
 
   // ── 来自 fifo_sync 实例的 FIFO 状态信号 ──────────────────────────────────
   // 计数宽度由 FIFO 深度决定（$clog2(DEPTH+1) 位）
-  // INPUT_FIFO_DEPTH=256  → $clog2(257) = 9 位 → in_fifo_count[8:0]
-  // OUTPUT_FIFO_DEPTH=256 → $clog2(257) = 9 位 → out_fifo_count[8:0]
+  // INPUT_FIFO_DEPTH=256   → $clog2(257)  = 9 位  → in_fifo_count[8:0]
+  // OUTPUT_FIFO_DEPTH=4096 → $clog2(4097) = 13 位 → out_fifo_count[12:0]
   input  logic [$clog2(snn_soc_pkg::INPUT_FIFO_DEPTH+1)-1:0]  in_fifo_count,  // 输入 FIFO 当前元素数
   input  logic [$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count, // 输出 FIFO 当前元素数
   input  logic in_fifo_empty,    // 输入 FIFO 空标志（count==0 时置 1）
@@ -59,7 +59,7 @@ module fifo_regs (
 );
   // ── offset 定义 ──────────────────────────────────────────────────────────
   localparam logic [7:0] REG_IN_COUNT  = 8'h00; // 输入 FIFO 深度
-  localparam logic [7:0] REG_OUT_COUNT = 8'h04; // 输出 FIFO 深度
+  localparam logic [7:0] REG_OUT_COUNT = 8'h04; // 输出 FIFO 计数
   localparam logic [7:0] REG_STATUS    = 8'h08; // 空满状态聚合
 
   // 地址低8位作为模块内 offset

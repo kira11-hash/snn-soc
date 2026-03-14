@@ -76,16 +76,16 @@ Flash -> SPI -> CPU(E203) -> data_sram -> DMA -> input_fifo -> ... -> output_fif
 ## 关键参数表
 | 参数 | 值 | 说明 |
 |---|---:|---|
-| NUM_INPUTS | 64 | 输入维度（8x8，离线投影后特征） |
+| NUM_INPUTS | 64 | 输入维度（默认 `avgpool8x8` 的 8x8 离线特征接口） |
 | NUM_OUTPUTS | 10 | 输出类别数 |
 | ADC_CHANNELS | 20 | CIM BL 通道数（Scheme B：10 正 + 10 负） |
 | PIXEL_BITS | 8 | 像素位宽（bit-plane 编码） |
 | ADC_BITS | 8 | ADC 输出位宽 |
 | NEURON_DATA_WIDTH | 9 | 差分后有符号数据位宽（ADC_BITS+1） |
-| TIMESTEPS_DEFAULT | 3 | 默认帧数（工程默认 T=3，精度/时延折中） |
-| THRESHOLD_RATIO_DEFAULT | 4 | 阈值比例（4/255 ≈ 0.0157，定版 ratio_code） |
+| TIMESTEPS_DEFAULT | 10 | 默认帧数（当前工程默认 T=10） |
+| THRESHOLD_RATIO_DEFAULT | 1 | 阈值比例（1/255 ≈ 0.00392，定版 ratio_code） |
 | SPIKE_RESET_MODE | soft | 复位模式定版（soft/hard 在当前推荐配置与 noisy test 上等效） |
-| THRESHOLD_DEFAULT | 3060 | 默认阈值（ratio_code × 255 × T = 4×255×3） |
+| THRESHOLD_DEFAULT | 2550 | 默认阈值（ratio_code × 255 × T = 1×255×10） |
 | LIF_MEM_WIDTH | 32 | LIF 膜电位位宽（有符号，建议 >= NEURON_DATA_WIDTH + PIXEL_BITS） |
 | DAC_LATENCY_CYCLES | 5 | DAC 延迟（仿真） |
 | CIM_LATENCY_CYCLES | 10 | CIM 延迟（仿真） |
@@ -93,8 +93,8 @@ Flash -> SPI -> CPU(E203) -> data_sram -> DMA -> input_fifo -> ... -> output_fif
 | ADC_SAMPLE_CYCLES | 3 | ADC 单次采样延迟（仿真） |
 
 ## 建模定版补充（复位模式，2026-02-10）
-- 对比对象：`SPIKE_RESET_MODE=soft` 与 `SPIKE_RESET_MODE=hard`，其余参数固定（`proj_sup_64, Scheme B, ADC=8, W=4, T=3, ratio_code=4`）。
-- 论文建议：保留 `T=10` 作为高精度对照档位，用于绘制精度/时延 trade-off 图。
+- 对比对象：`SPIKE_RESET_MODE=soft` 与 `SPIKE_RESET_MODE=hard`；当前 RTL 默认 `reset_mode=soft`，其余建模参数以各次对比实验冻结配置为准。
+- 当前工程默认 `T=10`；如需绘制精度/时延 trade-off，可额外比较更小的 `T`。
 - 对比入口：`run_all.py` 的 `[3f]`（`add_noise=True`）与 `[3l]`（test 多 seed noisy，`add_noise=True`）。
 - soft（历史基线）：
   - val noisy mean：`90.41% +/- 0.0031`

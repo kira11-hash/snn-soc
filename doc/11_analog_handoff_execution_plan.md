@@ -1,8 +1,8 @@
 # 11 数字-模拟接口对接文档
 
 **文档目的**：数字侧向模拟侧传递当前设计口径，并列出需要模拟侧确认/提供的全部信息，以推进 V1 RTL 收口和后端集成。
-**版本**：v1.3
-**日期**：2026-02-27
+**版本**：v1.4
+**日期**：2026-03-14
 
 ---
 
@@ -38,16 +38,16 @@
 
 | 参数 | 定版值 | 说明 |
 |---|---|---|
-| 输入维度（WL 数） | **64** | 8×8 离线投影特征（不是原始像素） |
+| 输入维度（WL 数） | **64** | 默认 `avgpool8x8` 的 8×8 离线特征接口（不是原始像素；RTL 不在硬件里绑定前处理算法） |
 | 输出维度（BL 组数） | **10** | MNIST 分类 0~9，Scheme B 差分 |
 | ADC 精度 | **8-bit** | 建模验证最优（6-bit 精度降约1%） |
 | 差分方案 | **Scheme B** | 数字侧差分减法，ADC通道数=20（10正+10负） |
-| 推理帧数 | **T=3（工程默认）** | 同一输入重复3帧累积膜电位（论文可用 T=10 作高精度对照） |
-| 阈值 ratio_code | **4**（4/255≈1.57%） | 上电默认，UART可覆写 |
-| THRESHOLD_DEFAULT | **3060** | = 4 × 255 × 3，LIF阈值寄存器上电默认值 |
+| 推理帧数 | **T=10（工程默认）** | 当前冻结配置：同一输入重复10帧累积膜电位 |
+| 阈值 ratio_code | **1**（1/255≈0.392%） | 上电默认，UART可覆写 |
+| THRESHOLD_DEFAULT | **2550** | = 1 × 255 × 10，LIF阈值寄存器上电默认值 |
 | 阵列物理规模 | 128×256 RRAM | 差分结构，V1有效使用 64 WL × 20 BL |
 | 时钟频率 | **50 MHz**（目标） | 周期 20 ns |
-| 总推理子时间步数 | **24** | T=3 帧 × PIXEL_BITS=8 bit-plane = 24 |
+| 总推理子时间步数 | **80** | T=10 帧 × PIXEL_BITS=8 bit-plane = 80 |
 | 对齐精度口径 | spike-only；zero-spike=0.00% | 与当前 Python/RTL 定版口径一致 |
 | 证据文件 | `项目相关文件/器件对齐/Python建模/results/summary.txt` | 对齐结果归档 |
 
@@ -224,12 +224,12 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
    parameter int ADC_MUX_SETTLE_CYCLES = <A5-3 实测值>;  // 原 2
    parameter int ADC_SAMPLE_CYCLES     = <A5-4 实测值>;  // 原 3
    ```
-2. 重新计算一个 bit-plane 的总时钟周期数，评估 24 个 bit-plane（T=3）的总推理时间
+2. 重新计算一个 bit-plane 的总时钟周期数，评估 80 个 bit-plane（T=10）的总推理时间
 3. 评估 50MHz 时钟是否足够，或者是否需要降频
 
 ### 拿到 A6（噪声数字）后：
 
-1. 根据 ADC noise floor（单位 LSB）评估当前 THRESHOLD_DEFAULT=3060 是否足够健壮
+1. 根据 ADC noise floor（单位 LSB）评估当前 THRESHOLD_DEFAULT=2550 是否足够健壮
 2. 如果噪声比预期大，考虑调高阈值（改 THRESHOLD_RATIO_DEFAULT），或回服务器跑一次 Python 建模重新标定
 3. 更新 Python 建模的 READ_NOISE_SIGMA 参数以反映真实噪声水平，重新验证精度
 
@@ -260,7 +260,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
     1. 同步最新 RTL 到 shannon 服务器
     2. 运行 vcs 编译（见 sim/run_vcs.sh 或手动写 filelist）
     3. 观察 top_tb.sv 输出：
-       - THRESHOLD_RATIO readback = 4 ✓
+       - THRESHOLD_RATIO readback = 1 ✓
        - DMA 传输 160 words 完成 ✓
        - CIM DONE 拉高 ✓
        - output_fifo 有 spike_id 输出 ✓
@@ -316,9 +316,9 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | WL 数（输入维度） | 64 | snn_soc_pkg::NUM_INPUTS |
 | BL 通道数（Scheme B） | 20（10正+10负） | snn_soc_pkg::ADC_CHANNELS |
 | ADC 精度 | 8-bit | snn_soc_pkg::ADC_BITS |
-| 每次推理总 bit-plane 数 | 24（T=3 × PIXEL_BITS=8） | TIMESTEPS_DEFAULT × PIXEL_BITS |
-| 数字侧 LIF 阈值（上电默认） | 3060 | THRESHOLD_DEFAULT = 4×255×3 |
+| 每次推理总 bit-plane 数 | 80（T=10 × PIXEL_BITS=8） | TIMESTEPS_DEFAULT × PIXEL_BITS |
+| 数字侧 LIF 阈值（上电默认） | 2550 | THRESHOLD_DEFAULT = 1×255×10 |
 | 差分结果位宽 | 9-bit 有符号（[-255, +255]） | NEURON_DATA_WIDTH = ADC_BITS+1 |
 | 仿真时钟频率 | 50 MHz | 目标值，待工艺确认 |
 | 单 bit-plane 仿真延迟（含20通道ADC） | ~125 cycles ≈ 2.5 μs | 待模拟侧确认真实值 |
-| 总推理延迟（24 bit-plane） | 24 × 125 = 3000 cycles ≈ 60 μs | 估算（T=3 默认） |
+| 总推理延迟（80 bit-plane） | 80 × 125 = 10000 cycles ≈ 200 μs | 估算（T=10 默认） |

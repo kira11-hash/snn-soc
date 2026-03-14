@@ -14,7 +14,7 @@
 // 描述: SNN SoC 顶层 Testbench。
 //       完整流程：配置寄存器 -> 写入 data_sram -> DMA -> 推理 -> 读取输出。
 //       生成 FSDB 波形供 Verdi 使用。
-//       适配 V1 参数：NUM_INPUTS=64, ADC_BITS=8, T=3, Scheme B（工程默认）。
+//       适配当前工程参数：NUM_INPUTS=64, ADC_BITS=8, T=10, Scheme B。
 //======================================================================
 //
 // -----------------------------------------------------------------------
@@ -22,19 +22,19 @@
 //
 //   Phase 1: 寄存器配置
 //     - 写 REG_THRESHOLD（0x4000_0000）：设置 LIF 神经元阈值
-//     - 写 REG_TIMESTEPS（0x4000_0004）：设置时步数/帧数（=3，工程默认 TIMESTEPS_DEFAULT）
-//     - 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值（期望 4，ratio_code=4/255≈0.0157）
+//     - 写 REG_TIMESTEPS（0x4000_0004）：设置时步数/帧数（=10，工程默认 TIMESTEPS_DEFAULT）
+//     - 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值（期望 1，ratio_code=1/255≈0.00392）
 //
 //   Phase 2: 写入 data_sram（bit-plane 编码）
 //     - 每个像素值（8-bit）展开为 8 个 bit-plane（MSB 优先）
 //     - 每个 bit-plane = NUM_INPUTS=64 bit = 2 个 32-bit word
 //     - 写入地址：data_sram 起始地址 0x0001_0000
-//     - 总共写入：frames × PIXEL_BITS × 2 = 3 × 8 × 2 = 48 words
-//     - 这是 DMA_LEN_WORDS=48（偶数，满足 DMA 要求）
+//     - 总共写入：frames × PIXEL_BITS × 2 = TIMESTEPS_DEFAULT × 8 × 2
+//     - 当前工程默认 T=10，因此 DMA_LEN_WORDS = 160（偶数，满足 DMA 要求）
 //
 //   Phase 3: DMA 传输
 //     - 写 DMA_SRC_ADDR（0x4000_0100）：= 0x0001_0000（data_sram 起始）
-//     - 写 DMA_LEN_WORDS（0x4000_0104）：= 48（T=3 × 8 个 bit-plane × 每 plane 2 words）
+//     - 写 DMA_LEN_WORDS（0x4000_0104）：= frames × 8 × 2（当前默认 T=10 时为 160）
 //     - 写 DMA_CTRL.START（0x4000_0108）：W1P 触发
 //     - 轮询 DMA_CTRL.DONE（bit[1]）：等待传输完成
 //
@@ -100,7 +100,6 @@
 // -----------------------------------------------------------------------
 module top_tb;
   import snn_soc_pkg::*;
-  import tb_bus_pkg::*;
 
   // -----------------------------------------------------------------------
   // 参数化常量（用于断言，不改变逻辑）
@@ -153,6 +152,56 @@ module top_tb;
     .jtag_tdo (jtag_tdo)
   );
 
+  task automatic bus_write32(
+    input [31:0] addr,
+    input [31:0] data,
+    input [3:0]  wstrb
+  );
+    begin
+      @(negedge clk);
+      dut.bus_if.m_valid = 1'b1;
+      dut.bus_if.m_write = 1'b1;
+      dut.bus_if.m_addr  = addr;
+      dut.bus_if.m_wdata = data;
+      dut.bus_if.m_wstrb = wstrb;
+
+      @(posedge clk);
+      @(posedge clk);
+
+      @(negedge clk);
+      dut.bus_if.m_valid = 1'b0;
+      dut.bus_if.m_write = 1'b0;
+      dut.bus_if.m_addr  = 32'h0;
+      dut.bus_if.m_wdata = 32'h0;
+      dut.bus_if.m_wstrb = 4'h0;
+    end
+  endtask
+
+  task automatic bus_read32(
+    input [31:0] addr,
+    output [31:0] data
+  );
+    begin
+      @(negedge clk);
+      dut.bus_if.m_valid = 1'b1;
+      dut.bus_if.m_write = 1'b0;
+      dut.bus_if.m_addr  = addr;
+      dut.bus_if.m_wdata = 32'h0;
+      dut.bus_if.m_wstrb = 4'h0;
+
+      @(posedge clk);
+      @(posedge clk);
+      data = dut.bus_if.m_rdata;
+
+      @(negedge clk);
+      dut.bus_if.m_valid = 1'b0;
+      dut.bus_if.m_write = 1'b0;
+      dut.bus_if.m_addr  = 32'h0;
+      dut.bus_if.m_wdata = 32'h0;
+      dut.bus_if.m_wstrb = 4'h0;
+    end
+  endtask
+
   // -----------------------------------------------------------------------
   // 时钟生成：50MHz（周期 20ns）
   // 半周期 10ns → #10 翻转一次 → 完整周期 20ns
@@ -177,6 +226,11 @@ module top_tb;
     jtag_tck= 1'b0;
     jtag_tms= 1'b0;
     jtag_tdi= 1'b0;
+    dut.bus_if.m_valid = 1'b0;
+    dut.bus_if.m_write = 1'b0;
+    dut.bus_if.m_addr  = 32'h0;
+    dut.bus_if.m_wdata = 32'h0;
+    dut.bus_if.m_wstrb = 4'h0;
     repeat (5) @(posedge clk); // 等待 5 个时钟沿（5×20ns = 100ns）
     rst_n = 1'b1;
   end
@@ -294,27 +348,15 @@ module top_tb;
   // -----------------------------------------------------------------------
   // 虚拟总线接口句柄
   //
-  // bus_vif 是 bus_simple_if 类型的虚接口句柄。
-  // top_tb 通过 dut.bus_if 获取 DUT 内部暴露的接口实例（层次化引用）。
-  // initial 块中初始化所有 master 驱动信号为安全的初始值，避免 X 传播。
+  // top_tb 直接通过 dut.bus_if 驱动 DUT 内部暴露的 bus_simple_if 实例。
+  // 本地 bus_write32 / bus_read32 任务沿用 light/weighted TB 的时序，避免完整 TB 依赖 virtual interface。
   // -----------------------------------------------------------------------
-  // bus 虚接口句柄
-  virtual bus_simple_if bus_vif;
-
-  initial begin
-    bus_vif = dut.bus_if; // 连接到 DUT 内部的 bus_simple_if 实例
-    // 初始化 master 侧信号为无效状态（避免复位期间产生误操作）
-    bus_vif.m_valid = 1'b0;
-    bus_vif.m_write = 1'b0;
-    bus_vif.m_addr  = 32'h0;
-    bus_vif.m_wdata = 32'h0;
-    bus_vif.m_wstrb = 4'h0;
-  end
+  // bus 接口直接由 dut.bus_if 驱动
 
   // -----------------------------------------------------------------------
   // 主测试进程（initial block）
   //
-  // 所有寄存器访问通过 bus_write32/bus_read32 任务进行（来自 tb_bus_pkg）。
+  // 所有寄存器访问通过本地 bus_write32/bus_read32 任务进行。
   // 任务内部处理握手时序，此处只需关注测试逻辑。
   // -----------------------------------------------------------------------
   // 测试流程
@@ -325,7 +367,7 @@ module top_tb;
     logic [NUM_INPUTS-1:0] wl_vec [0:1];          // 两个测试图案（64-bit 各一个）
     logic [7:0] pixel_val [0:1][0:NUM_INPUTS-1];  // 像素值：[帧][像素位置]
     logic [7:0] frame_amp [0:1];  // 每帧的振幅（8-bit 像素最大值）
-    int frames = snn_soc_pkg::TIMESTEPS_DEFAULT; // 工程默认 T=3：同一输入重复 3 帧累积膜电位
+    int frames;                   // 工程默认 T=10：同一输入重复 10 帧累积膜电位
     int write_idx;                // data_sram 写入索引（按 bit-plane 对计数）
     logic [NUM_INPUTS-1:0] plane_vec; // 当前 bit-plane 的 64-bit 位向量
 
@@ -348,7 +390,7 @@ module top_tb;
     // 8x8 patterns (used to build 8-bit pixels)
     // Pattern 0: 中心十字（8x8）
     wl_vec[0] = 64'b00000000_00011000_00011000_01111110_01111110_00011000_00011000_00000000;
-    // Pattern 1: 对角线 X（备用，T=3 时 3 帧全部使用 Pattern 0 重复，Pattern 1 不用）
+    // Pattern 1: 对角线 X（备用；当前 smoke/testbench 默认全部重复使用 Pattern 0）
     wl_vec[1] = 64'b10000001_01000010_00100100_00011000_00011000_00100100_01000010_10000001;
 
     // -----------------------------------------------------------------------
@@ -359,6 +401,7 @@ module top_tb;
     // Per-frame amplitude (8-bit)
     frame_amp[0] = 8'hFF; // all bits set
     frame_amp[1] = 8'h80; // MSB only
+    frames = snn_soc_pkg::TIMESTEPS_DEFAULT;
 
     // -----------------------------------------------------------------------
     // 像素值计算：将图案与振幅结合
@@ -382,14 +425,14 @@ module top_tb;
     // 写 REG_THRESHOLD（0x4000_0000）：使用 snn_soc_pkg 中的默认值
     // THRESHOLD_DEFAULT 来自 snn_soc_pkg，确保与包参数一致
     // 1) 配置阈值与时步
-    bus_write32(bus_vif, 32'h4000_0000, THRESHOLD_DEFAULT, 4'hF); // THRESHOLD
-    // 写 REG_TIMESTEPS（0x4000_0004）：frames=TIMESTEPS_DEFAULT=3（工程默认），使用 wstrb=4'h1 只写 byte0
-    bus_write32(bus_vif, 32'h4000_0004, frames,   4'h1); // TIMESTEPS
+    bus_write32(32'h4000_0000, THRESHOLD_DEFAULT, 4'hF); // THRESHOLD
+    // 写 REG_TIMESTEPS（0x4000_0004）：frames=TIMESTEPS_DEFAULT=10（工程默认），使用 wstrb=4'h1 只写 byte0
+    bus_write32(32'h4000_0004, frames,   4'h1); // TIMESTEPS
 
     // 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值
-    // 期望值 = THRESHOLD_RATIO_DEFAULT = 4（ratio_code=4，4/255≈0.0157，定版锁定）
+    // 期望值 = THRESHOLD_RATIO_DEFAULT = 1（ratio_code=1，1/255≈0.00392，定版锁定）
     // 读回 THRESHOLD_RATIO 验证默认值
-    bus_read32(bus_vif, 32'h4000_0024, rd);
+    bus_read32(32'h4000_0024, rd);
     $display("[TB] THRESHOLD_RATIO = %0d (expected %0d)", rd[7:0], THRESHOLD_RATIO_DEFAULT);
 
     // =======================================================================
@@ -417,16 +460,16 @@ module top_tb;
       for (int b = PIXEL_BITS-1; b >= 0; b = b - 1) begin
         // 提取第 b 位 bit-plane：64 个像素各取 1 bit 组成 64-bit 向量
         for (int p = 0; p < NUM_INPUTS; p = p + 1) begin
-          // T=3：3 帧重复同一输入（pattern 0）进行膜电位累积
-          // pixel_val 仅定义了 [0:1]，使用 t%2 防止越界；实际 smoke test 全部用 pattern 0
+          // 为保持回归确定性，所有 frames 都重复使用 pattern 0 进行膜电位累积
+          // pixel_val 仅定义了 [0:1]，但当前默认测试路径固定取 pattern 0
           plane_vec[p] = pixel_val[0][p][b];
         end
         word0 = plane_vec[31:0];   // 低 32-bit（像素 0~31 的第 b 位）
         word1 = plane_vec[63:32];  // 高 32-bit（像素 32~63 的第 b 位）
         // 写入 data_sram（物理地址 0x0001_0000 = data_sram 基址）
         // 步长：每个 bit-plane 占 8 字节（= write_idx * 8）
-        bus_write32(bus_vif, 32'h0001_0000 + write_idx*8,     word0, 4'hF);
-        bus_write32(bus_vif, 32'h0001_0000 + write_idx*8 + 4, word1, 4'hF);
+        bus_write32(32'h0001_0000 + write_idx*8,     word0, 4'hF);
+        bus_write32(32'h0001_0000 + write_idx*8 + 4, word1, 4'hF);
         write_idx++;
       end
     end
@@ -440,22 +483,22 @@ module top_tb;
     //   0x4000_0108 = DMA_CTRL      (offset 0x08)
     //
     // DMA_LEN_WORDS = frames * PIXEL_BITS * 2
-    //   = 3 * 8 * 2 = 48 words（48 是偶数，满足 DMA 的奇偶检查）
-    //   每个 bit-plane 占 2 words，3帧×8 个 bit-plane，总计 48 words
+    //   = frames * 8 * 2
+    //   当前默认 frames=10，因此总计 160 words（满足 DMA 的偶数长度要求）
     //
     // 轮询 DMA DONE（bit[1]）：
     //   DMA_CTRL[1] = done_sticky，传输完成后硬件置 1
     //   do-while 轮询：每次读 DMA_CTRL，直到 bit[1]=1
     // =======================================================================
     // 3) Start DMA
-    bus_write32(bus_vif, 32'h4000_0100, 32'h0001_0000, 4'hF); // DMA_SRC_ADDR = data_sram 起始物理地址
-    bus_write32(bus_vif, 32'h4000_0104, frames*PIXEL_BITS*2, 4'hF); // DMA_LEN_WORDS = frames*PIXEL_BITS*2
-    bus_write32(bus_vif, 32'h4000_0108, 32'h1,         4'h1); // DMA_CTRL.START W1P：bit[0]=1 触发
+    bus_write32(32'h4000_0100, 32'h0001_0000, 4'hF); // DMA_SRC_ADDR = data_sram 起始物理地址
+    bus_write32(32'h4000_0104, frames*PIXEL_BITS*2, 4'hF); // DMA_LEN_WORDS = frames*PIXEL_BITS*2
+    bus_write32(32'h4000_0108, 32'h1,         4'h1); // DMA_CTRL.START W1P：bit[0]=1 触发
 
     // 轮询 DMA DONE
     // rd[1] = DMA_CTRL.DONE（bit[1]）；= 1 时 DMA 完成
     do begin
-      bus_read32(bus_vif, 32'h4000_0108, rd);
+      bus_read32(32'h4000_0108, rd);
     end while (rd[1] == 1'b0);
 
     // =======================================================================
@@ -467,12 +510,12 @@ module top_tb;
     //   本 TB 在读到 DONE=1 后不清零（留供诊断，$finish 后自然消失）
     // =======================================================================
     // 4) 启动 CIM 推理
-    bus_write32(bus_vif, 32'h4000_0014, 32'h1, 4'h1); // CIM_CTRL.START W1P：bit[0]=1 触发推理
+    bus_write32(32'h4000_0014, 32'h1, 4'h1); // CIM_CTRL.START W1P：bit[0]=1 触发推理
 
     // 轮询 CIM DONE（bit7）
     // rd[7] = CIM_CTRL.DONE（done_sticky）；= 1 时推理完成
     do begin
-      bus_read32(bus_vif, 32'h4000_0014, rd);
+      bus_read32(32'h4000_0014, rd);
     end while (rd[7] == 1'b0);
 
     // -----------------------------------------------------------------------
@@ -498,20 +541,20 @@ module top_tb;
     //   rd[23:16] = cim_test_data_neg（默认 0，ch 10~19）
     // -----------------------------------------------------------------------
     // 4b) 读取 ADC 饱和计数（诊断）
-    bus_read32(bus_vif, 32'h4000_0028, rd);
+    bus_read32(32'h4000_0028, rd);
     $display("[TB] ADC_SAT_COUNT = 0x%08X (sat_high=%0d, sat_low=%0d)",
              rd, rd[15:0], rd[31:16]);
 
     // 4c) 读取 Debug 计数器
-    bus_read32(bus_vif, 32'h4000_0030, rd); // DBG_CNT_0
+    bus_read32(32'h4000_0030, rd); // DBG_CNT_0
     $display("[TB] DBG_CNT_0 = 0x%08X (dma_frame=%0d, cim_cycle=%0d)",
              rd, rd[15:0], rd[31:16]);
-    bus_read32(bus_vif, 32'h4000_0034, rd); // DBG_CNT_1
+    bus_read32(32'h4000_0034, rd); // DBG_CNT_1
     $display("[TB] DBG_CNT_1 = 0x%08X (spike=%0d, wl_stall=%0d)",
              rd, rd[15:0], rd[31:16]);
 
     // 4d) 读取 CIM_TEST 寄存器（默认值应为 0）
-    bus_read32(bus_vif, 32'h4000_002C, rd);
+    bus_read32(32'h4000_002C, rd);
     $display("[TB] CIM_TEST = 0x%08X (test_mode=%0b, pos=0x%02X, neg=0x%02X)",
              rd, rd[0], rd[15:8], rd[23:16]);
 
@@ -519,7 +562,7 @@ module top_tb;
     // Phase 5: 读取 output_fifo 中的 spike 输出
     //
     // 流程：
-    //   1. 读 OUT_FIFO_COUNT（0x4000_0020）：获取 spike 数量（最多 NUM_OUTPUTS=10）
+    //   1. 读 OUT_FIFO_COUNT（0x4000_0020）：获取 spike 数量（可能远大于 NUM_OUTPUTS，因为单个神经元可多次发放）
     //   2. 循环读 OUT_FIFO_DATA（0x4000_001C）：逐个读取 spike_id
     //      - reg_bank 的 pop_pending 机制确保读后下一拍自动 pop
     //      - rd[3:0] = spike_id（4-bit，范围 0~9，对应 10 个输出神经元）
@@ -529,16 +572,16 @@ module top_tb;
     //        若在读 spike 过程中 FIFO 状态变化（不应该，推理已完成），
     //        循环仍按初始 count 次数执行。
     //
-    // 正常情况下（T=3，3帧累积）：output_fifo 中应有若干个激发神经元的 spike_id，
+    // 正常情况下（当前默认 T=10）：output_fifo 中应有若干个激发神经元的 spike_id，
     //   每个 spike_id 对应一个膜电位超过阈值的输出神经元（数字分类结果）。
     // =======================================================================
     // 5) 读取 output_fifo
-    bus_read32(bus_vif, 32'h4000_0020, rd); // OUT_FIFO_COUNT：当前 spike 数量
+    bus_read32(32'h4000_0020, rd); // OUT_FIFO_COUNT：当前 spike 数量
     $display("[TB] OUT_FIFO_COUNT = %0d", rd);
 
     // 逐个弹出并打印 spike_id
     for (int k = 0; k < rd; k = k + 1) begin
-      bus_read32(bus_vif, 32'h4000_001C, word0); // OUT_FIFO_DATA：队头 spike_id（读触发 pop）
+      bus_read32(32'h4000_001C, word0); // OUT_FIFO_DATA：队头 spike_id（读触发 pop）
       $display("[TB] spike_id[%0d] = %0d", k, word0[3:0]); // 低 4-bit = spike_id
     end
 
