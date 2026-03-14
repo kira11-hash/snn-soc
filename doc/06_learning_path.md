@@ -476,7 +476,7 @@ cd sim
 **实验 2.1**: 修改时间步数
 ```systemverilog
 // tb/top_tb.sv
-bus_write32(bus_vif, 32'h4000_0004, 32'd3, 4'hF);  // TIMESTEPS = 3
+bus_write32(bus_vif, 32'h4000_0004, 32'd10, 4'hF);  // TIMESTEPS = 10
 ```
 预期：推理更快完成，输出 spike 更少
 
