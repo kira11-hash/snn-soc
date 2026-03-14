@@ -61,6 +61,12 @@ cd sim
 bash run_icarus_weighted.sh
 ```
 
+Prerequisite:
+
+- stage `weight_pos.hex` and `weight_neg.hex` first
+- supported lookup order: any `results/exports/` directory, `fpga/cim_model/`, then `sim/`
+- a clean checkout of `main` does not include these generated weight hex files by default
+
 Expected artifacts:
 
 - `sim/icarus_weighted.log`

@@ -658,7 +658,7 @@ module snn_soc_top (
     .rst_n           (rst_n),
     .soft_reset_pulse(snn_soft_reset_pulse), // SW 软复位：FSM 回到 IDLE，不清 debug 计数器
     .start_pulse     (snn_start_pulse),      // SW 启动推理（单拍触发）
-    .timesteps       (timesteps),            // 时间步总数（默认 3，可寄存器配置）
+    .timesteps       (timesteps),            // 时间步总数（当前工程默认 10，可寄存器配置）
     .in_fifo_rdata   (in_fifo_rdata),        // 从 input FIFO 读出的 64-bit bitmap
     .in_fifo_empty   (in_fifo_empty),        // FIFO 空则无法启动
     .in_fifo_pop     (in_fifo_pop),          // FSM 控制的 FIFO pop 信号

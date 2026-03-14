@@ -1328,7 +1328,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
    - 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, TIMESTEPS=10, THRESHOLD_RATIO_DEFAULT=1, THRESHOLD_DEFAULT=2550, NEURON_DATA_WIDTH=9（当前工程默认）
    - 4b. `adc_ctrl.sv`: 20通道 MUX + 数字差分减法（Scheme B），signed 9-bit 输出
    - 4c. `lif_neurons.sv`: signed 膜电位 + 符号扩展 + 算术左移 + signed 阈值比较
-   - 4d. `reg_bank.sv`: 新增 REG_THRESHOLD_RATIO (0x24, 8-bit, 默认4)，双寄存器模式（2026-02-27 定版）
+   - 4d. `reg_bank.sv`: 新增 REG_THRESHOLD_RATIO (0x24, 8-bit, 默认1)，双寄存器模式（2026-02-27 定版）
    - 4e. `cim_macro_blackbox.sv`: P_ADC_CHANNELS=20，Scheme B 行为模型（正列/负列公式）
    - 4f. `dma_engine.sv`: 64-bit 打包（2×32 整拼接，word1_reg 扩展为 32-bit）
    - 4g. `snn_soc_top.sv`: bl_sel 位宽→$clog2(ADC_CHANNELS)=5, neuron_in_data 位宽→NEURON_DATA_WIDTH

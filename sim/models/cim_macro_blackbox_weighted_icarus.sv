@@ -3,6 +3,8 @@
 // Icarus-only weighted CIM behavioral model.
 // This file deliberately reuses the production module name so a dedicated
 // filelist can swap it in without touching rtl/top/snn_soc_top.sv.
+/* verilator lint_off DECLFILENAME */
+/* verilator lint_off UNUSEDSIGNAL */
 module cim_macro_blackbox #(
   parameter int P_NUM_INPUTS   = snn_soc_pkg::NUM_INPUTS,
   parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS,
@@ -68,8 +70,8 @@ module cim_macro_blackbox #(
         for (row_i = 0; row_i < P_NUM_INPUTS; row_i = row_i + 1) begin
           if (wl_latched[row_i]) begin
             flat_idx_i = row_i * P_NUM_OUTPUTS + col_i;
-            pos_sum_i = pos_sum_i + weight_pos_mem[flat_idx_i];
-            neg_sum_i = neg_sum_i + weight_neg_mem[flat_idx_i];
+            pos_sum_i = pos_sum_i + integer'(weight_pos_mem[flat_idx_i]);
+            neg_sum_i = neg_sum_i + integer'(weight_neg_mem[flat_idx_i]);
           end
         end
         bl_data_internal[col_i]                <= scale_sum_to_adc(pos_sum_i);
@@ -168,4 +170,6 @@ module cim_macro_blackbox #(
     end
   end
 `endif
+/* verilator lint_on UNUSEDSIGNAL */
+/* verilator lint_on DECLFILENAME */
 endmodule

@@ -28,6 +28,9 @@ module top_tb_icarus_weighted;
   logic jtag_tdi;
   logic jtag_tdo;
 
+  // Keep branch-compatibility ports for wildcard binding across old/new tops.
+  // They are intentionally idle on main and would otherwise trip lint-only noise.
+  /* verilator lint_off UNUSEDSIGNAL */
   logic        ext_bus_enable;
   logic        ext_bus_m_valid;
   logic        ext_bus_m_write;
@@ -37,6 +40,7 @@ module top_tb_icarus_weighted;
   logic        ext_bus_m_ready;
   logic [31:0] ext_bus_m_rdata;
   logic        ext_bus_m_rvalid;
+  /* verilator lint_on UNUSEDSIGNAL */
 
   integer error_count;
   integer poll_i;
@@ -54,6 +58,7 @@ module top_tb_icarus_weighted;
 
   snn_soc_top dut (.*);
 
+  /* verilator lint_off UNUSEDSIGNAL */
   task automatic bus_write;
     input [31:0] addr;
     input [31:0] data;
@@ -109,6 +114,7 @@ module top_tb_icarus_weighted;
       dut.bus_if.m_wstrb = 4'h0;
     end
   endtask
+  /* verilator lint_on UNUSEDSIGNAL */
 
   initial begin
     clk = 1'b0;
@@ -157,7 +163,7 @@ module top_tb_icarus_weighted;
     cim_done_seen = 1'b0;
     timesteps_cfg = TIMESTEPS_DEFAULT;
     threshold_cfg = THRESHOLD_RATIO_DEFAULT * ((1 << PIXEL_BITS) - 1) * TIMESTEPS_DEFAULT;
-    fail_on_zero_spike = 1'b0;
+    fail_on_zero_spike = 0;
     rd = 32'h0;
 
     pattern_cross = 64'b00000000_00011000_00011000_01111110_01111110_00011000_00011000_00000000;

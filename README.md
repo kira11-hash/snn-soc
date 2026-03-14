@@ -36,6 +36,7 @@
 ### 环境变量要求
 - `VERDI_HOME`：指向 Verdi 安装目录（用于 FSDB PLI）。
 - 若平台版本不同，可在 `sim/run_vcs.sh` 中调整 PLI 路径。
+- 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下。
 
 ## 目录结构
 ```

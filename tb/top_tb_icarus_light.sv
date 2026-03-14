@@ -29,8 +29,9 @@ module top_tb_icarus_light;
   logic jtag_tdo;
 
   // Optional external bus override ports exist on some branches.
-  // Keep these signals in TB so wildcard port binding works on both
-  // old/new snn_soc_top signatures.
+  // Lint-only mode treats these compatibility placeholders as unused
+  // on main, so scope the warning suppression to this branch-compat block.
+  /* verilator lint_off UNUSEDSIGNAL */
   logic        ext_bus_enable;
   logic        ext_bus_m_valid;
   logic        ext_bus_m_write;
@@ -40,6 +41,7 @@ module top_tb_icarus_light;
   logic        ext_bus_m_ready;
   logic [31:0] ext_bus_m_rdata;
   logic        ext_bus_m_rvalid;
+  /* verilator lint_on UNUSEDSIGNAL */
 
   integer error_count;
   integer i;
@@ -53,6 +55,9 @@ module top_tb_icarus_light;
 
   snn_soc_top dut (.*);
 
+  // Lint-only mode does not attribute hierarchical bus_if pokes back to task
+  // formals, so suppress the resulting false-positive unused warnings.
+  /* verilator lint_off UNUSEDSIGNAL */
   task automatic bus_write;
     input [31:0] addr;
     input [31:0] data;
@@ -136,6 +141,7 @@ module top_tb_icarus_light;
       dut.bus_if.m_wstrb = 4'h0;
     end
   endtask
+  /* verilator lint_on UNUSEDSIGNAL */
 
   initial begin
     clk = 1'b0;

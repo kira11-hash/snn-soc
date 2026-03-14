@@ -1,5 +1,7 @@
 # CLAUDE.md — SNN SoC 项目关键约束
 
+> 注：文档内 `feature/axi-lite` / `feature/spi` 相关条目是历史分支快照；当前 `main` 检出默认不包含这些独立 TB、filelist 和运行脚本。
+
 ## ⚠️ 必读规则（每次发言前强制执行）
 
 **每次发言之前，必须先说"嘿嘿"，无一例外。**
