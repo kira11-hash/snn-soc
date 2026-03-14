@@ -389,7 +389,7 @@ main                    # 主分支：始终保持可流片状态
 
 | ⑧ | UART 控制器 (与PC通信) | ❌ 仅 stub | 🔴 新增 |
 
-> As of 2026-03-02: this table remains a `main`-branch historical snapshot; `feature/spi` and `feature/uart-tx` have completed IP+TB validation, while `main` still needs `snn_soc_top.sv` stub replacement (`spi_stub/uart_stub`).
+> 当前 `main` 的事实口径：`snn_soc_top.sv` 仍使用 `spi_stub` / `uart_stub` 占位；若后续引入独立 UART/SPI 控制器，以主线实际集成和回归结果为准。
 
 | ⑨ | JTAG 接口 | ❌ 仅 stub | 🟡 可后期 |
 
@@ -418,7 +418,7 @@ main                    # 主分支：始终保持可流片状态
 
 **当前状态**：`uart_stub.sv` 只是空壳
 
-> As of 2026-03-02: `feature/uart-tx` has completed `uart_ctrl + TB` validation (9/9 PASS); `main` still uses `uart_stub` in `snn_soc_top.sv` and awaits top-level integration.
+> 当前 `main` 仍使用 `uart_stub`；若后续接入独立 `uart_ctrl`，需以 `snn_soc_top.sv` 的实际替换结果和回归测试为准。
 
 **添加时机**：阶段 1（现在就可以做，不依赖 CPU/AXI；可先用 TB 验证收发）
 
@@ -447,7 +447,7 @@ rtl/periph/uart_ctrl.sv  ← 替换 uart_stub.sv
 
 **当前状态**：`spi_stub.sv` 只是空壳
 
-> As of 2026-03-02: `feature/spi` has completed `spi_ctrl + flash model + TB` validation (9/9 PASS); `main` still uses `spi_stub` in `snn_soc_top.sv` and awaits top-level integration.
+> 当前 `main` 仍使用 `spi_stub`；若后续接入独立 `spi_ctrl`，需以 `snn_soc_top.sv` 的实际替换结果和回归测试为准。
 
 **添加时机**：阶段 2（现在就可以做，不依赖 CPU/AXI；与 UART 可并行）
 
@@ -638,7 +638,7 @@ void snn_done_isr(void) {
     - 先实现最小可用（TX/RX + 状态寄存器），用于后续 bring-up 打印日志。
 3. SPI
     - 先做 Flash 读路径（读 ID + 连续读），暂不追求复杂模式。
-    - As of 2026-03-02: this Flash-read-path goal is already validated at IP level in `feature/spi`; remaining work is top-level integration in `main`.
+    - 当前 `main` 对 Flash 读路径仍缺少顶层 SPI 集成；后续若接入独立 SPI IP，以主线回归结果为准。
     - 为 boot/data load 做准备。
 4. DMA 扩展
     - 先打通 SPI -> SRAM，再 SRAM -> input_fifo。

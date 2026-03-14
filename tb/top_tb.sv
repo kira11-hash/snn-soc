@@ -13,7 +13,7 @@
 // 文件名: top_tb.sv
 // 描述: SNN SoC 顶层 Testbench。
 //       完整流程：配置寄存器 -> 写入 data_sram -> DMA -> 推理 -> 读取输出。
-//       生成 FSDB 波形供 Verdi 使用。
+//       生成 FSDB/VCD 波形供 Verdi/Icarus 使用。
 //       适配当前工程参数：NUM_INPUTS=64, ADC_BITS=8, T=10, Scheme B。
 //======================================================================
 //
@@ -244,20 +244,25 @@ module top_tb;
   wire _unused_tb = uart_tx ^ spi_cs_n ^ spi_sck ^ spi_mosi ^ jtag_tdo;
 
   // -----------------------------------------------------------------------
-  // FSDB 波形转储（Verdi/VCS 专用）
+  // 波形转储（VCS 用 FSDB，Icarus 用 VCD）
   //
   // $fsdbDumpfile: 设置波形文件路径（相对路径，需 waves/ 目录预先存在）
   // $fsdbDumpvars(0, top_tb): 转储 top_tb 及其所有子模块的信号（深度=0=全部）
   //
-  // `ifndef VERILATOR 保护：Verilator 不支持 $fsdbDump* 系统任务，
-  // 用条件编译宏跳过，避免 Verilator 仿真时报错。
-  // VCS + Verdi 流程：确保在 Makefile/脚本中定义 PLI library 路径。
+  // VCS + Verdi 流程：通过 +define+VCS 选择 FSDB，确保脚本里带上 PLI library 路径。
+  // 其他非 Verilator 仿真器走标准 VCD 回退路径，避免 Icarus 因不认识 $fsdbDump* 报错。
   // -----------------------------------------------------------------------
-  // FSDB 波形（仅 VCS/Verdi 使用；Verilator 下屏蔽）
-`ifndef VERILATOR
+`ifdef VCS
   initial begin
     $fsdbDumpfile("waves/snn_soc.fsdb");
     $fsdbDumpvars(0, top_tb);
+  end
+`elsif VERILATOR
+  // This branch intentionally skips dump tasks.
+`else
+  initial begin
+    $dumpfile("waves/top_tb.vcd");
+    $dumpvars(0, top_tb);
   end
 `endif
 

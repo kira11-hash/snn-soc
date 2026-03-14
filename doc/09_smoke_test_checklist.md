@@ -40,10 +40,9 @@ The testbench supports plusargs:
 
 Script default behavior:
 
-- If staged weights exist (`../fpga/cim_model/*.hex` or `sim/*.hex`):
-  - default `EXPECTED_OUT_COUNT=14`
-- If no weights are found (main blackbox path, current `T=10` default):
-  - default `EXPECTED_OUT_COUNT=100`
+- Light flow is blackbox-only on current `main`; it ignores external `weight_pos.hex` / `weight_neg.hex`.
+- Default `EXPECTED_OUT_COUNT=100` for the current `T=10` blackbox path.
+- If you need exported-weight validation, use `sim/run_icarus_weighted.sh` or `sim/run_vcs_weighted.sh`.
 
 Optional overrides:
 

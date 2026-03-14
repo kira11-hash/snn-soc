@@ -32,7 +32,7 @@
 - dma：DMA 引擎（data_sram -> input_fifo）  
 - snn：CIM 控制器 + DAC/ADC + LIF 神经元 + CIM 行为模型  
 - periph：UART/SPI/JTAG stub  
-- As of 2026-03-02: `feature/spi` (`spi_ctrl + flash model + TB`) and `feature/uart-tx` (`uart_ctrl + TB`) are both validated (9/9 PASS each); `main` still awaits `snn_soc_top.sv` stub-replacement integration.
+- 当前 `main` 仍以 `uart_stub` / `spi_stub` / `jtag_stub` 占位；若后续接入真实控制器，以 `snn_soc_top.sv` 的主线集成结果为准。
 
 ## 一次推理的数据流
 ```
@@ -67,6 +67,8 @@ Flash -> SPI -> CPU(E203) -> data_sram -> DMA -> input_fifo -> ... -> output_fif
 5. LIF 在 `neuron_in_valid` 处将有符号差分值按 `bitplane_shift` 算术左移累加到有符号膜电位，超阈值产生 spike，写入 output_fifo。
 
 **补充**：当 `TIMESTEPS=0` 时，控制器会立即结束，不进入推理流程。
+
+**当前工程默认参数**：`ADC=8`、`W=4`、`T=10`、`ratio_code=1`、`THRESHOLD_DEFAULT=2550`、`reset_mode=soft`，默认离线压缩/预处理口径为 `avgpool8x8`。
 
 ## 真实实现 vs stub/行为模型
 - 真实实现：总线、SRAM、FIFO、寄存器、DMA、SNN 控制、LIF 神经元。
