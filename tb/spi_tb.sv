@@ -12,8 +12,9 @@
 //   SPI_SMOKETEST_PASS
 // ============================================================================
 module spi_tb;
-  logic clk = 1'b0;
+  logic clk;
   logic rst_n;
+  initial clk = 1'b0;
   always #10 clk = ~clk; // 50 MHz（与 ASIC 目标时钟一致）
 
   // simple bus request
@@ -64,6 +65,7 @@ module spi_tb;
     .spi_miso(spi_miso)
   );
 
+  /* verilator lint_off INITIALDLY */
   task bus_write;
     input [31:0] addr;
     input [31:0] data;
@@ -99,6 +101,7 @@ module spi_tb;
       req_addr  <= 32'h0;
     end
   endtask
+  /* verilator lint_on INITIALDLY */
 
   task check32;
     input [31:0] got;
