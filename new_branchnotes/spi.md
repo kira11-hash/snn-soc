@@ -38,6 +38,11 @@
 5. `sim/run_spi_icarus.sh`
 6. `new_branchnotes/spi.md`
 
+## 3.1 同步修改的已有文件
+
+1. `README.md`（补充分支状态、SPI smoke 入口和目录口径）
+2. `doc/00_overview.md`（标记 `spi_ctrl` 已完成独立验证、顶层仍使用 `spi_stub`）
+
 ---
 
 ## 4. 设计背景与系统定位
