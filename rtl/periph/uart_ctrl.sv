@@ -196,6 +196,6 @@ module uart_ctrl (
   end
 
   // ── 哑线：抑制未使用信号 lint 告警 ───────────────────────────────────────
-  wire _unused = &{1'b0, uart_rx, req_wstrb, req_addr[31:8]};
+  wire _unused = &{1'b0, uart_rx, req_wstrb, req_addr[31:8], req_wdata[31:16]};
 
 endmodule
