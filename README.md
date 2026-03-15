@@ -38,11 +38,15 @@
 - 若平台版本不同，可在 `sim/run_vcs.sh` 中调整 PLI 路径。
 - 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下。
 
+## 分支说明
+- 当前 `feature/axi-lite` 分支新增了 `rtl/bus/axi_lite_if.sv` 与 `rtl/bus/axi2simple_bridge.sv`，并提供 `bash sim/run_axi_bridge_icarus.sh` 做独立烟雾测试。
+- `snn_soc_top` 当前仍以 `bus_simple` 为主入口；AXI-Lite 能力已在 IP 级完成验证，等待后续顶层/E203 集成。
+
 ## 目录结构
 ```
 rtl/   RTL 实现
   top/      顶层与参数包
-  bus/      简化总线与地址译码
+  bus/      简化总线、地址译码与 AXI-Lite bridge 原型
   mem/      SRAM + FIFO
   reg/      reg bank + fifo 状态窗
   dma/      DMA 引擎
@@ -64,6 +68,7 @@ doc/   中文说明文档
 - LIF 位宽建议：`LIF_MEM_WIDTH >= NEURON_DATA_WIDTH + PIXEL_BITS`。
 - 默认阈值为 `THRESHOLD_DEFAULT`（工程默认计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 1 × 255 × 10 = 2550`，可软件覆盖）。
 - CIM Macro 在仿真中为行为模型，综合时为黑盒，可替换真实宏。
+- 当前分支额外包含 AXI-Lite bridge 原型和独立 smoke test；SoC 顶层主入口仍为 `bus_simple`。
 - UART/SPI/JTAG 仅为 stub，不产生真实协议，仅占位可读写寄存器。
 
 ## 建模定版补充（复位模式，2026-02-10）

@@ -84,11 +84,10 @@ module axi2simple_bridge (
   input  logic [31:0] m_rdata,    // 读返回数据
   input  logic        m_rvalid    // 读数据有效（m_valid 后固定 1 拍）
 );
-  import snn_soc_pkg::*;
-
   localparam logic [1:0] AXI_RESP_OKAY   = 2'b00;
   localparam logic [1:0] AXI_RESP_DECERR = 2'b11;
 
+  /* verilator lint_off UNUSEDSIGNAL */
   function automatic logic in_range (
     input logic [31:0] addr,
     input logic [31:0] base,
@@ -101,15 +100,16 @@ module axi2simple_bridge (
     input logic [31:0] addr
   );
     addr_mapped =
-      in_range(addr, ADDR_INSTR_BASE,  ADDR_INSTR_END)  ||
-      in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)   ||
-      in_range(addr, ADDR_WEIGHT_BASE, ADDR_WEIGHT_END) ||
-      in_range(addr, ADDR_REG_BASE,    ADDR_REG_END)    ||
-      in_range(addr, ADDR_DMA_BASE,    ADDR_DMA_END)    ||
-      in_range(addr, ADDR_UART_BASE,   ADDR_UART_END)   ||
-      in_range(addr, ADDR_SPI_BASE,    ADDR_SPI_END)    ||
-      in_range(addr, ADDR_FIFO_BASE,   ADDR_FIFO_END);
+      in_range(addr, snn_soc_pkg::ADDR_INSTR_BASE,  snn_soc_pkg::ADDR_INSTR_END)  ||
+      in_range(addr, snn_soc_pkg::ADDR_DATA_BASE,   snn_soc_pkg::ADDR_DATA_END)   ||
+      in_range(addr, snn_soc_pkg::ADDR_WEIGHT_BASE, snn_soc_pkg::ADDR_WEIGHT_END) ||
+      in_range(addr, snn_soc_pkg::ADDR_REG_BASE,    snn_soc_pkg::ADDR_REG_END)    ||
+      in_range(addr, snn_soc_pkg::ADDR_DMA_BASE,    snn_soc_pkg::ADDR_DMA_END)    ||
+      in_range(addr, snn_soc_pkg::ADDR_UART_BASE,   snn_soc_pkg::ADDR_UART_END)   ||
+      in_range(addr, snn_soc_pkg::ADDR_SPI_BASE,    snn_soc_pkg::ADDR_SPI_END)    ||
+      in_range(addr, snn_soc_pkg::ADDR_FIFO_BASE,   snn_soc_pkg::ADDR_FIFO_END);
   endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   // ── FSM 状态定义 ──────────────────────────────────────────────────────────
   typedef enum logic [2:0] {

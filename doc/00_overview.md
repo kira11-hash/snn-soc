@@ -16,6 +16,8 @@
 - SPI 控制器（读取 Flash）
 - AXI-Lite 总线（替换 simple 总线）
 
+**当前分支状态**：`feature/axi-lite` 已独立实现 `axi_lite_if.sv` + `axi2simple_bridge.sv`，并通过 `sim/run_axi_bridge_icarus.sh` 专项验证；`snn_soc_top` 主线入口暂未切换到 AXI-Lite。
+
 ### 流片说明
 - **V1 流片类型**：数字 SoC 单独流片 + 片外混合集成验证
 - **V2/V3**：片上数模混合集成
@@ -26,7 +28,7 @@
 
 ## 分层结构（目录 + 关系）
 - 顶层：snn_soc_top  
-- bus：简化总线与地址译码  
+- bus：简化总线与地址译码；本分支额外提供 AXI-Lite bridge 原型  
 - mem：SRAM + FIFO  
 - reg：寄存器 bank + FIFO 状态窗  
 - dma：DMA 引擎（data_sram -> input_fifo）  
@@ -73,6 +75,7 @@ Flash -> SPI -> CPU(E203) -> data_sram -> DMA -> input_fifo -> ... -> output_fif
 ## 真实实现 vs stub/行为模型
 - 真实实现：总线、SRAM、FIFO、寄存器、DMA、SNN 控制、LIF 神经元。
 - 行为模型：CIM Macro（仿真可复现 bl_data）。
+- 分支新增 IP：`axi_lite_if.sv` / `axi2simple_bridge.sv` 已完成独立 smoke test，等待接入 `snn_soc_top`。
 - Stub：UART/SPI/JTAG，不产生真实协议，仅占位可读写寄存器。
 
 ## 关键参数表

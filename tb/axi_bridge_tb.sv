@@ -33,7 +33,7 @@
 //======================================================================
 
 module axi_bridge_tb;
-  import snn_soc_pkg::*;
+  /* verilator lint_off UNUSEDSIGNAL */
 
   // ── 时钟与复位 ────────────────────────────────────────────────────────────
   logic clk;
@@ -180,6 +180,7 @@ module axi_bridge_tb;
   integer fail_cnt;
   integer fail_mark;
   logic [31:0] rd_data;
+  localparam logic [31:0] TB_ADDR_REG_BASE = snn_soc_pkg::ADDR_REG_BASE;
 
   // ── AXI-Lite BFM tasks ───────────────────────────────────────────────────
   //
@@ -398,11 +399,11 @@ module axi_bridge_tb;
     repeat (2) @(posedge clk);
 
     $display("[INFO] === AXI-Lite Bridge Smoke Test Start ===");
-    $display("[INFO] ADDR_REG_BASE = 0x%08X", ADDR_REG_BASE);
+    $display("[INFO] ADDR_REG_BASE = 0x%08X", TB_ADDR_REG_BASE);
 
     // ── T1: 写 reg[0]（offset 0x00），读回验证 ───────────────────────────
-    axi_write(ADDR_REG_BASE + 32'h00, 32'hDEAD_BEEF, 4'hF);
-    axi_read (ADDR_REG_BASE + 32'h00, rd_data);
+    axi_write(TB_ADDR_REG_BASE + 32'h00, 32'hDEAD_BEEF, 4'hF);
+    axi_read (TB_ADDR_REG_BASE + 32'h00, rd_data);
     if (rd_data === 32'hDEAD_BEEF) begin
       $display("[PASS] T1 reg[0] write/readback : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -412,8 +413,8 @@ module axi_bridge_tb;
     end
 
     // ── T2: 写 reg[1]（offset 0x04），读回验证 ───────────────────────────
-    axi_write(ADDR_REG_BASE + 32'h04, 32'hCAFE_1234, 4'hF);
-    axi_read (ADDR_REG_BASE + 32'h04, rd_data);
+    axi_write(TB_ADDR_REG_BASE + 32'h04, 32'hCAFE_1234, 4'hF);
+    axi_read (TB_ADDR_REG_BASE + 32'h04, rd_data);
     if (rd_data === 32'hCAFE_1234) begin
       $display("[PASS] T2 reg[1] write/readback : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -423,8 +424,8 @@ module axi_bridge_tb;
     end
 
     // ── T3: 写 reg[4]（offset 0x10，类 THRESHOLD 地址），读回验证 ─────────
-    axi_write(ADDR_REG_BASE + 32'h10, 32'h0000_0BF4, 4'hF);  // 3060 = 0x0BF4 (T=3 default)
-    axi_read (ADDR_REG_BASE + 32'h10, rd_data);
+    axi_write(TB_ADDR_REG_BASE + 32'h10, 32'h0000_0BF4, 4'hF);  // 3060 = 0x0BF4 (T=3 default)
+    axi_read (TB_ADDR_REG_BASE + 32'h10, rd_data);
     if (rd_data === 32'h0000_0BF4) begin
       $display("[PASS] T3 reg[4] THRESHOLD addr : 0x%08X (=%0d)", rd_data, rd_data);
       pass_cnt = pass_cnt + 1;
@@ -434,7 +435,7 @@ module axi_bridge_tb;
     end
 
     // ── T4: reg[0] 持久性（T2/T3 写入后 reg[0] 不受影响）────────────────
-    axi_read(ADDR_REG_BASE + 32'h00, rd_data);
+    axi_read(TB_ADDR_REG_BASE + 32'h00, rd_data);
     if (rd_data === 32'hDEAD_BEEF) begin
       $display("[PASS] T4 reg[0] persistence    : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -445,9 +446,9 @@ module axi_bridge_tb;
 
     // ── T5: 字节写使能（wstrb=4'b0001，只改 byte0）──────────────────────
     // 先全写 0xFFFF_FFFF，再只写 byte0 = 0xAB
-    axi_write(ADDR_REG_BASE + 32'h08, 32'hFFFF_FFFF, 4'hF);
-    axi_write(ADDR_REG_BASE + 32'h08, 32'h0000_00AB, 4'b0001);
-    axi_read (ADDR_REG_BASE + 32'h08, rd_data);
+    axi_write(TB_ADDR_REG_BASE + 32'h08, 32'hFFFF_FFFF, 4'hF);
+    axi_write(TB_ADDR_REG_BASE + 32'h08, 32'h0000_00AB, 4'b0001);
+    axi_read (TB_ADDR_REG_BASE + 32'h08, rd_data);
     if (rd_data === 32'hFFFF_FFAB) begin
       $display("[PASS] T5 byte-strobe wstrb=0001: 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -457,8 +458,8 @@ module axi_bridge_tb;
     end
 
     // ── T6: AW/W 错拍（AW 先到）───────────────────────────────────────────
-    axi_write_aw_first(ADDR_REG_BASE + 32'h0C, 32'h1234_5678, 4'hF);
-    axi_read          (ADDR_REG_BASE + 32'h0C, rd_data);
+    axi_write_aw_first(TB_ADDR_REG_BASE + 32'h0C, 32'h1234_5678, 4'hF);
+    axi_read          (TB_ADDR_REG_BASE + 32'h0C, rd_data);
     if (rd_data === 32'h1234_5678) begin
       $display("[PASS] T6 skew write (AW first) : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -468,8 +469,8 @@ module axi_bridge_tb;
     end
 
     // ── T7: AW/W 错拍（W 先到）────────────────────────────────────────────
-    axi_write_w_first(ADDR_REG_BASE + 32'h14, 32'h89AB_CDEF, 4'hF);
-    axi_read         (ADDR_REG_BASE + 32'h14, rd_data);
+    axi_write_w_first(TB_ADDR_REG_BASE + 32'h14, 32'h89AB_CDEF, 4'hF);
+    axi_read         (TB_ADDR_REG_BASE + 32'h14, rd_data);
     if (rd_data === 32'h89AB_CDEF) begin
       $display("[PASS] T7 skew write (W first)  : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -479,8 +480,8 @@ module axi_bridge_tb;
     end
 
     // ── T8: 写响应背压（BREADY=0 持续 3 拍，BVALID 必须保持）───────────────
-    axi_write_bstall(ADDR_REG_BASE + 32'h18, 32'h0BAD_F00D, 4'hF, 3);
-    axi_read       (ADDR_REG_BASE + 32'h18, rd_data);
+    axi_write_bstall(TB_ADDR_REG_BASE + 32'h18, 32'h0BAD_F00D, 4'hF, 3);
+    axi_read       (TB_ADDR_REG_BASE + 32'h18, rd_data);
     if (rd_data === 32'h0BAD_F00D) begin
       $display("[PASS] T8 bresp backpressure    : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -490,7 +491,7 @@ module axi_bridge_tb;
     end
 
     // ── T9: 读数据背压（RREADY=0 持续 3 拍，RVALID 必须保持）────────────────
-    axi_read_rstall(ADDR_REG_BASE + 32'h18, 3, rd_data);
+    axi_read_rstall(TB_ADDR_REG_BASE + 32'h18, 3, rd_data);
     if (rd_data === 32'h0BAD_F00D) begin
       $display("[PASS] T9 rdata backpressure    : 0x%08X", rd_data);
       pass_cnt = pass_cnt + 1;
@@ -540,4 +541,5 @@ module axi_bridge_tb;
     $finish;
   end
 
+  /* verilator lint_on UNUSEDSIGNAL */
 endmodule
