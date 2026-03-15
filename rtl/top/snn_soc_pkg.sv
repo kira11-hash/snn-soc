@@ -31,6 +31,7 @@
 // 当前默认配置：64 维离线预处理特征 + Scheme B + ADC=8 + W=4 + T=10 + ratio_code=1(1/255)
 // 说明：这组数值就是当前工程默认口径；具体前处理算法不固化在 RTL 常量中
 //======================================================================
+/* verilator lint_off UNUSEDPARAM */
 package snn_soc_pkg;
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -173,3 +174,4 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_FIFO_END    = 32'h4000_04FF;
 
 endpackage
+/* verilator lint_on UNUSEDPARAM */
