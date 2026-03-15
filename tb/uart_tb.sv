@@ -29,6 +29,7 @@
 //======================================================================
 
 module uart_tb;
+  /* verilator lint_off UNUSEDSIGNAL */
 
   // ── 时钟和复位 ────────────────────────────────────────────────────────────
   logic clk, rst_n;
@@ -350,4 +351,5 @@ module uart_tb;
   `endif
   `endif
 
+  /* verilator lint_on UNUSEDSIGNAL */
 endmodule

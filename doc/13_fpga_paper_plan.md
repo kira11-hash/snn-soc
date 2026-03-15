@@ -227,17 +227,17 @@ ASIC 主线                               FPGA 论文兜底线
 ──────────                              ─────────────
 ① AXI-Lite 桥接 + TB                    共用
    状态：feature/axi-lite 分支
-   完成：axi_lite_if + axi2simple_bridge + TB (T1-T9, 9/9 PASS, 含背压测试)
+   完成：axi_lite_if + axi2simple_bridge + TB (T1-T11, 11/11 PASS, 含背压与 DECERR 检查)
    待做：axi_lite_interconnect (⑤) + snn_soc_top 集成 (⑥)
 
 ② UART TX                               共用
    状态：feature/uart-tx 分支
-   完成：uart_ctrl.sv + TB (T1-T7+T1b, 9/9 PASS, 寄存器映射已对齐 stub)
+   完成：uart_ctrl.sv + TB (PASS=12, FAIL=0，含 busy-ignore 与 CTRL 生效时序检查，寄存器映射已对齐 stub)
    待做：snn_soc_top 中 uart_stub → uart_ctrl 替换
 
 ③ SPI Master                             共用
    状态：feature/spi 分支
-   完成：spi_ctrl.sv + Flash model + TB (T1-T4+T1b, 9/9 PASS, 含 clk-div clamp)
+   完成：spi_ctrl.sv + Flash model + TB (PASS=9, FAIL=0，含 clk-div clamp)
    待做：snn_soc_top 中 spi_stub → spi_ctrl 替换
 
 ④ DMA 扩展                               共用

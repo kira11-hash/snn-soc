@@ -16,6 +16,8 @@
 - SPI 控制器（读取 Flash）
 - AXI-Lite 总线（替换 simple 总线）
 
+**当前分支状态**：`feature/uart-tx` 已独立实现 `uart_ctrl.sv`，并通过 `sim/run_uart_icarus.sh` 专项验证；`snn_soc_top` 仍保留 `uart_stub` 作为主线实例。
+
 ### 流片说明
 - **V1 流片类型**：数字 SoC 单独流片 + 片外混合集成验证
 - **V2/V3**：片上数模混合集成
@@ -31,8 +33,8 @@
 - reg：寄存器 bank + FIFO 状态窗  
 - dma：DMA 引擎（data_sram -> input_fifo）  
 - snn：CIM 控制器 + DAC/ADC + LIF 神经元 + CIM 行为模型  
-- periph：UART/SPI/JTAG stub  
-- 当前 `main` 仍以 `uart_stub` / `spi_stub` / `jtag_stub` 占位；若后续接入真实控制器，以 `snn_soc_top.sv` 的主线集成结果为准。
+- periph：主线 SoC 仍使用 UART/SPI/JTAG stub；本分支额外提供独立 `uart_ctrl` IP  
+- 当前主线 SoC 仍以 `uart_stub` / `spi_stub` / `jtag_stub` 占位；若后续接入真实控制器，以 `snn_soc_top.sv` 的主线集成结果为准。
 
 ## 一次推理的数据流
 ```
@@ -73,7 +75,8 @@ Flash -> SPI -> CPU(E203) -> data_sram -> DMA -> input_fifo -> ... -> output_fif
 ## 真实实现 vs stub/行为模型
 - 真实实现：总线、SRAM、FIFO、寄存器、DMA、SNN 控制、LIF 神经元。
 - 行为模型：CIM Macro（仿真可复现 bl_data）。
-- Stub：UART/SPI/JTAG，不产生真实协议，仅占位可读写寄存器。
+- 分支新增 IP：`uart_ctrl.sv` 已通过独立 smoke test，等待接入 `snn_soc_top`。
+- Stub：当前 SoC 主线实例中的 UART/SPI/JTAG 不产生真实协议，仅占位可读写寄存器。
 
 ## 关键参数表
 | 参数 | 值 | 说明 |
