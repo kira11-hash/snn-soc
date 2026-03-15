@@ -34,7 +34,9 @@
 | `sim/run_axi_bridge_icarus.sh` | 脚本 | 一键编译 + 运行 + 结果判断 |
 | `new_branchnotes/axi-lite.md` | 文档 | 本文件，分支开发记录 |
 
-**修改的文件：** 无
+**同步修改的已有文件：**
+- `README.md`：补充分支状态、AXI-Lite smoke 入口和目录口径
+- `doc/00_overview.md`：标记 AXI-Lite bridge 已完成独立验证、尚未接入 `snn_soc_top`
 
 ---
 
