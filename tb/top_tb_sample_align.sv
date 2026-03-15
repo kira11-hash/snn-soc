@@ -17,9 +17,10 @@ module top_tb_sample_align;
   import snn_soc_pkg::*;
 
   // ── 样本参数 ──
-  localparam int SAMPLE_COUNT      = 10;
-  localparam int PLANES_PER_SAMPLE = TIMESTEPS_DEFAULT * PIXEL_BITS;  // 10 * 8 = 80
-  localparam int TOTAL_PLANES      = SAMPLE_COUNT * PLANES_PER_SAMPLE; // 800
+  localparam int DEFAULT_SAMPLE_COUNT = 10;
+  localparam int MAX_SAMPLE_COUNT     = 256;
+  localparam int PLANES_PER_SAMPLE    = TIMESTEPS_DEFAULT * PIXEL_BITS;       // 10 * 8 = 80
+  localparam int TOTAL_PLANES_MAX     = MAX_SAMPLE_COUNT * PLANES_PER_SAMPLE; // 256 * 80
 
   // ── 寄存器地址 ──
   localparam [31:0] REG_THRESHOLD = ADDR_REG_BASE + 32'h00;
@@ -61,6 +62,7 @@ module top_tb_sample_align;
   integer plane_i;
   integer spike_i;
   integer sample_i;
+  integer sample_count;
   integer out_fifo_count;
   integer threshold_cfg;
   reg [31:0] rd;
@@ -75,8 +77,8 @@ module top_tb_sample_align;
   integer neuron_j;
 
   // ── 预加载数据 ──
-  reg [63:0] all_planes [0:TOTAL_PLANES-1];
-  reg [3:0]  expected_classes [0:SAMPLE_COUNT-1];
+  reg [63:0] all_planes [0:TOTAL_PLANES_MAX-1];
+  reg [3:0]  expected_classes [0:MAX_SAMPLE_COUNT-1];
 
   // ── DUT 实例化 ──
   snn_soc_top dut (.*);
@@ -194,7 +196,17 @@ module top_tb_sample_align;
   initial begin
     error_count = 0;
     sample_errors = 0;
+    sample_count = DEFAULT_SAMPLE_COUNT;
     threshold_cfg = THRESHOLD_RATIO_DEFAULT * ((1 << PIXEL_BITS) - 1) * TIMESTEPS_DEFAULT;
+
+    if ($value$plusargs("SAMPLE_COUNT=%d", sample_count)) begin
+      if (sample_count <= 0) sample_count = DEFAULT_SAMPLE_COUNT;
+      if (sample_count > MAX_SAMPLE_COUNT) begin
+        $display("[WARN] SAMPLE_COUNT=%0d exceeds MAX_SAMPLE_COUNT=%0d, clamp to max",
+                 sample_count, MAX_SAMPLE_COUNT);
+        sample_count = MAX_SAMPLE_COUNT;
+      end
+    end
 
     wait (rst_n === 1'b1);
     repeat (2) @(posedge clk);
@@ -202,7 +214,7 @@ module top_tb_sample_align;
     $display("=============================================================");
     $display("[ALIGN] Step 3.4 Sample Alignment TB Start");
     $display("[ALIGN] SAMPLES=%0d TIMESTEPS=%0d THRESHOLD=%0d",
-             SAMPLE_COUNT, TIMESTEPS_DEFAULT, threshold_cfg);
+             sample_count, TIMESTEPS_DEFAULT, threshold_cfg);
     $display("=============================================================");
 
     // ── 全局配置（只需设一次） ──
@@ -211,7 +223,7 @@ module top_tb_sample_align;
     bus_write(REG_CIM_TEST, 32'h0000_0000, 4'hF);  // test_mode=0，使用真实权重
 
     // ── 逐样本推理 ──
-    for (sample_i = 0; sample_i < SAMPLE_COUNT; sample_i = sample_i + 1) begin
+    for (sample_i = 0; sample_i < sample_count; sample_i = sample_i + 1) begin
 
       $display("-------------------------------------------------------------");
       $display("[ALIGN] Sample %0d: expected_class=%0d", sample_i, expected_classes[sample_i]);
@@ -321,10 +333,10 @@ module top_tb_sample_align;
     $display("=============================================================");
     if (sample_errors == 0 && error_count == 0) begin
       $display("SAMPLE_ALIGN_PASS (%0d/%0d samples matched)",
-               SAMPLE_COUNT, SAMPLE_COUNT);
+               sample_count, sample_count);
     end else begin
       $display("SAMPLE_ALIGN_FAIL (matched=%0d/%0d, bus_errors=%0d)",
-               SAMPLE_COUNT - sample_errors, SAMPLE_COUNT, error_count);
+               sample_count - sample_errors, sample_count, error_count);
     end
     $display("=============================================================");
 

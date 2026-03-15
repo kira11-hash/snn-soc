@@ -189,6 +189,7 @@ module reg_bank (
   logic [7:0] threshold_ratio;
   logic done_sticky;
   logic pop_pending;
+  logic out_data_read_seen;
 
   // addr_offset 只取低 8 位用于寄存器解码
   wire [7:0] addr_offset = req_addr[7:0];
@@ -315,16 +316,20 @@ module reg_bank (
   // out_fifo_pop 也连续为 1，正确地逐拍弹出。
   // -----------------------------------------------------------------------
   // OUT_FIFO_DATA 读出后下一拍弹出，避免同拍竞争
+  // 同时对读请求做边沿检测，避免 bus_read 在 valid 保持两拍时重复 pop。
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       pop_pending <= 1'b0;
       out_fifo_pop <= 1'b0;
+      out_data_read_seen <= 1'b0;
     end else begin
       // 第 2 拍：将上一拍的 pop_pending 转化为实际 pop
       out_fifo_pop <= pop_pending;
-      // 第 1 拍：检测本拍是否为有效 OUT_DATA 读请求
-      // 条件：有效读操作 + 地址匹配 + FIFO 非空（空 FIFO 不应触发 pop）
-      pop_pending <= (req_valid && !req_write && (addr_offset == REG_OUT_DATA) && !out_fifo_empty);
+      // 第 1 拍：仅在新的 OUT_DATA 读请求边沿到来时置位 pop_pending。
+      // bus_read 任务会把 req_valid 保持两拍；如果按电平触发，单次读会误 pop 多次。
+      pop_pending <= (req_valid && !req_write && (addr_offset == REG_OUT_DATA) &&
+                      !out_fifo_empty && !out_data_read_seen);
+      out_data_read_seen <= (req_valid && !req_write && (addr_offset == REG_OUT_DATA));
     end
   end
 
