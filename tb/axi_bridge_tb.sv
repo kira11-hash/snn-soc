@@ -36,8 +36,9 @@ module axi_bridge_tb;
   import snn_soc_pkg::*;
 
   // ── 时钟与复位 ────────────────────────────────────────────────────────────
-  logic clk = 1'b0;
+  logic clk;
   logic rst_n;
+  initial clk = 1'b0;
   always #10 clk = ~clk;  // 50 MHz
 
   // ── AXI-Lite 平铺信号（BFM → bridge）──────────────────────────────────

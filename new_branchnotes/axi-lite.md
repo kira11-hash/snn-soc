@@ -34,11 +34,7 @@
 | `sim/run_axi_bridge_icarus.sh` | 脚本 | 一键编译 + 运行 + 结果判断 |
 | `new_branchnotes/axi-lite.md` | 文档 | 本文件，分支开发记录 |
 
-**修改的文件：**
-
-| 文件路径 | 变更内容 |
-|---------|---------|
-| `CLAUDE.md` | 新增 "AXI-Lite 分支状态" 段，记录已完成/待做项 |
+**修改的文件：** 无
 
 ---
 
@@ -197,7 +193,7 @@ test_regs[0:7]（8 × 32-bit 内置寄存器，挂载于 ADDR_REG_BASE=0x4000_00
 |------|------|------|---------|
 | T1 | REG_BASE+0x00 | 写 `0xDEAD_BEEF`，读回 | 基本写读通路 |
 | T2 | REG_BASE+0x04 | 写 `0xCAFE_1234`，读回 | 不同地址写读 |
-| T3 | REG_BASE+0x10 | 写 `0x0000_27D8`（=10200，THRESHOLD_DEFAULT），读回 | 较高偏移地址 |
+| T3 | REG_BASE+0x10 | 写 `0x0000_0BF4`（=3060），读回 | 较高偏移地址 |
 | T4 | REG_BASE+0x00 | 仅读 | 验证 T2/T3 写入未破坏 reg[0] |
 | T5 | REG_BASE+0x08 | 先全写 `0xFFFFFFFF`，再用 `wstrb=4'b0001` 写 `0xAB`，读回期望 `0xFFFFFFAB` | 字节写使能路径 |
 | T6 | REG_BASE+0x0C | AW 先到，W 后到（用 `axi_write_aw_first` task）| AW/W 错拍支持 |
@@ -286,7 +282,7 @@ cd sim && bash run_axi_bridge_icarus.sh
 
 | 项目 | 优先级 | 说明 |
 |------|--------|------|
-| 实际跑通 Icarus 仿真 | 高 | 需要 Icarus 环境，运行 `bash run_axi_bridge_icarus.sh` |
+| 实际跑通 Icarus 仿真 | 已完成 | 本地复测通过，输出 `AXI_BRIDGE_SMOKETEST_PASS` |
 | `axi_lite_interconnect.sv`（1主N从 AXI 仲裁） | 低 | E203 接入前不急；当前只有 1 个 AXI master |
 | 集成进 `snn_soc_top.sv` | 中 | E203 接入时需要：在顶层暴露 AXI-Lite slave 端口，将 bridge 与 bus_interconnect 主机端连接 |
 | 与真实 `reg_bank` 做集成测试 | 中 | 当前 TB 用 8 个简单测试寄存器，后续可替换为真实 reg_bank |
