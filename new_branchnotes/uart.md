@@ -41,6 +41,10 @@
 ### 3.2 保留文件
 1. `rtl/periph/uart_stub.sv` 保留不动（用于主线回退和风险隔离）
 
+### 3.3 同步修改的已有文件
+1. `README.md`（补充分支状态、UART smoke 入口和目录口径）
+2. `doc/00_overview.md`（标记 `uart_ctrl` 已完成独立验证、顶层仍使用 `uart_stub`）
+
 ---
 
 ## 4. 模块设计说明（uart_ctrl.sv）

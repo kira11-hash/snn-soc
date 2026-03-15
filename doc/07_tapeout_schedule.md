@@ -459,14 +459,14 @@ set_output_delay 2.0 -clock clk [all_outputs]
 
 ---
 
-## 与 develop docs 的关系
+## 与早期草稿的关系
 
-`doc/develop docs/` 文件夹中的文档为早期草稿：
+早期 `develop docs` 草稿目录已从仓库移除，原先文档内容已整合为当前正式版本：
 - `CIM_Macro_Interface_Specification.md` → 已整合到 `03_cim_if_protocol.md`
 - `MVP_Learning_Guide.md` → 已整合到 `06_learning_path.md`
 - `Tapeout_Schedule.md` → 已整合到本文档
 
-建议保留 `develop docs/` 作为历史参考，主要使用 `doc/*.md` 作为正式文档。
+后续请以 `doc/*.md` 作为正式文档；若需要查看历史演进，请直接查询 Git 历史而不是依赖仓库内保留目录。
 
 ---
 
