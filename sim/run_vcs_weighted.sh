@@ -10,6 +10,29 @@ fi
 : "${VERDI_HOME:=/opt/Synopsys/verdi_green/verdi-2021.09-sp2}"
 export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
 
+VCS_BIN="$VCS_HOME/bin/vcs"
+VERDI_BIN="$VERDI_HOME/bin/verdi"
+
+if [ ! -x "$VCS_BIN" ]; then
+  echo "[ERROR] VCS binary not found: $VCS_BIN" >&2
+  echo "[ERROR] Current VCS_HOME=$VCS_HOME" >&2
+  if command -v vcs >/dev/null 2>&1; then
+    echo "[INFO] command -v vcs => $(command -v vcs)" >&2
+  fi
+  echo "[ERROR] Please source the correct Synopsys environment or export VCS_HOME explicitly." >&2
+  exit 1
+fi
+
+if [ ! -x "$VERDI_BIN" ]; then
+  echo "[ERROR] Verdi binary not found: $VERDI_BIN" >&2
+  echo "[ERROR] Current VERDI_HOME=$VERDI_HOME" >&2
+  if command -v verdi >/dev/null 2>&1; then
+    echo "[INFO] command -v verdi => $(command -v verdi)" >&2
+  fi
+  echo "[ERROR] Please source the correct Synopsys environment or export VERDI_HOME explicitly." >&2
+  exit 1
+fi
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
@@ -40,15 +63,10 @@ if [ -z "$WEIGHT_SRC_DIR" ]; then
   exit 1
 fi
 
-if [ ! -d "$VERDI_HOME" ]; then
-  echo "[ERROR] VERDI_HOME not found: $VERDI_HOME" >&2
-  exit 1
-fi
-
 cp "$WEIGHT_SRC_DIR/weight_pos.hex" "$RUN_DIR/weight_pos.hex"
 cp "$WEIGHT_SRC_DIR/weight_neg.hex" "$RUN_DIR/weight_neg.hex"
 
-vcs -full64 -sverilog -timescale=1ns/1ps +define+VCS \
+"$VCS_BIN" -full64 -sverilog -timescale=1ns/1ps +define+VCS \
     -f sim_icarus_weighted.f \
     -top top_tb_icarus_weighted \
     -o "$RUN_DIR/simv_weighted" \
