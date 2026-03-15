@@ -60,6 +60,7 @@ module spi_ctrl (
 
   // req_wstrb is intentionally ignored in this V1 peripheral.
   wire _unused = &{1'b0, req_wstrb, req_addr[31:8]};
+  wire _unused_shift_bits = &{1'b0, tx_shift[7], rx_shift[7]};
 
   // clk_div mapping: 0..7 -> divide by 2/4/8/16/32/64/128/256.
   always_comb begin

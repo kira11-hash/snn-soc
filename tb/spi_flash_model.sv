@@ -25,6 +25,7 @@ module spi_flash_model (
   logic [7:0]  out_byte;
   logic [2:0]  out_bit_idx;
   logic [1:0]  id_idx;
+  wire _unused_shift_bits = &{1'b0, cmd_shift[7], addr_shift[23]};
 
   // Use a 64KB window so READ tests do not quickly wrap on addresses >0x00FF.
   logic [7:0] mem [0:65535];
@@ -36,39 +37,59 @@ module spi_flash_model (
     end
   end
 
-  always @(negedge spi_cs_n) begin
-    state      <= ST_CMD;
-    cmd_shift  <= 8'h00;
-    in_bit_cnt <= 5'd0;
-    addr_shift <= 24'h0;
-    addr_ptr   <= 16'h0000;
-    out_byte   <= 8'h00;
-    out_bit_idx <= 3'd7;
-    id_idx     <= 2'd0;
-    spi_miso   <= 1'b0;
+  initial begin
+    state       = ST_CMD;
+    cmd_shift   = 8'h00;
+    in_bit_cnt  = 5'd0;
+    addr_shift  = 24'h0;
+    addr_ptr    = 16'h0000;
+    out_byte    = 8'h00;
+    out_bit_idx = 3'd7;
+    id_idx      = 2'd0;
   end
 
-  always @(posedge spi_cs_n) begin
-    spi_miso <= 1'b0;
-    state    <= ST_CMD;
+  // Mode-0 slave output is purely a function of the current response byte.
+  // After each rising edge updates the next bit pointer, MISO stays stable
+  // for the following half cycle before the master samples it.
+  always_comb begin
+    if (!spi_cs_n && ((state == ST_ID) || (state == ST_READ))) begin
+      spi_miso = out_byte[out_bit_idx];
+    end else begin
+      spi_miso = 1'b0;
+    end
   end
 
-  // Capture master MOSI on rising edge.
-  always @(posedge spi_sck) begin
-    if (!spi_cs_n) begin
+  // Capture MOSI and advance the response stream on the master's sampling edge.
+  // This keeps every state-holding register single-driven and removes false
+  // multi-driver lint noise from the flash model.
+  always_ff @(posedge spi_sck or posedge spi_cs_n) begin
+    logic [7:0]  cmd_next;
+    logic [23:0] addr_next;
+
+    if (spi_cs_n) begin
+      state       <= ST_CMD;
+      cmd_shift   <= 8'h00;
+      in_bit_cnt  <= 5'd0;
+      addr_shift  <= 24'h0;
+      addr_ptr    <= 16'h0000;
+      out_byte    <= 8'h00;
+      out_bit_idx <= 3'd7;
+      id_idx      <= 2'd0;
+    end else begin
       case (state)
         ST_CMD: begin
-          cmd_shift <= {cmd_shift[6:0], spi_mosi};
+          cmd_next   = {cmd_shift[6:0], spi_mosi};
+          cmd_shift  <= cmd_next;
           if (in_bit_cnt == 5'd7) begin
-            if ({cmd_shift[6:0], spi_mosi} == 8'h9F) begin
+            in_bit_cnt <= 5'd0;
+            if (cmd_next == 8'h9F) begin
               state       <= ST_ID;
               out_byte    <= 8'hEF;
               out_bit_idx <= 3'd7;
               id_idx      <= 2'd0;
-            end else if ({cmd_shift[6:0], spi_mosi} == 8'h03) begin
+            end else if (cmd_next == 8'h03) begin
               state      <= ST_ADDR;
               addr_shift <= 24'h0;
-              in_bit_cnt <= 5'd0;
             end else begin
               state <= ST_IGNORE;
             end
@@ -78,58 +99,51 @@ module spi_flash_model (
         end
 
         ST_ADDR: begin
-          addr_shift <= {addr_shift[22:0], spi_mosi};
+          addr_next  = {addr_shift[22:0], spi_mosi};
+          addr_shift <= addr_next;
           if (in_bit_cnt == 5'd23) begin
-            // READ uses 24-bit address, model implements lower 16-bit window.
-            addr_ptr    <= {addr_shift[14:0], spi_mosi};
-            out_byte    <= mem[{addr_shift[14:0], spi_mosi}];
+            // READ uses a 24-bit address; this model implements the lower 16-bit window.
+            addr_ptr    <= addr_next[15:0];
+            out_byte    <= mem[addr_next[15:0]];
             out_bit_idx <= 3'd7;
+            in_bit_cnt  <= 5'd0;
             state       <= ST_READ;
           end else begin
             in_bit_cnt <= in_bit_cnt + 5'd1;
           end
         end
 
-        default: begin
-          // ID/READ/IGNORE do not consume MOSI command bits.
-        end
-      endcase
-    end
-  end
-
-  // Drive MISO on falling edge so data is stable before next rising sample.
-  always @(negedge spi_sck) begin
-    if (!spi_cs_n) begin
-      case (state)
-        ST_ID, ST_READ: begin
-          spi_miso <= out_byte[out_bit_idx];
+        ST_ID: begin
           if (out_bit_idx == 3'd0) begin
             out_bit_idx <= 3'd7;
-            if (state == ST_ID) begin
-              if (id_idx == 2'd0) begin
-                out_byte <= 8'h40;
-                id_idx   <= 2'd1;
-              end else if (id_idx == 2'd1) begin
-                out_byte <= 8'h16;
-                id_idx   <= 2'd2;
-              end else begin
-                out_byte <= 8'h00;
-              end
+            if (id_idx == 2'd0) begin
+              out_byte <= 8'h40;
+              id_idx   <= 2'd1;
+            end else if (id_idx == 2'd1) begin
+              out_byte <= 8'h16;
+              id_idx   <= 2'd2;
             end else begin
-              addr_ptr <= addr_ptr + 16'd1;
-              out_byte <= mem[addr_ptr + 16'd1];
+              out_byte <= 8'h00;
             end
           end else begin
             out_bit_idx <= out_bit_idx - 3'd1;
           end
         end
 
+        ST_READ: begin
+          if (out_bit_idx == 3'd0) begin
+            out_bit_idx <= 3'd7;
+            addr_ptr    <= addr_ptr + 16'd1;
+            out_byte    <= mem[addr_ptr + 16'd1];
+          end else begin
+            out_bit_idx <= out_bit_idx - 3'd1;
+          end
+        end
+
         default: begin
-          spi_miso <= 1'b0;
+          // IGNORE keeps returning zero until CS deasserts.
         end
       endcase
-    end else begin
-      spi_miso <= 1'b0;
     end
   end
 endmodule

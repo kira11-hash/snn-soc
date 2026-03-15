@@ -12,6 +12,7 @@
 //   SPI_SMOKETEST_PASS
 // ============================================================================
 module spi_tb;
+  /* verilator lint_off UNUSEDSIGNAL */
   logic clk;
   logic rst_n;
   initial clk = 1'b0;
@@ -237,5 +238,6 @@ module spi_tb;
     $display("[ERROR] Timeout");
     $finish;
   end
+  /* verilator lint_on UNUSEDSIGNAL */
 endmodule
 
