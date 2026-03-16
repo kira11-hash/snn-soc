@@ -2,10 +2,10 @@
 // AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
 // File: rtl/top/chip_top.sv
 // Purpose: Chip-level wrapper skeleton for future pad-ring integration around snn_soc_top.
-// Role in system: Holds the place for pad cells, external pin muxing, and final package-facing signal shaping.
-// Current status: Skeleton only (many pad-facing outputs are placeholders) used to lock interface planning and lint flow.
+// Role in system: Holds the place for signal-pad hookup, package-facing signal shaping, and future pad cell insertion.
+// Current status: Skeleton only; the canonical pad source of truth lives in doc/15_asic_pad_map.md.
+// Scope note: This file models only signal-facing ports. Power pads and 3 ESD-reserved pads are documented, not instantiated here.
 // Do not tape out as-is: Final pad mapping, IO cell instantiation, ESD/pad config, and analog connections are not implemented yet.
-// Development benefit: Allows early lint/checks on top-level integration boundaries without disturbing snn_soc_top internals.
 // -----------------------------------------------------------------------------
 
 `timescale 1ns/1ps
@@ -15,11 +15,12 @@
 //
 // 设计意图:
 //   1) 当前阶段先复用 snn_soc_top 的内部接口与仿真链路，不改变现有行为。
-//   2) 预留外部 45-pin 复用方案相关端口，后续在此层完成 pad 映射与引脚复用。
+//   2) 预留外部 45 个信号 pad 相关端口，后续在此层完成 pad 映射与引脚复用。
 //   3) 避免把 pad 级改动直接耦合到 snn_soc_top 内核逻辑。
 //
 // 注意:
 //   - 当前外部复用端口仅占位，尚未与 snn_soc_top 内部 wl_mux_wrapper 相连。
+//   - 全部 48 pad 的正式编号/名称/方向/类型/复位行为以 doc/15_asic_pad_map.md 为准。
 //   - 后续 tapeout 前需在本模块内完成:
 //       a) pad cell 实例化
 //       b) wl_data/wl_group_sel/wl_latch 与内部信号连接
@@ -42,7 +43,7 @@ module chip_top (
   input  logic jtag_tdi_pad,
   output logic jtag_tdo_pad,
 
-  // 45-pin 方案相关复用信号（pad，占位）
+  // 45 个信号 pad 中与模拟芯片互联相关的复用信号（pad，占位）
   output logic [7:0] wl_data_pad,
   output logic [2:0] wl_group_sel_pad,
   output logic       wl_latch_pad,

@@ -1482,7 +1482,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
   - 编程模式（复用推理引脚）：row_addr + col_addr + write_data + 控制 → 可复用上述引脚
   - 加电源/地/参考/偏置 → 总计可能 **100-120 pin**
   - 需要评估封装/PCB 可行性（QFP-128 or BGA）
-- 口径说明：**86 pin** 是“无复用裸接口”的连线规模估算；**45 pin** 是 V1 定版采用时分复用/引脚复用后的实现口径，两者不冲突。
+- 口径说明：**86 pin** 是“无复用裸接口”的连线规模估算；**45 个可用 pad** 是 V1 定版采用时分复用/引脚复用后的实现口径，两者不冲突。
 - 若 pin 过多：评估 pin reduction（串行化 WL 驱动、分时复用）
 
 #### 5a) chip_top / pad-wrapper 落地（后端前必做）
@@ -1491,7 +1491,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 - 当前状态说明（避免误解）：`chip_top` 里复用相关 pad 信号仍是占位常量，**不是最终 pad 级连线实现**；Tapeout 前必须完成真实连接与 pad cell 实例化。
 - 后端前必须完成以下收口：
   - 在 `chip_top.sv` 内把外部复用信号（`wl_data/wl_group_sel/wl_latch/cim_start/cim_done/bl_sel/bl_data`）连接到内部协议源
-  - 统一 pad 口径：确定 45-pin 方案的最终引脚表、方向、电平和复位策略
+  - 统一 pad 口径：以 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) 作为唯一真源，冻结最终引脚表、方向、电平和复位策略
   - 完成 pad ring 实例化与约束（时序/电气）
   - 与模拟团队二次对齐 `doc/08_cim_analog_interface.md`（去掉“待确认”项）
 - 验收标准：
@@ -1694,7 +1694,10 @@ bus_write(REG_CIM_TEST, 32'h0000_6401);  // neg=0x00, pos=0x64, mode=1
 - 器件组的 Python 模型是重大利好——之前担心 SPICE 不能直接用于系统建模，现在有 Python 模型可以直接集成到端到端仿真中。
 
 ---
-### IO Pad 方案（已确认：48 pad，3 ESD，45 可用）
+### IO Pad 方案（已确认：48 pad 总视图，45 个可用 pad + 3 个 ESD/保留 pad）
+
+> ASIC pad/pin 的正式真源见 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md)。
+> 当前口径为：48 pad 总计，其中 45 个可用 pad = 39 个功能信号 pad + 6 个电源/地 pad；另有 3 个 ESD/保留 pad。
 
 #### 器件模型关键参数（来自 memristor_plugin.py）
 
@@ -1727,16 +1730,16 @@ bus_write(REG_CIM_TEST, 32'h0000_6401);  // neg=0x00, pos=0x64, mode=1
 | BL 读出 | bl_data[7:0] | in | 8 |
 |  | bl_sel[4:0] | out | 5 |
 | **合计** | | | **45** |
-| **剩余** | 无（Scheme B 用完全部 45 pin） | | **0** |
+| **剩余** | 无（Scheme B 用完全部 45 个可用 pad） | | **0** |
 
 > **为什么能放下**：关键节省——
 > 1. **ADC 8-bit 而非 12-bit**（A2 确认），节省 4 pin
 > 2. **方案B 数字侧差分**（A1 确认），bl_sel 需 5-bit（$clog2(20)=5）
 >
 > 8-bit ADC 节省 4 pin，方案B 比方案A 多用 1 pin（bl_sel 4→5），净节省 3 pin。
-> 加回 JTAG(4 pin) 正好用完 45 pin（无 spare）。
+> 加回 JTAG(4 pin) 后正好用完全部 45 个可用 pad（无 spare）。
 
-> **备选方案**（如果后续建模证明需要 12-bit ADC）：砍掉 JTAG → 正好 45 pin（无余量）。
+> **备选方案**（如果后续建模证明需要 12-bit ADC）：砍掉 JTAG 后仍需重新分配 45 个可用 pad，不能再按“spare”口径理解。
 > 但从器件模型的 4-bit 权重 + 5000:1 开关比来看，8-bit ADC 的动态范围完全足够。
 
 #### 简化握手协议（省掉 dac_valid/adc_start/adc_done，共省 3 pin）
@@ -1781,7 +1784,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 #### ✅ 已完成
 1. ✅ RTL 全面 code review（17 个文件，全部正确）
 2. ✅ 确认 foundry pad 数（48 pad，45 可用）
-3. ✅ 确定 IO 方案：WL 8组×8 时分复用 + 8-bit ADC + 方案B 差分 + 保留 JTAG = 45 pin（会议后更新）
+3. ✅ 确定 IO 方案：WL 8组×8 时分复用 + 8-bit ADC + 方案B 差分 + 保留 JTAG = 45 个可用 pad（会议后更新）
 4. ✅ 获取器件 Python 模型（memristor_plugin.py + I-V.xlsx）
 5. ✅ 分析器件参数：4-bit 权重、5000:1 开关比、8-bit ADC、pA~nA 级电流
 6. ✅ Python 全量建模完成（初版 T=1, ratio=0.40, test=91.24%）；当前工程口径已收口为 T=10 / ratio_code=1 / reset_mode=soft
@@ -1802,7 +1805,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 |  | 2d. sneak path 影响评估（用模型的 variation + noise 参数） | | |
 | **3** | **器件会议 follow-up** — ✅ 确认方案B（数字侧差分）；确认 8-bit ADC 方案 | 建模初步结论 | 1次会议 |
 |  | 3a. ✅ 向器件组确认：ADC 通道数=20（方案B）| 已确认 | |
-|  | 3b. 向器件组确认：pin 方案（44 pin + 1 spare 的分配表） | | |
+|  | 3b. 向器件组确认：48 pad 全表与 45 个可用 pad 分配表（无 spare，另有 3 个 ESD/保留 pad） | | |
 |  | 3c. 向器件组确认：WL 时分复用的时序是否可接受 | | |
 | **4** | ✅ **RTL 参数更新**（已完成 2026-02-06） | 2 + 3 | ✅ |
 |  | ✅ 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 | | ✅ |

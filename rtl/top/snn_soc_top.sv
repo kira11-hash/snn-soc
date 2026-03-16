@@ -75,7 +75,7 @@ module snn_soc_top (
   input  logic        spi_miso,
 
   // JTAG (stub)
-  // jtag_*: JTAG 接口占位，jtag_stub 将 tdo 直接连 tdi（pass-through），V2 接 E203 DM
+  // jtag_*: JTAG 接口占位；当前 jtag_stub 固定输出 tdo=0，不做 TAP/旁路逻辑，V2 接 E203 DM
   input  logic        jtag_tck,
   input  logic        jtag_tms,
   input  logic        jtag_tdi,
@@ -940,8 +940,8 @@ module snn_soc_top (
     .spi_miso  (spi_miso)
   );
 
-  // JTAG stub：tdo 直接连 tdi（旁路，不做任何 TAP 处理）
-  // 无时钟/复位端口：纯组合连接
+  // JTAG stub：固定输出 tdo=0，不做任何 TAP/旁路处理
+  // 无时钟/复位状态机：仅占位并吸收未用输入
   // V2 规划：接入 E203 的 Debug Module（DM）实现真实 JTAG 调试
   jtag_stub u_jtag (
     .jtag_tck (jtag_tck),

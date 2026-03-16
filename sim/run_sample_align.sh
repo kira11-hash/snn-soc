@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Step 3.4: Python↔RTL 数值对齐仿真运行脚本（Icarus）
+# Step 3.4: Python-to-RTL sample-alignment regression runner (Icarus)
 #
-# 前置步骤：
+# Prerequisites:
 #   1. cd 项目相关文件/器件对齐/Python建模
 #   2. python export_expected_spike_ids.py
-#   3. 将 results/exports/rtl_stimulus/ 下生成的文件复制到 sim/ 目录
-#      需要的文件：all_samples.hex, expected_classes.hex
-#      权重文件：weight_pos.hex, weight_neg.hex（同 run_icarus_weighted.sh）
+#   3. Use the generated results/exports/rtl_stimulus/ corpus
+#      Required files: all_samples.hex, expected_classes.hex
+#      Optional audit file: alignment_manifest.json
+#      Required weights: weight_pos.hex, weight_neg.hex
 #
-# 用法：
+# Usage:
 #   cd sim && bash run_sample_align.sh
 #
-# 通过标准：SAMPLE_ALIGN_PASS（10/10 样本 spike_id 完全一致）
+# Default formal path:
+#   - Auto-detect SAMPLE_COUNT from expected_classes.hex
+#   - Repo-formal corpus is 100 samples
+#
+# Debug path:
+#   - Override with +SAMPLE_COUNT=<n> to run only the first n samples
+#
+# Pass criteria:
+#   - SAMPLE_ALIGN_PASS (100/100 samples matched on the formal corpus)
 # =============================================================================
 set -euo pipefail
 
@@ -108,7 +117,6 @@ pad_hex_file() {
   ' "$src" > "$dst"
 }
 
-# ── 定位权重 hex ──
 WEIGHT_SRC_DIR="${WEIGHT_SRC_DIR:-}"
 if [ -z "$WEIGHT_SRC_DIR" ]; then
   WEIGHT_SRC_DIR=$(find_weight_dir || true)
@@ -123,7 +131,6 @@ fi
 cp "$WEIGHT_SRC_DIR/weight_pos.hex" "$RUN_DIR/weight_pos.hex"
 cp "$WEIGHT_SRC_DIR/weight_neg.hex" "$RUN_DIR/weight_neg.hex"
 
-# ── 定位 stimulus 文件（all_samples.hex, expected_classes.hex） ──
 STIMULUS_DIR="${STIMULUS_DIR:-}"
 if [ -z "$STIMULUS_DIR" ]; then
   STIMULUS_DIR=$(find_stimulus_dir || true)
@@ -163,15 +170,13 @@ pad_hex_file "$STIMULUS_DIR/expected_classes.hex" "$RUN_DIR/expected_classes.hex
 echo "[run_sample_align.sh] Weight source: $WEIGHT_SRC_DIR"
 echo "[run_sample_align.sh] Stimulus source: $STIMULUS_DIR"
 echo "[run_sample_align.sh] Auto-detected SAMPLE_COUNT=$sample_count"
+echo "[run_sample_align.sh] expected_classes.hex semantics: Python predicted_class for RTL alignment"
 
-# ── 编译 ──
 iverilog -g2012 -gno-assertions -f sim_sample_align.f -s top_tb_sample_align -o "$RUN_DIR/sample_align.out"
 
-# ── 运行 ──
 VVP_ARGS=("$@")
 for arg in "$@"; do
   if [[ "$arg" == +SAMPLE_COUNT=* ]]; then
-    VVP_ARGS=("$@")
     sample_count=""
     break
   fi
@@ -186,13 +191,11 @@ fi
   vvp ./sample_align.out "${VVP_ARGS[@]}"
 ) | tee "$SCRIPT_DIR/sample_align.log"
 
-# ── 保存波形 ──
 mkdir -p "$SCRIPT_DIR/waves"
 if [ -f "$RUN_DIR/waves/sample_align.vcd" ]; then
   cp "$RUN_DIR/waves/sample_align.vcd" "$SCRIPT_DIR/waves/sample_align.vcd"
 fi
 
-# ── 判定结果 ──
 if grep -q "SAMPLE_ALIGN_PASS" "$SCRIPT_DIR/sample_align.log"; then
   echo "[run_sample_align.sh] >>> SAMPLE_ALIGN_PASS <<<"
   exit 0

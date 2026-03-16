@@ -3,21 +3,23 @@
 // =============================================================================
 // Step 3.4: Python↔RTL 数值对齐 TB
 //
-// 功能：加载 10 个 MNIST 样本的 bit-plane hex，逐个跑 RTL 推理，
-//       自动对比 RTL 输出 spike_id 与 Python 预期，报告 PASS/FAIL。
+// 功能：加载正式样本集的 bit-plane hex，逐个跑 RTL 推理，
+//       自动对比 RTL 输出类别与 Python 预测类别，报告 PASS/FAIL。
 //
 // 输入文件（由 export_expected_spike_ids.py 生成，放在仿真运行目录）：
-//   - all_samples.hex       : 10×80=800 行 64-bit hex，所有样本 bit-plane 合并
-//   - expected_classes.hex  : 10 行，每行一个预期分类（0~9）
+//   - all_samples.hex       : N×80 行 64-bit hex，所有样本 bit-plane 合并
+//   - expected_classes.hex  : N 行，每行一个 Python predicted_class（用于 RTL 等价性对齐）
 //
-// 通过标准：10/10 样本 spike_id 完全一致 → SAMPLE_ALIGN_PASS
+// 正式默认口径：100 样本（MNIST test split，每类前 10 个，class-major 顺序）
+// 调试口径：可通过 +SAMPLE_COUNT=<n> 只跑前 n 个样本
+// 通过标准：100/100 样本匹配时输出 SAMPLE_ALIGN_PASS
 // =============================================================================
 
 module top_tb_sample_align;
   import snn_soc_pkg::*;
 
   // ── 样本参数 ──
-  localparam int DEFAULT_SAMPLE_COUNT = 10;
+  localparam int DEFAULT_SAMPLE_COUNT = 100;
   localparam int MAX_SAMPLE_COUNT     = 256;
   localparam int PLANES_PER_SAMPLE    = TIMESTEPS_DEFAULT * PIXEL_BITS;       // 10 * 8 = 80
   localparam int TOTAL_PLANES_MAX     = MAX_SAMPLE_COUNT * PLANES_PER_SAMPLE; // 256 * 80
@@ -78,6 +80,7 @@ module top_tb_sample_align;
 
   // ── 预加载数据 ──
   reg [63:0] all_planes [0:TOTAL_PLANES_MAX-1];
+  // expected_classes 存的是 Python predicted_class，不是真实标签。
   reg [3:0]  expected_classes [0:MAX_SAMPLE_COUNT-1];
 
   // ── DUT 实例化 ──
@@ -226,7 +229,8 @@ module top_tb_sample_align;
     for (sample_i = 0; sample_i < sample_count; sample_i = sample_i + 1) begin
 
       $display("-------------------------------------------------------------");
-      $display("[ALIGN] Sample %0d: expected_class=%0d", sample_i, expected_classes[sample_i]);
+      $display("[ALIGN] Sample %0d: expected_python_class=%0d",
+               sample_i, expected_classes[sample_i]);
 
       // ── 1) 软复位 + 清除 sticky flags ──
       // CIM_CTRL: bit[7]=DONE W1C + bit[1]=SOFT_RESET W1P

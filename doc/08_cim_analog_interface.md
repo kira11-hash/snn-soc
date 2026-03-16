@@ -26,7 +26,7 @@
 - DAC（数字到模拟转换，WL de-mux + 电压驱动）
 - ADC（模拟到数字转换，1 路 8-bit SAR ADC + 20:1 MUX）
 
-**PCB 互联**：两颗芯片通过 PCB 走线连接，接口信号见 §1.3 外部复用口径（45-pin 方案）。PCB 走线需关注信号完整性（串扰、延迟匹配），详见 §5。
+**PCB 互联**：两颗芯片通过 PCB 走线连接，接口信号见 §1.3 外部复用口径；ASIC pad/pin 正式真源见 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md)。PCB 走线需关注信号完整性（串扰、延迟匹配），详见 §5。
 
 ### 1.2 接口边界
 
@@ -64,7 +64,7 @@
 
 - 内部并行口径（当前 `snn_soc_top` / `cim_macro_blackbox`）：
   `wl_spike[63:0] + dac_valid + cim_start/done + bl_sel[4:0] + adc_start/done + bl_data[7:0]`
-- 外部复用口径（45-pin 方案，供 chip_top/pad 使用）：
+- 外部复用口径（对应 45 个可用 pad 中的功能信号子集，供 chip_top/pad 使用）：
   `wl_data[7:0] + wl_group_sel[2:0] + wl_latch + cim_start/done + bl_sel[4:0] + bl_data[7:0] + clk + rst_n`
 
 当前 RTL 已加入协议原型：`rtl/snn/wl_mux_wrapper.sv`。
@@ -104,7 +104,7 @@
 ### 2.1 信号总表
 
 > 说明：本节表格为**内部并行接口口径**（`snn_soc_top` 与 `cim_macro_blackbox` 之间，仅用于仿真）。
-> 实际双芯片 PCB 互联使用**外部 45-pin 复用口径**，以 §1.3 为准。
+> 实际双芯片 PCB 互联使用**外部 45 个可用 pad 的复用口径**，以 §1.3 和 `doc/15_asic_pad_map.md` 为准。
 
 | 信号名 | 方向 | 位宽 | 类型 | 说明 |
 |:---|:---:|---:|:---:|:---|
@@ -120,8 +120,8 @@
 | `cim_done` | A→D | 1 | 脉冲 | CIM 计算完成，单拍脉冲 |
 | **ADC 接口** |||||
 | `bl_sel` | D→A | 5 | 控制 | 位线选择，0-19 有效（Scheme B：10 正 + 10 负） |
-| `adc_start` | D→A | 1 | 脉冲 | ADC 采样启动，单拍脉冲（**仅内部仿真，不在外部 45-pin 接口中**） |
-| `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 45-pin 接口中**） |
+| `adc_start` | D→A | 1 | 脉冲 | ADC 采样启动，单拍脉冲（**仅内部仿真，不在外部 45 个可用 pad 接口中**） |
+| `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 45 个可用 pad 接口中**） |
 | `bl_data` | A→D | 8 | 数据 | 当前通道 ADC 输出，8-bit |
 
 **注**：D→A = 数字芯片到模拟芯片（经 PCB 走线），A→D = 模拟芯片到数字芯片（经 PCB 走线）
@@ -392,7 +392,7 @@ bl_data    ═══════════════════════
 ## 5. 电气特性
 
 > **双芯片 PCB 互联注意**：以下信号在两颗独立封装芯片之间通过 PCB 走线传输，需额外关注：
-> - PCB 走线延迟（每 cm 约 6-7ns，需纳入时序预算）
+> - PCB 走线延迟（FR-4 上约 150-170 ps/mm，即每 cm 约 1.5-1.7 ns，需纳入时序预算）
 > - 信号串扰（特别是 `bl_data[7:0]` 8 根数据线的间距）
 > - 阻抗匹配（若时钟频率 50MHz，走线长度 < 3cm 时通常可忽略传输线效应）
 > - 两颗芯片可能使用不同工艺，需确认 IO 电平兼容性
@@ -447,7 +447,7 @@ set_output_delay 3.0 -clock clk [get_ports {wl_data* wl_group_sel* wl_latch cim_
 set_input_delay 3.0 -clock clk [get_ports {cim_done bl_data*}]
 ```
 
-**注**：以上约束为初始估计值。实际值需纳入 PCB 走线延迟（每 cm 约 6-7ns）和模拟芯片 IO 时序。两颗芯片分别综合时，各自使用对应的 output_delay/input_delay 约束。
+**注**：以上约束为初始估计值。实际值需纳入 PCB 走线延迟（每 cm 约 1.5-1.7 ns）和模拟芯片 IO 时序。两颗芯片分别综合时，各自使用对应的 output_delay/input_delay 约束。
 
 ---
 
@@ -526,7 +526,7 @@ endmodule
 
 **双芯片集成方式**（实际流片架构）：
 1. 数字芯片内保留 `cim_macro_blackbox` 作为仿真占位；综合时使用 `SYNTHESIS` 宏切换为空端口定义
-2. 数字芯片通过 `chip_top.sv` 的 pad wrapper 将内部并行信号映射到外部复用 IO（45-pin）
+2. 数字芯片通过 `chip_top.sv` 的 pad wrapper 将内部并行信号映射到外部复用 IO（45 个可用 pad 口径）
 3. 模拟 CIM 芯片独立流片，通过 PCB 走线与数字芯片互联
 4. 联合验证可使用混合仿真（AMS）或 FPGA + 模拟芯片实物联调
 
@@ -601,7 +601,7 @@ module cim_macro_blackbox #(
 
 **模拟芯片团队需要提供：**
 
-1. ✅ 符合接口定义的 CIM Macro（外部复用口径 45-pin 端口完全匹配）
+1. ✅ 符合接口定义的 CIM Macro（外部复用口径与 45 个可用 pad 方案完全匹配）
 2. ✅ 确认表格中的时序参数（DAC/CIM/ADC 延迟）
 3. ✅ 提供模拟芯片 IO 时序模型（用于数字芯片 STA 约束推导）
 4. ✅ 确认 IO 电平标准（VIH/VIL/VOH/VOL）及与数字芯片的兼容性
@@ -675,5 +675,6 @@ module cim_macro_blackbox #(
 
 **验证状态（2026-03-16）**：
 - Step 3.4/3.5 Python↔RTL 数值对齐已通过（SAMPLE_ALIGN_PASS，100/100 样本完全一致）
+- 对齐语义说明：`expected_classes.hex` 存的是 Python `predicted_class`，用于 RTL 等价性比对；真实标签保存在 `alignment_manifest.json`
 - 数字芯片推理链路已验证完整：DMA→input FIFO→CIM FSM→ADC MUX→LIF 神经元→output FIFO
 - 当前进入 Phase 4 外设集成阶段（AXI-Lite → UART → SPI → DMA扩展 → E203接入）

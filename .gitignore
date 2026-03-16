@@ -58,7 +58,11 @@ sim/verdi_config_file
 项目进展报告.md
 
 # Python modeling generated artifacts
-项目相关文件/器件对齐/Python建模/results/
+项目相关文件/器件对齐/Python建模/results/*
+!项目相关文件/器件对齐/Python建模/results/exports/
+项目相关文件/器件对齐/Python建模/results/exports/*
+!项目相关文件/器件对齐/Python建模/results/exports/rtl_stimulus/
+!项目相关文件/器件对齐/Python建模/results/exports/rtl_stimulus/**
 项目相关文件/器件对齐/Python建模/backups/
 项目相关文件/器件对齐/Python建模/weights/
 项目相关文件/器件对齐/Python建模/weights_quick/

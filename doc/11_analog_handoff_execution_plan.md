@@ -13,7 +13,7 @@
 | Q1 | **WL de-mux 归属**：模拟侧在芯片内部实现 8 组×8-bit 锁存器，接收 `wl_data/wl_group_sel/wl_latch`，还原 64 根字线驱动 | ✅ 已确认 |
 | Q2 | **dac_ready 握手移除**：模拟侧固定时序 WL de-mux，无需 ready 回路；数字侧改为固定 `DAC_LATENCY_CYCLES` 延迟；已更新 dac_ctrl.sv、cim_macro_blackbox.sv、snn_soc_top.sv | ✅ 已实施 |
 | Q3 | **chip_top 当前为 pad 骨架占位**：`rtl/top/chip_top.sv` 当前用于接口冻结/lint，不承担最终 pad 连线；不影响当前接口协议发送，但 tapeout 前必须完成 pad cell 实例化与真实连线 | ✅ 已明确 |
-| Q4 | **Step 3.4/3.5 Python↔RTL 数值对齐已通过（2026-03-15）**：100/100 样本预测与 Python 完全一致（SAMPLE_ALIGN_PASS）。根因修复：`reg_bank.sv` 的 `REG_OUT_DATA` pop 机制从电平检测改为边沿检测，解决了 `bus_read()` 的 `m_valid` 保持 2 拍导致单次读多次 pop 的问题。参数强冻结版本：T=10, ratio_code=1, THRESHOLD_DEFAULT=2550 | ✅ 已通过 |
+| Q4 | **Step 3.4/3.5 Python↔RTL 数值对齐已通过（2026-03-16 复核）**：正式 100 样本语料的 `predicted_class` 与 RTL 完全一致（SAMPLE_ALIGN_PASS）。根因修复：`reg_bank.sv` 的 `REG_OUT_DATA` pop 机制从电平检测改为边沿检测，解决了 `bus_read()` 的 `m_valid` 保持 2 拍导致单次读多次 pop 的问题。参数强冻结版本：T=10, ratio_code=1, THRESHOLD_DEFAULT=2550 | ✅ 已通过 |
 | Q5 | **双芯片 PCB 集成架构确认**：数字芯片与模拟 CIM 芯片为独立封装、分别流片，通过 PCB 走线互联。所有接口文档已按此架构更新。P0/P1/P2 问题需按"数字芯片侧"与"模拟芯片侧"分别讨论 | ✅ 已明确 |
 | Q6 | **数字芯片进入 Phase 4 外设集成**：推理核心链路验证完毕，开始 AXI-Lite → UART → SPI → DMA扩展 → E203接入的集成工作。此阶段不影响数模接口协议，但模拟侧回复后可能触发时序参数更新 | ℹ️ 知会 |
 
@@ -27,7 +27,7 @@
 | ★★★ | `doc/08_cim_analog_interface.md`          | 主合同：信号定义、时序协议、接口边界、待确认事项                      |
 | ★★★ | `doc/03_cim_if_protocol.md`               | 快速版协议参考（固定时序、ADC MUX 流程）                      |
 | ★★★ | `doc/02_reg_map.md`                       | 可调参数口径（THRESHOLD、TIMESTEPS、THRESHOLD_RATIO 等） |
-| ★★  | `SNNSoC工程主文档.md` 中 §"关键决策点" + §"45-pin方案" | 已定版参数、pin 分配概况                                |
+| ★★  | `SNNSoC工程主文档.md` 中 §"关键决策点" + [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) | 已定版参数、pad/pin 分配真源 |
 
 **文档一致性约束（对外发送时请附带）**：
 - 以上 5 份为当前唯一”对外有效口径”，均已更新为**双芯片 PCB 集成**架构描述。
@@ -140,7 +140,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P0-1 | 请确认最终 45-pin 分配表（数字侧当前方案见主文档 §45-pin方案），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pin 一一对应 |
+| P0-1 | 请确认最终 48 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md)），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
 | P0-2 | 模拟芯片的 die size（长×宽，mm）和封装形式？ | 模拟芯片 | 影响 PCB 布局和走线长度 |
 | P0-3 | 模拟芯片信号 pad 的排列顺序（wl_data/bl_data 各从哪侧引出）？ | 模拟芯片 | 影响 PCB 走线对齐和信号完整性 |
 | P0-4 | 两颗芯片的供电方案：AVDD/AVSS（模拟）和 DVDD/DVSS（数字）在 PCB 上如何分区？是否需要独立 LDO？ | PCB 设计 | 影响电源完整性和噪声隔离 |
@@ -206,7 +206,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 - `A5`：每阶段延迟（ns/cycles）+ 最坏 PVT 数值。
 - `A4`：Vref 高低点、TIA 增益标称/容差、是否可调、温漂。
 - `A6`：噪声（LSB RMS / pp）、最小可检电流、ENOB、温漂影响。
-- `P0`：两颗芯片的最终 pin list（45-pin 定稿）、pad 排列、PCB 走线长度预估。
+- `P0`：两颗芯片的最终 pin list（48 pad 全表，其中 45 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估。
 - `P1`：AVDD/DVDD 约束、偏置来源、PCB 电源方案、是否新增外部引脚。
 - `P2`：RRAM 上电状态、retention/read-disturb、模拟芯片权重写入方案。
 
@@ -339,5 +339,5 @@ AXI-Lite、DMA 扩展、E203 接入为关键步骤，必须跑 VCS/Verdi（含 S
 | 单 bit-plane 仿真延迟（含20通道ADC） | ~125 cycles ≈ 2.5 μs | 待模拟侧确认真实值 |
 | 总推理延迟（80 bit-plane） | 80 × 125 = 10000 cycles ≈ 200 μs | 估算（T=10 默认） |
 | 集成架构 | 双芯片 PCB 互联 | 数字芯片 + 模拟 CIM 芯片，独立封装 |
-| 数字侧验证状态 | Step 3.4/3.5 PASS（2026-03-15） | Python↔RTL 100/100 样本对齐 |
+| 数字侧验证状态 | Step 3.4/3.5 PASS（正式 100 样本口径） | Python↔RTL 100/100 样本对齐；`expected_classes.hex` 为 Python `predicted_class` |
 | 数字侧当前阶段 | Phase 4 外设集成 | AXI-Lite → UART → SPI → DMA → E203 |

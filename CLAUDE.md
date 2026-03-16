@@ -114,12 +114,12 @@
 - **Step 3.3 VCS/Verdi**：`run_vcs_weighted.sh` → `WEIGHTED_SIM_PASS` + 零 assertion failure + 波形检查（wl_spike / bl_data / diff / membrane / spike）
 - **Step 3.4 ★Python↔RTL 数值对齐★（开闸点）**：
   - 前提：recommendation 冻结 + weight hex 导出 + weighted Icarus + VCS 均已通过
-  - Python 侧：`export_mnist_bitplane_hex.py` 导出 10 样本激励 + 补写预期 spike_id 导出脚本
+  - Python 侧：`export_mnist_bitplane_hex.py`/`export_expected_spike_ids.py` 生成正式 100 样本激励（MNIST test split，每类前 10 个，class-major）
   - TB 侧：补写 sample-alignment TB，`$readmemh` 加载样本 hex，跑完对比 spike_id
   - bit-plane 顺序：导出 hex 每帧 8 行，bit7（MSB）在前 bit0（LSB）在后，TB 按此顺序写入 data_sram
-  - 通过标准：10/10 样本 spike_id 完全一致；不一致时按 ADC→diff→membrane→threshold→bit-plane 顺序排查
+  - 通过标准：100/100 样本 predicted_class 完全一致；不一致时按 stimulus/manifest → TB 流程 → FIFO pop/read → ADC→diff→membrane→threshold→bit-plane 顺序排查
   - **此步未过，不进 Phase 4**
-- **Step 3.5**（可选）：扩到 100 样本 batch 回归
+- **Step 3.5**：正式 100 样本 batch 回归与资产固化
 - **Step 3.6**：每通过一个子阶段，GPT + Claude 双重审查
 
 ### Phase 4: 外设集成（顺序固定，每步双回归）
