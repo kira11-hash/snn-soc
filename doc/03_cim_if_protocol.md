@@ -1,8 +1,10 @@
 # 03_cim_if_protocol
 
-模块：`cim_macro_blackbox`
-
+**版本**：v2.1
+**日期**：2026-03-16
+**模块**：`cim_macro_blackbox`
 **参数口径**：与时序相关的默认参数以 `rtl/top/snn_soc_pkg.sv` 为准，本文数值仅作说明，若不一致以 pkg 为准。
+**架构说明**：本文描述的是数字芯片内部的 `snn_soc_top` 与行为模型 `cim_macro_blackbox` 之间的**内部并行接口**。实际流片后，数字芯片与模拟 CIM 芯片为独立封装，通过 PCB 互联，使用 `wl_mux_wrapper` 提供的**外部复用接口**（45-pin 口径）。详见 `doc/08_cim_analog_interface.md` §1.3。
 
 ## 接口信号
 | 方向 | 信号 | 位宽 | 类型 | 说明 |
@@ -33,6 +35,9 @@
 **行为模型说明**：当前 CIM 行为模型在 `adc_done` 时更新所有 20 通道的内部结果，`bl_data` 由 `bl_sel` 选择输出。正列 (0..9) 产生较高值，负列 (10..19) 产生较低值。`adc_done` 的延迟由 `ADC_SAMPLE_CYCLES` 决定。
 
 ## 行为模型 bl_data 生成规则
+
+> **注**：以下规则仅适用于数字芯片内的仿真行为模型（`cim_macro_blackbox.sv`）。流片后真实模拟芯片返回的 `bl_data` 由 RRAM 阵列的物理权重决定，公式不同。带权重仿真使用 `sim/models/cim_macro_blackbox_weighted_icarus.sv`，其 ADC 缩放公式为 `scaled = (raw_sum * 255 + 480) // 960`。
+
 ```
 pop = popcount(wl_latched)
 正列 (j < 10):  bl_data[j] = (pop * 2 + j) & 8'hFF
