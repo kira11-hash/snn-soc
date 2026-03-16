@@ -2,8 +2,11 @@
 # sim/run_spi_icarus.sh
 # Build and run SPI unit smoke test with Icarus.
 
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
+
+# Remove stale outputs so a failed compile cannot accidentally reuse an old binary.
+rm -f spi_test
 
 echo "[INFO] Compiling SPI test (Icarus)..."
 iverilog -g2012 -gno-assertions \
@@ -31,4 +34,3 @@ else
   echo "============================================"
   exit 1
 fi
-
