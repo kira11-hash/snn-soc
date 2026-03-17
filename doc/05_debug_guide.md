@@ -23,7 +23,7 @@
    - data_sram 的写入顺序应为 MSB->LSB。
 
 5. **ADC 时分复用异常（Scheme B）**
-   - 检查 20 个通道是否都有 `adc_start`/`adc_done`。
+   - 检查 20 个通道是否都有 `adc_start`/`adc_done`（仅内部仿真信号，不在外部 pad 接口中；简化协议下外部使用 `cim_start`/`cim_done`，详见 `doc/08`）。
    - `bl_sel` 应随通道递增 0..19（ADC_CHANNELS=20）。
    - 差分结果：`neuron_in_data[i]` 为有符号 9-bit 值。
 

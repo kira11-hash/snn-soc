@@ -28,8 +28,9 @@
 // adc_ctrl 顺序采样 20 个通道，差分结果为有符号 9-bit 数据。
 //
 // 【参数决策依据（Python 建模最终锁定结果）】
-// 当前默认配置：64 维离线预处理特征 + Scheme B + ADC=8 + W=4 + T=10 + ratio_code=1(1/255)
-// 说明：这组数值就是当前工程默认口径；具体前处理算法不固化在 RTL 常量中
+// 当前默认配置：64 维离线预处理特征 + Scheme B + ADC=8 + T=10 + ratio_code=1(1/255)
+// 说明：这组数值就是当前工程默认口径；具体前处理算法不固化在 RTL 常量中。
+//      历史建模中的 W=4 属于训练/量化实验口径，不是当前 RTL package 中的冻结参数。
 //======================================================================
 /* verilator lint_off UNUSEDPARAM */
 package snn_soc_pkg;
@@ -88,7 +89,7 @@ package snn_soc_pkg;
   parameter int THRESHOLD_RATIO_DEFAULT = 1; // 1/255 ≈ 0.00392（定版 ratio_code）
 
   // 推理帧数（每帧包含 PIXEL_BITS 个子时间步，MSB->LSB）
-  // 工程默认：T=10（当前 ADC=8 / W=4 / ratio=1/255 冻结配置）
+  // 工程默认：T=10（当前 ADC=8 / ratio=1/255 冻结配置）
   parameter int TIMESTEPS_DEFAULT = 10; // 默认推理帧数（当前工程默认）
 
   // 阈值默认值：ratio_code × (2^PIXEL_BITS - 1) × TIMESTEPS
@@ -123,8 +124,8 @@ package snn_soc_pkg;
   // │ 区域              │ 基地址        │ 大小   │ 用途               │
   // ├──────────────────┼───────────────┼────────┼─────────────────────┤
   // │ 指令 SRAM         │ 0x0000_0000   │ 16KB   │ CPU 取指（E203用） │
-  // │ 数据 SRAM         │ 0x0001_0000   │ 16KB   │ CPU 数据           │
-  // │ 权重/像素 SRAM    │ 0x0003_0000   │ 16KB   │ DMA 读取 + CPU 写  │
+  // │ 数据 SRAM         │ 0x0001_0000   │ 16KB   │ CPU 数据 / 当前 DMA 输入源 │
+  // │ weight_sram(保留) │ 0x0003_0000   │ 16KB   │ 预留总线窗口 / 非当前 DMA 主路径 │
   // │ 主寄存器 Bank     │ 0x4000_0000   │ 256B   │ SNN 控制/状态      │
   // │ DMA 寄存器        │ 0x4000_0100   │ 256B   │ DMA 控制/状态      │
   // │ UART stub         │ 0x4000_0200   │ 256B   │ 串口外设（占位）   │
@@ -148,7 +149,9 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_DATA_END    = ADDR_DATA_BASE + DATA_SRAM_BYTES - 1;
   // = 0x0001_3FFF
 
-  // 权重/像素双端口 SRAM：0x0003_0000 ~ 0x0003_3FFF
+  // weight_sram 预留窗口：0x0003_0000 ~ 0x0003_3FFF
+  // 当前 main 的正式输入路径仍是 data_sram -> dma_engine -> input_fifo；
+  // 本窗口保留给后续 CPU/bootloader 扩展或权重相关实验，不作为默认 DMA 源。
   localparam logic [31:0] ADDR_WEIGHT_BASE = 32'h0003_0000;
   localparam logic [31:0] ADDR_WEIGHT_END  = ADDR_WEIGHT_BASE + WEIGHT_SRAM_BYTES - 1;
   // = 0x0003_3FFF

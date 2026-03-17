@@ -29,11 +29,11 @@
 //   bus_interconnect         ← 地址译码 + 从设备路由
 //    ├── instr_sram           ← 指令 SRAM（供 E203 使用，MVP 阶段备用）
 //    ├── data_sram (双端口)   ← 输入像素数据存放，DMA 读端口复用
-//    ├── weight_sram          ← 权重 SRAM（MVP 占位，实际权重烧入 RRAM）
+//    ├── weight_sram          ← 预留 SRAM 窗口（当前主推理路径不从此窗口取数）
 //    ├── reg_bank             ← 控制/状态寄存器组（启动、阈值、测试模式等）
 //    ├── dma_engine           ← 从 data_sram 读像素，打包后 push 到 input FIFO
-//    ├── uart_stub            ← UART 占位（V1 不用）
-//    ├── spi_stub             ← SPI Flash 占位（V1 不用）
+//    ├── uart_stub            ← UART 占位（当前 main 仍为 stub；CPU 版本会替换为真实控制器）
+//    ├── spi_stub             ← SPI Flash 占位（当前 main 仍为 stub；CPU 版本会替换为真实控制器）
 //    └── fifo_regs            ← FIFO 状态只读寄存器（供 SW 轮询）
 //
 //  [输入 FIFO] → cim_array_ctrl (FSM主控) → wl_mux_wrapper → dac_ctrl
@@ -63,12 +63,14 @@ module snn_soc_top (
   input  logic        rst_n,
 
   // UART (stub)
-  // uart_rx / uart_tx: V1 阶段仅作为占位 IO 引出，uart_stub 内部直接将 tx 拉高
+  // uart_rx / uart_tx: 当前 main 仅作为占位 IO 引出，uart_stub 内部直接将 tx 拉高；
+  //                    后续接入 CPU/boot 流时再替换为真实 UART 控制器
   input  logic        uart_rx,
   output logic        uart_tx,
 
   // SPI Flash (stub)
-  // spi_*: SPI 接口占位信号，spi_stub 内部将片选拉高（不选中），其余信号接地
+  // spi_*: 当前 main 的 SPI 占位信号；spi_stub 内部将片选拉高（不选中），其余信号接地；
+  //        后续接入 CPU/boot 流时再替换为真实 SPI 控制器
   output logic        spi_cs_n,
   output logic        spi_sck,
   output logic        spi_mosi,
@@ -110,14 +112,15 @@ module snn_soc_top (
   logic [3:0]  instr_req_wstrb;
   logic [31:0] instr_rdata;
 
-  // 数据 SRAM 接口：存放输入像素矩阵（8x8=64 pixels），DMA 从这里读取
+  // 数据 SRAM 接口：存放输入 bit-plane 数据，当前正式主链路由 DMA 从这里读取
   // 使用 sram_simple_dp（双端口）：bus 侧端口 + DMA 专用只读端口
   logic        data_req_valid,  data_req_write;
   logic [31:0] data_req_addr,   data_req_wdata;
   logic [3:0]  data_req_wstrb;
   logic [31:0] data_rdata;
 
-  // 权重 SRAM 接口：MVP 占位，实际 RRAM 权重在流片前 program 进阵列
+  // weight_sram 接口：保留总线窗口，当前主链路不从此窗口取数；
+  // 实际权重仍以阵列内 program / 后续扩展方案为准
   logic        weight_req_valid, weight_req_write;
   logic [31:0] weight_req_addr,  weight_req_wdata;
   logic [3:0]  weight_req_wstrb;
@@ -139,13 +142,13 @@ module snn_soc_top (
   logic [3:0]  dma_req_wstrb;
   logic [31:0] dma_rdata;
 
-  // UART stub 接口（V1 占位，内部无实际功能逻辑）
+  // UART stub 接口（当前 main 占位；后续 CPU 版本会替换为真实控制器）
   logic        uart_req_valid, uart_req_write;
   logic [31:0] uart_req_addr,  uart_req_wdata;
   logic [3:0]  uart_req_wstrb;
   logic [31:0] uart_rdata;
 
-  // SPI stub 接口（V1 占位，内部无实际功能逻辑）
+  // SPI stub 接口（当前 main 占位；后续 CPU 版本会替换为真实控制器）
   logic        spi_req_valid, spi_req_write;
   logic [31:0] spi_req_addr,  spi_req_wdata;
   logic [3:0]  spi_req_wstrb;

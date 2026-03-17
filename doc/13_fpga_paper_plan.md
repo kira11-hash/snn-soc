@@ -177,6 +177,8 @@ module cim_macro_fpga #(
 );
   // ... 内部用 BRAM 权重 + MAC + 可选噪声注入
 endmodule
+// 注：adc_start / adc_done 是数字 SoC 内部的 snn_soc_top ↔ CIM 模型并行接口信号，
+// 非 ASIC 外部 pad 信号。FPGA 分支复用此内部接口。详见 doc/08 §1.3 简化协议说明。
 ```
 
 **核心计算链路模块（cim_array_ctrl、adc_ctrl、lif_neurons、DMA、总线、UART、SPI）的功能逻辑无需修改。**

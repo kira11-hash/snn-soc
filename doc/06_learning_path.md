@@ -266,6 +266,8 @@ ST_IDLE ──start_pulse──> ST_SETUP
 
 ### ADC 时分复用详解
 
+> **注**：以下描述 `adc_ctrl.sv` 内部仿真行为（`snn_soc_top` ↔ `cim_macro_blackbox` 并行接口）。外部简化协议使用 `cim_start`/`cim_done`，详见 `doc/08` §1.3。
+
 ```
 20 个通道输出（Scheme B: 10 正 + 10 负），只用 1 个 8-bit ADC：
 
