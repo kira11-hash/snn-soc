@@ -67,7 +67,16 @@ module sram_simple #(
   input  logic [31:0] req_addr,   // 字节地址（[ADDR_BITS+1:2] 提取 word index）
   input  logic [31:0] req_wdata,  // 写数据（32-bit，按 wstrb 选择字节写入）
   input  logic [3:0]  req_wstrb,  // 字节写使能（4 位，每位对应一字节）
-  output logic [31:0] rdata       // 读数据（组合输出，与 req_addr 同拍有效）
+  output logic [31:0] rdata,      // 读数据（组合输出，与 req_addr 同拍有效）
+
+  // ── DMA 写端口（Port B）──────────────────────────────────────────────
+  // 用于 dma_engine 将 data_sram 内容直接复制到 weight_sram / instr_sram。
+  // 优先级：DMA 写覆盖同拍总线写（两者在 V1 中互斥，不冲突）。
+  // 连接方式：不需要此端口时，顶层将 dma_wr_en=0，其余置 0。
+  input  logic        dma_wr_en,    // DMA 写使能（单拍有效）
+  input  logic [31:0] dma_wr_addr,  // DMA 字节地址（SRAM 内部偏移）
+  input  logic [31:0] dma_wr_data,  // DMA 写数据（32-bit）
+  input  logic [3:0]  dma_wr_strb   // DMA 字节写使能（4 位）
 );
   // ── 参数派生 ──────────────────────────────────────────────────────────────
   localparam int WORDS     = MEM_BYTES / 4;           // word 数量（每 word 32-bit）
@@ -79,28 +88,33 @@ module sram_simple #(
 
   // ── word 地址提取 ─────────────────────────────────────────────────────────
   // 字节地址转 word 地址：右移 2 位（除以 4），取 ADDR_BITS 位
-  // 位域 [ADDR_BITS+1:2] 等价于 req_addr >> 2 的低 ADDR_BITS 位
-  wire [ADDR_BITS-1:0] word_addr = req_addr[ADDR_BITS+1:2];
+  wire [ADDR_BITS-1:0] word_addr     = req_addr[ADDR_BITS+1:2];
+  wire [ADDR_BITS-1:0] dma_word_addr = dma_wr_addr[ADDR_BITS+1:2];
 
-  // lint 友好：rst_n 当前无逻辑（SRAM 无复位），req_addr 高/低位未用于 word_addr
-  // req_wdata 和 req_wstrb 在综合中确实被使用（always_ff 中），
-  // 此处收入哑线只是消除某些 linter 对"变量未完全使用"的告警
-  wire _unused = &{1'b0, rst_n, req_addr, req_wdata, req_wstrb};
+  // lint 友好：rst_n 当前无逻辑，req/dma 高/低位多余部分通过哑线消除告警
+  wire _unused = &{1'b0, rst_n, req_addr, req_wdata, req_wstrb,
+                   dma_wr_addr, dma_wr_data, dma_wr_strb};
 
   // ── 组合读（零延迟）──────────────────────────────────────────────────────
-  // rdata 直接从 mem 数组组合读出，与 req_addr 同拍有效。
-  // bus_interconnect 会将 rdata 注册一拍后返回主机（总体效果：1-cycle read latency）
   assign rdata = mem[word_addr];
 
   // ── 同步写（字节使能）────────────────────────────────────────────────────
-  // 仅在 req_valid && req_write 时执行写操作，每拍最多写一个 word。
-  // 逐字节写使能确保 C 语言的 char/short/int 写操作正确。
+  // 总线写和 DMA 写均在同一 always_ff 中处理。
+  // DMA 写在后，同拍冲突时 DMA 覆盖总线写（V1 中两者互斥，不会同时发生）。
   always_ff @(posedge clk) begin
+    // 总线写
     if (req_valid && req_write) begin
-      if (req_wstrb[0]) mem[word_addr][7:0]   <= req_wdata[7:0];   // 字节 0（最低字节）
-      if (req_wstrb[1]) mem[word_addr][15:8]  <= req_wdata[15:8];  // 字节 1
-      if (req_wstrb[2]) mem[word_addr][23:16] <= req_wdata[23:16]; // 字节 2
-      if (req_wstrb[3]) mem[word_addr][31:24] <= req_wdata[31:24]; // 字节 3（最高字节）
+      if (req_wstrb[0]) mem[word_addr][7:0]   <= req_wdata[7:0];
+      if (req_wstrb[1]) mem[word_addr][15:8]  <= req_wdata[15:8];
+      if (req_wstrb[2]) mem[word_addr][23:16] <= req_wdata[23:16];
+      if (req_wstrb[3]) mem[word_addr][31:24] <= req_wdata[31:24];
+    end
+    // DMA 写（DMA 复制路径：dma_engine → instr_sram / weight_sram）
+    if (dma_wr_en) begin
+      if (dma_wr_strb[0]) mem[dma_word_addr][7:0]   <= dma_wr_data[7:0];
+      if (dma_wr_strb[1]) mem[dma_word_addr][15:8]  <= dma_wr_data[15:8];
+      if (dma_wr_strb[2]) mem[dma_word_addr][23:16] <= dma_wr_data[23:16];
+      if (dma_wr_strb[3]) mem[dma_word_addr][31:24] <= dma_wr_data[31:24];
     end
   end
 endmodule

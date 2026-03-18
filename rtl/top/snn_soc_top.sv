@@ -212,14 +212,24 @@ module snn_soc_top (
 
   // ----------------------------------------------------------
   // DMA 与 data_sram 之间的专用只读通路
-  // 这条通路的意义是：DMA 直接从 data_sram 读输入，不与主总线抢带宽。
-  // dma_rd_en  : DMA 发出的读使能（单拍）
-  // dma_rd_addr: DMA 发出的字节地址
-  // dma_rd_data: data_sram 返回的 32-bit 数据（组合输出，同拍有效）
   // ----------------------------------------------------------
   logic        dma_rd_en;
   logic [31:0] dma_rd_addr;
   logic [31:0] dma_rd_data;
+
+  // ----------------------------------------------------------
+  // DMA → weight_sram 写通路（DST_WEIGHT_BUF）
+  // DMA → instr_sram 写通路（DST_INSTR_SRAM）
+  // ----------------------------------------------------------
+  logic        weight_wr_en;
+  logic [31:0] weight_wr_addr;
+  logic [31:0] weight_wr_data;
+  logic [3:0]  weight_wr_strb;
+
+  logic        instr_wr_en;
+  logic [31:0] instr_wr_addr;
+  logic [31:0] instr_wr_data;
+  logic [3:0]  instr_wr_strb;
 
   // ----------------------------------------------------------
   // SNN 子系统内部连接信号
@@ -465,17 +475,21 @@ module snn_soc_top (
   //======================
 
   // 指令 SRAM：MEM_BYTES = INSTR_SRAM_BYTES（见 pkg）
-  // sram_simple：单端口，1-cycle 读延迟（组合输出），支持字节写使能
-  // MVP 阶段：TB 通过总线预加载指令，CPU 不实际执行（E203 V2 接入）
+  // 新增 DMA 写端口：dma_engine 使用 DST_INSTR_SRAM 时直接写入
   sram_simple #(.MEM_BYTES(INSTR_SRAM_BYTES)) u_instr_sram (
-    .clk       (clk),
-    .rst_n     (rst_n),
-    .req_valid (instr_req_valid),
-    .req_write (instr_req_write),
-    .req_addr  (instr_req_addr),   // 已由 bus_interconnect 转换为本地偏移
-    .req_wdata (instr_req_wdata),
-    .req_wstrb (instr_req_wstrb),
-    .rdata     (instr_rdata)       // 读数据，组合输出（下一拍经 bus_interconnect 寄存后返回主设备）
+    .clk         (clk),
+    .rst_n       (rst_n),
+    .req_valid   (instr_req_valid),
+    .req_write   (instr_req_write),
+    .req_addr    (instr_req_addr),
+    .req_wdata   (instr_req_wdata),
+    .req_wstrb   (instr_req_wstrb),
+    .rdata       (instr_rdata),
+    // DMA 写端口
+    .dma_wr_en   (instr_wr_en),
+    .dma_wr_addr (instr_wr_addr),
+    .dma_wr_data (instr_wr_data),
+    .dma_wr_strb (instr_wr_strb)
   );
 
   // 数据 SRAM：MEM_BYTES = DATA_SRAM_BYTES，双端口（sram_simple_dp）
@@ -499,17 +513,21 @@ module snn_soc_top (
   );
 
   // 权重 SRAM：MEM_BYTES = WEIGHT_SRAM_BYTES
-  // MVP 阶段：占位用，实际 RRAM 权重直接固化在阵列中，无需在线加载
-  // V2 规划：通过 SPI/DMA 下载量化权重到 SRAM，再 program 到 RRAM
+  // 新增 DMA 写端口：dma_engine 使用 DST_WEIGHT_BUF 时直接写入
   sram_simple #(.MEM_BYTES(WEIGHT_SRAM_BYTES)) u_weight_sram (
-    .clk       (clk),
-    .rst_n     (rst_n),
-    .req_valid (weight_req_valid),
-    .req_write (weight_req_write),
-    .req_addr  (weight_req_addr),
-    .req_wdata (weight_req_wdata),
-    .req_wstrb (weight_req_wstrb),
-    .rdata     (weight_rdata)
+    .clk         (clk),
+    .rst_n       (rst_n),
+    .req_valid   (weight_req_valid),
+    .req_write   (weight_req_write),
+    .req_addr    (weight_req_addr),
+    .req_wdata   (weight_req_wdata),
+    .req_wstrb   (weight_req_wstrb),
+    .rdata       (weight_rdata),
+    // DMA 写端口
+    .dma_wr_en   (weight_wr_en),
+    .dma_wr_addr (weight_wr_addr),
+    .dma_wr_data (weight_wr_data),
+    .dma_wr_strb (weight_wr_strb)
   );
 
   //======================
@@ -523,23 +541,33 @@ module snn_soc_top (
   // 注意：in_fifo_full 时 DMA 暂停 push（背压机制）
   //======================
   dma_engine u_dma (
-    .clk         (clk),
-    .rst_n       (rst_n),
+    .clk          (clk),
+    .rst_n        (rst_n),
     // 总线寄存器访问（SW 配置 DMA）
-    .req_valid   (dma_req_valid),
-    .req_write   (dma_req_write),
-    .req_addr    (dma_req_addr),
-    .req_wdata   (dma_req_wdata),
-    .req_wstrb   (dma_req_wstrb),
-    .rdata       (dma_rdata),
-    // data_sram 端口 B（DMA 专用只读）
-    .dma_rd_en   (dma_rd_en),
-    .dma_rd_addr (dma_rd_addr),
-    .dma_rd_data (dma_rd_data),
-    // input FIFO 写接口
-    .in_fifo_push(in_fifo_push),   // push 使能（单拍）
-    .in_fifo_wdata(in_fifo_wdata), // 64-bit bitmap 数据
-    .in_fifo_full(in_fifo_full)    // 背压信号：full 时 DMA 不 push
+    .req_valid    (dma_req_valid),
+    .req_write    (dma_req_write),
+    .req_addr     (dma_req_addr),
+    .req_wdata    (dma_req_wdata),
+    .req_wstrb    (dma_req_wstrb),
+    .rdata        (dma_rdata),
+    // data_sram 端口 B（DMA 专用只读，所有目标共用源）
+    .dma_rd_en    (dma_rd_en),
+    .dma_rd_addr  (dma_rd_addr),
+    .dma_rd_data  (dma_rd_data),
+    // input FIFO 写接口（DST_INPUT_FIFO）
+    .in_fifo_push (in_fifo_push),
+    .in_fifo_wdata(in_fifo_wdata),
+    .in_fifo_full (in_fifo_full),
+    // weight_sram DMA 写接口（DST_WEIGHT_BUF）
+    .weight_wr_en  (weight_wr_en),
+    .weight_wr_addr(weight_wr_addr),
+    .weight_wr_data(weight_wr_data),
+    .weight_wr_strb(weight_wr_strb),
+    // instr_sram DMA 写接口（DST_INSTR_SRAM）
+    .instr_wr_en   (instr_wr_en),
+    .instr_wr_addr (instr_wr_addr),
+    .instr_wr_data (instr_wr_data),
+    .instr_wr_strb (instr_wr_strb)
   );
 
   //======================

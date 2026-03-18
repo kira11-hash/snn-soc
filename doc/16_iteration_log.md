@@ -149,11 +149,59 @@ chip_top lint: pass                         → verilator lint clean
 
 ---
 
-## 后续迭代计划（Phase 4）
+## Iteration 4 — DMA 引擎多目标扩展（2026-03-18）
+
+### 变更内容
+
+扩展 `dma_engine.sv`，新增 `REG_DST_SEL` 寄存器支持多目标路由；同步新增 `sram_simple.sv` DMA 写端口，更新 `snn_soc_top.sv` 连线。
+
+**修改文件（3 个 RTL）：**
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/dma/dma_engine.sv` | 新增 `REG_DST_SEL`（offset 0x0C，2-bit）、`ST_WR` 状态、`weight_wr_*` / `instr_wr_*` 输出端口；奇数长度约束仅对 `DST_INPUT_FIFO` 生效；busy 期间忽略 `DST_SEL` 改写，`2'b11` 非法值直接报错 |
+| `rtl/mem/sram_simple.sv` | 新增 `dma_wr_en/addr/data/strb` DMA 写端口（Port B），供 `instr_sram` / `weight_sram` 接收 DMA 写 |
+| `rtl/top/snn_soc_top.sv` | 连接 `dma_engine` 的新端口到 `u_weight_sram` 和 `u_instr_sram` 的 DMA 写端口 |
+
+**新增文件（3 个 TB/脚本）：**
+
+| 文件 | 说明 |
+|------|------|
+| `tb/dma_tb.sv` | T1~T10 独立烟雾测试（含三路目标、奇数长度、对齐错误、W1C、背压、busy 期间写保护、非法 DST_SEL） |
+| `sim/sim_dma.f` | Icarus 编译文件列表 |
+| `sim/run_dma_icarus.sh` | Icarus 运行脚本，通过标准 `DMA_SMOKETEST_PASS` |
+
+### DST_SEL 功能说明
+
+| `DST_SEL[1:0]` | 目标 | 行为 |
+|----------------|------|------|
+| `2'b00` (`DST_INPUT_FIFO`) | `input_fifo` | 每两个 word 拼成 64-bit push（原有行为，兼容） |
+| `2'b01` (`DST_WEIGHT_BUF`) | `weight_sram` DMA 写端口 | 逐 word 写入，允许奇数长度 |
+| `2'b10` (`DST_INSTR_SRAM`) | `instr_sram` DMA 写端口 | 逐 word 写入，允许奇数长度 |
+
+源地址始终来自 `data_sram`（`addr_ptr = src - ADDR_DATA_BASE`）；目标偏移与源偏移相同，保持相对位置一致。SPI→SRAM 通路：固件通过 SPI 读数据写入 `data_sram`，再由 DMA 以 `DST_INSTR_SRAM` / `DST_WEIGHT_BUF` 搬运。
+
+### FSM 扩展
+
+```
+DST_INPUT_FIFO：IDLE → SETUP → RD0 → RD1 → PUSH → (RD0 or IDLE)   [原有，兼容]
+DST_WEIGHT/INSTR：IDLE → SETUP → RD0 → WR → (RD0 or IDLE)          [新增 ST_WR]
+```
+
+### 验证结果
+
+```
+DMA 独立 TB:  T1~T10 全部 PASS（39/39） → DMA_SMOKETEST_PASS
+黑盒 smoke:  OUT_FIFO_COUNT=100         → LIGHT_SMOKETEST_PASS（无回归）
+带权重回归:  OUT_FIFO_COUNT=55          → WEIGHTED_SIM_PASS（无回归）
+```
+
+---
+
+## 后续迭代计划（Phase 4 剩余）
 
 | 迭代 | 内容 | 验证标准 |
 |------|------|---------|
-| Iter 4 | DMA 扩展（SPI→SRAM 通路）| DMA smoke + `LIGHT_SMOKETEST_PASS` |
 | Iter 5 | E203 接入（AXI-Lite master → axi2simple_bridge → interconnect）| 端到端固件验证 |
 
 每次迭代完成后在本文档追加一节记录。
