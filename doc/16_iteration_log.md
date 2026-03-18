@@ -97,11 +97,62 @@ UART独立TB:   T1~T8 全部 PASS（12/12）  → UART_SMOKETEST_PASS
 
 ---
 
+## Iteration 3 — SPI stub → spi_ctrl 集成（2026-03-18）
+
+### 变更内容
+
+将 `feature/spi` 分支的 SPI Master 控制器移植到 `main` 分支，替换 spi_stub。
+
+**新增文件（5 个 RTL/TB/脚本）：**
+
+| 文件 | 说明 |
+|------|------|
+| `rtl/periph/spi_ctrl.sv` | SPI Master 控制器（Mode 0，8-bit 全双工，3态FSM，软件控 CS，baud_div 7级） |
+| `tb/spi_flash_model.sv` | SPI Flash 行为模型（支持 RDID/READ 命令，64KB 窗口） |
+| `tb/spi_tb.sv` | T1~T3 + T1b 烟雾测试（CTRL读写、clamp、RDID、READ 4字节、rx_valid清零） |
+| `sim/sim_spi.f` | Icarus 编译文件列表 |
+| `sim/run_spi_icarus.sh` | Icarus 运行脚本，通过标准 `SPI_SMOKETEST_PASS` |
+
+**修改文件（5 处）：**
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/top/snn_soc_top.sv` | `spi_stub u_spi` → `spi_ctrl u_spi`（端口完全兼容，仅改实例模块名） |
+| `sim/sim_icarus_light.f` | `spi_stub.sv` → `spi_ctrl.sv` |
+| `sim/sim_icarus_weighted.f` | `spi_stub.sv` → `spi_ctrl.sv` |
+| `sim/sim.f` / `sim/sim_sample_align.f` | `spi_stub.sv` → `spi_ctrl.sv`，补齐默认 top_tb 与 sample-align filelist |
+| `sim/sim_adc_sat_counter.f` / `sim/rtl_with_chip_top_check.f` | `spi_stub.sv` → `spi_ctrl.sv`，补齐 ADC 饱和回归与 chip_top lint filelist |
+
+### 功能说明
+
+| 特性 | 实现状态 |
+|------|---------|
+| SPI Master，Mode 0（CPOL=0, CPHA=0） | ✅ 3态FSM（IDLE/SHIFT/DONE） |
+| 8-bit 全双工（MOSI/MISO 同步收发） | ✅ |
+| CS 软件控制（CTRL[8]=cs_force） | ✅ |
+| baud_div 7级可配（÷2~÷256，CTRL[3:1]） | ✅ |
+| clk_div=0+spi_en=1 安全钳位→clk_div=2 | ✅（防止 25MHz SCK 损坏 Flash） |
+| rx_valid 读 RXDATA 后自动清零 | ✅ |
+| TX/RX 1-deep shadow buffer | ✅ |
+| Mode 3 | V1 仅 Mode 0，V2 扩展 |
+
+### 验证结果
+
+```
+SPI独立TB:    T1~T3+T1b 全部 PASS（9/9）  → SPI_SMOKETEST_PASS
+黑盒smoke回归: OUT_FIFO_COUNT=100          → LIGHT_SMOKETEST_PASS（无回归）
+带权重回归:   OUT_FIFO_COUNT=55            → WEIGHTED_SIM_PASS（无回归）
+sample-align: 100/100 samples matched       → SAMPLE_ALIGN_PASS
+ADC饱和回归:   pass                         → ADC_SAT_COUNTER_PASS
+chip_top lint: pass                         → verilator lint clean
+```
+
+---
+
 ## 后续迭代计划（Phase 4）
 
 | 迭代 | 内容 | 验证标准 |
 |------|------|---------|
-| Iter 3 | SPI stub → spi_ctrl 集成 | `SPI_SMOKETEST_PASS` + `LIGHT_SMOKETEST_PASS` + `WEIGHTED_SIM_PASS` |
 | Iter 4 | DMA 扩展（SPI→SRAM 通路）| DMA smoke + `LIGHT_SMOKETEST_PASS` |
 | Iter 5 | E203 接入（AXI-Lite master → axi2simple_bridge → interconnect）| 端到端固件验证 |
 

@@ -29,10 +29,10 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 02 | `rst_n` | Active-low reset | in | signal | Hold low during reset entry, release high for normal run | Routed to `snn_soc_top.rst_n` |
 | 03 | `uart_tx` | UART TX | out | signal | `uart_ctrl` drives idle high (`1`) after reset and emits 8N1 TX frames when active | Current source: `uart_ctrl.sv` |
 | 04 | `uart_rx` | UART RX | in | signal | External source drives; current V1 mainline has RX path reserved but not yet consumed by logic | Current sink: `uart_ctrl.sv` |
-| 05 | `spi_cs_n` | SPI chip select | out | signal | Stub holds high (`1`) after reset | Current source: `spi_stub.sv` |
-| 06 | `spi_sck` | SPI clock | out | signal | Stub holds low (`0`) after reset | Current source: `spi_stub.sv` |
-| 07 | `spi_mosi` | SPI MOSI | out | signal | Stub holds low (`0`) after reset | Current source: `spi_stub.sv` |
-| 08 | `spi_miso` | SPI MISO | in | signal | External source drives; stub currently ignores input | Current sink: `spi_stub.sv` |
+| 05 | `spi_cs_n` | SPI chip select | out | signal | `spi_ctrl` drives high (`1`) after reset; software may force low during transaction | Current source: `spi_ctrl.sv` |
+| 06 | `spi_sck` | SPI clock | out | signal | `spi_ctrl` drives low (`0`) when idle and toggles during active transfers | Current source: `spi_ctrl.sv` |
+| 07 | `spi_mosi` | SPI MOSI | out | signal | `spi_ctrl` drives low (`0`) when idle and shifts TX data during active transfers | Current source: `spi_ctrl.sv` |
+| 08 | `spi_miso` | SPI MISO | in | signal | External source drives; current logic samples it during active SPI transfers | Current sink: `spi_ctrl.sv` |
 | 09 | `jtag_tck` | JTAG clock | in | signal | External source drives; stub absorbs input only | Current sink: `jtag_stub.sv` |
 | 10 | `jtag_tms` | JTAG mode select | in | signal | External source drives; stub absorbs input only | Current sink: `jtag_stub.sv` |
 | 11 | `jtag_tdi` | JTAG data in | in | signal | External source drives; stub absorbs input only | Current sink: `jtag_stub.sv` |

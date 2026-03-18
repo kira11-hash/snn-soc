@@ -14,7 +14,7 @@
 ../rtl/snn/wl_mux_wrapper.sv
 ../rtl/snn/cim_macro_blackbox.sv
 ../rtl/periph/uart_ctrl.sv
-../rtl/periph/spi_stub.sv
+../rtl/periph/spi_ctrl.sv
 ../rtl/periph/jtag_stub.sv
 ../rtl/top/snn_soc_top.sv
 ../tb/tb_lib/bus_master_tasks.sv

@@ -136,8 +136,8 @@ package snn_soc_pkg;
   // │ weight_sram（保留）│ 0x0003_0000   │ 16KB   │ 预留总线窗口 / 非当前 DMA 主路径 │
   // │ 主寄存器 Bank     │ 0x4000_0000   │ 256B   │ SNN 控制/状态      │
   // │ DMA 寄存器        │ 0x4000_0100   │ 256B   │ DMA 控制/状态      │
-  // │ UART 占位外设     │ 0x4000_0200   │ 256B   │ 串口外设（占位）   │
-  // │ SPI 占位外设      │ 0x4000_0300   │ 256B   │ SPI Flash（占位）  │
+  // │ UART 控制器       │ 0x4000_0200   │ 256B   │ 串口外设（V1: TX） │
+  // │ SPI 控制器        │ 0x4000_0300   │ 256B   │ SPI Master（V1）   │
   // │ FIFO 状态寄存器   │ 0x4000_0400   │ 256B   │ FIFO 计数/状态     │
   // └──────────────────┴───────────────┴────────┴─────────────────────┘
   // ──────────────────────────────────────────────────────────────────────────
@@ -172,11 +172,11 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_DMA_BASE    = 32'h4000_0100;
   localparam logic [31:0] ADDR_DMA_END     = 32'h4000_01FF;
 
-  // UART 外设（占位实现）：0x4000_0200 ~ 0x4000_02FF（256B）
+  // UART 外设（V1：uart_ctrl，TX 可用，RX 保留）：0x4000_0200 ~ 0x4000_02FF（256B）
   localparam logic [31:0] ADDR_UART_BASE   = 32'h4000_0200;
   localparam logic [31:0] ADDR_UART_END    = 32'h4000_02FF;
 
-  // SPI 外设（占位实现）：0x4000_0300 ~ 0x4000_03FF（256B）
+  // SPI 外设（V1：spi_ctrl，Mode 0）：0x4000_0300 ~ 0x4000_03FF（256B）
   localparam logic [31:0] ADDR_SPI_BASE    = 32'h4000_0300;
   localparam logic [31:0] ADDR_SPI_END     = 32'h4000_03FF;
 

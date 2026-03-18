@@ -237,9 +237,9 @@ ASIC 主线                               FPGA 论文兜底线
    当前限制：RX 路径仍为 V1 占位，若需要完整串口收发再继续扩展
 
 ③ SPI Master                             共用
-   状态：feature/spi 分支
+   状态：已合并到 main
    完成：spi_ctrl.sv + Flash model + TB (PASS=9, FAIL=0，含 clk-div clamp)
-   待做：snn_soc_top 中 spi_stub → spi_ctrl 替换
+   当前限制：V1 仅实现 Mode 0，Mode 3 与更深缓冲留待后续版本
 
 ④ DMA 扩展                               共用
    状态：未开始

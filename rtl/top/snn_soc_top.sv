@@ -46,7 +46,7 @@
 //    ├── reg_bank             ← 控制/状态寄存器组（启动、阈值、测试模式等）
 //    ├── dma_engine           ← 从 data_sram 读像素，打包后 push 到 input FIFO
 //    ├── uart_ctrl            ← UART TX 控制器（V1：TX only，RX 占位）
-//    ├── spi_stub             ← SPI Flash 占位（后续 CPU 版本可替换为真实控制器）
+//    ├── spi_ctrl             ← SPI Master 控制器（V1：Mode 0，软件控 CS）
 //    └── fifo_regs            ← FIFO 状态只读寄存器（供 SW 轮询）
 //
 //  [输入 FIFO] → cim_array_ctrl (FSM 主控) → wl_mux_wrapper → dac_ctrl
@@ -81,9 +81,9 @@ module snn_soc_top (
   input  logic        uart_rx,
   output logic        uart_tx,
 
-  // SPI Flash（占位实现）
-  // spi_*：当前 main 里的 SPI 只用于保留接口位置；
-  // spi_stub 内部将片选拉高（不选中），其余信号置固定值。
+  // SPI Master（V1：Mode 0，8-bit 全双工，软件控 CS）
+  // spi_*：由 spi_ctrl 产生；空闲时 CS_n=1、SCK=0、MOSI=0。
+  // 当前版本已支持基础 RDID / READ 访问，Mode 3 留到后续版本扩展。
   output logic        spi_cs_n,
   output logic        spi_sck,
   output logic        spi_mosi,
@@ -164,7 +164,7 @@ module snn_soc_top (
   logic [3:0]  uart_req_wstrb;
   logic [31:0] uart_rdata;
 
-  // SPI stub 接口（当前 main 占位；后续 CPU 版本会替换为真实控制器）
+  // SPI 控制器接口（当前 main 已接入 spi_ctrl；V1 为 Mode 0，软件控 CS）
   logic        spi_req_valid, spi_req_write;
   logic [31:0] spi_req_addr,  spi_req_wdata;
   logic [3:0]  spi_req_wstrb;
@@ -927,9 +927,9 @@ module snn_soc_top (
   end
 
   //======================
-  // 外设模块（UART 已实现；SPI/JTAG 仍为占位）
+  // 外设模块（UART / SPI 已实现；JTAG 仍为占位）
   //
-  // 当前阶段 UART 已替换为最小可用 TX 控制器；SPI / JTAG 仍主要用于“保留接口位置”。
+  // 当前阶段 UART 已接入 TX 控制器，SPI 已接入最小可用 Master；JTAG 仍主要用于“保留接口位置”。
   // 保留它们有三个目的：
   //   1. 尽早冻结 pad 数量和引脚分配；
   //   2. 给后续真实外设接入留出稳定接口；
@@ -951,9 +951,9 @@ module snn_soc_top (
     .uart_tx   (uart_tx)
   );
 
-  // SPI stub：spi_cs_n 恒高（片选无效），sck/mosi 恒低，miso 输入忽略
+  // SPI Master 控制器（V1：Mode 0，8-bit 全双工，软件控 CS）
   // 地址范围：ADDR_SPI_BASE ~ ADDR_SPI_END
-  spi_stub u_spi (
+  spi_ctrl u_spi (
     .clk       (clk),
     .rst_n     (rst_n),
     .req_valid (spi_req_valid),

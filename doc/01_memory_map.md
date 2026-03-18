@@ -9,8 +9,8 @@
 | 0x0003_0000 ~ 0x0003_3FFF | 16KB | weight_sram（保留窗口） |
 | 0x4000_0000 ~ 0x4000_00FF | 256B | reg_bank          |
 | 0x4000_0100 ~ 0x4000_01FF | 256B | dma_regs          |
-| 0x4000_0200 ~ 0x4000_02FF | 256B | uart_regs (stub)  |
-| 0x4000_0300 ~ 0x4000_03FF | 256B | spi_regs (stub)   |
+| 0x4000_0200 ~ 0x4000_02FF | 256B | uart_regs         |
+| 0x4000_0300 ~ 0x4000_03FF | 256B | spi_regs          |
 | 0x4000_0400 ~ 0x4000_04FF | 256B | fifo_regs         |
 |                           |      |                   |
 
