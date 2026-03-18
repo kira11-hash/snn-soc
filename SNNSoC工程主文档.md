@@ -1743,7 +1743,7 @@ bus_write(REG_CIM_TEST, 32'h0000_6401);  // neg=0x00, pos=0x64, mode=1
 |------|------|------|-------|
 | 时钟/复位 | clk, rst_n | in | **2** |
 | UART | uart_tx, uart_rx | out/in | **2** |
-| SPI | spi_sclk, spi_mosi, spi_miso, spi_cs_n | out/in | **4** |
+| SPI | spi_sck, spi_mosi, spi_miso, spi_cs_n | out/in | **4** |
 | JTAG | jtag_tck, jtag_tms, jtag_tdi, jtag_tdo | in/out | **4** |
 | 电源 | VDDCORE×2, VSSCORE×2, VDDIO, VSSIO | pwr | **6** |
 | WL 时分复用 | wl_data[7:0] | out | 8 |

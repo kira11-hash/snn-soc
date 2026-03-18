@@ -2,16 +2,17 @@
 
 **参数口径**：本文涉及的默认参数与地址范围以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 
-| 地址范围 | 大小 | 模块 |
-|---|---:|---|
-| 0x0000_0000 ~ 0x0000_3FFF | 16KB | instr_sram |
-| 0x0001_0000 ~ 0x0001_3FFF | 16KB | data_sram |
+| 地址范围                      |   大小 | 模块                |
+| ------------------------- | ---: | ----------------- |
+| 0x0000_0000 ~ 0x0000_3FFF | 16KB | instr_sram        |
+| 0x0001_0000 ~ 0x0001_3FFF | 16KB | data_sram         |
 | 0x0003_0000 ~ 0x0003_3FFF | 16KB | weight_sram（保留窗口） |
-| 0x4000_0000 ~ 0x4000_00FF | 256B | reg_bank |
-| 0x4000_0100 ~ 0x4000_01FF | 256B | dma_regs |
-| 0x4000_0200 ~ 0x4000_02FF | 256B | uart_regs (stub) |
-| 0x4000_0300 ~ 0x4000_03FF | 256B | spi_regs (stub) |
-| 0x4000_0400 ~ 0x4000_04FF | 256B | fifo_regs |
+| 0x4000_0000 ~ 0x4000_00FF | 256B | reg_bank          |
+| 0x4000_0100 ~ 0x4000_01FF | 256B | dma_regs          |
+| 0x4000_0200 ~ 0x4000_02FF | 256B | uart_regs (stub)  |
+| 0x4000_0300 ~ 0x4000_03FF | 256B | spi_regs (stub)   |
+| 0x4000_0400 ~ 0x4000_04FF | 256B | fifo_regs         |
+|                           |      |                   |
 
 ## 当前主数据流
 - 当前正式推理输入路径是 `data_sram -> dma_engine -> input_fifo -> cim_array_ctrl`。

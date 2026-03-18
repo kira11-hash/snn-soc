@@ -1,27 +1,40 @@
 // -----------------------------------------------------------------------------
-// AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
-// File: rtl/top/snn_soc_top.sv
-// Purpose: Main digital SoC top-level integrating bus, registers, memories, DMA, SNN control chain, and peripheral stubs.
-// Role in system: This is the internal digital top used for MVP simulation and later wrapped by chip_top for pad-level integration.
-// Behavior summary: Instantiates/muxes all RTL blocks, connects register controls to datapath, and exports CIM interface signals.
-// Key boundaries: Bus/control plane, memory/DMA data plane, and analog-facing CIM/DAC/ADC handshake interface.
-// Design philosophy: Keep datapath and control interfaces explicit to support later E203/AXI integration with minimal churn.
-// Verification focus: Cross-module wiring consistency, signal widths (especially Scheme-B signed data), and status propagation.
+// 自动文档头：本文件的可读性说明（仅注释说明，不改变任何逻辑）
+// 文件路径：rtl/top/snn_soc_top.sv
+// 作用：这是数字 SoC 的主顶层，把总线、寄存器、存储、DMA、SNN 数据通路和占位外设接成一个完整系统。
+// 系统角色：它是当前 MVP 仿真与后续综合使用的“内部数字顶层”，之后再由 chip_top 包上 pad 环。
+// 行为概览：本文件主要做三件事：
+//   1. 实例化所有子模块；
+//   2. 把寄存器控制信号接到数据通路；
+//   3. 把与模拟侧相关的 CIM / DAC / ADC 接口统一汇总出来。
+// 阅读重点：如果要排查功能问题，优先看模块之间的连线关系、状态信号流向和读写寄存器入口。
+// 设计原则：顶层尽量保持“接线图式”的显式风格，方便后续接入 E203 / AXI / pad 集成时少改动。
 // -----------------------------------------------------------------------------
 
 `timescale 1ns/1ps
 //======================================================================
 // 文件名: snn_soc_top.sv
 // 描述: SNN SoC 顶层。
-//       - 实例化总线、SRAM、寄存器、DMA、FIFO、SNN 子系统与外设 stub
-//       - 总线 master 由 Testbench 通过 dut.bus_if 直接驱动
+//       - 实例化总线、SRAM、寄存器、DMA、FIFO、SNN 子系统与外设占位模块
+//       - 当前总线主设备由 Testbench 通过 dut.bus_if 直接驱动
 //======================================================================
 //
 // ============================================================
-// 模块总览 (Module Overview)
+// 模块总览
 // ============================================================
-// snn_soc_top 是整个数字 SoC 的顶层封装（内部数字顶，不含 pad 环）。
-// 它将所有子模块"粘合"在一起，形成完整的推理加速系统：
+// snn_soc_top 是整个数字 SoC 的内部顶层封装（不含 pad 环）。
+// 如果把整个工程看成一台机器，这个文件就是“总装配图”：
+//   - 左边是总线和寄存器控制面；
+//   - 中间是 SRAM / DMA / FIFO 等数据搬运通路；
+//   - 右边是 SNN 推理主链路和面向模拟侧的接口。
+//
+// 建议阅读顺序：
+//   1. 先看下面这张模块总图，建立“谁连谁”的整体感；
+//   2. 再看 Reg Bank + FIFO Regs，理解软件如何控制系统；
+//   3. 再看 SNN 子系统，理解一次推理如何流动；
+//   4. 最后看 CIM Test Mode 和 Debug 计数器，理解调试抓手。
+//
+// 它把所有子模块“粘”在一起，形成完整的推理系统：
 //
 //  [Testbench / 外部 Master]
 //         │ bus_if (简化总线接口)
@@ -32,21 +45,21 @@
 //    ├── weight_sram          ← 预留 SRAM 窗口（当前主推理路径不从此窗口取数）
 //    ├── reg_bank             ← 控制/状态寄存器组（启动、阈值、测试模式等）
 //    ├── dma_engine           ← 从 data_sram 读像素，打包后 push 到 input FIFO
-//    ├── uart_stub            ← UART 占位（当前 main 仍为 stub；CPU 版本会替换为真实控制器）
-//    ├── spi_stub             ← SPI Flash 占位（当前 main 仍为 stub；CPU 版本会替换为真实控制器）
+//    ├── uart_stub            ← UART 占位（后续 CPU 版本可替换为真实控制器）
+//    ├── spi_stub             ← SPI Flash 占位（后续 CPU 版本可替换为真实控制器）
 //    └── fifo_regs            ← FIFO 状态只读寄存器（供 SW 轮询）
 //
-//  [输入 FIFO] → cim_array_ctrl (FSM主控) → wl_mux_wrapper → dac_ctrl
+//  [输入 FIFO] → cim_array_ctrl (FSM 主控) → wl_mux_wrapper → dac_ctrl
 //             → cim_macro_blackbox (RRAM 仿真行为模型)
-//             → adc_ctrl (Scheme B: 数字差分减法，20ch MUX)
+//             → adc_ctrl (Scheme B：数字差分减法，20 通道 MUX)
 //             → lif_neurons (有符号膜电位 LIF，输出 spike)
 //             → [输出 FIFO] → SW 读取分类结果
 //
-//  CIM Test Mode (cim_test_mode=1):
-//    旁路 cim_macro_blackbox 的所有输出，由数字侧产生 fake 延迟响应，
-//    用于流片后硅上验证数字控制逻辑，不依赖真实 RRAM 宏的模拟特性。
+//  CIM Test Mode（cim_test_mode=1）：
+//    旁路 cim_macro_blackbox 的所有输出，由数字侧产生伪造延迟响应，
+//    目的是在模拟宏尚不可用时，先验证数字控制链是否通畅。
 //
-//  Debug 计数器 (只随 rst_n 清零，不随 snn_soft_reset_pulse 清零):
+//  Debug 计数器（只随 rst_n 清零，不随 snn_soft_reset_pulse 清零）：
 //    dbg_dma_frame_cnt  ← DMA 向 FIFO push 的帧数
 //    dbg_cim_cycle_cnt  ← SNN 处于 busy 状态的总周期数
 //    dbg_spike_cnt      ← LIF 向输出 FIFO push 的 spike 次数
@@ -62,22 +75,23 @@ module snn_soc_top (
   input  logic        clk,
   input  logic        rst_n,
 
-  // UART (stub)
-  // uart_rx / uart_tx: 当前 main 仅作为占位 IO 引出，uart_stub 内部直接将 tx 拉高；
-  //                    后续接入 CPU/boot 流时再替换为真实 UART 控制器
+  // UART（占位实现）
+  // uart_rx / uart_tx：当前只作为 IO 占位引出；uart_stub 内部直接将 tx 拉高，
+  // 后续接入 CPU / boot 流时再替换为真实 UART 控制器。
   input  logic        uart_rx,
   output logic        uart_tx,
 
-  // SPI Flash (stub)
-  // spi_*: 当前 main 的 SPI 占位信号；spi_stub 内部将片选拉高（不选中），其余信号接地；
-  //        后续接入 CPU/boot 流时再替换为真实 SPI 控制器
+  // SPI Flash（占位实现）
+  // spi_*：当前 main 里的 SPI 只用于保留接口位置；
+  // spi_stub 内部将片选拉高（不选中），其余信号置固定值。
   output logic        spi_cs_n,
   output logic        spi_sck,
   output logic        spi_mosi,
   input  logic        spi_miso,
 
-  // JTAG (stub)
-  // jtag_*: JTAG 接口占位；当前 jtag_stub 固定输出 tdo=0，不做 TAP/旁路逻辑，V2 接 E203 DM
+  // JTAG（占位实现）
+  // jtag_*：当前 jtag_stub 固定输出 tdo=0，不实现 TAP/旁路逻辑；
+  // 后续如接入 E203 Debug Module，可在这里替换。
   input  logic        jtag_tck,
   input  logic        jtag_tms,
   input  logic        jtag_tdi,
@@ -88,15 +102,17 @@ module snn_soc_top (
   import snn_soc_pkg::*;
 
   // ----------------------------------------------------------
-  // 简化总线接口（Testbench 通过层级引用驱动）
-  // bus_simple_if 是一个 interface，内含 m_valid/m_write/m_addr/m_wdata/
-  // m_wstrb/m_ready/m_rdata/m_rvalid 等信号。
-  // MVP 阶段 Testbench 直接写 dut.bus_if.m_valid 等信号来模拟 CPU 总线事务。
+  // 简化总线接口（当前由 Testbench 通过层级引用驱动）
+  // bus_simple_if 是一个 interface，可把它看成“主设备访问 SoC 的门口”。
+  // 里面封装了 m_valid / m_write / m_addr / m_wdata / m_wstrb /
+  // m_ready / m_rdata / m_rvalid 等总线信号。
+  // MVP 阶段没有真实 CPU，总线事务由 Testbench 直接驱动这些信号来模拟。
   // ----------------------------------------------------------
   bus_simple_if bus_if(.clk(clk));
 
   // ----------------------------------------------------------
-  // bus_interconnect → slave 连接信号组
+  // bus_interconnect → 各从设备的连接信号组
+  // 可以把这些信号理解成“总线互联发给每个模块的专属小接口”。
   // 每个从设备对应一组：
   //   *_req_valid : 总线发给该从设备的请求有效脉冲（单拍）
   //   *_req_write : 1=写操作，0=读操作
@@ -162,20 +178,20 @@ module snn_soc_top (
 
   // ----------------------------------------------------------
   // 输入 FIFO 连接信号
-  // 宽度 = NUM_INPUTS = 64 bits，每个 bit 对应一个像素的当前比特平面值
-  // DMA 负责 push，cim_array_ctrl 负责 pop
+  // 宽度 = NUM_INPUTS = 64 位，每一位对应一个输入通道在当前 bit-plane 上的值。
+  // 生产者是 DMA，消费者是 cim_array_ctrl。
   // ----------------------------------------------------------
   logic        in_fifo_push, in_fifo_pop;
-  logic [NUM_INPUTS-1:0] in_fifo_wdata; // DMA 写入的 64-bit spike bitmap
-  logic [NUM_INPUTS-1:0] in_fifo_rdata; // cim_array_ctrl 读出的 64-bit bitmap
+  logic [NUM_INPUTS-1:0] in_fifo_wdata; // DMA 写入的 64 位输入位图
+  logic [NUM_INPUTS-1:0] in_fifo_rdata; // cim_array_ctrl 读出的 64 位输入位图
   logic        in_fifo_empty, in_fifo_full;
   logic        in_fifo_overflow, in_fifo_underflow;  // 错误标志（接 _unused 以抑制 lint）
   logic [$clog2(INPUT_FIFO_DEPTH+1)-1:0] in_fifo_count; // 当前 FIFO 中的有效条目数
 
   // ----------------------------------------------------------
   // 输出 FIFO 连接信号
-  // 宽度 = 4 bits = $clog2(NUM_OUTPUTS=10) 上取整，存放 LIF 的分类结果（0-9 类别）
-  // lif_neurons 负责 push，reg_bank 读操作时 pop（或 SW 通过 reg_bank 读取）
+  // 宽度 = 4 位 = $clog2(NUM_OUTPUTS=10) 上取整，存放输出类别编号（0~9）。
+  // 生产者是 lif_neurons，消费者是 reg_bank / 软件读寄存器动作。
   // ----------------------------------------------------------
   logic        out_fifo_push, out_fifo_pop;
   logic [3:0]  out_fifo_wdata; // LIF 写入的 4-bit 类别标签
@@ -185,7 +201,7 @@ module snn_soc_top (
   logic [$clog2(OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count;
 
   // ----------------------------------------------------------
-  // lint 抑制：将未使用的信号 XOR 成一根 wire，防止 EDA 工具警告
+  // lint 抑制：将当前未使用的信号 XOR 到一根 wire，避免 EDA 工具报“未使用”警告
   // reg_resp_read_pulse / reg_resp_addr: bus_interconnect 产生，当前版本 reg_bank 未使用
   // in_fifo_overflow/underflow, out_fifo_overflow/underflow: 错误检测信号，
   //   功能仿真中暂不处理（可在 TB assertion 中检查）
@@ -195,8 +211,8 @@ module snn_soc_top (
                      out_fifo_overflow ^ out_fifo_underflow;
 
   // ----------------------------------------------------------
-  // DMA 与 data_sram 之间的专用只读总线
-  // DMA 通过此端口直接访问 data_sram，不占用主总线带宽
+  // DMA 与 data_sram 之间的专用只读通路
+  // 这条通路的意义是：DMA 直接从 data_sram 读输入，不与主总线抢带宽。
   // dma_rd_en  : DMA 发出的读使能（单拍）
   // dma_rd_addr: DMA 发出的字节地址
   // dma_rd_data: data_sram 返回的 32-bit 数据（组合输出，同拍有效）
@@ -207,25 +223,27 @@ module snn_soc_top (
 
   // ----------------------------------------------------------
   // SNN 子系统内部连接信号
-  // 信号流向：
+  // 如果只想抓主线，可以先记住下面这条链：
+  //   输入 FIFO → WL/DAC → CIM → ADC → LIF → 输出 FIFO
+  // 更细的信号流向如下：
   //   cim_array_ctrl → (wl_bitmap, wl_valid_pulse)
   //     → wl_mux_wrapper → (wl_bitmap_wrapped, wl_valid_pulse_wrapped)
   //       → dac_ctrl → (wl_spike, dac_valid) → cim_macro_blackbox
   // ----------------------------------------------------------
 
-  // wl_bitmap       : 64-bit WL 激活位图（来自 input FIFO，1=该行被激活）
+  // wl_bitmap       : 64 位 WL 激活位图（来自 input FIFO，1=该行被激活）
   // wl_valid_pulse  : wl_bitmap 有效脉冲（单拍，cim_array_ctrl 产生）
   logic [NUM_INPUTS-1:0] wl_bitmap;
   logic                  wl_valid_pulse;
 
-  // wl_bitmap_wrapped / wl_valid_pulse_wrapped:
-  //   经过 wl_mux_wrapper 时序对齐后的 bitmap 和有效脉冲
-  //   wl_mux_wrapper 负责将 64-bit bitmap 分组（8组x8bits）时分复用，
-  //   通过外部 WL 数字 MUX 发送到 128 条真实字线（IO 引脚有限时使用）
+  // wl_bitmap_wrapped / wl_valid_pulse_wrapped：
+  //   这是经过 wl_mux_wrapper 整理后的版本，主要目的是做时序对齐。
+  //   wl_mux_wrapper 会把 64 位 bitmap 分成 8 组、每组 8 位，按时间顺序送出，
+  //   从而在引脚有限的情况下驱动 64 条有效字线。
   logic [NUM_INPUTS-1:0] wl_bitmap_wrapped;
   logic                  wl_valid_pulse_wrapped;
 
-  // WL 复用协议原型信号（与外部 WL MUX 芯片的接口，当前版本未连到 chip_top pad）
+  // WL 复用协议原型信号（与外部 WL MUX 芯片的接口，当前版本尚未连到 chip_top pad）
   // wl_data     : 当前分组的 8-bit WL 数据
   // wl_group_sel: 当前选中的组编号（3-bit，0-7）
   // wl_latch    : WL MUX 锁存使能脉冲
@@ -235,7 +253,7 @@ module snn_soc_top (
   logic                               wl_latch;
   logic                               wl_mux_busy;
 
-  // wl_spike: dac_ctrl 将 wl_bitmap 转换为模拟脉冲的数字控制信号（每 bit 对应一条 WL）
+  // wl_spike：dac_ctrl 产生的数字侧 WL 脉冲控制向量（每 bit 对应一条 WL）
   logic [NUM_INPUTS-1:0] wl_spike;
 
   // DAC 信号
@@ -265,13 +283,14 @@ module snn_soc_top (
 
   // LIF 神经元输入
   // neuron_in_valid: adc_ctrl 通知 lif_neurons 本批 ADC 结果已就绪（单拍）
-  // neuron_in_data : 20 通道 Scheme B 差分结果，每通道 9-bit 有符号数
+  // neuron_in_data : 10 路 Scheme B 差分结果（20 通道两两配对后），每路 9-bit 有符号数
   //   维度：[NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] = [9:0][8:0]
   //   注意：NUM_OUTPUTS=10（分类数），NEURON_DATA_WIDTH=9（含符号位）
   logic                  neuron_in_valid;
   logic [NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data;
 
-  // 来自 reg_bank 的控制寄存器
+  // 来自 reg_bank 的控制寄存器 / 状态信号
+  // 这些信号是“软件可见寄存器”和“SNN 主链路”之间的桥。
   // neuron_threshold: LIF 膜电位阈值（32-bit，默认 THRESHOLD_DEFAULT=2550）
   // timesteps       : 推理时间步数（8-bit，工程默认 10）
   // reset_mode      : LIF 复位模式：0=减法复位（soft），1=归零复位（hard）
@@ -292,16 +311,16 @@ module snn_soc_top (
   logic [$clog2(PIXEL_BITS)-1:0] bitplane_shift;
 
   // ----------------------------------------------------------
-  // lint 抑制：WL MUX 协议信号当前未连接到 chip_top pad，
-  // 用一根 wire 将它们消费掉，避免 EDA 未连接警告。
-  // 后续 chip_top 集成时需删除此 wire 并真正连接到 IO pad。
+  // lint 抑制：WL MUX 协议信号当前尚未连到 chip_top pad，
+  // 用一根 wire 将它们“消费掉”，避免 EDA 报未连接警告。
+  // 后续做 chip_top pad 级集成时，应删除此 wire 并真正接到 IO pad。
   // ----------------------------------------------------------
   wire _unused_wl_mux = ^wl_data ^ ^wl_group_sel ^ wl_latch ^ wl_mux_busy;
 
   // ----------------------------------------------------------
   // ADC 饱和监控（adc_ctrl → reg_bank）
-  // adc_sat_high: 所有采样中超过高饱和门限的计数（16-bit 饱和计数器）
-  // adc_sat_low : 所有采样中低于低饱和门限的计数（16-bit 饱和计数器）
+  // adc_sat_high: 单次推理期间高饱和次数（16-bit 饱和计数器）
+  // adc_sat_low : 单次推理期间低饱和次数（16-bit 饱和计数器）
   // SW 可读取这两个计数器来评估 ADC 工作点是否合理
   // ----------------------------------------------------------
   logic [15:0] adc_sat_high;
@@ -346,10 +365,10 @@ module snn_soc_top (
   logic                test_adc_busy;
 
   // ----------------------------------------------------------
-  // Debug 计数器（16-bit 饱和计数，仅 rst_n 清零）
-  // 这些计数器帮助 SW 诊断系统运行状态，不受 snn_soft_reset_pulse 影响，
-  // 避免软复位时丢失调试信息。
-  // 饱和策略：到达 0xFFFF 后保持不再递增（!(&cnt) 判断非全1再加）
+  // Debug 计数器（16 位饱和计数，仅 rst_n 清零）
+  // 它们的作用不是参与功能，而是给软件提供“运行仪表盘”。
+  // 这些计数器不受 snn_soft_reset_pulse 影响，避免软复位时丢失诊断信息。
+  // 饱和策略：到达 0xFFFF 后保持不再递增（!(&cnt) 表示“还没全 1”）。
   // ----------------------------------------------------------
   logic [15:0] dbg_dma_frame_cnt;  // DMA 向 input FIFO 成功 push 的次数（每次 = 一帧 64-bit bitmap）
   logic [15:0] dbg_cim_cycle_cnt;  // SNN 处于 busy 状态的累计时钟周期数
@@ -358,11 +377,11 @@ module snn_soc_top (
 
   //======================
   // 总线互联
-  // bus_interconnect 是 1-master N-slave 的简化总线结构：
-  //   - 地址译码：将 m_addr 与各从设备地址段比较，确定目标从设备
-  //   - 请求寄存：将主设备请求寄存一拍后转发给从设备
-  //   - 读数据 MUX：根据目标从设备选择对应的 rdata 返回给主设备
-  //   - 固定 1-cycle 延迟：主设备发出请求后，下一拍收到响应
+  // bus_interconnect 是 1-master N-slave 的简化总线结构。
+  // 可以把它理解成“前台总机”：
+  //   - 看地址，决定这次请求该送去哪个从设备；
+  //   - 把读回来的数据再转发回主设备。
+  // 当前采用固定 1-cycle 响应模型：主设备发起请求后，下一拍收到响应。
   //======================
   bus_interconnect u_bus_interconnect (
     .clk            (clk),
@@ -564,18 +583,18 @@ module snn_soc_top (
 
   //======================
   // Reg Bank + FIFO Regs
-  // reg_bank：核心控制/状态寄存器，包含：
-  //   - REG_CTRL: snn_start_pulse / snn_soft_reset_pulse / reset_mode / cim_test_mode
-  //   - REG_STATUS: snn_busy / snn_done_pulse / timestep_counter 等
-  //   - REG_THRESHOLD_RATIO: 8-bit 阈值比率（定版默认 1 = 0x01）
-  //   - REG_TIMESTEPS: 时间步数（工程默认 10）
-  //   - REG_CIM_TEST: test_mode + test_data_pos/test_data_neg（测试模式用）
-  //   - REG_ADC_SAT: ADC 饱和计数高/低
-  //   - REG_DBG_*: 4 个调试计数器
-  //   - REG_OUT_FIFO: 输出 FIFO 读取（包含 pop 动作）
   //
-  // fifo_regs：轻量级只读寄存器，提供 FIFO count/empty/full 给 SW 查询
-  //   与 reg_bank 分离的原因：地址空间分配设计决策，简化各模块接口
+  // 如果你是从“软件如何控制 SoC”这个角度读顶层，
+  // 这里是最值得先看的入口。
+  //
+  // reg_bank：主控制台
+  //   - 存放阈值、timesteps、reset_mode 等配置；
+  //   - 接收 SW 发来的 start / soft_reset / test_mode 等控制；
+  //   - 把 snn_busy / snn_done / ADC 饱和计数 / debug 计数器映射成可读寄存器。
+  //
+  // fifo_regs：轻量级状态面板
+  //   - 只提供 FIFO 的 count / empty / full 等状态；
+  //   - 与 reg_bank 分离，主要是为了地址分区清晰、接口更简单。
   //======================
   reg_bank u_reg_bank (
     .clk            (clk),
@@ -638,7 +657,12 @@ module snn_soc_top (
 
   //======================
   // SNN 子系统
-  // 推理数据流（单个时间步示意）：
+  //
+  // 这里是整个项目最核心的数据通路。
+  // 一次推理的本质，就是把输入 FIFO 里的位图依次送过：
+  //   WL 控制 → DAC → CIM 宏 → ADC 扫描 → LIF 神经元 → 输出 FIFO
+  //
+  // 下表给的是“单个时间步”的典型节奏示意：
   //   周期 0 : SW 写 START → snn_start_pulse 脉冲
   //   周期 1 : cim_array_ctrl 从 input FIFO pop 64-bit bitmap，置 snn_busy
   //   周期 2 : cim_array_ctrl 发出 wl_bitmap + wl_valid_pulse
@@ -653,9 +677,12 @@ module snn_soc_top (
   //======================
 
   // cim_array_ctrl：SNN 主控 FSM
+  // 它相当于“流程调度器”，负责决定系统当前该做哪一步。
   // 状态：ST_IDLE → ST_FETCH（pop FIFO）→ ST_DAC → ST_CIM → ST_ADC → ST_INC → ST_DONE
-  // 输出：wl_bitmap, wl_valid_pulse, cim_start_pulse, adc_kick_pulse
-  // 输入：snn_start_pulse, in_fifo_empty, dac_done_pulse, cim_done, neuron_in_valid
+  // 关注点：
+  //   - 它不做具体模拟计算；
+  //   - 它负责在正确时刻触发 DAC / CIM / ADC 三段流程；
+  //   - 它也负责维护 busy / done / timestep_counter 等全局状态。
   cim_array_ctrl u_cim_ctrl (
     .clk             (clk),
     .rst_n           (rst_n),
@@ -675,17 +702,14 @@ module snn_soc_top (
     .busy            (snn_busy),             // 推理进行中标志
     .done_pulse      (snn_done_pulse),       // 当前图片推理完成脉冲
     .timestep_counter(timestep_counter),     // 当前时间步计数（供 SW 监控）
-    .bitplane_shift  (bitplane_shift)        // 比特平面偏移（多位精度，MVP=0）
+    .bitplane_shift  (bitplane_shift)        // 当前比特平面偏移（每帧从 7→0 循环，用于 LIF 加权累加）
   );
 
   // wl_mux_wrapper：WL 字线时分复用包装器
-  // 功能：将 64-bit wl_bitmap 分为 8 组，每组 8-bit，通过外部 WL MUX 时分发送到 128 条字线
-  // 原因：芯片 IO 有限（48 pad），无法将 128 条 WL 全部引出，用 MUX 节省 pin count
-  // 接口：
-  //   输入侧  ← cim_array_ctrl（wl_bitmap, wl_valid_pulse）
-  //   输出侧  → dac_ctrl（wl_bitmap_wrapped, wl_valid_pulse_wrapped，时序对齐后）
-  //   MUX 侧  → 外部 WL MUX（wl_data, wl_group_sel, wl_latch, wl_busy）
-  //           这些信号当前接 _unused_wl_mux（未引出到 pad，后续 chip_top 集成时连接）
+  // 它解决的问题是：“内部有 64 条 WL，但封装引脚不够，不能 64 根全并行拉出去。”
+  // 做法是把 64 位 wl_bitmap 分成 8 组，每组 8 位，按时间顺序送到外部 WL MUX。
+  // 因此它的本质不是改数据内容，而是把“并行位图”改成“时分复用协议”。
+  // 当前这些 MUX 协议信号还没真正接到 chip_top pad，上层集成时再连接。
   wl_mux_wrapper u_wl_mux_wrapper (
     .clk               (clk),
     .rst_n             (rst_n),
@@ -700,10 +724,12 @@ module snn_soc_top (
   );
 
   // dac_ctrl：DAC 控制器（数字 → 模拟 WL 脉冲驱动）
-  // 功能：接收 wl_bitmap_wrapped，锁存后输出 wl_spike，等待固定延迟（DAC_LATENCY_CYCLES）
-  // 时序：wl_valid_pulse 到来时直接进入延迟计数，无需等待外部握手信号
-  //   dac_valid 为单拍脉冲，通知 cim_macro_blackbox 行为模型何时锁存 wl_spike
-  //   真实芯片侧由 wl_latch 时序保证，dac_ready 握手已移除（2026-02-27）
+  // 它把“数字位图何时有效”翻译成“模拟侧何时应认为 WL 已经建立完毕”。
+  // 功能上可理解为：
+  //   1. 锁存 wl_bitmap_wrapped；
+  //   2. 产生 wl_spike；
+  //   3. 等待固定 DAC 延迟后，给后级一个完成脉冲。
+  // 当前采用固定时序，不依赖外部握手。
   dac_ctrl u_dac (
     .clk          (clk),
     .rst_n        (rst_n),
@@ -715,11 +741,9 @@ module snn_soc_top (
   );
 
   // cim_macro_blackbox：RRAM CIM 阵列行为模型（黑盒仿真）
-  // 功能：模拟 128x256 RRAM 阵列（差分结构，实际 64x20 有效计算）的推理行为
-  //   - 接收 wl_spike（WL 激活信号），通过 dac_valid 单拍脉冲触发锁存
-  //   - 在 cim_start 后执行内积计算（权重 x 输入）
-  //   - 通过 adc_start/adc_done/bl_data 串行输出 20 个 BL 列的 ADC 结果
-  // 注意：这里连接的是 _hw 后缀信号（原始输出），之后由 MUX 选择 hw 还是 test
+  // 你可以把它先理解成“模拟宏的行为代理人”。
+  // 它负责在仿真里给出 CIM 完成信号和 BL 采样结果，使数字链路能闭环运行。
+  // 注意：这里先接的是 _hw 后缀信号，后面 test mode 会再决定最终使用真实模型还是假响应。
   cim_macro_blackbox u_macro (
     .clk       (clk),
     .rst_n     (rst_n),
@@ -734,15 +758,17 @@ module snn_soc_top (
   );
 
   // adc_ctrl：ADC 控制器（Scheme B：数字侧差分减法，20 通道 MUX 扫描）
-  // 功能：
-  //   1. 收到 adc_kick_pulse 后，开始逐列扫描 20 个 BL 列（差分对）
-  //   2. 对每列：发出 adc_start → 等待 adc_done → 读取 bl_data（8-bit ADC）
-  //   3. Scheme B：在数字侧计算 pos_col - neg_col（有符号 9-bit）
-  //   4. 所有 20 列扫描完毕后，发出 neuron_in_valid + neuron_in_data[9:0][8:0]
-  // 饱和监控：统计 bl_data 超过饱和门限（高/低）的次数，输出 adc_sat_high/low
+  // 这是“把 CIM 输出变成神经元输入”的关键模块。
+  // 功能可拆成四步：
+  //   1. 收到 adc_kick_pulse 后，开始逐列扫描 20 个 BL 列；
+  //   2. 每列执行一次 adc_start → adc_done → 采样 bl_data；
+  //   3. 前 10 列和后 10 列做 Scheme B 差分，得到 10 路有符号结果；
+  //   4. 发出 neuron_in_valid，通知 lif_neurons 本轮输入已就绪。
+  // 同时它还统计单次推理中的 ADC 饱和次数，供软件读取诊断。
   adc_ctrl u_adc (
     .clk            (clk),
     .rst_n          (rst_n),
+    .sat_count_clear_pulse(snn_start_pulse), // 新推理开始时清零 ADC 饱和累计值
     .adc_kick_pulse (adc_kick_pulse),   // 来自 cim_array_ctrl：开始 ADC 扫描
     .adc_start      (adc_start),        // 输出给 cim_macro_blackbox：单列采样启动
     .adc_done       (adc_done),         // 来自 MUX：单列采样完成（hw 或 test）
@@ -780,24 +806,20 @@ module snn_soc_top (
 
   //======================
   // CIM Test Mode MUX + 响应生成器
-  // 设计意图：
-  //   流片后硅上测试时，RRAM 宏的模拟特性可能无法立即工作（编程电压、温度等问题）。
-  //   通过 cim_test_mode=1，数字侧产生 fake 延迟响应，验证数字控制 FSM 是否正常运行，
-  //   而不依赖真实 RRAM 宏的行为。
   //
-  // MUX 选择逻辑（纯组合）：
-  //   cim_test_mode=0 → 使用 _hw 信号（真实 cim_macro_blackbox 输出）
-  //   cim_test_mode=1 → 使用 _test 信号（数字侧 fake 响应）
+  // 这是“数字链路自检模式”的核心。
+  // 设计意图是：即使真实 RRAM 宏暂时不可用，也要能先把数字控制链跑通。
   //
-  // fake 延迟规格：
-  //   CIM 延迟：cim_start_pulse 后 2 个时钟周期产生 cim_done_test 脉冲
-  //     原理：test_cim_cnt 初始化为 1，每拍减 1，减到 0 时发出 done 并清 busy
-  //   ADC 延迟：adc_start 后 1 个时钟周期产生 adc_done_test 脉冲
-  //     原理：test_adc_cnt 初始化为 0，第一拍检测到 cnt==0 时立即发出 done 并清 busy
+  // 工作方式：
+  //   - cim_test_mode=0：走真实行为模型输出（_hw 信号）
+  //   - cim_test_mode=1：走数字侧伪造输出（_test 信号）
   //
-  // 为什么 CIM 用 2 拍、ADC 用 1 拍？
-  //   模拟真实 cim_macro_blackbox 行为模型的典型延迟，保证控制链路时序正确性验证
-  // 注：dac_ready MUX 已移除（2026-02-27），dac_ctrl 不再需要外部握手信号。
+  // 伪造响应并不是随便给，而是故意保留一个简化但合理的延迟：
+  //   - CIM：cim_start_pulse 后 2 拍给 done
+  //   - ADC：adc_start 后 1 拍给 done
+  // 这样做的目的，是让上游 FSM 和下游时序关系仍然接受真实流程检验。
+  //
+  // 注：dac_ready MUX 已移除（2026-02-27），dac_ctrl 当前不再依赖外部握手。
   //======================
 
   // 根据 cim_test_mode 选择信号来源
@@ -811,7 +833,7 @@ module snn_soc_top (
       (bl_sel < $bits(bl_sel)'(NUM_OUTPUTS) ? cim_test_data_pos : cim_test_data_neg) :
       bl_data_hw;
 
-  // CIM / ADC fake 延迟响应生成器（寄存器逻辑）
+  // CIM / ADC 假响应延迟生成器（寄存器逻辑）
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       // 复位：清空所有 fake 响应相关寄存器
@@ -864,12 +886,15 @@ module snn_soc_top (
   end
 
   //======================
-  // Debug 计数器（16-bit 饱和）
+  // Debug 计数器（16 位饱和）
+  //
+  // 这部分可以看成系统运行时的“黑匣子统计器”。
+  // 它们不参与功能决策，只负责记录关键事件，便于 bring-up 和性能观察。
+  //
   // 设计规格：
-  //   - 仅 rst_n 可清零（电源复位），snn_soft_reset_pulse 不清零
-  //     原因：调试信息需要在多次推理之间保留，避免软复位时清除诊断数据
-  //   - 饱和策略：!(&cnt) 等价于 cnt != 16'hFFFF，防止溢出回绕到 0
-  //   - 各计数器独立递增，互不干扰
+  //   - 仅 rst_n 可清零，snn_soft_reset_pulse 不清零；
+  //   - 采用饱和计数，不允许回绕到 0；
+  //   - 各计数器独立递增，互不影响。
   //======================
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -879,36 +904,36 @@ module snn_soc_top (
       dbg_spike_cnt     <= 16'h0;
       dbg_wl_stall_cnt  <= 16'h0;
     end else begin
-      // DMA frame count: 每次成功 push 64-bit bitmap 到 FIFO 时 +1
-      // 含义：已向 SNN 送入的图像帧数（每帧 = 一张 8x8 像素图）
+      // DMA frame count：每次成功 push 一份 64 位输入位图到 FIFO 时 +1
+      // 它回答的问题是：“DMA 实际向 SNN 喂了多少份输入？”
       if (in_fifo_push && !(&dbg_dma_frame_cnt))
         dbg_dma_frame_cnt <= dbg_dma_frame_cnt + 16'h1;
 
-      // CIM cycle count: snn_busy 为高的每个时钟周期 +1
-      // 含义：SNN 子系统处理所有图像的累计时钟周期，用于性能分析
+      // CIM cycle count：snn_busy 为高的每个时钟周期 +1
+      // 它回答的问题是：“SNN 总共忙了多少个时钟周期？”
       if (snn_busy && !(&dbg_cim_cycle_cnt))
         dbg_cim_cycle_cnt <= dbg_cim_cycle_cnt + 16'h1;
 
-      // Spike count: 每次 LIF 向 output_fifo push 分类结果时 +1
-      // 含义：已完成推理并输出分类结果的次数
+      // Spike count：每次 LIF 向 output_fifo push 一次结果事件时 +1
+      // 它回答的问题是：“输出侧一共产生了多少个 spike / 结果事件？”
       if (out_fifo_push && !(&dbg_spike_cnt))
         dbg_spike_cnt <= dbg_spike_cnt + 16'h1;
 
-      // WL stall count: wl_valid_pulse 到来时 wl_mux 仍忙 → 协议冲突 → 计数 +1
-      // 含义：WL 发送速度与 MUX 处理速度不匹配的次数，正常应为 0
-      // 如果此计数器非零，说明 cim_array_ctrl 的 WL 发送时序需要调整
+      // WL stall count：wl_valid_pulse 到来时 wl_mux 仍忙 → 记一次冲突
+      // 正常情况下它应当为 0；如果非零，说明 WL 发送时序需要重新检查。
       if (wl_valid_pulse && wl_mux_busy && !(&dbg_wl_stall_cnt))
         dbg_wl_stall_cnt <= dbg_wl_stall_cnt + 16'h1;
     end
   end
 
   //======================
-  // 外设 stub
-  // V1 阶段这三个外设仅作为 IO 占位，内部无实际逻辑。
-  // 保留接口是为了：
-  //   1. 验证 pad 数量和引脚分配的正确性
-  //   2. 为 V2 实现真实 UART/SPI/JTAG 提供无缝升级路径（只需替换 stub 模块）
-  //   3. 防止 EDA 工具因未驱动的 IO 产生报警
+  // 外设占位模块
+  //
+  // V1 阶段 UART / SPI / JTAG 主要作用是“保留接口位置”，而不是提供完整功能。
+  // 保留它们有三个目的：
+  //   1. 尽早冻结 pad 数量和引脚分配；
+  //   2. 给后续真实外设接入留出稳定接口；
+  //   3. 避免顶层 IO 悬空导致 EDA 报警。
   //======================
 
   // UART stub：uart_rx 输入忽略，uart_tx 输出恒高（空闲状态）

@@ -105,24 +105,24 @@ Flash / 外部输入
 
 ## 当前冻结参数
 
-| 参数 | 值 | 说明 |
-|---|---:|---|
-| `NUM_INPUTS` | 64 | 输入维度，当前默认口径为 `avgpool8x8` 产生的 64 维离线特征 |
-| `NUM_OUTPUTS` | 10 | 输出类别数 |
-| `PIXEL_BITS` | 8 | bit-plane 编码位宽 |
-| `ADC_BITS` | 8 | ADC 输出位宽 |
-| `ADC_CHANNELS` | 20 | Scheme B：10 正 + 10 负 |
-| `NEURON_DATA_WIDTH` | 9 | 差分后有符号位宽 |
-| `LIF_MEM_WIDTH` | 32 | LIF 膜电位位宽 |
-| `TIMESTEPS_DEFAULT` | 10 | 当前工程默认帧数 |
-| `THRESHOLD_RATIO_DEFAULT` | 1 | `ratio_code=1`，即 `1/255` |
-| `THRESHOLD_DEFAULT` | 2550 | `1 * 255 * 10` |
-| `INPUT_FIFO_DEPTH` | 256 | 输入 FIFO 深度 |
-| `OUTPUT_FIFO_DEPTH` | 4096 | 输出 FIFO 深度 |
-| `DAC_LATENCY_CYCLES` | 5 | 仿真时序参数 |
-| `CIM_LATENCY_CYCLES` | 10 | 仿真时序参数 |
-| `ADC_MUX_SETTLE_CYCLES` | 2 | 仿真时序参数 |
-| `ADC_SAMPLE_CYCLES` | 3 | 仿真时序参数 |
+| 参数                        |    值 | 说明                                     |
+| ------------------------- | ---: | -------------------------------------- |
+| `NUM_INPUTS`              |   64 | 输入维度，当前默认口径为 `avgpool8x8` 产生的 64 维离线特征 |
+| `NUM_OUTPUTS`             |   10 | 输出类别数                                  |
+| `PIXEL_BITS`              |    8 | bit-plane 编码位宽                         |
+| `ADC_BITS`                |    8 | ADC 输出位宽                               |
+| `ADC_CHANNELS`            |   20 | Scheme B：10 正 + 10 负                   |
+| `NEURON_DATA_WIDTH`       |    9 | 差分后有符号位宽                               |
+| `LIF_MEM_WIDTH`           |   32 | LIF 膜电位位宽                              |
+| `TIMESTEPS_DEFAULT`       |   10 | 当前工程默认帧数                               |
+| `THRESHOLD_RATIO_DEFAULT` |    1 | `ratio_code=1`，即 `1/255`               |
+| `THRESHOLD_DEFAULT`       | 2550 | `1 * 255 * 10`                         |
+| `INPUT_FIFO_DEPTH`        |  256 | 输入 FIFO 深度                             |
+| `OUTPUT_FIFO_DEPTH`       | 4096 | 输出 FIFO 深度                             |
+| `DAC_LATENCY_CYCLES`      |    5 | 仿真时序参数                                 |
+| `CIM_LATENCY_CYCLES`      |   10 | 仿真时序参数                                 |
+| `ADC_MUX_SETTLE_CYCLES`   |    2 | 仿真时序参数                                 |
+| `ADC_SAMPLE_CYCLES`       |    3 | 仿真时序参数                                 |
 
 ## 当前实现 vs 占位实现
 

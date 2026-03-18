@@ -23,8 +23,10 @@
 // -----------------------------------------------------------------------
 // 信号说明
 // -----------------------------------------------------------------------
-// adc_kick_pulse  : 单拍脉冲，由 cim_array_ctrl 在 ST_ADC 状态发出，
-//                   启动本模块的一轮完整 20 路采样序列。
+// sat_count_clear_pulse : 单拍脉冲，在新推理开始时清零 adc_sat_high/low，
+//                        使寄存器语义保持为“单次推理累计值”。
+// adc_kick_pulse       : 单拍脉冲，由 cim_array_ctrl 在 ST_ADC 状态发出，
+//                        启动本模块的一轮完整 20 路采样序列。
 // adc_start       : 单拍脉冲，送往 cim_macro_blackbox，触发单通道 ADC 转换。
 // adc_done        : 来自 cim_macro_blackbox，当前通道转换完成指示（单拍高）。
 // bl_data         : 来自 CIM 宏，当前 bl_sel 选中通道的无符号 ADC 结果
@@ -34,13 +36,14 @@
 // neuron_in_valid : 单拍脉冲，ST_DONE 状态产生，通知 lif_neurons 本次差分数据有效。
 // neuron_in_data  : 有符号差分数据，位宽 NEURON_DATA_WIDTH=9 位，
 //                   每个元素对应 diff[i] = raw[i] - raw[i+NUM_OUTPUTS]。
-// adc_sat_high    : 饱和高（bl_data==0xFF）计数，诊断用，正常推理中应接近 0。
-// adc_sat_low     : 饱和低（bl_data==0x00）计数，诊断用。
+// adc_sat_high    : 单次推理内饱和高（bl_data==0xFF）计数，诊断用，正常推理中应接近 0。
+// adc_sat_low     : 单次推理内饱和低（bl_data==0x00）计数，诊断用。
 // -----------------------------------------------------------------------
 module adc_ctrl (
   input  logic clk,
   input  logic rst_n,
 
+  input  logic sat_count_clear_pulse,
   input  logic adc_kick_pulse,
   output logic adc_start,
   input  logic adc_done,
@@ -51,8 +54,8 @@ module adc_ctrl (
   output logic [snn_soc_pkg::NUM_OUTPUTS-1:0][snn_soc_pkg::NEURON_DATA_WIDTH-1:0] neuron_in_data,
 
   // ADC 饱和监控（诊断用）
-  output logic [15:0] adc_sat_high,  // bl_data == MAX 的累计次数
-  output logic [15:0] adc_sat_low    // bl_data == 0   的累计次数
+  output logic [15:0] adc_sat_high,  // 单次推理内 bl_data == MAX 的累计次数
+  output logic [15:0] adc_sat_low    // 单次推理内 bl_data == 0   的累计次数
 );
   import snn_soc_pkg::*;
 
@@ -133,7 +136,7 @@ module adc_ctrl (
         // -------------------------------------------------------------------
         // ST_IDLE: 静止等待 adc_kick_pulse。
         // 收到 kick 后：
-        //   - 清零 sel_idx、raw_data、饱和计数器（为新一轮采样做准备）
+        //   - 清零 sel_idx、raw_data（为新一轮采样做准备）
         //   - 若 SETTLE_CYCLES==0（编译时常量），直接发 adc_start 跳 ST_WAIT
         //   - 否则装载 settle 倒计数器，进入 ST_SEL 等待 MUX 建立
         // 注意：adc_kick_pulse 只需持续 1 个周期。
@@ -143,8 +146,6 @@ module adc_ctrl (
             sel_idx      <= '0;
             bl_sel       <= '0;
             raw_data     <= '0;
-            adc_sat_high <= 16'h0;
-            adc_sat_low  <= 16'h0;
             if (ADC_MUX_SETTLE_CYCLES == 0) begin
               // 编译时分支：SETTLE_CYCLES 为 0 时跳过 ST_SEL，
               // 立即发 adc_start，节省一个状态周期。
@@ -190,8 +191,12 @@ module adc_ctrl (
           if (adc_done) begin
             raw_data[sel_idx] <= bl_data;   // 存储当前通道采样结果
             // ADC 饱和检测（饱和=ADC 输出被截断，表明信号超出量程）
-            if (bl_data == {ADC_BITS{1'b1}}) adc_sat_high <= adc_sat_high + 16'h1;
-            if (bl_data == {ADC_BITS{1'b0}}) adc_sat_low  <= adc_sat_low  + 16'h1;
+            if ((bl_data == {ADC_BITS{1'b1}}) && (adc_sat_high != 16'hFFFF)) begin
+              adc_sat_high <= adc_sat_high + 16'h1;
+            end
+            if ((bl_data == {ADC_BITS{1'b0}}) && (adc_sat_low != 16'hFFFF)) begin
+              adc_sat_low <= adc_sat_low + 16'h1;
+            end
             if (sel_idx == BL_SEL_MAX) begin
               // 最后一路（通道 19）采样完毕，进入 Scheme B 差分计算
               state <= ST_DONE;
@@ -238,6 +243,12 @@ module adc_ctrl (
         end
         default: state <= ST_IDLE;    // 防止综合器推断不可达锁存态
       endcase
+
+      // 诊断计数器按“推理”为边界清零，而不是按单次 20 路扫描清零。
+      if (sat_count_clear_pulse) begin
+        adc_sat_high <= 16'h0;
+        adc_sat_low  <= 16'h0;
+      end
     end
   end
 

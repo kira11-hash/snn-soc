@@ -20,7 +20,8 @@
 // 【实例化情况（snn_soc_top.sv）】
 //   u_instr_sram   : 指令存储  @ 0x0000_0000，16KB
 //   u_data_sram    : 数据存储  @ 0x0001_0000，16KB
-//   （weight_sram 使用 sram_simple_dp，因为 DMA 需要并发读）
+//   u_weight_sram  : 权重存储  @ 0x0003_0000，16KB
+//   （DMA 并发读只发生在 data_sram，因此只有 data_sram 使用 sram_simple_dp）
 //
 // 【读/写时序】
 //   ┌─────┬──────────────┬────────────────────────────────────────┐
