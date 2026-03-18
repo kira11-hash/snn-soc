@@ -48,11 +48,12 @@
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x00 | DMA_SRC_ADDR | addr | [31:0] | RW | 0 | DMA 源地址（byte 地址，SoC 物理地址，需 4B 对齐） |
-| 0x04 | DMA_LEN_WORDS | len | [31:0] | RW | 0 | 32-bit word 计数，必须为偶数且不越界 |
+| 0x04 | DMA_LEN_WORDS | len | [31:0] | RW | 0 | 32-bit word 计数（DST_INPUT_FIFO 要求偶数；WEIGHT/INSTR 允许奇数），不越界 |
 | 0x08 | DMA_CTRL | START | [0] | W1P | 0 | 写 1 启动 DMA |
 | 0x08 | DMA_CTRL | DONE | [1] | W1C | 0 | DMA 完成 sticky 标志 |
 | 0x08 | DMA_CTRL | ERR | [2] | W1C | 0 | DMA 错误 sticky 标志 |
 | 0x08 | DMA_CTRL | BUSY | [3] | RO | 0 | DMA 忙标志（state != IDLE） |
+| 0x0C | DMA_DST_SEL | dst_sel | [1:0] | RW | 0 | DMA 目标选择：0=INPUT_FIFO（默认，64-bit 拼接 push），1=WEIGHT_SRAM，2=INSTR_SRAM；3=非法（START 时直接报 ERR）；仅 IDLE 时可写 |
 
 ## fifo_regs（base = 0x4000_0400）
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |

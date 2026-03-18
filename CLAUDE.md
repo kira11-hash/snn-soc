@@ -42,6 +42,7 @@
 | 0x4000_0100 | 0x00 | DMA_SRC_ADDR | DMA 源地址 |
 | 0x4000_0104 | 0x04 | DMA_LEN_WORDS | DMA 长度（单位：32-bit word） |
 | 0x4000_0108 | 0x08 | DMA_CTRL | [0]=START(W1P), [1]=DONE(W1C), [2]=ERR(W1C), [3]=BUSY(RO) |
+| 0x4000_010C | 0x0C | DMA_DST_SEL | [1:0] 目标选择：0=INPUT_FIFO, 1=WEIGHT_SRAM, 2=INSTR_SRAM; 3=非法; IDLE时可写 |
 
 ## CIM Test Mode（流片后自检关键）
 
