@@ -11,7 +11,7 @@
 - **当前集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联；V1 不是片上数模混合集成。
 - **当前验证状态**：数字推理主链路已通过 smoke test，且正式 100 样本 `Python -> RTL` 对齐已通过，口径为 `predicted_class` 完全一致。
 - **当前 pad 状态**：`rtl/top/chip_top.sv` 仍是 pad skeleton，用于接口冻结与 lint，不承担最终 pad cell 实例化和真实 pad 连线。
-- **当前外设状态**：`uart_stub` / `spi_stub` / `jtag_stub` 仍为占位实现；真实 UART / SPI / CPU / AXI-Lite 仍处于后续集成阶段。
+- **当前外设状态**：`uart_ctrl` 已接入主线（TX 可用，RX V1 占位）；`spi_stub` / `jtag_stub` 仍为占位实现；CPU / AXI-Lite 顶层集成仍处于后续阶段。
 
 ## V1 目标
 
@@ -42,7 +42,7 @@
 - `reg`：主寄存器 bank + FIFO 状态窗口
 - `dma`：固定路径 DMA（`data_sram -> input_fifo`）
 - `snn`：`cim_array_ctrl` + `wl_mux_wrapper` + `dac_ctrl` + `adc_ctrl` + `lif_neurons` + `cim_macro_blackbox`
-- `periph`：UART / SPI / JTAG stub
+- `periph`：`uart_ctrl` + SPI / JTAG stub
 
 ## 当前主数据流
 
@@ -88,7 +88,7 @@ Flash / 外部输入
 
 - **数据流与控制流分离**：数据固定走 `data_sram -> DMA -> input_fifo -> CIM -> output_fifo`，控制通过寄存器配置和状态轮询完成。
 - **DMA 与 FIFO 解耦**：DMA 负责搬运，FIFO 负责速率缓冲；两者职责不同，不合并。
-- **外围逐步替换**：先保留 stub 接口和主链路稳定，再逐步换成真实 UART / SPI / CPU / AXI-Lite。
+- **外围逐步替换**：先保持已验证的主链路稳定，再逐步补齐真实 UART / SPI / CPU / AXI-Lite。
 - **ASIC 主线优先**：当前以 ASIC 版本为准，不以 FPGA 分支口径约束主文档。
 
 ## 一次推理的高层流程
@@ -128,7 +128,7 @@ Flash / 外部输入
 
 - **已真实实现**：总线、SRAM、FIFO、寄存器、DMA、SNN 控制链、LIF 神经元
 - **行为模型**：`cim_macro_blackbox.sv`
-- **占位模块**：`uart_stub`、`spi_stub`、`jtag_stub`
+- **占位模块**：`spi_stub`、`jtag_stub`（`uart_ctrl` 已接入主线，当前为 TX only）
 - **占位顶层**：`chip_top.sv` 仍是 pad skeleton
 
 ## 读这份文档时要注意

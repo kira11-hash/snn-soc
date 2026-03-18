@@ -27,8 +27,8 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 |---|---|---|---|---|---|---|
 | 01 | `clk` | System reference clock | in | signal | External source drives; no internal default | Routed to `snn_soc_top.clk` |
 | 02 | `rst_n` | Active-low reset | in | signal | Hold low during reset entry, release high for normal run | Routed to `snn_soc_top.rst_n` |
-| 03 | `uart_tx` | UART TX | out | signal | Stub drives idle high (`1`) after reset | Current source: `uart_stub.sv` |
-| 04 | `uart_rx` | UART RX | in | signal | External source drives; stub currently ignores input | Current sink: `uart_stub.sv` |
+| 03 | `uart_tx` | UART TX | out | signal | `uart_ctrl` drives idle high (`1`) after reset and emits 8N1 TX frames when active | Current source: `uart_ctrl.sv` |
+| 04 | `uart_rx` | UART RX | in | signal | External source drives; current V1 mainline has RX path reserved but not yet consumed by logic | Current sink: `uart_ctrl.sv` |
 | 05 | `spi_cs_n` | SPI chip select | out | signal | Stub holds high (`1`) after reset | Current source: `spi_stub.sv` |
 | 06 | `spi_sck` | SPI clock | out | signal | Stub holds low (`0`) after reset | Current source: `spi_stub.sv` |
 | 07 | `spi_mosi` | SPI MOSI | out | signal | Stub holds low (`0`) after reset | Current source: `spi_stub.sv` |

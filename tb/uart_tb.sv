@@ -1,0 +1,346 @@
+`timescale 1ns/1ps
+//======================================================================
+// 文件名: tb/uart_tb.sv
+// 模块名: uart_tb
+//
+// 【功能概述】
+// uart_ctrl 独立烟雾测试台（Standalone Smoke Testbench）。
+// 直接驱动 bus_simple slave 接口（req_*），无需 bus_interconnect，
+// 监控 uart_tx 引脚，按 8N1 协议解码字节后与期望值比对。
+//
+// 【测试列表】
+//   T1: 写 CTRL（baud_div=8），读回验证
+//   T1b: 读 RXDATA（占位寄存器），返回 0（地址兼容性）
+//   T2: 发送 0x55（01010101），解码验证
+//   T3: 发送 0xA5（10100101），解码验证
+//   T4: 发送 0xFF，解码验证
+//   T5: 发送 0x00，解码验证
+//   T6: 发送时读 STATUS.tx_busy=1，发送后验证 tx_busy=0
+//   T7: 发送忙时再写 TXDATA（应忽略），之后发正常字节
+//   T8: 发送中修改 CTRL，当前帧分频不变；下一帧生效
+//
+// 【通过标准】
+//   所有 [PASS] 无 [FAIL] → 最终输出 UART_SMOKETEST_PASS
+//
+// 【Icarus 兼容性】
+//   - 模块端口使用平铺 logic，不使用 interface modport
+//   - 循环变量用 integer 声明
+//   - 任务声明为非自动（non-automatic）
+//   - SVA 断言在 `ifdef VCS 内
+//======================================================================
+
+module uart_tb;
+  /* verilator lint_off UNUSEDSIGNAL */
+
+  // ── 时钟和复位 ────────────────────────────────────────────────────────────
+  logic clk, rst_n;
+  initial clk = 0;
+  always #10 clk = ~clk;  // 50MHz，周期 20ns（与 ASIC 目标时钟一致）
+
+  // ── DUT 信号 ──────────────────────────────────────────────────────────────
+  logic        req_valid;
+  logic        req_write;
+  logic [31:0] req_addr;
+  logic [31:0] req_wdata;
+  logic [3:0]  req_wstrb;
+  logic [31:0] rdata;
+  logic        uart_rx;
+  logic        uart_tx;
+
+  // DUT：uart_ctrl
+  uart_ctrl dut (
+    .clk       (clk),
+    .rst_n     (rst_n),
+    .req_valid (req_valid),
+    .req_write (req_write),
+    .req_addr  (req_addr),
+    .req_wdata (req_wdata),
+    .req_wstrb (req_wstrb),
+    .rdata     (rdata),
+    .uart_rx   (uart_rx),
+    .uart_tx   (uart_tx)
+  );
+
+  // ── UART 基地址（与 snn_soc_pkg 一致）────────────────────────────────────
+  localparam logic [31:0] UART_BASE = 32'h4000_0200;
+
+  // ── 寄存器 offset（与 uart_stub 保持一致）─────────────────────────────────
+  localparam logic [7:0] REG_TXDATA = 8'h00;
+  localparam logic [7:0] REG_RXDATA = 8'h04;
+  localparam logic [7:0] REG_STATUS = 8'h08;
+  localparam logic [7:0] REG_CTRL   = 8'h0C;
+
+  // ── 通过/失败计数器 ───────────────────────────────────────────────────────
+  integer pass_cnt, fail_cnt;
+
+  // ── 总线写任务 ────────────────────────────────────────────────────────────
+  // 向 DUT 发起一次写请求（单拍有效脉冲）
+  task bus_write;
+    input [7:0]  offset;
+    input [31:0] data;
+    begin
+      @(posedge clk);
+      #1;
+      req_valid = 1'b1;
+      req_write = 1'b1;
+      req_addr  = UART_BASE | {24'h0, offset};
+      req_wdata = data;
+      req_wstrb = 4'hF;
+      @(posedge clk);
+      #1;
+      req_valid = 1'b0;
+      req_write = 1'b0;
+    end
+  endtask
+
+  // ── 总线读任务 ────────────────────────────────────────────────────────────
+  task bus_read;
+    input  [7:0]  offset;
+    output [31:0] data;
+    begin
+      @(posedge clk);
+      #1;
+      req_valid = 1'b1;
+      req_write = 1'b0;
+      req_addr  = UART_BASE | {24'h0, offset};
+      req_wdata = 32'h0;
+      req_wstrb = 4'h0;
+      @(posedge clk);
+      #1;
+      data = rdata;
+      req_valid = 1'b0;
+    end
+  endtask
+
+  // ── 检查任务 ──────────────────────────────────────────────────────────────
+  task check;
+    input [31:0] got;
+    input [31:0] exp;
+    input [63:0] label;
+    begin
+      if (got === exp) begin
+        $display("[PASS] %s: got=0x%08X", label, got);
+        pass_cnt = pass_cnt + 1;
+      end else begin
+        $display("[FAIL] %s: got=0x%08X  exp=0x%08X", label, got, exp);
+        fail_cnt = fail_cnt + 1;
+      end
+    end
+  endtask
+
+  // ── UART TX 解码任务 ──────────────────────────────────────────────────────
+  // 等待起始位下沿，然后按 baud_div 采样 8 个数据位（在每位中点采样）
+  integer baud_clk;
+  task uart_decode;
+    output [7:0] byte_out;
+    integer i;
+    begin
+      // 等待起始位（uart_tx 下降沿）
+      @(negedge uart_tx);
+      // 等半个 baud，到达起始位中点
+      repeat (baud_clk / 2) @(posedge clk);
+      if (uart_tx !== 1'b0) begin
+        $display("[WARN] uart_decode: start bit sample failed (uart_tx=%b)", uart_tx);
+      end
+      // 逐位采样 D0~D7，在每位中点采样
+      byte_out = 8'h0;
+      for (i = 0; i < 8; i = i + 1) begin
+        repeat (baud_clk) @(posedge clk);
+        byte_out[i] = uart_tx;   // LSB 先发，逐位填入
+      end
+      // 采样停止位
+      repeat (baud_clk) @(posedge clk);
+      if (uart_tx !== 1'b1) begin
+        $display("[WARN] uart_decode: stop bit not high (uart_tx=%b)", uart_tx);
+        fail_cnt = fail_cnt + 1;
+      end
+    end
+  endtask
+
+  // ── 看门狗定时器 ──────────────────────────────────────────────────────────
+  initial begin
+    #2_000_000;
+    $display("[TIMEOUT] Simulation exceeded 2ms - force exit");
+    $finish;
+  end
+
+  // ── 主测试序列 ────────────────────────────────────────────────────────────
+  reg [7:0] decoded_byte;
+  reg [31:0] rd_data;
+
+  initial begin
+    pass_cnt  = 0;
+    fail_cnt  = 0;
+    rst_n     = 0;
+    req_valid = 0;
+    req_write = 0;
+    req_addr  = 0;
+    req_wdata = 0;
+    req_wstrb = 0;
+    uart_rx   = 1;
+    baud_clk  = 8;   // 仿真用小分频值
+
+    // 复位释放
+    repeat (4) @(posedge clk);
+    #1; rst_n = 1;
+    repeat (2) @(posedge clk);
+
+    $display("============================================================");
+    $display("[INFO] UART TX Smoke Test Start");
+    $display("============================================================");
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T1: 写 CTRL（baud_div=8），读回验证
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T1] CTRL baud_div write/read");
+    bus_write(REG_CTRL, 32'd8);
+    bus_read (REG_CTRL, rd_data);
+    check(rd_data, 32'd8, "T1_CTRL ");
+
+    // T1b: RXDATA 占位地址兼容性（应返回 0）
+    bus_read (REG_RXDATA, rd_data);
+    check(rd_data, 32'h0, "T1_RXDAT");
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T2: 发送 0x55（交替 01 模式），解码验证
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T2] Send 0x55");
+    fork
+      bus_write(REG_TXDATA, 32'h55);
+      uart_decode(decoded_byte);
+    join
+    check({24'h0, decoded_byte}, 32'h55, "T2_0x55 ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T3: 发送 0xA5，解码验证
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T3] Send 0xA5");
+    fork
+      bus_write(REG_TXDATA, 32'hA5);
+      uart_decode(decoded_byte);
+    join
+    check({24'h0, decoded_byte}, 32'hA5, "T3_0xA5 ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T4: 发送 0xFF（全1），解码验证
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T4] Send 0xFF");
+    fork
+      bus_write(REG_TXDATA, 32'hFF);
+      uart_decode(decoded_byte);
+    join
+    check({24'h0, decoded_byte}, 32'hFF, "T4_0xFF ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T5: 发送 0x00（全0），解码验证
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T5] Send 0x00");
+    fork
+      bus_write(REG_TXDATA, 32'h00);
+      uart_decode(decoded_byte);
+    join
+    check({24'h0, decoded_byte}, 32'h00, "T5_0x00 ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T6: 发送中读 STATUS.tx_busy，确认忙时为1、发完后为0
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T6] STATUS.tx_busy check");
+    bus_write(REG_TXDATA, 32'hAA);
+    @(posedge clk); #1;
+    req_valid = 1; req_write = 0;
+    req_addr  = UART_BASE | {24'h0, REG_STATUS};
+    #4; rd_data = rdata;
+    @(posedge clk); #1; req_valid = 0;
+    check({31'h0, rd_data[0]}, 32'h1, "T6_BUSY ");
+
+    // 等发送完毕：baud_div=8，10 bit * 8 clk = 80 clk
+    repeat (120) @(posedge clk);
+    bus_read(REG_STATUS, rd_data);
+    check({31'h0, rd_data[0]}, 32'h0, "T6_IDLE ");
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T7: 忙时写 TXDATA 应被忽略；等空闲后再正常发送 0x3C
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T7] Busy-ignore + normal send 0x3C");
+    bus_write(REG_TXDATA, 32'hBB);
+    // 立即（仍在发送中）再写 0x3C（应被忽略）
+    @(posedge clk); #1;
+    req_valid = 1; req_write = 1;
+    req_addr  = UART_BASE | 32'h0;
+    req_wdata = 32'h3C;
+    req_wstrb = 4'hF;
+    @(posedge clk); #1;
+    req_valid = 0; req_write = 0;
+
+    // 等 0xBB 发完
+    repeat (120) @(posedge clk);
+    repeat (5) @(posedge clk);
+
+    $display("[T7b] Send 0x3C cleanly after idle");
+    fork
+      bus_write(REG_TXDATA, 32'h3C);
+      uart_decode(decoded_byte);
+    join
+    check({24'h0, decoded_byte}, 32'h3C, "T7_0x3C ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // T8: 发送中修改 CTRL，当前帧分频不变；下一帧生效
+    // ──────────────────────────────────────────────────────────────────────
+    $display("[T8] CTRL update takes effect on next frame");
+    bus_write(REG_CTRL, 32'd8);
+    bus_write(REG_TXDATA, 32'h5A);
+    repeat (2) @(posedge clk);
+    bus_write(REG_CTRL, 32'd4); // 发送中改分频
+    check({16'h0, dut.baud_div_active}, 32'd8, "T8_ACTV0");
+
+    wait (dut.tx_busy == 1'b0);
+    baud_clk = 4;
+    fork
+      bus_write(REG_TXDATA, 32'hC3);
+      uart_decode(decoded_byte);
+    join
+    check({16'h0, dut.baud_div_active}, 32'd4, "T8_ACTV1");
+    check({24'h0, decoded_byte}, 32'hC3, "T8_0xC3 ");
+    repeat (20) @(posedge clk);
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 结果汇总
+    // ──────────────────────────────────────────────────────────────────────
+    $display("============================================================");
+    $display("[RESULT] PASS=%0d  FAIL=%0d", pass_cnt, fail_cnt);
+    if (fail_cnt == 0)
+      $display("UART_SMOKETEST_PASS");
+    else
+      $display("UART_SMOKETEST_FAIL");
+    $display("============================================================");
+    $finish;
+  end
+
+  // ── SVA 断言（VCS 专用）──────────────────────────────────────────────────
+  `ifndef SYNTHESIS
+  `ifdef VCS
+    // TX 线在空闲状态必须为高（Mark）
+    property p_tx_idle_high;
+      @(posedge clk) disable iff (!rst_n)
+      (dut.tx_state == 2'd0) |-> uart_tx;
+    endproperty
+    a_tx_idle_high: assert property (p_tx_idle_high)
+      else $error("[UART_TB] uart_tx not high in IDLE (state=%0d)", dut.tx_state);
+
+    // tx_busy 在 IDLE 状态必须为 0
+    property p_busy_in_idle;
+      @(posedge clk) disable iff (!rst_n)
+      (dut.tx_state == 2'd0) |-> !dut.tx_busy;
+    endproperty
+    a_busy_in_idle: assert property (p_busy_in_idle)
+      else $error("[UART_TB] tx_busy asserted in IDLE state");
+  `endif
+  `endif
+
+  /* verilator lint_on UNUSEDSIGNAL */
+endmodule

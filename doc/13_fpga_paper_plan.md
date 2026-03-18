@@ -219,23 +219,22 @@ FPGA:  cim_macro_fpga.sv       →  BRAM 权重 + 数字 MAC + 可选噪声
 
 ### 3.3 迭代路径（两条线并行）与当前进度
 
-> **重要说明**：下表的"当前状态"是准确的分支级状态。
-> main 分支仍使用 uart_stub / spi_stub 占位，
-> 各 IP 在 feature 分支上独立 TB 通过后，需合并到 main 并在 snn_soc_top.sv 中
-> 替换 stub 实例才算真正"集成完成"。
+> **重要说明**：下表的"当前状态"按当前 `main` 口径更新。
+> `main` 已集成 `uart_ctrl`（TX only）与 AXI-Lite bridge 独立脚手架；
+> `spi` 仍停留在 stub，E203 顶层接入也尚未完成。
 
 ```
 ASIC 主线                               FPGA 论文兜底线
 ──────────                              ─────────────
 ① AXI-Lite 桥接 + TB                    共用
-   状态：feature/axi-lite 分支
-   完成：axi_lite_if + axi2simple_bridge + TB (T1-T11, 11/11 PASS, 含背压与 DECERR 检查)
-   待做：axi_lite_interconnect (⑤) + snn_soc_top 集成 (⑥)
+   状态：已合并到 main（独立桥接模块，尚未挂到 snn_soc_top 主控入口）
+   完成：axi_lite_if + axi2simple_bridge + TB (T1-T13, 13/13 PASS, 含背压、DECERR、未对齐访问检查)
+   待做：E203 顶层接入与固件驱动闭环
 
 ② UART TX                               共用
-   状态：feature/uart-tx 分支
+   状态：已合并到 main
    完成：uart_ctrl.sv + TB (PASS=12, FAIL=0，含 busy-ignore 与 CTRL 生效时序检查，寄存器映射已对齐 stub)
-   待做：snn_soc_top 中 uart_stub → uart_ctrl 替换
+   当前限制：RX 路径仍为 V1 占位，若需要完整串口收发再继续扩展
 
 ③ SPI Master                             共用
    状态：feature/spi 分支

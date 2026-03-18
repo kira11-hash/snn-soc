@@ -155,9 +155,9 @@ module bus_interconnect (
   input  logic [31:0] dma_rdata,
 
   // ----------------------------------------------------------
-  // 从设备接口：uart_regs（UART stub 寄存器）
+  // 从设备接口：uart_regs（UART 控制器寄存器）
   // 地址范围：ADDR_UART_BASE ~ ADDR_UART_END
-  // 用途：V1 占位，uart_stub 所有寄存器读返回 0
+  // 用途：V1 当前由 uart_ctrl 实现 TX 发送、STATUS 和 baud_div 配置；RX 路径仍占位
   // ----------------------------------------------------------
   output logic        uart_req_valid,
   output logic        uart_req_write,
@@ -202,7 +202,7 @@ module bus_interconnect (
   // SEL_WEIGHT : 命中权重 SRAM
   // SEL_REG    : 命中控制寄存器组
   // SEL_DMA    : 命中 DMA 控制寄存器
-  // SEL_UART   : 命中 UART stub 寄存器
+  // SEL_UART   : 命中 UART 控制器寄存器
   // SEL_SPI    : 命中 SPI stub 寄存器
   // SEL_FIFO   : 命中 FIFO 状态寄存器
   // ----------------------------------------------------------
@@ -283,7 +283,7 @@ module bus_interconnect (
     end else if (in_range(req_addr, ADDR_DMA_BASE, ADDR_DMA_END)) begin
       req_sel = SEL_DMA;     // 命中 DMA 控制寄存器
     end else if (in_range(req_addr, ADDR_UART_BASE, ADDR_UART_END)) begin
-      req_sel = SEL_UART;    // 命中 UART stub
+      req_sel = SEL_UART;    // 命中 UART 控制器
     end else if (in_range(req_addr, ADDR_SPI_BASE, ADDR_SPI_END)) begin
       req_sel = SEL_SPI;     // 命中 SPI stub
     end else if (in_range(req_addr, ADDR_FIFO_BASE, ADDR_FIFO_END)) begin
@@ -341,7 +341,7 @@ module bus_interconnect (
   assign weight_req_valid= req_valid && (req_sel == SEL_WEIGHT);  // 权重 SRAM 请求有效
   assign reg_req_valid   = req_valid && (req_sel == SEL_REG);     // 寄存器组请求有效
   assign dma_req_valid   = req_valid && (req_sel == SEL_DMA);     // DMA 寄存器请求有效
-  assign uart_req_valid  = req_valid && (req_sel == SEL_UART);    // UART stub 请求有效
+  assign uart_req_valid  = req_valid && (req_sel == SEL_UART);    // UART 控制器请求有效
   assign spi_req_valid   = req_valid && (req_sel == SEL_SPI);     // SPI stub 请求有效
   assign fifo_req_valid  = req_valid && (req_sel == SEL_FIFO);    // FIFO 寄存器请求有效
 
@@ -420,7 +420,7 @@ module bus_interconnect (
       SEL_WEIGHT: req_rdata = weight_rdata;  // 权重 SRAM 读出数据
       SEL_REG:    req_rdata = reg_rdata;     // 控制寄存器读出数据
       SEL_DMA:    req_rdata = dma_rdata;     // DMA 寄存器读出数据
-      SEL_UART:   req_rdata = uart_rdata;    // UART stub 读出数据（恒为 0）
+      SEL_UART:   req_rdata = uart_rdata;    // UART 控制器读出数据
       SEL_SPI:    req_rdata = spi_rdata;     // SPI stub 读出数据（恒为 0）
       SEL_FIFO:   req_rdata = fifo_rdata;    // FIFO 状态寄存器读出数据
       default:    req_rdata = 32'h0;         // 未命中地址：返回 0

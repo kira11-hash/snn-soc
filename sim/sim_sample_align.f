@@ -13,7 +13,7 @@
 ../rtl/snn/cim_array_ctrl.sv
 ../rtl/snn/wl_mux_wrapper.sv
 ./models/cim_macro_blackbox_weighted_icarus.sv
-../rtl/periph/uart_stub.sv
+../rtl/periph/uart_ctrl.sv
 ../rtl/periph/spi_stub.sv
 ../rtl/periph/jtag_stub.sv
 ../rtl/top/snn_soc_top.sv

@@ -36,7 +36,7 @@ V1 先完成数字 SoC 单独流片，并进行片外混合集成验证；V2/V3 
 | DMA 引擎 | 多目标 | ⚠️ 单目标 | Phase 3 |
 | 寄存器 Bank | 需要 | ✅ 有 | - |
 | **SPI 控制器** | 需要 | ⚠️ 主线仍为 `spi_stub` | Phase 2（待主线集成） |
-| **UART 控制器** | 需要 | ⚠️ 主线仍为 `uart_stub` | Phase 2（待主线集成） |
+| **UART 控制器** | 需要 | ⚠️ 主线已集成 `uart_ctrl`（TX only，RX V1 占位） | Phase 2（RX/增强项按需补齐） |
 | JTAG 接口 | 需要 | ❌ 仅stub | Phase 5 |
 | 输入 Spike FIFO | 需要 | ✅ 有 | - |
 | 输出 Spike FIFO | 需要 | ✅ 有 | - |
@@ -92,9 +92,9 @@ V1 先完成数字 SoC 单独流片，并进行片外混合集成验证；V2/V3 
 **时间：2月14日 - 3月6日**
 
 ### 目标
-- 实现完整的 UART 控制器（替换 uart_stub.sv）
+- 实现 UART 控制器（当前 main 已完成 TX only，若需要再补 RX FIFO/增强功能）
 - 实现完整的 SPI 控制器（替换 spi_stub.sv）
-- 当前 `main` 仍由 `uart_stub.sv` / `spi_stub.sv` 占位，Phase 2 的交付标准是主线完成真实控制器接入并通过回归。
+- 当前 `main` 已接入 `uart_ctrl.sv`（TX only），`spi_stub.sv` 仍为占位；Phase 2 的收口标准是 UART/SPI 主线都完成真实控制器接入并通过回归。
 - UART 和 SPI 可以并行开发
 
 ### 第3周（2.14-2.20）：UART 控制器

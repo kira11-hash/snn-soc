@@ -45,7 +45,7 @@
 //    ├── weight_sram          ← 预留 SRAM 窗口（当前主推理路径不从此窗口取数）
 //    ├── reg_bank             ← 控制/状态寄存器组（启动、阈值、测试模式等）
 //    ├── dma_engine           ← 从 data_sram 读像素，打包后 push 到 input FIFO
-//    ├── uart_stub            ← UART 占位（后续 CPU 版本可替换为真实控制器）
+//    ├── uart_ctrl            ← UART TX 控制器（V1：TX only，RX 占位）
 //    ├── spi_stub             ← SPI Flash 占位（后续 CPU 版本可替换为真实控制器）
 //    └── fifo_regs            ← FIFO 状态只读寄存器（供 SW 轮询）
 //
@@ -75,9 +75,9 @@ module snn_soc_top (
   input  logic        clk,
   input  logic        rst_n,
 
-  // UART（占位实现）
-  // uart_rx / uart_tx：当前只作为 IO 占位引出；uart_stub 内部直接将 tx 拉高，
-  // 后续接入 CPU / boot 流时再替换为真实 UART 控制器。
+  // UART（V1：TX 已实现，RX 仍占位）
+  // uart_tx 由 uart_ctrl 产生标准 8N1 发送波形，默认空闲高电平；
+  // uart_rx 端口已引出，但当前 V1 主线暂未实现接收路径。
   input  logic        uart_rx,
   output logic        uart_tx,
 
@@ -158,7 +158,7 @@ module snn_soc_top (
   logic [3:0]  dma_req_wstrb;
   logic [31:0] dma_rdata;
 
-  // UART stub 接口（当前 main 占位；后续 CPU 版本会替换为真实控制器）
+  // UART 控制器接口（当前 main 已接入 uart_ctrl；TX 可用，RX V1 占位）
   logic        uart_req_valid, uart_req_write;
   logic [31:0] uart_req_addr,  uart_req_wdata;
   logic [3:0]  uart_req_wstrb;
@@ -927,18 +927,18 @@ module snn_soc_top (
   end
 
   //======================
-  // 外设占位模块
+  // 外设模块（UART 已实现；SPI/JTAG 仍为占位）
   //
-  // V1 阶段 UART / SPI / JTAG 主要作用是“保留接口位置”，而不是提供完整功能。
+  // 当前阶段 UART 已替换为最小可用 TX 控制器；SPI / JTAG 仍主要用于“保留接口位置”。
   // 保留它们有三个目的：
   //   1. 尽早冻结 pad 数量和引脚分配；
   //   2. 给后续真实外设接入留出稳定接口；
   //   3. 避免顶层 IO 悬空导致 EDA 报警。
   //======================
 
-  // UART stub：uart_rx 输入忽略，uart_tx 输出恒高（空闲状态）
+  // UART TX 控制器（V1：8N1，TX only，RX 占位）
   // 地址范围：ADDR_UART_BASE ~ ADDR_UART_END（见 snn_soc_pkg）
-  uart_stub u_uart (
+  uart_ctrl u_uart (
     .clk       (clk),
     .rst_n     (rst_n),
     .req_valid (uart_req_valid),
@@ -946,7 +946,7 @@ module snn_soc_top (
     .req_addr  (uart_req_addr),
     .req_wdata (uart_req_wdata),
     .req_wstrb (uart_req_wstrb),
-    .rdata     (uart_rdata),    // 读操作返回 0（stub 行为）
+    .rdata     (uart_rdata),    // STATUS[0]=tx_busy, CTRL[15:0]=baud_div
     .uart_rx   (uart_rx),
     .uart_tx   (uart_tx)
   );

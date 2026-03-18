@@ -49,12 +49,59 @@ AW/W 错拍：先缓存先到的一侧（1-entry pending），另一侧到达后
 
 ---
 
+## Iteration 2 — UART stub → uart_ctrl 集成（2026-03-18）
+
+### 变更内容
+
+将 `feature/uart-tx` 分支的 UART TX 控制器移植到 `main` 分支，替换 uart_stub。
+
+**新增文件（4 个 RTL/TB/脚本）：**
+
+| 文件 | 说明 |
+|------|------|
+| `rtl/periph/uart_ctrl.sv` | UART TX 控制器（8N1，4态FSM，baud_div可配置，RX V1占位） |
+| `tb/uart_tb.sv` | T1~T8 独立烟雾测试（含 baud_div 读写、多字节发送解码、STATUS、忙时忽略、CTRL 锁存） |
+| `sim/sim_uart.f` | Icarus 编译文件列表 |
+| `sim/run_uart_icarus.sh` | Icarus 运行脚本，通过标准 `UART_SMOKETEST_PASS` |
+
+**修改文件（6 处）：**
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/top/snn_soc_top.sv` | `uart_stub u_uart` → `uart_ctrl u_uart`（端口完全兼容，仅改实例模块名） |
+| `sim/sim_icarus_light.f` | `uart_stub.sv` → `uart_ctrl.sv` |
+| `sim/sim_icarus_weighted.f` | `uart_stub.sv` → `uart_ctrl.sv` |
+| `sim/sim.f` | `uart_stub.sv` → `uart_ctrl.sv`，保证默认 top_tb filelist 可编译 |
+| `sim/sim_sample_align.f` | `uart_stub.sv` → `uart_ctrl.sv`，保证 sample-align 回归可编译 |
+| `sim/sim_adc_sat_counter.f` / `sim/rtl_with_chip_top_check.f` | `uart_stub.sv` → `uart_ctrl.sv`，保证 ADC 饱和回归与 chip_top lint 可编译 |
+
+### 功能说明
+
+| 特性 | 实现状态 |
+|------|---------|
+| TX：8N1 帧格式（1起始+8数据+1停止） | ✅ 4态FSM（IDLE/START/DATA/STOP） |
+| 波特率配置（CTRL.baud_div，默认434=115200@50MHz） | ✅ 帧间热更新，发送中改配下帧生效 |
+| baud_div=0 防御（钳位到1，防止倒计数异常） | ✅ |
+| 忙时写 TXDATA 忽略（tx_busy=1 时不加载新字节） | ✅ |
+| STATUS[0]=tx_busy 可读 | ✅ |
+| TXDATA 影子寄存器可读回 | ✅ |
+| RX 路径 | V1 占位（读回0），V2 实现 |
+
+### 验证结果
+
+```
+UART独立TB:   T1~T8 全部 PASS（12/12）  → UART_SMOKETEST_PASS
+黑盒smoke回归: OUT_FIFO_COUNT=100       → LIGHT_SMOKETEST_PASS（无回归）
+带权重回归:   OUT_FIFO_COUNT=55         → WEIGHTED_SIM_PASS（无回归）
+```
+
+---
+
 ## 后续迭代计划（Phase 4）
 
 | 迭代 | 内容 | 验证标准 |
 |------|------|---------|
-| Iter 2 | UART stub → uart_ctrl（TX only）集成 | `UART_SMOKETEST_PASS` + `LIGHT_SMOKETEST_PASS` |
-| Iter 3 | SPI stub → spi_ctrl 集成 | `SPI_SMOKETEST_PASS` + `LIGHT_SMOKETEST_PASS` |
+| Iter 3 | SPI stub → spi_ctrl 集成 | `SPI_SMOKETEST_PASS` + `LIGHT_SMOKETEST_PASS` + `WEIGHTED_SIM_PASS` |
 | Iter 4 | DMA 扩展（SPI→SRAM 通路）| DMA smoke + `LIGHT_SMOKETEST_PASS` |
 | Iter 5 | E203 接入（AXI-Lite master → axi2simple_bridge → interconnect）| 端到端固件验证 |
 
