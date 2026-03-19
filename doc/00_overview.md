@@ -24,9 +24,9 @@
 
 ## 重要边界
 
-- [chip_top.sv](/d:/SoC Design/SoC Design/rtl/top/chip_top.sv) 仍然只是 pad skeleton，不是最终可流片顶层
-- [snn_soc_top.sv](/d:/SoC Design/SoC Design/rtl/top/snn_soc_top.sv) 的 `ENABLE_E203` 默认值仍是 `0`
-- 也就是说：E203 已经在专用仿真链路里接通，但默认 `chip_top` / 默认 top-level build 还不是“带 CPU 的 TO 冻结版本”
+- [chip_top.sv](/d:/SoC Design/SoC Design/rtl/top/chip_top.sv) 现在已经是**RTL 级 tapeout-intent 包装层**：默认启用 E203，并将外部 CIM 接口接到 pad 端口
+- 但它仍未包含工艺库相关的真实 `pad cell / ESD / drive strength / package` 实现，这部分属于后续 pad-library 适配工作
+- [snn_soc_top.sv](/d:/SoC Design/SoC Design/rtl/top/snn_soc_top.sv) 的 `ENABLE_E203` 默认值仍是 `0`，这是为了不打扰既有主回归；真正 TO 路径由 `chip_top` 显式覆写为 `1`
 
 ## 当前执行形态
 

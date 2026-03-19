@@ -6,7 +6,7 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 
 - Scope: ASIC mainline only
 - Physical intent: full 48-pad package view
-- Current RTL status: [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv) is still a signal-pad skeleton and does not yet instantiate real pad cells
+- Current RTL status: [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv) now routes the digital core signals to the documented pad-facing ports, but still does not instantiate technology-specific pad cells
 - Counting rule:
   - 48 pads total
   - 45 usable pads
@@ -43,33 +43,33 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 16 | `VSSCORE1` | Core ground | inout | power | Ground pad; no logic reset state | One of two core VSS pads |
 | 17 | `VDDIO` | IO supply | inout | power | Power pad; no logic reset state | Shared digital IO supply |
 | 18 | `VSSIO` | IO ground | inout | power | Ground pad; no logic reset state | Shared digital IO ground |
-| 19 | `wl_data[0]` | WL mux data bit 0 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 20 | `wl_data[1]` | WL mux data bit 1 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 21 | `wl_data[2]` | WL mux data bit 2 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 22 | `wl_data[3]` | WL mux data bit 3 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 23 | `wl_data[4]` | WL mux data bit 4 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 24 | `wl_data[5]` | WL mux data bit 5 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 25 | `wl_data[6]` | WL mux data bit 6 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 26 | `wl_data[7]` | WL mux data bit 7 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 27 | `wl_group_sel[0]` | WL mux group select bit 0 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 28 | `wl_group_sel[1]` | WL mux group select bit 1 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 29 | `wl_group_sel[2]` | WL mux group select bit 2 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 30 | `wl_latch` | WL mux latch pulse | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 31 | `cim_start` | CIM transaction start pulse | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 32 | `cim_done` | CIM transaction done pulse | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 33 | `bl_sel[0]` | BL readback select bit 0 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 34 | `bl_sel[1]` | BL readback select bit 1 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 35 | `bl_sel[2]` | BL readback select bit 2 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 36 | `bl_sel[3]` | BL readback select bit 3 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 37 | `bl_sel[4]` | BL readback select bit 4 | out | signal | Current `chip_top` skeleton drives `0` | Final hookup pending |
-| 38 | `bl_data[0]` | BL readback data bit 0 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 39 | `bl_data[1]` | BL readback data bit 1 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 40 | `bl_data[2]` | BL readback data bit 2 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 41 | `bl_data[3]` | BL readback data bit 3 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 42 | `bl_data[4]` | BL readback data bit 4 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 43 | `bl_data[5]` | BL readback data bit 5 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 44 | `bl_data[6]` | BL readback data bit 6 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
-| 45 | `bl_data[7]` | BL readback data bit 7 | in | signal | External analog side drives; current `chip_top` only terminates input | Final hookup pending |
+| 19 | `wl_data[0]` | WL mux data bit 0 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 20 | `wl_data[1]` | WL mux data bit 1 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 21 | `wl_data[2]` | WL mux data bit 2 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 22 | `wl_data[3]` | WL mux data bit 3 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 23 | `wl_data[4]` | WL mux data bit 4 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 24 | `wl_data[5]` | WL mux data bit 5 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 25 | `wl_data[6]` | WL mux data bit 6 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 26 | `wl_data[7]` | WL mux data bit 7 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 27 | `wl_group_sel[0]` | WL mux group select bit 0 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 28 | `wl_group_sel[1]` | WL mux group select bit 1 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 29 | `wl_group_sel[2]` | WL mux group select bit 2 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 30 | `wl_latch` | WL mux latch pulse | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `wl_mux_wrapper` path |
+| 31 | `cim_start` | CIM transaction start pulse | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `cim_array_ctrl` |
+| 32 | `cim_done` | CIM transaction done pulse | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 33 | `bl_sel[0]` | BL readback select bit 0 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` |
+| 34 | `bl_sel[1]` | BL readback select bit 1 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` |
+| 35 | `bl_sel[2]` | BL readback select bit 2 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` |
+| 36 | `bl_sel[3]` | BL readback select bit 3 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` |
+| 37 | `bl_sel[4]` | BL readback select bit 4 | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` |
+| 38 | `bl_data[0]` | BL readback data bit 0 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 39 | `bl_data[1]` | BL readback data bit 1 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 40 | `bl_data[2]` | BL readback data bit 2 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 41 | `bl_data[3]` | BL readback data bit 3 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 42 | `bl_data[4]` | BL readback data bit 4 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 43 | `bl_data[5]` | BL readback data bit 5 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 44 | `bl_data[6]` | BL readback data bit 6 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
+| 45 | `bl_data[7]` | BL readback data bit 7 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 46 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL skeleton |
 | 47 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL skeleton |
 | 48 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL skeleton |

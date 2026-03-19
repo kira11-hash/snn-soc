@@ -44,6 +44,13 @@ module top_tb_sample_align;
   logic uart_rx, uart_tx;
   logic spi_cs_n, spi_sck, spi_mosi, spi_miso;
   logic jtag_tck, jtag_tms, jtag_tdi, jtag_tdo;
+  logic [7:0] wl_data_ext;
+  logic [2:0] wl_group_sel_ext;
+  logic       wl_latch_ext;
+  logic       cim_start_ext;
+  logic       cim_done_ext;
+  logic [4:0] bl_sel_ext;
+  logic [7:0] bl_data_ext;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic        ext_bus_enable;
@@ -156,6 +163,8 @@ module top_tb_sample_align;
     rst_n = 1'b0;
     uart_rx = 1'b1;
     spi_miso = 1'b0;
+    cim_done_ext = 1'b0;
+    bl_data_ext = 8'h00;
     jtag_tck = 1'b0;
     jtag_tms = 1'b0;
     jtag_tdi = 1'b0;

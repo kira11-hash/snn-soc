@@ -27,6 +27,13 @@ module top_tb_icarus_light;
   logic jtag_tms;
   logic jtag_tdi;
   logic jtag_tdo;
+  logic [7:0] wl_data_ext;
+  logic [2:0] wl_group_sel_ext;
+  logic       wl_latch_ext;
+  logic       cim_start_ext;
+  logic       cim_done_ext;
+  logic [4:0] bl_sel_ext;
+  logic [7:0] bl_data_ext;
 
   // Optional external bus override ports exist on some branches.
   // Lint-only mode treats these compatibility placeholders as unused
@@ -152,6 +159,8 @@ module top_tb_icarus_light;
     rst_n = 1'b0;
     uart_rx = 1'b1;
     spi_miso = 1'b0;
+    cim_done_ext = 1'b0;
+    bl_data_ext = 8'h00;
     jtag_tck = 1'b0;
     jtag_tms = 1'b0;
     jtag_tdi = 1'b0;

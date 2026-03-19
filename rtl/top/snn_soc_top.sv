@@ -67,7 +67,8 @@
 // ============================================================
 
 module snn_soc_top #(
-  parameter bit ENABLE_E203 = 1'b0
+  parameter bit ENABLE_E203      = 1'b0,
+  parameter bit ENABLE_EXT_CIM_IF = 1'b0
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -97,7 +98,16 @@ module snn_soc_top #(
   input  logic        jtag_tck,
   input  logic        jtag_tms,
   input  logic        jtag_tdi,
-  output logic        jtag_tdo
+  output logic        jtag_tdo,
+
+  // Optional external CIM interface for chip_top / tapeout path.
+  output logic [7:0]  wl_data_ext,
+  output logic [2:0]  wl_group_sel_ext,
+  output logic        wl_latch_ext,
+  output logic        cim_start_ext,
+  input  logic        cim_done_ext,
+  output logic [4:0]  bl_sel_ext,
+  input  logic [7:0]  bl_data_ext
 );
   // 导入 snn_soc_pkg 中的全局参数与地址常量
   // 例如：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 等
@@ -397,6 +407,9 @@ module snn_soc_top #(
   logic                cim_done_hw;
   logic                adc_done_hw;
   logic [ADC_BITS-1:0] bl_data_hw;
+  logic                ext_adc_done;
+  logic                ext_adc_busy;
+  logic [$clog2((ADC_SAMPLE_CYCLES > 0) ? (ADC_SAMPLE_CYCLES + 1) : 2)-1:0] ext_adc_cnt;
   // 测试侧响应信号
   // cim_done_test : test mode 下由计数器产生的 2 拍延迟 done 脉冲
   // adc_done_test : test mode 下由计数器产生的 1 拍延迟 done 脉冲
@@ -828,6 +841,12 @@ module snn_soc_top #(
     .wl_busy           (wl_mux_busy)             // 来自外部 WL MUX（当前 _unused，用于 stall 检测）
   );
 
+  assign wl_data_ext      = wl_data;
+  assign wl_group_sel_ext = wl_group_sel;
+  assign wl_latch_ext     = wl_latch;
+  assign cim_start_ext    = cim_start_pulse;
+  assign bl_sel_ext       = bl_sel;
+
   // dac_ctrl：DAC 控制器（数字 → 模拟 WL 脉冲驱动）
   // 它把“数字位图何时有效”翻译成“模拟侧何时应认为 WL 已经建立完毕”。
   // 功能上可理解为：
@@ -849,18 +868,26 @@ module snn_soc_top #(
   // 你可以把它先理解成“模拟宏的行为代理人”。
   // 它负责在仿真里给出 CIM 完成信号和 BL 采样结果，使数字链路能闭环运行。
   // 注意：这里先接的是 _hw 后缀信号，后面 test mode 会再决定最终使用真实模型还是假响应。
-  cim_macro_blackbox u_macro (
-    .clk       (clk),
-    .rst_n     (rst_n),
-    .wl_spike  (wl_spike),       // 来自 dac_ctrl：WL 激活位图的数字表示
-    .dac_valid (dac_valid),      // 来自 dac_ctrl：单拍脉冲，通知行为模型锁存 wl_spike
-    .cim_start (cim_start_pulse), // 来自 cim_array_ctrl：计算启动脉冲
-    .cim_done  (cim_done_hw),    // 输出：计算完成（→ test mode MUX 后接 cim_done）
-    .adc_start (adc_start),      // 来自 adc_ctrl：当前列开始采样
-    .adc_done  (adc_done_hw),    // 输出：当前列采样完成（→ test mode MUX 后接 adc_done）
-    .bl_sel    (bl_sel),         // 来自 adc_ctrl：当前列编号（5-bit，0-19）
-    .bl_data   (bl_data_hw)      // 输出：当前列 ADC 结果（8-bit，→ test mode MUX 后接 bl_data）
-  );
+  generate
+    if (!ENABLE_EXT_CIM_IF) begin : gen_internal_cim_macro
+      cim_macro_blackbox u_macro (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .wl_spike  (wl_spike),
+        .dac_valid (dac_valid),
+        .cim_start (cim_start_pulse),
+        .cim_done  (cim_done_hw),
+        .adc_start (adc_start),
+        .adc_done  (adc_done_hw),
+        .bl_sel    (bl_sel),
+        .bl_data   (bl_data_hw)
+      );
+    end else begin : gen_external_cim_if
+      assign cim_done_hw = cim_done_ext;
+      assign bl_data_hw  = bl_data_ext;
+      assign adc_done_hw = ext_adc_done;
+    end
+  endgenerate
 
   // adc_ctrl：ADC 控制器（Scheme B：数字侧差分减法，20 通道 MUX 扫描）
   // 这是“把 CIM 输出变成神经元输入”的关键模块。
@@ -986,6 +1013,34 @@ module snn_soc_top #(
         end else begin
           test_adc_cnt <= test_adc_cnt - 4'd1;
         end
+      end
+    end
+  end
+
+  // External analog-chip path does not return per-channel adc_done over pads.
+  // For tapeout intent, synthesize a local fixed-delay done pulse after adc_start.
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      ext_adc_done <= 1'b0;
+      ext_adc_busy <= 1'b0;
+      ext_adc_cnt  <= '0;
+    end else begin
+      ext_adc_done <= 1'b0;
+      if (ENABLE_EXT_CIM_IF && !cim_test_mode) begin
+        if (adc_start && !ext_adc_busy) begin
+          ext_adc_busy <= 1'b1;
+          ext_adc_cnt  <= (ADC_SAMPLE_CYCLES > 0) ? ADC_SAMPLE_CYCLES[$bits(ext_adc_cnt)-1:0] : 'd1;
+        end else if (ext_adc_busy) begin
+          if (ext_adc_cnt == 'd1) begin
+            ext_adc_done <= 1'b1;
+            ext_adc_busy <= 1'b0;
+          end else begin
+            ext_adc_cnt <= ext_adc_cnt - 'd1;
+          end
+        end
+      end else begin
+        ext_adc_busy <= 1'b0;
+        ext_adc_cnt  <= '0;
       end
     end
   end

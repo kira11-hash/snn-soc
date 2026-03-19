@@ -3,9 +3,9 @@
 // File: rtl/top/chip_top.sv
 // Purpose: Chip-level wrapper skeleton for future pad-ring integration around snn_soc_top.
 // Role in system: Holds the place for signal-pad hookup, package-facing signal shaping, and future pad cell insertion.
-// Current status: Skeleton only; the canonical pad source of truth lives in doc/15_asic_pad_map.md.
+// Current status: Tapeout-intent digital wrapper; the canonical pad source of truth lives in doc/15_asic_pad_map.md.
 // Scope note: This file models only signal-facing ports. Power pads and 3 ESD-reserved pads are documented, not instantiated here.
-// Do not tape out as-is: Final pad mapping, IO cell instantiation, ESD/pad config, and analog connections are not implemented yet.
+// Remaining tapeout work is pad-cell-library specific: IO cell instantiation, ESD options, drive-strength config, and final package constraints.
 // -----------------------------------------------------------------------------
 
 `timescale 1ns/1ps
@@ -52,8 +52,11 @@ module chip_top (
   output logic [4:0] bl_sel_pad,
   input  logic [7:0] bl_data_pad
 );
-  // 核心 SoC（当前保持原有接口）
-  snn_soc_top u_soc_core (
+  // 核心 SoC（TO 目标路径：默认带 E203 + 外部 CIM pad 接口）
+  snn_soc_top #(
+    .ENABLE_E203(1'b1),
+    .ENABLE_EXT_CIM_IF(1'b1)
+  ) u_soc_core (
     .clk      (clk_pad),
     .rst_n    (rst_n_pad),
     .uart_rx  (uart_rx_pad),
@@ -65,17 +68,14 @@ module chip_top (
     .jtag_tck (jtag_tck_pad),
     .jtag_tms (jtag_tms_pad),
     .jtag_tdi (jtag_tdi_pad),
-    .jtag_tdo (jtag_tdo_pad)
+    .jtag_tdo (jtag_tdo_pad),
+    .wl_data_ext      (wl_data_pad),
+    .wl_group_sel_ext (wl_group_sel_pad),
+    .wl_latch_ext     (wl_latch_pad),
+    .cim_start_ext    (cim_start_pad),
+    .cim_done_ext     (cim_done_pad),
+    .bl_sel_ext       (bl_sel_pad),
+    .bl_data_ext      (bl_data_pad)
   );
-
-  // 占位默认值（后续由 pad-wrapper 正式连接替换）
-  assign wl_data_pad      = 8'h00;
-  assign wl_group_sel_pad = 3'h0;
-  assign wl_latch_pad     = 1'b0;
-  assign cim_start_pad    = 1'b0;
-  assign bl_sel_pad       = 5'h00;
-
-  // 占位输入消警告
-  wire _unused_chip_top = cim_done_pad ^ ^bl_data_pad;
 endmodule
 

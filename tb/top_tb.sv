@@ -132,6 +132,13 @@ module top_tb;
   logic jtag_tms;
   logic jtag_tdi;
   logic jtag_tdo;
+  logic [7:0] wl_data_ext;
+  logic [2:0] wl_group_sel_ext;
+  logic       wl_latch_ext;
+  logic       cim_start_ext;
+  logic       cim_done_ext;
+  logic [4:0] bl_sel_ext;
+  logic [7:0] bl_data_ext;
 
   // -----------------------------------------------------------------------
   // DUT 实例化：snn_soc_top
@@ -149,7 +156,14 @@ module top_tb;
     .jtag_tck (jtag_tck),
     .jtag_tms (jtag_tms),
     .jtag_tdi (jtag_tdi),
-    .jtag_tdo (jtag_tdo)
+    .jtag_tdo (jtag_tdo),
+    .wl_data_ext      (wl_data_ext),
+    .wl_group_sel_ext (wl_group_sel_ext),
+    .wl_latch_ext     (wl_latch_ext),
+    .cim_start_ext    (cim_start_ext),
+    .cim_done_ext     (cim_done_ext),
+    .bl_sel_ext       (bl_sel_ext),
+    .bl_data_ext      (bl_data_ext)
   );
 
   task automatic bus_write32(

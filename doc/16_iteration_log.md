@@ -258,6 +258,7 @@ chip_top lint:  pass                             -> verilator lint clean
 - `bootloader` 通过 `spi_ctrl` 访问外部 SPI Flash 模型，读取应用镜像头和 payload
 - `bootloader` 将 `app` 装载到 `data_sram @ 0x0001_0000`，执行 `fence.i` 后跳转
 - `app` 运行后通过 `UART printf` 输出阶段日志，并继续完成 DMA + SNN 推理
+- 同步收口 TO 路径上的两个关键问题：`chip_top` 现在默认显式启用 E203，并将外部 CIM 接口（`wl_data/group_sel/latch`、`cim_start/done`、`bl_sel/bl_data`）真正贯通到 `snn_soc_top`
 
 ### 新增 / 修改文件
 
@@ -297,6 +298,7 @@ reset
 bootloader / SPI 启动 / UART printf: 通过 -> E203_SMOKETEST_PASS
 黑盒 smoke 回归: OUT_FIFO_COUNT=100  -> LIGHT_SMOKETEST_PASS
 带权重回归:     OUT_FIFO_COUNT=55   -> WEIGHTED_SIM_PASS
+sample-align:   100/100 matched      -> SAMPLE_ALIGN_PASS
 SPI 单测回归:                        -> SPI_SMOKETEST_PASS
 ADC 饱和计数器回归:                   -> ADC_SAT_COUNTER_PASS
 chip_top Verilator lint:             -> 通过
