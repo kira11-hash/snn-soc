@@ -647,3 +647,30 @@ cd sim && bash run_verdi_weighted.sh
 grep "WEIGHTED_SIM_PASS" sim/vcs_weighted.log
 grep -iE "error|fatal|assertion" sim/vcs_weighted_compile.log sim/vcs_weighted.log
 ```
+
+---
+
+## 8. E203 V1 最小接入的验证标准补充
+
+对于本轮 **最小面积 E203 接入**，当前判断是：**Icarus 验证已足够，暂不要求额外跑 VCS/Verdi**。
+
+适用范围：
+
+- 关闭 `cache / ITCM / DTCM / JTAG / NICE / ECC / AMO / share-muldiv`
+- 覆盖 `RV32I + mem_icb + MMIO + SPI boot + DMA/SNN` 的最小 bare-metal 启动链
+- 固件通过 WSL 中的 `riscv64-unknown-elf-gcc / objcopy` 构建，`sim/run_e203_icarus.sh` 会先生成 `bootloader.hex` 与 `flash_image.hex` 再跑仿真
+- 不涉及 Debug Module / JTAG 单步
+- 不做大规模 ISA regression，也不做复杂 assertion 收敛
+
+本轮通过标准：
+
+- `E203_SMOKETEST_PASS`
+- 固件能完成：bootloader 上电启动、SPI 读取 app、跳转执行、UART 打印阶段日志、启动 DMA/SNN，并将 `OUT_FIFO_COUNT` 写回 SRAM
+- 主线回归保持通过：`LIGHT_SMOKETEST_PASS`、`WEIGHTED_SIM_PASS`
+
+只有在进入下面这些阶段时，才建议把 VCS/Verdi 纳入必跑项：
+
+- 引入更复杂的 boot image 校验、异常恢复或更长固件流程
+- 打开 Debug/JTAG 路径
+- 做 ISA regression、异常/中断覆盖或更深的 SVA 调试
+- 需要用 FSDB/Verdi 追复杂软硬件交互时序

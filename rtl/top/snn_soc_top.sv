@@ -66,7 +66,9 @@
 //    dbg_wl_stall_cnt   ← wl_valid_pulse 到来时 wl_mux_busy 冲突次数
 // ============================================================
 
-module snn_soc_top (
+module snn_soc_top #(
+  parameter bit ENABLE_E203 = 1'b0
+) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
   // clk  : 系统主时钟，所有寄存器均在上升沿采样
@@ -109,6 +111,41 @@ module snn_soc_top (
   // MVP 阶段没有真实 CPU，总线事务由 Testbench 直接驱动这些信号来模拟。
   // ----------------------------------------------------------
   bus_simple_if bus_if(.clk(clk));
+
+  logic        fabric_m_valid, fabric_m_write;
+  logic [31:0] fabric_m_addr,  fabric_m_wdata;
+  logic [3:0]  fabric_m_wstrb;
+  logic        fabric_m_ready, fabric_m_rvalid;
+  logic [31:0] fabric_m_rdata;
+
+  logic        cpu_bus_m_valid, cpu_bus_m_write;
+  logic [31:0] cpu_bus_m_addr,  cpu_bus_m_wdata;
+  logic [3:0]  cpu_bus_m_wstrb;
+
+  logic        cpu_mem_icb_cmd_valid;
+  logic        cpu_mem_icb_cmd_ready;
+  logic [31:0] cpu_mem_icb_cmd_addr;
+  logic        cpu_mem_icb_cmd_read;
+  logic [31:0] cpu_mem_icb_cmd_wdata;
+  logic [3:0]  cpu_mem_icb_cmd_wmask;
+  logic        cpu_mem_icb_rsp_valid;
+  logic        cpu_mem_icb_rsp_ready;
+  logic        cpu_mem_icb_rsp_err;
+  logic [31:0] cpu_mem_icb_rsp_rdata;
+  logic [31:0] cpu_inspect_pc;
+  logic        cpu_core_wfi;
+
+  wire _unused_e203 = ^cpu_inspect_pc ^ cpu_core_wfi;
+
+  assign fabric_m_valid = ENABLE_E203 ? cpu_bus_m_valid : bus_if.m_valid;
+  assign fabric_m_write = ENABLE_E203 ? cpu_bus_m_write : bus_if.m_write;
+  assign fabric_m_addr  = ENABLE_E203 ? cpu_bus_m_addr  : bus_if.m_addr;
+  assign fabric_m_wdata = ENABLE_E203 ? cpu_bus_m_wdata : bus_if.m_wdata;
+  assign fabric_m_wstrb = ENABLE_E203 ? cpu_bus_m_wstrb : bus_if.m_wstrb;
+
+  assign bus_if.m_ready  = ENABLE_E203 ? 1'b0  : fabric_m_ready;
+  assign bus_if.m_rdata  = ENABLE_E203 ? 32'h0 : fabric_m_rdata;
+  assign bus_if.m_rvalid = ENABLE_E203 ? 1'b0  : fabric_m_rvalid;
 
   // ----------------------------------------------------------
   // bus_interconnect → 各从设备的连接信号组
@@ -393,19 +430,59 @@ module snn_soc_top (
   //   - 把读回来的数据再转发回主设备。
   // 当前采用固定 1-cycle 响应模型：主设备发起请求后，下一拍收到响应。
   //======================
+  e203_min_wrap u_e203 (
+    .clk              (clk),
+    .rst_n            (rst_n),
+    .inspect_pc       (cpu_inspect_pc),
+    .core_wfi         (cpu_core_wfi),
+    .mem_icb_cmd_valid(cpu_mem_icb_cmd_valid),
+    .mem_icb_cmd_ready(cpu_mem_icb_cmd_ready),
+    .mem_icb_cmd_addr (cpu_mem_icb_cmd_addr),
+    .mem_icb_cmd_read (cpu_mem_icb_cmd_read),
+    .mem_icb_cmd_wdata(cpu_mem_icb_cmd_wdata),
+    .mem_icb_cmd_wmask(cpu_mem_icb_cmd_wmask),
+    .mem_icb_rsp_valid(cpu_mem_icb_rsp_valid),
+    .mem_icb_rsp_ready(cpu_mem_icb_rsp_ready),
+    .mem_icb_rsp_err  (cpu_mem_icb_rsp_err),
+    .mem_icb_rsp_rdata(cpu_mem_icb_rsp_rdata)
+  );
+
+  icb2simple_bridge u_icb2simple (
+    .clk            (clk),
+    .rst_n          (rst_n),
+    .i_icb_cmd_valid(cpu_mem_icb_cmd_valid),
+    .i_icb_cmd_ready(cpu_mem_icb_cmd_ready),
+    .i_icb_cmd_addr (cpu_mem_icb_cmd_addr),
+    .i_icb_cmd_read (cpu_mem_icb_cmd_read),
+    .i_icb_cmd_wdata(cpu_mem_icb_cmd_wdata),
+    .i_icb_cmd_wmask(cpu_mem_icb_cmd_wmask),
+    .i_icb_rsp_valid(cpu_mem_icb_rsp_valid),
+    .i_icb_rsp_ready(cpu_mem_icb_rsp_ready),
+    .i_icb_rsp_err  (cpu_mem_icb_rsp_err),
+    .i_icb_rsp_rdata(cpu_mem_icb_rsp_rdata),
+    .m_valid        (cpu_bus_m_valid),
+    .m_write        (cpu_bus_m_write),
+    .m_addr         (cpu_bus_m_addr),
+    .m_wdata        (cpu_bus_m_wdata),
+    .m_wstrb        (cpu_bus_m_wstrb),
+    .m_ready        (fabric_m_ready),
+    .m_rdata        (fabric_m_rdata),
+    .m_rvalid       (fabric_m_rvalid)
+  );
+
   bus_interconnect u_bus_interconnect (
     .clk            (clk),
     .rst_n          (rst_n),
 
-    // 主设备侧：来自 bus_if 接口（Testbench 直接驱动）
-    .m_valid        (bus_if.m_valid),   // 主设备请求有效
-    .m_write        (bus_if.m_write),   // 1=写，0=读
-    .m_addr         (bus_if.m_addr),    // 32-bit 字节地址
-    .m_wdata        (bus_if.m_wdata),   // 32-bit 写数据
-    .m_wstrb        (bus_if.m_wstrb),   // 4-bit 字节写使能
-    .m_ready        (bus_if.m_ready),   // 写操作完成握手（互联 → 主设备）
-    .m_rdata        (bus_if.m_rdata),   // 32-bit 读数据返回（互联 → 主设备）
-    .m_rvalid       (bus_if.m_rvalid),  // 读数据有效（互联 → 主设备）
+    // 主设备侧：默认由 Testbench bus_if 驱动；ENABLE_E203=1 时切换到 E203 bridge
+    .m_valid        (fabric_m_valid),
+    .m_write        (fabric_m_write),
+    .m_addr         (fabric_m_addr),
+    .m_wdata        (fabric_m_wdata),
+    .m_wstrb        (fabric_m_wstrb),
+    .m_ready        (fabric_m_ready),
+    .m_rdata        (fabric_m_rdata),
+    .m_rvalid       (fabric_m_rvalid),
 
     // 从设备侧：各从设备接口信号（已在上方声明）
     .instr_req_valid(instr_req_valid),

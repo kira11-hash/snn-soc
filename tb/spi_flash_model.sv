@@ -5,7 +5,9 @@
 // Support: RDID (0x9F), READ (0x03 + 24-bit address)
 // Mode   : SPI Mode 0 (CPOL=0, CPHA=0)
 // ============================================================================
-module spi_flash_model (
+module spi_flash_model #(
+  parameter string INIT_HEX = ""
+) (
   input  logic spi_cs_n,
   input  logic spi_sck,
   input  logic spi_mosi,
@@ -33,7 +35,10 @@ module spi_flash_model (
 
   initial begin
     for (i = 0; i < 65536; i = i + 1) begin
-      mem[i] = i[7:0];
+      mem[i] = (INIT_HEX == "") ? i[7:0] : 8'hFF;
+    end
+    if (INIT_HEX != "") begin
+      $readmemh(INIT_HEX, mem);
     end
   end
 

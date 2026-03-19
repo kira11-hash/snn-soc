@@ -198,10 +198,116 @@ DMA 独立 TB:  T1~T10 全部 PASS（39/39） → DMA_SMOKETEST_PASS
 
 ---
 
+## Iteration 5 — E203 最小面积接入（2026-03-18）
+
+### 变更内容
+
+将 E203 以“最小侵入、最小面积”的方式接入 `main`：
+
+- 顶层不走 `ICB -> AXI -> simple bus` 双桥路径，而是直接新增 `ICB -> simple bus` 轻量桥，减少一层协议转换面积和时序负担。
+- `snn_soc_top.sv` 新增 `ENABLE_E203` 参数，默认仍由 `bus_if` 驱动；只有在专用 E203 TB 中才切换到 CPU 主控，因此原有主线回归无需改测试用例。
+- 新增 `e203_min_wrap.sv` 包装层，仅暴露 `mem_icb` 到 SoC fabric；PPI / CLINT / PLIC / FIO 一律接到错误应答从设备，避免为了 V1 bring-up 额外引入不必要外设。
+- 裁剪 vendor `config.v`：关闭 `JTAG / ITCM / DTCM / NICE / ECC / AMO / share-muldiv`，保留 RV32I 主路径与 `mem_icb`。  
+  说明：`MCYCLE/MINSTRET` 原本也尝试关闭，但 vendor `e203_exu_csr.v` 对这组信号有非对称 ifdef 依赖，直接关闭会导致编译失败，因此本轮保留这组 CSR，避免在 vendor RTL 内做高风险手术。
+
+### 新增 / 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/bus/icb2simple_bridge.sv` | 新增 E203 `mem_icb` 到 `bus_simple` 的轻量桥；单 outstanding；SRAM 区允许 byte/halfword 访问，MMIO 区强制 4B 对齐，非法访问返回 error |
+| `rtl/bus/icb_err_slave.sv` | 新增 ICB 错误应答从设备，供 PPI / CLINT / PLIC / FIO 占位 |
+| `rtl/top/e203_min_wrap.sv` | 新增 E203 最小包装层；内部 tie-off debug/interrupt/TCM 电源控制，并将未使用 ICB 口接到 `icb_err_slave` |
+| `rtl/top/snn_soc_top.sv` | 新增 `ENABLE_E203` 参数，加入 E203 wrapper + `icb2simple_bridge`，并将 bus fabric 改成“外部 TB / E203 二选一” |
+| `项目相关文件/未添加的IP的源代码/e203_hbirdv2-master/rtl/e203/core/config.v` | 裁剪 E203 配置，关闭不需要的大块功能，仅保留本轮用到的最小子集 |
+| `fw/crt0.S` / `fw/main.c` / `fw/link.ld` | 新增 E203 最小 bare-metal C 固件工程 |
+| `fw/build_e203_firmware.sh` / `fw/bin_to_readmemh.py` | 新增固件构建脚本与 binary→`$readmemh` 转换脚本，输出 `fw/out/firmware.hex` |
+| `tb/e203_tb.sv` | 新增 E203 专用 Icarus 烟测 TB：预加载 `instr_sram`，预填 `data_sram` 输入模式，检查签名 / UART / `OUT_FIFO_COUNT` |
+| `sim/sim_e203.f` | 新增 E203 专用 filelist，使用 `rtl/vendor_e203` 本地 ASCII 映射规避 Icarus 对 vendor 路径的读取问题 |
+| `sim/run_e203_icarus.sh` | 新增 E203 专用运行脚本，PASS 标准为 `E203_SMOKETEST_PASS` |
+| `sim/sim*.f` / `sim/rtl_with_chip_top_check.f` | 补齐 `icb2simple_bridge.sv`、`icb_err_slave.sv`、`e203_min_wrap.sv`，保证原有 top 相关回归仍可编译 |
+
+### 固件 / 验证策略
+
+本轮 E203 bring-up 已切换到真实 **C 固件 + WSL toolchain** 流程：
+
+- 使用 WSL 内的 `riscv64-unknown-elf-gcc / objcopy`，编译 `fw/crt0.S + fw/main.c + fw/link.ld`
+- 通过 `fw/build_e203_firmware.sh` 生成 `fw/out/firmware.elf / firmware.dump / firmware.hex`
+- `sim/run_e203_icarus.sh` 会先自动构建固件，再跑 Icarus
+- 当前固件只依赖 RV32I：写签名到 `data_sram`、配置 UART、启动 DMA、轮询 `DONE`、启动 SNN、读取 `OUT_FIFO_COUNT` 并写回 SRAM
+
+### 验证结果
+
+```
+E203 专用 smoke: Signature/UART/SNN 全部通过      -> E203_SMOKETEST_PASS
+黑盒 smoke 回归: OUT_FIFO_COUNT=100               -> LIGHT_SMOKETEST_PASS
+带权重回归:     OUT_FIFO_COUNT=55                -> WEIGHTED_SIM_PASS
+sample-align:   100/100 samples matched          -> SAMPLE_ALIGN_PASS
+ADC 饱和回归:   pass                             -> ADC_SAT_COUNTER_PASS
+chip_top lint:  pass                             -> verilator lint clean
+```
+
+---
+
+## Iteration 6 — Bootloader / SPI 启动 + UART printf（2026-03-19）
+
+### 变更内容
+
+在已有 E203 最小接入的基础上，补齐了真实上电启动链：
+
+- `bootloader` 预加载在 `instr_sram`，上电后先运行引导程序
+- `bootloader` 通过 `spi_ctrl` 访问外部 SPI Flash 模型，读取应用镜像头和 payload
+- `bootloader` 将 `app` 装载到 `data_sram @ 0x0001_0000`，执行 `fence.i` 后跳转
+- `app` 运行后通过 `UART printf` 输出阶段日志，并继续完成 DMA + SNN 推理
+
+### 新增 / 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `fw/include/soc_regs.h` | 统一定义 E203 / DMA / UART / SPI / marker 地址和启动常量 |
+| `fw/include/uart_printf.h` / `fw/uart_printf.c` | 新增最小 `uart_printf` 实现，支持 `%c / %s / %x / %u`，供 bootloader 和 app 共用 |
+| `fw/boot_main.c` | 新增 bootloader：读 `RDID`、读取镜像头、SPI 逐字节搬运 app、写 boot marker、跳转到 app |
+| `fw/main.c` | 切换为 app 固件：生成 DMA 输入、运行推理、用 UART 输出 `APP start` / `APP inference done count=...` |
+| `fw/link.ld` | 调整为 bootloader 链接脚本，`DMEM` 仅保留高地址小窗口，避免与 app 装载区冲突 |
+| `fw/app_link.ld` | 新增 app 链接脚本，app 代码运行在 `data_sram @ 0x0001_0000` |
+| `fw/build_flash_image.py` | 新增 SPI Flash 镜像生成脚本：写入 boot header（magic/size/load/entry）+ app payload |
+| `fw/build_e203_firmware.sh` | 扩展为同时生成 `bootloader.hex`、`app.elf/bin/dump`、`flash_image.hex` |
+| `tb/spi_flash_model.sv` | 支持通过参数加载外部 `flash_image.hex`，默认行为仍兼容原 SPI 单测 |
+| `tb/e203_tb.sv` | 切换到 bootloader/SPI 启动路径，实例化 flash model，检查 boot marker / app signature / result / done，并打印 UART 日志 |
+
+### 启动流程
+
+```
+reset
+  -> bootloader @ instr_sram
+  -> UART: "BL start"
+  -> SPI RDID
+  -> SPI READ header + app payload
+  -> app load to data_sram @ 0x0001_0000
+  -> write boot marker
+  -> jump to app
+  -> UART: "APP start"
+  -> DMA + SNN inference
+  -> UART: "APP inference done count=100"
+  -> write app signature / result / done marker
+```
+
+### 验证结果
+
+```
+bootloader / SPI 启动 / UART printf: 通过 -> E203_SMOKETEST_PASS
+黑盒 smoke 回归: OUT_FIFO_COUNT=100  -> LIGHT_SMOKETEST_PASS
+带权重回归:     OUT_FIFO_COUNT=55   -> WEIGHTED_SIM_PASS
+SPI 单测回归:                        -> SPI_SMOKETEST_PASS
+ADC 饱和计数器回归:                   -> ADC_SAT_COUNTER_PASS
+chip_top Verilator lint:             -> 通过
+```
+
+---
+
 ## 后续迭代计划（Phase 4 剩余）
 
 | 迭代 | 内容 | 验证标准 |
 |------|------|---------|
-| Iter 5 | E203 接入（AXI-Lite master → axi2simple_bridge → interconnect）| 端到端固件验证 |
+| Iter 7 | 更完整 boot image 格式 / 校验 / 真实板级 bring-up 流程 | 从仿真启动链过渡到板级启动链 |
 
 每次迭代完成后在本文档追加一节记录。

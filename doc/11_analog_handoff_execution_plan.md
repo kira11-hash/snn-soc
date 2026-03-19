@@ -341,3 +341,15 @@ AXI-Lite、DMA 扩展、E203 接入为关键步骤，必须跑 VCS/Verdi（含 S
 | 集成架构 | 双芯片 PCB 互联 | 数字芯片 + 模拟 CIM 芯片，独立封装 |
 | 数字侧验证状态 | Step 3.4/3.5 PASS（正式 100 样本口径） | Python↔RTL 100/100 样本对齐；`expected_classes.hex` 为 Python `predicted_class` |
 | 数字侧当前阶段 | Phase 4 外设集成 | AXI-Lite → UART → SPI → DMA → E203 |
+## 2026-03-19 Status Sync
+
+下面关于 `AXI-Lite -> UART -> SPI -> DMA -> E203` 的阶段描述保留了原始 handoff 计划口径。当前实际进度已经前推到：
+
+- `UART / SPI / DMA / AXI-Lite bridge` 已完成主线集成
+- `E203` 已完成最小面积接入
+- `bootloader / SPI 启动 / UART printf` 已在专用 Icarus 链路验证通过
+
+补充说明：
+
+- 当前验证标准以 `doc/09_smoke_test_checklist.md` 为准
+- 对于本轮最小 E203 + SPI 启动闭环，`Icarus` 已足够；`VCS/Verdi` 不是这一轮的必跑前置条件

@@ -1,6 +1,8 @@
 ../rtl/top/snn_soc_pkg.sv
 ../rtl/bus/bus_simple_if.sv
 ../rtl/bus/bus_interconnect.sv
+../rtl/bus/icb_err_slave.sv
+../rtl/bus/icb2simple_bridge.sv
 ../rtl/mem/sram_simple.sv
 ../rtl/mem/sram_simple_dp.sv
 ../rtl/mem/fifo_sync.sv
@@ -16,6 +18,7 @@
 ../rtl/periph/uart_ctrl.sv
 ../rtl/periph/spi_ctrl.sv
 ../rtl/periph/jtag_stub.sv
+../rtl/top/e203_min_wrap.sv
 ../rtl/top/snn_soc_top.sv
 ../tb/tb_lib/bus_master_tasks.sv
 ../tb/top_tb.sv

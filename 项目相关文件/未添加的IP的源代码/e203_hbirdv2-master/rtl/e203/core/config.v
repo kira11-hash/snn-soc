@@ -17,7 +17,6 @@
                                                                          
                                                                          
 
-`define E203_CFG_DEBUG_HAS_JTAG
 `define E203_CFG_IRQ_NEED_SYNC
 
 //`define E203_CFG_ADDR_SIZE_IS_16
@@ -36,10 +35,8 @@
 
 //`define E203_CFG_SUPPORT_MSCRATCH
 `define E203_CFG_SUPPORT_MCYCLE_MINSTRET
-
 `define E203_CFG_REGNUM_IS_32
 /////////////////////////////////////////////////////////////////
-`define E203_CFG_HAS_ITCM
     // 64KB have address 16bits wide
     //   The depth is 64*1024*8/64=8192
 `define E203_CFG_ITCM_ADDR_WIDTH  16
@@ -54,7 +51,6 @@
 
 
 /////////////////////////////////////////////////////////////////
-`define E203_CFG_HAS_DTCM
     // 16KB have address 14 wide
     //   The depth is 16*1024*8/32=4096
 
@@ -93,8 +89,4 @@
 
 
 
-`define E203_CFG_HAS_ECC
-`define E203_CFG_HAS_NICE
-`define E203_CFG_SUPPORT_SHARE_MULDIV
-`define E203_CFG_SUPPORT_AMO
 `define E203_CFG_DTCM_ADDR_WIDTH 16
