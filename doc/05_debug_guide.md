@@ -1,43 +1,111 @@
 # 05_debug_guide
 
-## 常见问题速查
-1. **neuron_in_data 出现 X**
-   - 检查 input_fifo 是否为空（DMA 未启动或长度错误）。
-   - 确认 data_sram 已按 bit-plane 写入（2 word/plane）。
-   - 看 TB 断言：`neuron_in_valid` 有效拍不应包含 X。
+## 1. 调试入口先分流
 
-2. **DMA 报错（ERR 置位）**
-   - `DMA_LEN_WORDS` 为奇数。
-   - `DMA_LEN_WORDS` 为 0 时会直接 DONE。
-   - `DMA_SRC_ADDR` 未 4B 对齐。
-   - `DMA_SRC_ADDR` 应落在 data_sram 区间。
-   - `SRC+LEN-1` 越界 data_sram。
+- 正常启动链路：`CPU -> bootloader -> SPI flash -> firmware`
+- 救援链路：`JTAG rescue loader -> SRAM -> CPU 最小重启`
 
-3. **推理流程不推进**
-   - `CIM_CTRL.START` 是否写 1。
-   - `STATUS.BUSY` 是否拉高。
-   - `timestep_counter` 是否随帧递增。
+当前 `main` 分支上的 JTAG 不是 OpenOCD/GDB 调试链路，而是独立于 E203 vendor debug module 的最小救援通路：
 
-4. **bit-plane 顺序错误**
-   - 观察 `bitplane_shift` 应从 7 递减到 0。
-   - data_sram 的写入顺序应为 MSB->LSB。
+- 只开放 `instr_sram / data_sram / weight_sram`
+- 不开放 MMIO
+- 支持 `cpu_reset_hold`
+- `cpu_reset_hold` 只复位 CPU 核和 CPU 侧 `icb2simple_bridge`
+- 不复位 SRAM / DMA / FIFO / SNN / UART / SPI / JTAG loader
 
-5. **ADC 时分复用异常（Scheme B）**
-   - 检查 20 个通道是否都有 `adc_start`/`adc_done`（仅内部仿真信号，不在外部 pad 接口中；简化协议下外部使用 `cim_start`/`cim_done`，详见 `doc/08`）。
-   - `bl_sel` 应随通道递增 0..19（ADC_CHANNELS=20）。
-   - 差分结果：`neuron_in_data[i]` 为有符号 9-bit 值。
+## 2. Rescue JTAG 关键事实
 
-6. **ADC 饱和诊断**
-   - 推理完成后读取 `REG_ADC_SAT_COUNT`（0x4000_0028）。
-   - `[15:0]` = sat_high（bl_data == 0xFF 次数），`[31:16]` = sat_low（bl_data == 0 次数）。
-   - 若 sat_high 或 sat_low 偏多，说明模拟前端增益偏大/偏小，需调整。
-   - 每次推理启动时自动清零，无需手动复位。
+- IR 宽度固定 `4`
+- 指令固定：
+  - `IDCODE = 4'h1`
+  - `MEMACC = 4'h2`
+  - `CPUCTL = 4'h3`
+  - `BYPASS = 4'hF`
+- `IDCODE` 固定返回 `0xE2030001`
+- `MEMACC` 只允许访问：
+  - `0x0000_0000 ~ 0x0000_3FFF` (`instr_sram`)
+  - `0x0001_0000 ~ 0x0001_3FFF` (`data_sram`)
+  - `0x0003_0000 ~ 0x0003_3FFF` (`weight_sram`)
+- 所有 MMIO / 未映射地址统一返回 `done=1, err=1, rdata=0`
+- JTAG 保持 4-wire，不新增 `TRST_n`
 
-7. **TIMESTEPS=0 行为**
-   - 期望立即 done，不进入推理流程。
+## 3. 主机工具
 
-## 推荐观察信号
+主机侧固定使用 [`scripts/jtag_rescue.py`](/d:/SoC%20Design/SoC%20Design/scripts/jtag_rescue.py)。
+
+常用命令：
+
+```bash
+python scripts/jtag_rescue.py idcode
+python scripts/jtag_rescue.py hold-cpu
+python scripts/jtag_rescue.py read 0x00000000 4
+python scripts/jtag_rescue.py write 0x00010000 0x4A544147
+python scripts/jtag_rescue.py load-imem fw/out/jtag_rescue_imem.hex
+python scripts/jtag_rescue.py rescue-load fw/out/jtag_rescue_imem.hex
+python scripts/jtag_rescue.py release-cpu
+```
+
+说明：
+
+- 默认后端是 `pyftdi` bit-bang，需要主机安装 `pyftdi`
+- 默认 `--idle-cycles=2048`
+  - 这是覆盖硬件 `256 clk` 超时阈值的保守值
+  - 目的是避免“读响应本身又形成新的 `UPDATE_DR`”带来的误判
+- `cpu-state` 的读回会回写当前脚本维护的 `cpu_reset_hold` 状态，避免读操作带副作用
+
+## 4. 推荐回归入口
+
+- `cd sim && bash run_jtag_loader_icarus.sh`
+  - 覆盖 `jtag_mem_loader` 单体 TAP/CDC/MEMACC/CPUCTL 协议
+- `cd sim && bash run_jtag_rescue_top_icarus.sh`
+  - 覆盖 rescue load、运行中 `weight_sram` 访问、`cpu_bridge_busy` 超时恢复、CPU 重启后 UART 输出
+- `cd sim && bash run_e203_icarus.sh`
+  - 覆盖正常 `SPI boot -> firmware` 主路径
+
+## 5. 常见问题速查
+
+### 5.1 `idcode` 不对
+
+- 先确认 4-wire 接线：`TCK/TMS/TDI/TDO`
+- 当前没有 `TRST_n` pad，复位 TAP 依赖 `TMS=1` 连续至少 5 个 TCK
+- 项目 IDCODE 是自定义值 `0xE2030001`，不是官方厂商编码
+
+### 5.2 `MEMACC` 一直超时
+
+- 先提高 `--idle-cycles`
+- 若 CPU 正在持续占用 bridge，硬件会在 `256 clk` 后自动触发 `jtag_timeout_force`
+- 如果你只是灌程序，直接先执行 `hold-cpu`
+
+### 5.3 写完 `instr_sram` 后 CPU 没从头启动
+
+- 检查是否执行了 `hold-cpu -> load/verify -> release-cpu`
+- 检查 `instr_sram` 是否从 `0x0000_0000` 开始写
+- 检查启动依赖的数据区是否也一起写入，例如 `data_sram`
+
+### 5.4 JTAG 能写 SRAM，但系统行为不对
+
+- `weight_sram` 只保证可读写，不保证 CPU 立即消费新权重
+- JTAG 不复位 DMA / FIFO / SNN 状态；这是设计目标，不是 bug
+- 如果需要全局“干净环境”，应由重新启动后的固件做软件初始化
+
+### 5.5 正常主线问题
+
+- `neuron_in_data` 出现 `X`
+  - 检查 `input_fifo` 是否为空
+  - 确认 `data_sram` 已按 bit-plane 写入
+- DMA 报错
+  - 检查 `DMA_LEN_WORDS`
+  - 检查 `DMA_SRC_ADDR` 是否 4B 对齐且落在 `data_sram`
+- 推理流程不推进
+  - 检查 `CIM_CTRL.START`
+  - 检查 `STATUS.BUSY`
+  - 检查 `timestep_counter`
+
+## 6. 推荐观察信号
+
+- JTAG rescue：`u_jtag_loader.*`、`jtag_req_pending`、`jtag_grant`、`jtag_timeout_force`
+- CPU 局部复位：`cpu_reset_hold_effective`、`cpu_local_rst_n`、`cpu_bridge_busy`
 - DMA：`u_dma.state/addr_ptr/words_rem/done_sticky/err_sticky/in_fifo_push`
 - CIM 控制：`u_cim_ctrl.state/bitplane_shift/timestep_counter/busy/done_pulse`
 - ADC：`u_adc.state/bl_sel/neuron_in_valid/adc_sat_high/adc_sat_low`
-- LIF：`u_lif.membrane[*]`（必要时）
+- LIF：`u_lif.membrane[*]`

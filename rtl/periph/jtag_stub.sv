@@ -1,10 +1,10 @@
 // -----------------------------------------------------------------------------
 // AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
 // File: rtl/periph/jtag_stub.sv
-// Purpose: JTAG placeholder to reserve top-level ports and compilation hooks before E203 integration.
-// Role in system: Avoids interface churn while the real core/debug subsystem is still pending.
+// Purpose: Legacy placeholder retained for compatibility with older branches and filelists.
+// Role in system: No longer used on the main rescue path; `jtag_mem_loader.sv` is the active JTAG endpoint.
 // Behavior summary: Passive stub only; no TAP state machine behavior.
-// Upgrade path: Replace with E203-provided JTAG/debug path during CPU integration stage.
+// Upgrade path: Keep only as a legacy spare module unless a future branch explicitly revives it.
 // -----------------------------------------------------------------------------
 
 `timescale 1ns/1ps

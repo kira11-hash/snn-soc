@@ -3,6 +3,7 @@
 module e203_min_wrap (
   input  logic        clk,
   input  logic        rst_n,
+  input  logic        cpu_local_rst_n,
   output logic [31:0] inspect_pc,
   output logic        core_wfi,
   output logic        mem_icb_cmd_valid,
@@ -16,6 +17,7 @@ module e203_min_wrap (
   input  logic        mem_icb_rsp_err,
   input  logic [31:0] mem_icb_rsp_rdata
 );
+  wire core_rst_n = rst_n & cpu_local_rst_n;
 `ifdef SOC_ENABLE_E203_VENDOR
   logic        ppi_icb_cmd_valid;
   logic        ppi_icb_cmd_ready;
@@ -186,7 +188,7 @@ module e203_min_wrap (
     .mem_icb_rsp_rdata    (mem_icb_rsp_rdata),
     .test_mode            (1'b0),
     .clk                  (clk),
-    .rst_n                (rst_n)
+    .rst_n                (core_rst_n)
   );
 
   icb_err_slave u_ppi_err (
@@ -252,6 +254,7 @@ module e203_min_wrap (
   wire _unused_vendor_stub = &{1'b0,
                                clk,
                                rst_n,
+                               cpu_local_rst_n,
                                mem_icb_cmd_ready,
                                mem_icb_rsp_valid,
                                mem_icb_rsp_err,

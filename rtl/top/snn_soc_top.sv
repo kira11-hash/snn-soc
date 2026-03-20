@@ -92,9 +92,9 @@ module snn_soc_top #(
   output logic        spi_mosi,
   input  logic        spi_miso,
 
-  // JTAG（占位实现）
-  // jtag_*：当前 jtag_stub 固定输出 tdo=0，不实现 TAP/旁路逻辑；
-  // 后续如接入 E203 Debug Module，可在这里替换。
+  // JTAG（最小 rescue loader）
+  // jtag_*：当前接入独立于 E203 vendor debug module 的 rescue TAP；
+  // 仅开放 instr/data/weight SRAM 访问与 CPU 局部 reset hold。
   input  logic        jtag_tck,
   input  logic        jtag_tms,
   input  logic        jtag_tdi,
@@ -127,10 +127,20 @@ module snn_soc_top #(
   logic [3:0]  fabric_m_wstrb;
   logic        fabric_m_ready, fabric_m_rvalid;
   logic [31:0] fabric_m_rdata;
+  logic        tb_bus_m_valid, tb_bus_m_write;
+  logic [31:0] tb_bus_m_addr,  tb_bus_m_wdata;
+  logic [3:0]  tb_bus_m_wstrb;
 
   logic        cpu_bus_m_valid, cpu_bus_m_write;
   logic [31:0] cpu_bus_m_addr,  cpu_bus_m_wdata;
   logic [3:0]  cpu_bus_m_wstrb;
+  logic        cpu_bus_m_valid_gated;
+  logic        cpu_bridge_busy;
+  logic        cpu_local_rst_n;
+  logic        cpu_reset_hold_req;
+  logic        cpu_reset_hold_effective;
+  logic        cpu_fabric_m_ready, cpu_fabric_m_rvalid;
+  logic [31:0] cpu_fabric_m_rdata;
 
   logic        cpu_mem_icb_cmd_valid;
   logic        cpu_mem_icb_cmd_ready;
@@ -145,17 +155,52 @@ module snn_soc_top #(
   logic [31:0] cpu_inspect_pc;
   logic        cpu_core_wfi;
 
+  logic        jtag_req_pending;
+  logic        jtag_grant;
+  logic        jtag_grant_q;
+  logic [7:0]  jtag_wait_cnt;
+  logic        jtag_timeout_force;
+  logic        jtag_bus_m_valid, jtag_bus_m_write;
+  logic [31:0] jtag_bus_m_addr,  jtag_bus_m_wdata;
+  logic [3:0]  jtag_bus_m_wstrb;
+  logic        jtag_bus_m_ready, jtag_bus_m_rvalid;
+  logic [31:0] jtag_bus_m_rdata;
+
   wire _unused_e203 = ^cpu_inspect_pc ^ cpu_core_wfi;
 
-  assign fabric_m_valid = ENABLE_E203 ? cpu_bus_m_valid : bus_if.m_valid;
-  assign fabric_m_write = ENABLE_E203 ? cpu_bus_m_write : bus_if.m_write;
-  assign fabric_m_addr  = ENABLE_E203 ? cpu_bus_m_addr  : bus_if.m_addr;
-  assign fabric_m_wdata = ENABLE_E203 ? cpu_bus_m_wdata : bus_if.m_wdata;
-  assign fabric_m_wstrb = ENABLE_E203 ? cpu_bus_m_wstrb : bus_if.m_wstrb;
+  assign cpu_reset_hold_effective = cpu_reset_hold_req | jtag_timeout_force;
+  assign cpu_local_rst_n          = rst_n & ~cpu_reset_hold_effective;
 
-  assign bus_if.m_ready  = ENABLE_E203 ? 1'b0  : fabric_m_ready;
-  assign bus_if.m_rdata  = ENABLE_E203 ? 32'h0 : fabric_m_rdata;
-  assign bus_if.m_rvalid = ENABLE_E203 ? 1'b0  : fabric_m_rvalid;
+  assign tb_bus_m_valid = bus_if.m_valid & ~jtag_grant;
+  assign tb_bus_m_write = bus_if.m_write;
+  assign tb_bus_m_addr  = bus_if.m_addr;
+  assign tb_bus_m_wdata = bus_if.m_wdata;
+  assign tb_bus_m_wstrb = bus_if.m_wstrb;
+
+  assign cpu_bus_m_valid_gated = cpu_bus_m_valid & ~jtag_grant & ~cpu_reset_hold_effective;
+
+  assign fabric_m_valid = jtag_grant ? jtag_bus_m_valid :
+                          (ENABLE_E203 ? cpu_bus_m_valid_gated : tb_bus_m_valid);
+  assign fabric_m_write = jtag_grant ? jtag_bus_m_write :
+                          (ENABLE_E203 ? cpu_bus_m_write : tb_bus_m_write);
+  assign fabric_m_addr  = jtag_grant ? jtag_bus_m_addr :
+                          (ENABLE_E203 ? cpu_bus_m_addr : tb_bus_m_addr);
+  assign fabric_m_wdata = jtag_grant ? jtag_bus_m_wdata :
+                          (ENABLE_E203 ? cpu_bus_m_wdata : tb_bus_m_wdata);
+  assign fabric_m_wstrb = jtag_grant ? jtag_bus_m_wstrb :
+                          (ENABLE_E203 ? cpu_bus_m_wstrb : tb_bus_m_wstrb);
+
+  assign cpu_fabric_m_ready  = jtag_grant ? 1'b0  : fabric_m_ready;
+  assign cpu_fabric_m_rvalid = jtag_grant ? 1'b0  : fabric_m_rvalid;
+  assign cpu_fabric_m_rdata  = fabric_m_rdata;
+
+  assign jtag_bus_m_ready  = jtag_grant ? fabric_m_ready  : 1'b0;
+  assign jtag_bus_m_rvalid = jtag_grant ? fabric_m_rvalid : 1'b0;
+  assign jtag_bus_m_rdata  = fabric_m_rdata;
+
+  assign bus_if.m_ready  = (!ENABLE_E203 && !jtag_grant) ? fabric_m_ready  : 1'b0;
+  assign bus_if.m_rdata  = (!ENABLE_E203 && !jtag_grant) ? fabric_m_rdata  : 32'h0;
+  assign bus_if.m_rvalid = (!ENABLE_E203 && !jtag_grant) ? fabric_m_rvalid : 1'b0;
 
   // ----------------------------------------------------------
   // bus_interconnect → 各从设备的连接信号组
@@ -446,9 +491,40 @@ module snn_soc_top #(
   //   - 把读回来的数据再转发回主设备。
   // 当前采用固定 1-cycle 响应模型：主设备发起请求后，下一拍收到响应。
   //======================
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      jtag_grant_q       <= 1'b0;
+      jtag_wait_cnt      <= 8'h00;
+      jtag_timeout_force <= 1'b0;
+    end else begin
+      if (!jtag_req_pending) begin
+        jtag_grant_q       <= 1'b0;
+        jtag_wait_cnt      <= 8'h00;
+        jtag_timeout_force <= 1'b0;
+      end else begin
+        if (!jtag_grant_q && (!cpu_bridge_busy || jtag_timeout_force)) begin
+          jtag_grant_q <= 1'b1;
+        end
+
+        if (!jtag_grant_q && cpu_bridge_busy && !jtag_timeout_force) begin
+          if (jtag_wait_cnt == 8'hFF) begin
+            jtag_timeout_force <= 1'b1;
+          end else begin
+            jtag_wait_cnt <= jtag_wait_cnt + 8'd1;
+          end
+        end else begin
+          jtag_wait_cnt <= 8'h00;
+        end
+      end
+    end
+  end
+
+  assign jtag_grant = jtag_grant_q;
+
   e203_min_wrap u_e203 (
     .clk              (clk),
     .rst_n            (rst_n),
+    .cpu_local_rst_n  (cpu_local_rst_n),
     .inspect_pc       (cpu_inspect_pc),
     .core_wfi         (cpu_core_wfi),
     .mem_icb_cmd_valid(cpu_mem_icb_cmd_valid),
@@ -465,7 +541,7 @@ module snn_soc_top #(
 
   icb2simple_bridge u_icb2simple (
     .clk            (clk),
-    .rst_n          (rst_n),
+    .rst_n          (cpu_local_rst_n),
     .i_icb_cmd_valid(cpu_mem_icb_cmd_valid),
     .i_icb_cmd_ready(cpu_mem_icb_cmd_ready),
     .i_icb_cmd_addr (cpu_mem_icb_cmd_addr),
@@ -481,9 +557,30 @@ module snn_soc_top #(
     .m_addr         (cpu_bus_m_addr),
     .m_wdata        (cpu_bus_m_wdata),
     .m_wstrb        (cpu_bus_m_wstrb),
-    .m_ready        (fabric_m_ready),
-    .m_rdata        (fabric_m_rdata),
-    .m_rvalid       (fabric_m_rvalid)
+    .m_ready        (cpu_fabric_m_ready),
+    .m_rdata        (cpu_fabric_m_rdata),
+    .m_rvalid       (cpu_fabric_m_rvalid),
+    .busy_o         (cpu_bridge_busy)
+  );
+
+  jtag_mem_loader u_jtag_loader (
+    .rst_n         (rst_n),
+    .clk           (clk),
+    .jtag_tck      (jtag_tck),
+    .jtag_tms      (jtag_tms),
+    .jtag_tdi      (jtag_tdi),
+    .jtag_tdo      (jtag_tdo),
+    .mem_req_pending(jtag_req_pending),
+    .mem_req_grant (jtag_grant),
+    .mem_m_valid   (jtag_bus_m_valid),
+    .mem_m_write   (jtag_bus_m_write),
+    .mem_m_addr    (jtag_bus_m_addr),
+    .mem_m_wstrb   (jtag_bus_m_wstrb),
+    .mem_m_wdata   (jtag_bus_m_wdata),
+    .mem_m_ready   (jtag_bus_m_ready),
+    .mem_m_rvalid  (jtag_bus_m_rvalid),
+    .mem_m_rdata   (jtag_bus_m_rdata),
+    .cpu_reset_hold(cpu_reset_hold_req)
   );
 
   bus_interconnect u_bus_interconnect (
@@ -1091,9 +1188,10 @@ module snn_soc_top #(
   end
 
   //======================
-  // 外设模块（UART / SPI 已实现；JTAG 仍为占位）
+  // 外设模块（UART / SPI 已实现；JTAG 为 rescue loader）
   //
-  // 当前阶段 UART 已接入 TX 控制器，SPI 已接入最小可用 Master；JTAG 仍主要用于“保留接口位置”。
+  // 当前阶段 UART 已接入 TX 控制器，SPI 已接入最小可用 Master；
+  // JTAG 提供最小救援路径，不依赖 OpenOCD/GDB 或 vendor Debug Module。
   // 保留它们有三个目的：
   //   1. 尽早冻结 pad 数量和引脚分配；
   //   2. 给后续真实外设接入留出稳定接口；
@@ -1132,13 +1230,9 @@ module snn_soc_top #(
     .spi_miso  (spi_miso)
   );
 
-  // JTAG stub：固定输出 tdo=0，不做任何 TAP/旁路处理
-  // 无时钟/复位状态机：仅占位并吸收未用输入
-  // V2 规划：接入 E203 的 Debug Module（DM）实现真实 JTAG 调试
-  jtag_stub u_jtag (
-    .jtag_tck (jtag_tck),
-    .jtag_tms (jtag_tms),
-    .jtag_tdi (jtag_tdi),
-    .jtag_tdo (jtag_tdo)
-  );
+  // JTAG rescue loader：
+  // - 4-wire TAP
+  // - MEMACC 仅访问三块 SRAM
+  // - CPUCTL 只控制 CPU 核与 CPU bridge 的局部 reset hold
+  // - 保留 jtag_stub.sv 文件仅用于历史兼容，不再作为主路径
 endmodule

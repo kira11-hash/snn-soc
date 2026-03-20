@@ -21,7 +21,8 @@ module icb2simple_bridge (
   output logic [3:0]  m_wstrb,
   input  logic        m_ready,
   input  logic [31:0] m_rdata,
-  input  logic        m_rvalid
+  input  logic        m_rvalid,
+  output logic        busy_o
 );
   import snn_soc_pkg::*;
 
@@ -116,6 +117,7 @@ module icb2simple_bridge (
     i_icb_rsp_valid = (state_q == ST_RSP);
     i_icb_rsp_err   = rsp_err_q;
     i_icb_rsp_rdata = rsp_rdata_q;
+    busy_o          = rst_n && (state_q != ST_IDLE);
 
     m_valid = (state_q == ST_IDLE) && i_icb_cmd_valid && !cmd_illegal;
     m_write = !i_icb_cmd_read;

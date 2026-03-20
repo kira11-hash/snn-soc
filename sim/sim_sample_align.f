@@ -17,7 +17,7 @@
 ./models/cim_macro_blackbox_weighted_icarus.sv
 ../rtl/periph/uart_ctrl.sv
 ../rtl/periph/spi_ctrl.sv
-../rtl/periph/jtag_stub.sv
+../rtl/periph/jtag_mem_loader.sv
 ../rtl/top/e203_min_wrap.sv
 ../rtl/top/snn_soc_top.sv
 ../tb/top_tb_sample_align.sv

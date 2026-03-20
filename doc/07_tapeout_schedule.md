@@ -37,7 +37,7 @@ V1 先完成数字 SoC 单独流片，并进行片外混合集成验证；V2/V3 
 | 寄存器 Bank | 需要 | ✅ 有 | - |
 | **SPI 控制器** | 需要 | ⚠️ 主线已集成 `spi_ctrl`（Mode 0，软件控 CS） | Phase 2（Mode 3/增强项按需补齐） |
 | **UART 控制器** | 需要 | ⚠️ 主线已集成 `uart_ctrl`（TX only，RX V1 占位） | Phase 2（RX/增强项按需补齐） |
-| JTAG 接口 | 需要 | ❌ 仅stub | Phase 5 |
+| JTAG 接口 | 需要 | ✅ 已有最小 rescue JTAG（独立于 vendor DM） | 后续仅保留主机工具/板级收口 |
 | 输入 Spike FIFO | 需要 | ✅ 有 | - |
 | 输出 Spike FIFO | 需要 | ✅ 有 | - |
 | CIM 子系统 | 需要 | ✅ 有 | - |

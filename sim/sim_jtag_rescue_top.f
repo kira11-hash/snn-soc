@@ -72,5 +72,4 @@
 ../rtl/vendor_e203/e203/core/e203_lsu.v
 ../rtl/vendor_e203/e203/core/e203_reset_ctrl.v
 ../rtl/vendor_e203/e203/core/e203_srams.v
-../tb/spi_flash_model.sv
-../tb/e203_tb.sv
+../tb/jtag_rescue_top_tb.sv

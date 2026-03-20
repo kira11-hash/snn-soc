@@ -47,6 +47,8 @@ sim/axi_bridge_test
 sim/uart_test
 sim/spi_test
 sim/dma_test
+sim/jtag_loader_test
+sim/jtag_rescue_top_test
 fpga/sim/*.vvp
 fpga/sim/*_manual
 

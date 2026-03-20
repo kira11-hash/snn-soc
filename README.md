@@ -51,6 +51,9 @@
 - `cd sim && bash run_icarus_weighted.sh +FAIL_ON_ZERO_SPIKE=1`：带权重顶层回归，期望 `WEIGHTED_SIM_PASS`
 - `cd sim && bash run_sample_align.sh`：Python↔RTL 100 样本对齐，期望 `SAMPLE_ALIGN_PASS`
 - `cd sim && bash run_adc_sat_counter.sh`：ADC 饱和计数回归，期望 `ADC_SAT_COUNTER_PASS`
+- `cd sim && bash run_jtag_loader_icarus.sh`：JTAG rescue loader 单测，期望 `JTAG_MEM_LOADER_PASS`
+- `cd sim && bash run_jtag_pyhost_selftest.sh`：Python 主机侧无硬件自测，期望 `JTAG_PYHOST_SELFTEST_PASS`
+- `cd sim && bash run_jtag_rescue_top_icarus.sh`：JTAG rescue 顶层回归，期望 `JTAG_RESCUE_TOP_PASS`
 - `cd sim && bash run_e203_icarus.sh`：E203 最小启动链回归，期望 `E203_SMOKETEST_PASS`
 - `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
 - `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
@@ -64,10 +67,11 @@ rtl/   RTL 实现
   reg/      reg bank + fifo 状态窗
   dma/      DMA 引擎
   snn/      CIM 控制器 + DAC/ADC + LIF + Macro 行为模型
-  periph/   UART/SPI 外设 + JTAG stub
+  periph/   UART/SPI 外设 + Rescue JTAG loader
 
 tb/    Testbench
 sim/   仿真脚本与波形
+scripts/ Python 主机工具
 doc/   中文说明文档
 ```
 
@@ -81,7 +85,7 @@ doc/   中文说明文档
 - LIF 位宽建议：`LIF_MEM_WIDTH >= NEURON_DATA_WIDTH + PIXEL_BITS`。
 - 默认阈值为 `THRESHOLD_DEFAULT`（工程默认计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 1 × 255 × 10 = 2550`，可软件覆盖）。
 - CIM Macro 在仿真中为行为模型，综合时为黑盒，可替换真实宏。
-- UART 已实现最小 TX 路径（RX 仍为 V1 预留），SPI 已实现 Mode 0 主控，JTAG 仍为 stub。
+- UART 已实现最小 TX 路径（RX 仍为 V1 预留），SPI 已实现 Mode 0 主控，JTAG 已切换为独立 rescue loader：仅开放 `instr_sram / data_sram / weight_sram` 访问与 CPU 局部重启。
 
 ## 建模定版补充（复位模式，2026-02-10）
 - 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`；当前 RTL 默认 `reset_mode=soft`，其余建模参数以各次对比实验冻结配置为准。

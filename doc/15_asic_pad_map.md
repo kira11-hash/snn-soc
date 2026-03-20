@@ -18,8 +18,9 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 - Pad index order below is the frozen documentation order for interface planning and cross-team review. It is not yet a final physical pad-ring placement order.
 - `default/reset behavior` describes the current repository behavior and reset expectation. Where `chip_top.sv` still lacks technology-specific pad-cell implementation, that is called out explicitly.
 - `expected signal owner`:
-  - `digital stub/direct` means the current RTL already drives or receives the signal at `snn_soc_top`
+  - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
   - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv), but still not backed by technology pad cells
+- JTAG remains 4-wire only in the current pad freeze. There is no dedicated `TRST_n` pad.
 
 ## Full 48-Pad Table
 
@@ -33,10 +34,10 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 06 | `spi_sck` | SPI clock | out | signal | `spi_ctrl` drives low (`0`) when idle and toggles during active transfers | Current source: `spi_ctrl.sv` |
 | 07 | `spi_mosi` | SPI MOSI | out | signal | `spi_ctrl` drives low (`0`) when idle and shifts TX data during active transfers | Current source: `spi_ctrl.sv` |
 | 08 | `spi_miso` | SPI MISO | in | signal | External source drives; current logic samples it during active SPI transfers | Current sink: `spi_ctrl.sv` |
-| 09 | `jtag_tck` | JTAG clock | in | signal | External source drives; stub absorbs input only | Current sink: `jtag_stub.sv` |
-| 10 | `jtag_tms` | JTAG mode select | in | signal | External source drives; stub absorbs input only | Current sink: `jtag_stub.sv` |
-| 11 | `jtag_tdi` | JTAG data in | in | signal | External source drives; stub absorbs input only | Current sink: `jtag_stub.sv` |
-| 12 | `jtag_tdo` | JTAG data out | out | signal | Stub drives constant `0` | Current source: `jtag_stub.sv`; not pass-through |
+| 09 | `jtag_tck` | JTAG clock | in | signal | External source drives rescue TAP clock; no dedicated `TRST_n` companion pad | Current sink: `jtag_mem_loader.sv` |
+| 10 | `jtag_tms` | JTAG mode select | in | signal | External source drives rescue TAP state transitions | Current sink: `jtag_mem_loader.sv` |
+| 11 | `jtag_tdi` | JTAG data in | in | signal | External source shifts `IDCODE/MEMACC/CPUCTL` payloads LSB-first | Current sink: `jtag_mem_loader.sv` |
+| 12 | `jtag_tdo` | JTAG data out | out | signal | Rescue TAP shifts out `IDCODE/MEMACC/CPUCTL` responses | Current source: `jtag_mem_loader.sv` |
 | 13 | `VDDCORE0` | Core supply | inout | power | Power pad; no logic reset state | One of two core VDD pads |
 | 14 | `VSSCORE0` | Core ground | inout | power | Ground pad; no logic reset state | One of two core VSS pads |
 | 15 | `VDDCORE1` | Core supply | inout | power | Power pad; no logic reset state | One of two core VDD pads |

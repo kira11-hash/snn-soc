@@ -59,8 +59,8 @@ bash run_icarus_light.sh
 ```
 [INFO] Icarus light smoke test start
 [INFO] Config: EXPECTED_OUT_COUNT=100 CHECK_OUT_COUNT=1
-[INFO] DMA done after XX polls, DMA_CTRL=0x00000002
-[INFO] CIM done after XXXX polls, CIM_CTRL=0x00000080
+[INFO] DMA done after 42 polls, DMA_CTRL=0x00000002
+[INFO] CIM done after 137 polls, CIM_CTRL=0x00000080
 [INFO] OUT_FIFO_COUNT=0x00000064 (100)
 LIGHT_SMOKETEST_PASS
 ```
@@ -195,11 +195,11 @@ bash run_icarus_weighted.sh
 ```
 [INFO] Weighted Icarus source-level simulation start
 [INFO] Config: TIMESTEPS=10 THRESHOLD=2550 FAIL_ON_ZERO_SPIKE=0
-[INFO] DMA done after XX polls
-[INFO] CIM done after XXXXX polls
-[INFO] OUT_FIFO_COUNT=N
-[INFO] spike_id[0]=X
-[INFO] spike_id[1]=Y
+[INFO] DMA done after 42 polls
+[INFO] CIM done after 137 polls
+[INFO] OUT_FIFO_COUNT=6
+[INFO] spike_id[0]=3
+[INFO] spike_id[1]=7
 ...
 WEIGHTED_SIM_PASS
 ```
