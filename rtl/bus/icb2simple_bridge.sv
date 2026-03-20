@@ -36,6 +36,7 @@ module icb2simple_bridge (
   logic        rsp_err_q;
   logic [31:0] rsp_rdata_q;
 
+  /* verilator lint_off UNUSEDSIGNAL */
   function automatic logic in_range(
     input logic [31:0] addr,
     input logic [31:0] base,
@@ -59,6 +60,7 @@ module icb2simple_bridge (
         in_range(addr, ADDR_SPI_BASE,  ADDR_SPI_END)  ||
         in_range(addr, ADDR_FIFO_BASE, ADDR_FIFO_END);
   endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   wire cmd_is_sram  = is_sram_addr(i_icb_cmd_addr);
   wire cmd_is_mmio  = is_mmio_addr(i_icb_cmd_addr);

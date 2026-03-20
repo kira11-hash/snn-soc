@@ -12,7 +12,7 @@
 |:---:|---|:---:|
 | Q1 | **WL de-mux 归属**：模拟侧在芯片内部实现 8 组×8-bit 锁存器，接收 `wl_data/wl_group_sel/wl_latch`，还原 64 根字线驱动 | ✅ 已确认 |
 | Q2 | **dac_ready 握手移除**：模拟侧固定时序 WL de-mux，无需 ready 回路；数字侧改为固定 `DAC_LATENCY_CYCLES` 延迟；已更新 dac_ctrl.sv、cim_macro_blackbox.sv、snn_soc_top.sv | ✅ 已实施 |
-| Q3 | **chip_top 当前为 pad 骨架占位**：`rtl/top/chip_top.sv` 当前用于接口冻结/lint，不承担最终 pad 连线；不影响当前接口协议发送，但 tapeout 前必须完成 pad cell 实例化与真实连线 | ✅ 已明确 |
+| Q3 | **chip_top 当前已完成 pad-facing 信号直连**：`rtl/top/chip_top.sv` 已把外部复用端口接到 `snn_soc_top` 的 `_ext` 端口，用于接口冻结/lint；但它仍不是最终工艺 pad-ring 实现，tapeout 前必须完成 pad cell 实例化、ESD/drive 配置与真实物理连线 | ✅ 已明确 |
 | Q4 | **Step 3.4/3.5 Python↔RTL 数值对齐已通过（2026-03-16 复核）**：正式 100 样本语料的 `predicted_class` 与 RTL 完全一致（SAMPLE_ALIGN_PASS）。根因修复：`reg_bank.sv` 的 `REG_OUT_DATA` pop 机制从电平检测改为边沿检测，解决了 `bus_read()` 的 `m_valid` 保持 2 拍导致单次读多次 pop 的问题。参数强冻结版本：T=10, ratio_code=1, THRESHOLD_DEFAULT=2550 | ✅ 已通过 |
 | Q5 | **双芯片 PCB 集成架构确认**：数字芯片与模拟 CIM 芯片为独立封装、分别流片，通过 PCB 走线互联。所有接口文档已按此架构更新。P0/P1/P2 问题需按"数字芯片侧"与"模拟芯片侧"分别讨论 | ✅ 已明确 |
 | Q6 | **数字芯片进入 Phase 4 外设集成**：推理核心链路验证完毕，开始 AXI-Lite → UART → SPI → DMA扩展 → E203接入的集成工作。此阶段不影响数模接口协议，但模拟侧回复后可能触发时序参数更新 | ℹ️ 知会 |

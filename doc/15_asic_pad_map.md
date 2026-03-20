@@ -16,10 +16,10 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 ## Notes
 
 - Pad index order below is the frozen documentation order for interface planning and cross-team review. It is not yet a final physical pad-ring placement order.
-- `default/reset behavior` describes the current repository behavior and reset expectation. Where `chip_top.sv` is still a placeholder, that is called out explicitly.
+- `default/reset behavior` describes the current repository behavior and reset expectation. Where `chip_top.sv` still lacks technology-specific pad-cell implementation, that is called out explicitly.
 - `expected signal owner`:
   - `digital stub/direct` means the current RTL already drives or receives the signal at `snn_soc_top`
-  - `chip_top skeleton` means the signal exists only as a placeholder at [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv)
+  - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv), but still not backed by technology pad cells
 
 ## Full 48-Pad Table
 
@@ -70,9 +70,9 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 43 | `bl_data[5]` | BL readback data bit 5 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 44 | `bl_data[6]` | BL readback data bit 6 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 45 | `bl_data[7]` | BL readback data bit 7 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
-| 46 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL skeleton |
-| 47 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL skeleton |
-| 48 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL skeleton |
+| 46 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 47 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 48 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
 
 ## Totals
 
@@ -87,4 +87,4 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 
 - Any document that mentions the ASIC pad plan must reference this file instead of re-deriving pin arithmetic inline.
 - Any future change to pad count, pad name, direction, or reset behavior must update this file first.
-- `rtl/top/chip_top.sv` may remain a skeleton during the current stage, but its comments must stay aligned with this table.
+- `rtl/top/chip_top.sv` is currently a signal-routing wrapper rather than a final pad-ring implementation, but its comments must stay aligned with this table.

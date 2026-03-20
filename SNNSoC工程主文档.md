@@ -381,7 +381,7 @@ main                    # 主分支：始终保持可流片状态
 
 |---------|-------------|---------------|------|
 
-| ① | RISC-V Core (蜂鸟 E203) | ❌ 无，TB模拟 | 🔴 新增 |
+| ① | RISC-V Core (蜂鸟 E203) | ✅ 已接入（wrapper + 专用TB） | ✅ 已落地 |
 
 | ② | 指令 SRAM 16KB | ✅ 有 (16384B) | ✅ 匹配 |
 
@@ -393,11 +393,11 @@ main                    # 主分支：始终保持可流片状态
 
 | ⑥ | 寄存器 Bank | ✅ 有 | ✅ 基本匹配 |
 
-| ⑦ | SPI 控制器 (连Flash) | ❌ 仅 stub | 🔴 新增 |
+| ⑦ | SPI 控制器 (连Flash) | ✅ 已接入（Mode 0 主控） | ✅ 已落地 |
 
-| ⑧ | UART 控制器 (与PC通信) | ❌ 仅 stub | 🔴 新增 |
+| ⑧ | UART 控制器 (与PC通信) | ✅ 已接入（TX 可用，RX 占位） | ✅ 已落地 |
 
-> 当前 `main` 的事实口径：`snn_soc_top.sv` 仍使用 `spi_stub` / `uart_stub` 占位；若后续引入独立 UART/SPI 控制器，以主线实际集成和回归结果为准。
+> 当前 `main` 的事实口径：`uart_ctrl`、`spi_ctrl`、E203 wrapper 已接入主线并有独立回归；UART 当前是 TX-only，RX 仍为 V1 占位；JTAG 仍为 stub。
 
 | ⑨ | JTAG 接口 | ❌ 仅 stub | 🟡 可后期 |
 
@@ -424,9 +424,8 @@ main                    # 主分支：始终保持可流片状态
 
 **原因**：V1 的核心数据流是 `PC → UART → CPU → SRAM`，没有 UART 就无法与外部通信
 
-**当前状态**：`uart_stub.sv` 只是空壳
-
-> 当前 `main` 仍使用 `uart_stub`；若后续接入独立 `uart_ctrl`，需以 `snn_soc_top.sv` 的实际替换结果和回归测试为准。
+**当前状态**：`uart_ctrl.sv` 已接入主线，TX 路径可用；RX 路径仍保留为 V1 占位
+> 当前 `main` 已由 `uart_ctrl` 接管 UART 外设窗口；若后续继续扩展 RX/FIFO/中断，以主线实际 RTL 和回归结果为准。
 
 **添加时机**：阶段 1（现在就可以做，不依赖 CPU/AXI；可先用 TB 验证收发）
 
@@ -434,7 +433,7 @@ main                    # 主分支：始终保持可流片状态
 
 ```
 
-rtl/periph/uart_ctrl.sv  ← 替换 uart_stub.sv
+rtl/periph/uart_ctrl.sv  ← 已接入主线，后续在其上继续扩展
 
 ├── 波特率配置 (115200 default)
 
@@ -453,9 +452,8 @@ rtl/periph/uart_ctrl.sv  ← 替换 uart_stub.sv
 
 **原因**：启动路径是 `Flash → SPI → DMA → 指令SRAM`，没有 SPI 无法加载固件
 
-**当前状态**：`spi_stub.sv` 只是空壳
-
-> 当前 `main` 仍使用 `spi_stub`；若后续接入独立 `spi_ctrl`，需以 `snn_soc_top.sv` 的实际替换结果和回归测试为准。
+**当前状态**：`spi_ctrl.sv` 已接入主线，支持 Mode 0 / 8-bit 全双工 / 软件控 CS
+> 当前 `main` 已由 `spi_ctrl` 接管 SPI 外设窗口；若后续继续扩展 Mode 3 / 更强启动链能力，以主线实际 RTL 和回归结果为准。
 
 **添加时机**：阶段 2（现在就可以做，不依赖 CPU/AXI；与 UART 可并行）
 
@@ -463,7 +461,7 @@ rtl/periph/uart_ctrl.sv  ← 替换 uart_stub.sv
 
 ```
 
-rtl/periph/spi_ctrl.sv  ← 替换 spi_stub.sv
+rtl/periph/spi_ctrl.sv  ← 已接入主线，后续在其上继续扩展
 
 ├── SPI Master 模式
 
@@ -536,31 +534,31 @@ rtl/bus/axi2simple_bridge.sv ← 可选：桥接现有slave
 **工作量**：~400 行，难度 ⭐⭐⭐
 
 ---
-### **改进 5：RISC-V Core 集成 (E203)** 🔴 优先级低（最后做）（要对面积进行压缩）
+### **改进 5：RISC-V Core 集成 (E203)** ✅ 已落地（当前主线已完成）
 
-**原因**：需要先完成总线升级，否则无法连接
+**当前状态**：`e203_min_wrap.sv`、`icb2simple_bridge.sv`、bootloader / SPI boot / UART printf / bare-metal smoke 已接入主线并通过专用回归。
 
-**添加时机**：阶段 5（AXI-Lite 完成之后；依赖前面 1–4 阶段打底）
+**后续重点**：面积收缩配置、JTAG/debug、IRQ、以及 tapeout 版本的集成配置冻结。
 
 配置精简
 |关 cache / MULDIV / debug / optional CSR
 ✅ 这也是“减实体”的核心手段
 
-**步骤**：
+**后续收口建议**：
 
 ```
 
-1. 下载 E203 RTL：https://github.com/SI-RISCV/e200_opensource
+1. 冻结 E203 精简参数（面积优先，保留当前已验证启动链）
 
-2. 集成到顶层，连接 AXI 总线
+2. 明确 JTAG / debug 是否进入本次 TO
 
-3. 编写启动代码 (bootloader)
+3. 评估 DMA done / CIM done 的 IRQ 路径是否在本次一并纳入
 
-4. 编写驱动程序 (C代码控制DMA、读写寄存器)
+4. 形成 tapeout filelist / 宏开关 / 约束的最终真源文档
 
 ```
 
-**工作量**：~500 行集成 + 固件开发，难度 ⭐⭐⭐⭐
+**剩余工作量**：以收口与精简为主，不再是“从 0 到 1”的集成工作。
 
 ---
 ### **改进 6：JTAG 调试接口** 🟢 优先级最低
@@ -1511,10 +1509,10 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 
 #### 5a) chip_top / pad-wrapper 落地（后端前必做）
 
-- 已新增骨架文件：`rtl/top/chip_top.sv`（当前仅占位，不改变现有 `snn_soc_top` 行为）
-- 当前状态说明（避免误解）：`chip_top` 里复用相关 pad 信号仍是占位常量，**不是最终 pad 级连线实现**；Tapeout 前必须完成真实连接与 pad cell 实例化。
+- 已有 tapeout-intent 逻辑包装层：`rtl/top/chip_top.sv` 已把 pad-facing 端口连到 `snn_soc_top` 的 `_ext` 信号，并默认打开 E203 + 外部 CIM 接口路径
+- 当前状态说明（避免误解）：`chip_top` 已完成逻辑级信号贯通，但**仍不是最终工艺 pad-ring 实现**；Tapeout 前仍需完成 pad cell 实例化、ESD/drive/electrical 配置与最终物理约束。
 - 后端前必须完成以下收口：
-  - 在 `chip_top.sv` 内把外部复用信号（`wl_data/wl_group_sel/wl_latch/cim_start/cim_done/bl_sel/bl_data`）连接到内部协议源
+  - 复核 `chip_top.sv` 中外部复用信号（`wl_data/wl_group_sel/wl_latch/cim_start/cim_done/bl_sel/bl_data`）与 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) 完全一致
   - 统一 pad 口径：以 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) 作为唯一真源，冻结最终引脚表、方向、电平和复位策略
   - 完成 pad ring 实例化与约束（时序/电气）
   - 与模拟团队二次对齐 `doc/08_cim_analog_interface.md`（去掉“待确认”项）
@@ -1835,7 +1833,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 |  | ✅ 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 | | ✅ |
 |  | ✅ 4b. `dma_engine.sv`: 64-bit 整打包（2×32） | | ✅ |
 |  | ✅ 4c. `cim_macro_blackbox.sv`: 20通道 Scheme B 行为模型 | | ✅ |
-|  | ✅ 4d. `wl_mux_wrapper.sv` + `snn_soc_top.sv`: WL 时分复用协议原型（10 cycles）已落地；`chip_top` pad 级连接待后端前收口 | | ✅ |
+|  | ✅ 4d. `wl_mux_wrapper.sv` + `snn_soc_top.sv`: WL 时分复用协议原型（10 cycles）已落地；`chip_top` pad-facing 信号已贯通，剩余 pad cell / pad ring / 约束待后端前收口 | | ✅ |
 |  | ✅ 4e. `adc_ctrl.sv`: 20通道 MUX + 数字差分减法 | | ✅ |
 |  | ✅ 4f. `lif_neurons.sv`: signed 膜电位 + Scheme B 有符号累加 | | ✅ |
 |  | ✅ 4g. `snn_soc_top.sv`: 端口位宽适配（bl_sel=5, neuron_data=9） | | ✅ |
@@ -1908,7 +1906,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 | 阶段                                        | 评价                                                                     | 建议                                                                                            |
 | ----------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | **1.给文档，要数据， Smoke test + 学代码，然后根据数据改代码** | **完全正确。** 06 文档就是为此写的，按它走即可。等 P0/P1 信息是合理的并行策略。                        | 建议先跑 VCS 编译（不跑仿真），看有没有 syntax/port mismatch 错误，这是最快的 sanity check                             |
-| **2. 加 UART/SPI/E203/DMA/AXI-Lite**       | **核心工作量在这里。** 目前 UART/SPI/JTAG 都是 stub，DMA 是简化版直连总线。升级为真实 IP 是 V1 必须的。 | 建议顺序：**E203 CPU → AXI-Lite bus → DMA → UART → SPI**。CPU 和总线是骨架，先搭好才能挂外设。每加一个模块写一个 unit TB 验证。 |
+| **2. 加 UART/SPI/E203/DMA/AXI-Lite**       | **当时的核心工作量在这里。** 当前 `main` 已完成 E203、DMA 多目标、UART TX 和 SPI Mode 0 主线集成；剩余缺口主要是 UART RX、JTAG、pad/物理收口与更完整系统化验证。 | 建议顺序仍成立：先保证 CPU/总线/存储链稳定，再扩外设与物理集成。每加一个模块写一个 unit TB 验证。 |
 | **3. 创新点**                                | 合理的"锦上添花"定位                                                            | 看时间和精力，不要影响 tapeout deadline                                                                  |
 | **4. FPGA 验证**                            | **强烈建议保留此步。** 这是 tapeout 前最后的全系统验证机会                                   | 需要提前选好 FPGA 板子（Xilinx/Intel），CIM macro 在 FPGA 上用 behavioral model 替代                          |
 | **5. Backend**                            | 标准流程                                                                   | 通常需要 foundry PDK + 后端工具（Innovus/ICC2），确认学校/实验室有 license                                       |
@@ -2081,7 +2079,7 @@ ST_DONE → 发出 wl_valid_pulse_out → ST_IDLE
 
 接入正确。wrapper 的输出 `wl_bitmap_out` 就是内部缓存的 `wl_buf`（= 原始 `wl_bitmap_in` 的锁存副本），所以 dac_ctrl 收到的数据内容不变，只是延迟了 ~10 拍。
 
-外部复用信号（`wl_data`, `wl_group_sel`, `wl_latch`, `wl_mux_busy`）当前被 `_unused_wl_mux` 消掉了 lint 警告 — 合理，因为现在还没有 chip_top 来消费它们。
+外部复用信号（`wl_data`, `wl_group_sel`, `wl_latch`）当前已通过 `snn_soc_top` 的 `_ext` 端口接到 `chip_top` 的 pad-facing 端口；早期的 `_unused_wl_mux` lint 抑制线已从主线移除。
 
 **3. snn_soc_pkg.sv — 新参数**
 

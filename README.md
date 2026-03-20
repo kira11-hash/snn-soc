@@ -36,7 +36,24 @@
 ### 环境变量要求
 - `VERDI_HOME`：指向 Verdi 安装目录（用于 FSDB PLI）。
 - 若平台版本不同，可在 `sim/run_vcs.sh` 中调整 PLI 路径。
+- Windows 下请优先使用 Git for Windows 自带的 `bash.exe` / `sh.exe` 运行 `sim/*.sh`；不要直接用 `C:\Windows\System32\bash.exe`（WSL bash），否则可能找不到本机安装的 `iverilog` / `verilator`。
+- 若在 `bash`/WSL 中看到 `$'\r': command not found`，说明本地 checkout 把 `.sh` 脚本变成了 CRLF；仓库期望 `*.sh` 为 LF（见 `.gitattributes`），请先按 LF 重新检出后再运行。
 - 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下。
+
+## 常用回归入口
+> Windows 日常回归建议用 Git Bash；`run_e203_icarus.sh` 额外依赖 WSL 中可用的 `riscv64-unknown-elf-gcc / objcopy`。
+
+- `cd sim && bash run_uart_icarus.sh`：UART 单测，期望 `UART_SMOKETEST_PASS`
+- `cd sim && bash run_spi_icarus.sh`：SPI 单测，期望 `SPI_SMOKETEST_PASS`
+- `cd sim && bash run_dma_icarus.sh`：DMA 单测，期望 `DMA_SMOKETEST_PASS`
+- `cd sim && bash run_axi_bridge_icarus.sh`：AXI-Lite bridge 单测，期望 `AXI_BRIDGE_SMOKETEST_PASS`
+- `cd sim && bash run_icarus_light.sh`：黑盒顶层 smoke，期望 `LIGHT_SMOKETEST_PASS`
+- `cd sim && bash run_icarus_weighted.sh +FAIL_ON_ZERO_SPIKE=1`：带权重顶层回归，期望 `WEIGHTED_SIM_PASS`
+- `cd sim && bash run_sample_align.sh`：Python↔RTL 100 样本对齐，期望 `SAMPLE_ALIGN_PASS`
+- `cd sim && bash run_adc_sat_counter.sh`：ADC 饱和计数回归，期望 `ADC_SAT_COUNTER_PASS`
+- `cd sim && bash run_e203_icarus.sh`：E203 最小启动链回归，期望 `E203_SMOKETEST_PASS`
+- `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
+- `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
 
 ## 目录结构
 ```
@@ -47,7 +64,7 @@ rtl/   RTL 实现
   reg/      reg bank + fifo 状态窗
   dma/      DMA 引擎
   snn/      CIM 控制器 + DAC/ADC + LIF + Macro 行为模型
-  periph/   UART/SPI/JTAG stub
+  periph/   UART/SPI 外设 + JTAG stub
 
 tb/    Testbench
 sim/   仿真脚本与波形
@@ -64,7 +81,7 @@ doc/   中文说明文档
 - LIF 位宽建议：`LIF_MEM_WIDTH >= NEURON_DATA_WIDTH + PIXEL_BITS`。
 - 默认阈值为 `THRESHOLD_DEFAULT`（工程默认计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 1 × 255 × 10 = 2550`，可软件覆盖）。
 - CIM Macro 在仿真中为行为模型，综合时为黑盒，可替换真实宏。
-- UART/SPI/JTAG 仅为 stub，不产生真实协议，仅占位可读写寄存器。
+- UART 已实现最小 TX 路径（RX 仍为 V1 预留），SPI 已实现 Mode 0 主控，JTAG 仍为 stub。
 
 ## 建模定版补充（复位模式，2026-02-10）
 - 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`；当前 RTL 默认 `reset_mode=soft`，其余建模参数以各次对比实验冻结配置为准。

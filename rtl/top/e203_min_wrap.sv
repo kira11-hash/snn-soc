@@ -249,6 +249,14 @@ module e203_min_wrap (
     .i_icb_rsp_rdata(fio_icb_rsp_rdata)
   );
 `else
+  wire _unused_vendor_stub = &{1'b0,
+                               clk,
+                               rst_n,
+                               mem_icb_cmd_ready,
+                               mem_icb_rsp_valid,
+                               mem_icb_rsp_err,
+                               mem_icb_rsp_rdata};
+
   assign inspect_pc        = 32'h0;
   assign core_wfi          = 1'b0;
   assign mem_icb_cmd_valid = 1'b0;

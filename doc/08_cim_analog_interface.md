@@ -510,25 +510,41 @@ bl_data = bl_data_internal[bl_sel];
 
 ### 8.3 集成时的替换方式
 
+`snn_soc_top.sv` 提供参数 **`ENABLE_EXT_CIM_IF`**（默认 `1'b0`），通过 generate 块在编译期选择 CIM 信号来源：
+
 ```systemverilog
-// 综合时使用黑盒
-`ifdef SYNTHESIS
-module cim_macro_blackbox (...);
-    // 仅端口定义，无实现
-endmodule
-`else
-// 仿真时使用行为模型
-module cim_macro_blackbox (...);
-    // 行为模型实现
-endmodule
-`endif
+generate
+  if (!ENABLE_EXT_CIM_IF) begin : gen_internal_cim_macro
+    // 仿真路径：实例化行为模型，所有 CIM 信号来自黑盒
+    cim_macro_blackbox u_macro (...);
+  end else begin : gen_external_cim_if
+    // 流片路径：CIM 信号来自外部 pad（chip_top 连线）
+    assign cim_done_hw = cim_done_ext;   // 模拟芯片返回
+    assign bl_data_hw  = bl_data_ext;    // 模拟芯片返回
+    assign adc_done_hw = ext_adc_done;   // 数字侧本地固定延迟生成（见下文 §8.4）
+  end
+endgenerate
 ```
 
+- **`ENABLE_EXT_CIM_IF=0`**（默认，用于仿真/FPGA）：`cim_macro_blackbox` 被实例化，提供 `cim_done`/`adc_done`/`bl_data` 响应。`cim_macro_blackbox.sv` 内部另有 `` `ifdef SYNTHESIS `` 宏，综合时切换为空端口定义。
+- **`ENABLE_EXT_CIM_IF=1`**（流片路径，`chip_top.sv` 默认配置）：黑盒不被实例化，`cim_done` 和 `bl_data` 来自外部 pad 输入，`adc_done` 由数字侧本地生成。
+
 **双芯片集成方式**（实际流片架构）：
-1. 数字芯片内保留 `cim_macro_blackbox` 作为仿真占位；综合时使用 `SYNTHESIS` 宏切换为空端口定义
-2. 数字芯片通过 `chip_top.sv` 的 pad wrapper 将内部并行信号映射到外部复用 IO（45 个可用 pad 口径）
-3. 模拟 CIM 芯片独立流片，通过 PCB 走线与数字芯片互联
-4. 联合验证可使用混合仿真（AMS）或 FPGA + 模拟芯片实物联调
+1. `chip_top.sv` 以 `ENABLE_EXT_CIM_IF=1` 实例化 `snn_soc_top`，CIM 黑盒不参与综合
+2. WL 复用信号（`wl_data/wl_group_sel/wl_latch`）和控制信号（`cim_start/bl_sel`）通过 `_ext` 端口连接到 chip_top pad
+3. `cim_done` 和 `bl_data` 从 chip_top pad 输入，经 `_ext` 端口回到数字控制链路
+4. 模拟 CIM 芯片独立流片，通过 PCB 走线与数字芯片互联
+5. 联合验证可使用混合仿真（AMS）或 FPGA + 模拟芯片实物联调
+
+### 8.4 本地 ADC 定时生成（ext_adc_done）
+
+简化协议下外部接口不包含 `adc_start/adc_done`，但数字芯片内部的 `adc_ctrl` 仍需要逐通道的 `adc_done` 脉冲来推进 20 通道扫描。当 `ENABLE_EXT_CIM_IF=1` 且 `cim_test_mode=0` 时，`snn_soc_top` 内部生成本地固定延迟 `ext_adc_done`：
+
+- **触发**：`adc_ctrl` 发出 `adc_start` 脉冲（纯内部信号，不出 pad）
+- **延迟**：`ADC_SAMPLE_CYCLES`（当前默认 3 cycles = 60 ns @ 50MHz），与行为模型一致
+- **输出**：`ext_adc_done` 单拍脉冲，经 generate 块赋值给 `adc_done_hw`，再由 test mode MUX 选通为最终 `adc_done`
+
+> **注**：此延迟值是仿真占位。流片后，实际 ADC 采样时间由模拟芯片内部完成（包含在 `cim_start→cim_done` 总延迟内），数字侧在 `cim_done` 后按固定建立时间扫描 `bl_data`。`ext_adc_done` 的延迟值应根据模拟侧确认的"bl_sel 切换到 bl_data 有效"时间（§3.2 A5-5）来最终调整。
 
 ---
 

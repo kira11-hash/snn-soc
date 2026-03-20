@@ -300,7 +300,7 @@ module snn_soc_top #(
   logic [NUM_INPUTS-1:0] wl_bitmap_wrapped;
   logic                  wl_valid_pulse_wrapped;
 
-  // WL 复用协议原型信号（与外部 WL MUX 芯片的接口，当前版本尚未连到 chip_top pad）
+  // WL 复用协议信号（已通过 _ext 端口连到 chip_top pad，ENABLE_EXT_CIM_IF=1 时有效）
   // wl_data     : 当前分组的 8-bit WL 数据
   // wl_group_sel: 当前选中的组编号（3-bit，0-7）
   // wl_latch    : WL MUX 锁存使能脉冲
@@ -367,12 +367,9 @@ module snn_soc_top #(
   logic [7:0]  timestep_counter;
   logic [$clog2(PIXEL_BITS)-1:0] bitplane_shift;
 
-  // ----------------------------------------------------------
-  // lint 抑制：WL MUX 协议信号当前尚未连到 chip_top pad，
-  // 用一根 wire 将它们“消费掉”，避免 EDA 报未连接警告。
-  // 后续做 chip_top pad 级集成时，应删除此 wire 并真正接到 IO pad。
-  // ----------------------------------------------------------
-  wire _unused_wl_mux = ^wl_data ^ ^wl_group_sel ^ wl_latch ^ wl_mux_busy;
+  // WL MUX 协议信号已通过 wl_data_ext / wl_group_sel_ext / wl_latch_ext
+  // 连接到 chip_top pad（ENABLE_EXT_CIM_IF=1 时有效）。
+  // wl_mux_busy 供 dbg_wl_stall_cnt 使用。
 
   // ----------------------------------------------------------
   // ADC 饱和监控（adc_ctrl → reg_bank）
@@ -423,6 +420,12 @@ module snn_soc_top #(
   logic                test_cim_busy;
   logic [3:0]          test_adc_cnt;
   logic                test_adc_busy;
+
+  generate
+    if (!ENABLE_EXT_CIM_IF) begin : gen_unused_external_cim_if
+      wire _unused_external_cim_if = cim_done_ext ^ ^bl_data_ext ^ ext_adc_done;
+    end
+  endgenerate
 
   // ----------------------------------------------------------
   // Debug 计数器（16 位饱和计数，仅 rst_n 清零）
@@ -827,7 +830,7 @@ module snn_soc_top #(
   // 它解决的问题是：“内部有 64 条 WL，但封装引脚不够，不能 64 根全并行拉出去。”
   // 做法是把 64 位 wl_bitmap 分成 8 组，每组 8 位，按时间顺序送到外部 WL MUX。
   // 因此它的本质不是改数据内容，而是把“并行位图”改成“时分复用协议”。
-  // 当前这些 MUX 协议信号还没真正接到 chip_top pad，上层集成时再连接。
+  // WL MUX 协议信号已通过 wl_*_ext 端口连到 chip_top pad（ENABLE_EXT_CIM_IF=1 时有效）。
   wl_mux_wrapper u_wl_mux_wrapper (
     .clk               (clk),
     .rst_n             (rst_n),
@@ -835,10 +838,10 @@ module snn_soc_top #(
     .wl_valid_pulse_in (wl_valid_pulse),
     .wl_bitmap_out     (wl_bitmap_wrapped),     // 时序对齐后的 bitmap → dac_ctrl
     .wl_valid_pulse_out(wl_valid_pulse_wrapped), // 时序对齐后的有效脉冲 → dac_ctrl
-    .wl_data           (wl_data),               // → 外部 WL MUX（当前 _unused）
-    .wl_group_sel      (wl_group_sel),           // → 外部 WL MUX（当前 _unused）
-    .wl_latch          (wl_latch),               // → 外部 WL MUX（当前 _unused）
-    .wl_busy           (wl_mux_busy)             // 来自外部 WL MUX（当前 _unused，用于 stall 检测）
+    .wl_data           (wl_data),               // → chip_top pad (wl_data_ext)
+    .wl_group_sel      (wl_group_sel),           // → chip_top pad (wl_group_sel_ext)
+    .wl_latch          (wl_latch),               // → chip_top pad (wl_latch_ext)
+    .wl_busy           (wl_mux_busy)             // 来自外部 WL MUX（供 dbg_wl_stall_cnt 使用）
   );
 
   assign wl_data_ext      = wl_data;
@@ -883,6 +886,7 @@ module snn_soc_top #(
         .bl_data   (bl_data_hw)
       );
     end else begin : gen_external_cim_if
+      wire _unused_internal_cim_macro = ^wl_spike ^ dac_valid;
       assign cim_done_hw = cim_done_ext;
       assign bl_data_hw  = bl_data_ext;
       assign adc_done_hw = ext_adc_done;

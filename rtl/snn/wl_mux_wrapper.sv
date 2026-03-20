@@ -4,7 +4,7 @@
 // Purpose: Prototype wrapper that maps internal WL bitmap into a narrower external/physical grouped WL interface.
 // Role in system: Bridges logical 64-bit WL activity representation and future pad-level/analog-facing multiplexed protocol.
 // Behavior summary: Packs/selects WL groups and exposes a handshake-oriented wrapper-level view for integration experiments.
-// Current status: Prototype/helper wrapper; final pad-level connection policy is still completed in chip_top integration stage.
+// Current status: Protocol wrapper already routes to chip_top pad-facing ports; only technology-specific pad-cell integration remains.
 // Integration warning: External pin budgeting and analog ownership of WL multiplexing must be frozen with the analog team.
 // -----------------------------------------------------------------------------
 
@@ -18,7 +18,7 @@
 //
 // 说明:
 //   1) 本模块用于冻结"外部引脚复用协议"的字段与时序，避免接口漂移。
-//   2) 当前仍在 snn_soc_top 内部使用，后续可平移到 chip_top/pad wrapper。
+//   2) 当前仍在 snn_soc_top 内部使用，但 wl_* 协议已通过 _ext 端口接到 chip_top pad-facing 端口。
 //   3) 总延迟：1(IDLE→SEND 锁存) + 8(ST_SEND 发送 group 0~7) + 1(ST_DONE) = 10 cycles。
 //      文档中"8 cycles"仅指 ST_SEND 阶段，实际含首尾过渡共 10 cycles。
 //======================================================================
