@@ -471,7 +471,7 @@ fpga/
 | Python baseline 精度 | 90.42% (spike-only) | J2/J3 | Python 管线 `proj_sup_64` 最终锁定配置 |
 | Zero-spike rate | 0.00% | J3 | Python 校准后验证（calibrate_threshold.py）|
 | ADC 位宽 | 8-bit | A3 | Python 建模 sweep：6/8/12-bit 对比 |
-| 阈值 | 2550 (= 1×255×10) | J2 | 当前工程冻结值（ADC=8, W=4, T=10） |
+| 阈值 | 2550 (= 1×255×10) | J2 | 当前 RTL 默认阈值口径（ADC=8, T=10, ratio_code=1；`W=4` 仅为历史训练/量化实验参数） |
 
 ### 引用标签清单
 

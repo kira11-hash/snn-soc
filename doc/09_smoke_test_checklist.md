@@ -35,6 +35,34 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | THRESHOLD_DEFAULT | 2550 | = 1 × 255 × 10 |
 | reset_mode | soft | V = V - Vth |
 
+### 2026-03-20 全量审计覆盖面
+
+以下命令已在当前主线环境实际跑通，可作为 tapeout 前的最低复核基线：
+
+| 类别 | 命令 | 结果 |
+|------|------|------|
+| Python 主机自测 | `python scripts/test_jtag_rescue.py` | `JTAG_PYHOST_SELFTEST_PASS` |
+| UART 单测 | `cd sim && bash run_uart_icarus.sh` | `UART_SMOKETEST_PASS` |
+| SPI 单测 | `cd sim && bash run_spi_icarus.sh` | `SPI_SMOKETEST_PASS` |
+| DMA 单测 | `cd sim && bash run_dma_icarus.sh` | `DMA_SMOKETEST_PASS` |
+| AXI-Lite bridge 单测 | `cd sim && bash run_axi_bridge_icarus.sh` | `AXI_BRIDGE_SMOKETEST_PASS` |
+| 黑盒顶层 smoke | `cd sim && bash run_icarus_light.sh` | `LIGHT_SMOKETEST_PASS` |
+| 带权重顶层回归 | `cd sim && bash run_icarus_weighted.sh +FAIL_ON_ZERO_SPIKE=1` | `WEIGHTED_SIM_PASS` |
+| Python↔RTL 样本对齐 | `cd sim && bash run_sample_align.sh` | `SAMPLE_ALIGN_PASS (100/100)` |
+| ADC 饱和计数回归 | `cd sim && bash run_adc_sat_counter.sh` | `ADC_SAT_COUNTER_PASS` |
+| JTAG loader 单测 | `cd sim && bash run_jtag_loader_icarus.sh` | `JTAG_MEM_LOADER_PASS` |
+| JTAG rescue 顶层回归 | `cd sim && bash run_jtag_rescue_top_icarus.sh` | `JTAG_RESCUE_TOP_PASS` |
+| E203 最小启动链 | `cd sim && bash run_e203_icarus.sh` | `E203_SMOKETEST_PASS` |
+| `chip_top` Icarus 编译门禁 | `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out` | 通过 |
+| `chip_top` Verilator lint | `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f` | 通过 |
+| 旧 `top_tb` 入口 | `cd sim && iverilog -g2012 -gno-assertions -f sim.f -s top_tb -o top_tb_check.out && vvp top_tb_check.out` | 跑通 |
+| Shell 语法检查 | `bash -n sim/*.sh fw/*.sh` | 全部通过 |
+| Python 语法检查 | `python -m py_compile scripts\\jtag_rescue.py scripts\\test_jtag_rescue.py fw\\bin_to_readmemh.py fw\\build_flash_image.py doc\\threshold_recommend.py` | 全部通过 |
+
+补充说明：
+- `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 依赖 WSL 内可用的 `riscv64-unknown-elf-gcc / objcopy`。
+- `run_icarus_weighted.sh` 与 `run_sample_align.sh` 依赖 `weight_pos.hex / weight_neg.hex`，当前默认来源是 `项目相关文件/器件对齐/Python建模/results/exports/`。
+
 ---
 
 ## 1. Step 3.1 — 黑盒 Icarus Smoke（本机 Windows）

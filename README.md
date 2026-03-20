@@ -77,7 +77,8 @@ doc/   中文说明文档
 
 ## 关键说明
 - **参数口径**：所有默认参数与时序常量以 `rtl/top/snn_soc_pkg.sv` 为准，文档中的数值仅作说明与示例，若不一致请以 pkg 为准。
-- 当前工程默认参数：`ADC=8`、`W=4`、`T=10`、`ratio_code=1`、`THRESHOLD_DEFAULT=2550`、`reset_mode=soft`，默认离线压缩/预处理口径为 `avgpool8x8`。
+- 当前工程冻结的 RTL / bring-up 参数：`ADC=8`、`PIXEL_BITS=8`、`T=10`、`ratio_code=1`、`THRESHOLD_DEFAULT=2550`、`reset_mode=soft`，默认离线压缩/预处理口径为 `avgpool8x8`。
+- `W=4` 仅属于历史训练/量化实验口径，用于解释部分建模结果；它不是当前 `rtl/top/snn_soc_pkg.sv` 中的冻结参数。
 - 输入编码：当前默认离线压缩/预处理口径为 `avgpool8x8`，得到 8x8=64 维特征（NUM_INPUTS=64）、每维 8bit；RTL 仅冻结 64x8 接口，不在硬件中固化前处理算法。同一子时间步并行送 64 维特征的第 x 位，顺序为 MSB->LSB。
 - data_sram 排布：每个 bit-plane 为 64-bit，按 2 个 32-bit word 保存（word0=低32位，word1=高32位）。
 - TIMESTEPS 表示帧数；总子时间步 = TIMESTEPS × PIXEL_BITS。
@@ -86,6 +87,7 @@ doc/   中文说明文档
 - 默认阈值为 `THRESHOLD_DEFAULT`（工程默认计算：`THRESHOLD_RATIO_DEFAULT × (2^PIXEL_BITS - 1) × TIMESTEPS_DEFAULT = 1 × 255 × 10 = 2550`，可软件覆盖）。
 - CIM Macro 在仿真中为行为模型，综合时为黑盒，可替换真实宏。
 - UART 已实现最小 TX 路径（RX 仍为 V1 预留），SPI 已实现 Mode 0 主控，JTAG 已切换为独立 rescue loader：仅开放 `instr_sram / data_sram / weight_sram` 访问与 CPU 局部重启。
+- tapeout 前全量回归的建议检查面与逐项操作说明见 `doc/09_smoke_test_checklist.md`。
 
 ## 建模定版补充（复位模式，2026-02-10）
 - 对比对象：`SPIKE_RESET_MODE=soft` vs `SPIKE_RESET_MODE=hard`；当前 RTL 默认 `reset_mode=soft`，其余建模参数以各次对比实验冻结配置为准。

@@ -189,7 +189,7 @@ BL19 电流 ─┘      ▲                           ▲
 **为什么这样设计？**
 
 - DAC 只需要 1-bit：因为是 SNN（脉冲神经网络），输入就是 0/1 的 spike
-- ADC 使用 8-bit：当前冻结建模结果确认 8-bit 精度已足够（`avgpool8x8 + ADC=8 + W=4 + T=10 + ratio_code=1`，hardware-aligned spike-only 测试精度 87.76%，zero-spike=0%）
+- ADC 使用 8-bit：当前冻结建模结果确认 8-bit 精度已足够（`avgpool8x8 + ADC=8 + W=4 + T=10 + ratio_code=1`，其中 `W=4` 属于历史训练/量化实验参数，不是当前 RTL package 参数；hardware-aligned spike-only 测试精度 87.76%，zero-spike=0%）
 - 双芯片架构：数字芯片和模拟芯片分别流片，通过 PCB 互联，降低混合工艺集成风险
 ### 2.2 信号详细说明
 

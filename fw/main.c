@@ -15,8 +15,8 @@ int main(void) {
     uart_printf("APP start\n");
 
     for (uint32_t f = 0; f < TIMESTEPS_VALUE; ++f) {
-        for (uint32_t i = 0; i < 8u; ++i) {
-            uint32_t idx = (f * 16u) + (i * 2u);
+        for (uint32_t i = 0; i < PIXEL_BITS_VALUE; ++i) {
+            uint32_t idx = (f * PIXEL_BITS_VALUE * 2u) + (i * 2u);
             input_words[idx + 0u] = 0x000000FFu >> i;
             input_words[idx + 1u] = 0x00000000u;
         }
@@ -24,14 +24,14 @@ int main(void) {
 
     DMA_SRC_ADDR  = (uint32_t)(uintptr_t)&input_words[0];
     DMA_LEN_WORDS = DMA_LEN_VALUE;
-    DMA_CTRL      = 0x1u;
+    DMA_CTRL      = DMA_CTRL_START_MASK;
 
-    while ((DMA_CTRL & 0x2u) == 0u) {
+    while ((DMA_CTRL & DMA_CTRL_DONE_MASK) == 0u) {
     }
-    DMA_CTRL = 0x2u;
+    DMA_CTRL = DMA_CTRL_DONE_MASK;
 
-    CIM_CTRL = 0x1u;
-    while ((CIM_CTRL & 0x80u) == 0u) {
+    CIM_CTRL = CIM_CTRL_START_MASK;
+    while ((CIM_CTRL & CIM_CTRL_DONE_MASK) == 0u) {
     }
 
     uint32_t count = REG_OUT_COUNT;

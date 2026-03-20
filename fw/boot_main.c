@@ -3,8 +3,10 @@
 
 #include <stdint.h>
 
-#define SPI_CTRL_BASE    0x00000005u
-#define SPI_CTRL_CS_LOW  0x00000105u
+#define SPI_CTRL_BOOT_BASE \
+    (SPI_CTRL_ENABLE_MASK | (2u << SPI_CTRL_CLKDIV_SHIFT))
+#define SPI_CTRL_BOOT_CS_LOW \
+    (SPI_CTRL_BOOT_BASE | SPI_CTRL_CS_FORCE_MASK)
 
 struct boot_header {
     uint32_t magic;
@@ -14,18 +16,18 @@ struct boot_header {
 };
 
 static void spi_wait_idle(void) {
-    while ((SPI_STATUS & 0x1u) != 0u) {
+    while ((SPI_STATUS & SPI_STATUS_BUSY_MASK) != 0u) {
     }
 }
 
 static void spi_set_cs(int active) {
-    SPI_CTRL = active ? SPI_CTRL_CS_LOW : SPI_CTRL_BASE;
+    SPI_CTRL = active ? SPI_CTRL_BOOT_CS_LOW : SPI_CTRL_BOOT_BASE;
 }
 
 static uint8_t spi_xfer(uint8_t tx) {
     spi_wait_idle();
     SPI_TXDATA = tx;
-    while ((SPI_STATUS & 0x2u) == 0u) {
+    while ((SPI_STATUS & SPI_STATUS_RX_VALID_MASK) == 0u) {
     }
     return (uint8_t)SPI_RXDATA;
 }

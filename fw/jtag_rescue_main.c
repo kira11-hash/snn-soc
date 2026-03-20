@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define JTAG_RESCUE_DATA_ADDR  ((volatile uint32_t *)0x00010000u)
+#define JTAG_RESCUE_DATA_ADDR  ((volatile uint32_t *)DATA_SRAM_BASE)
 #define JTAG_RESCUE_DATA_MAGIC 0x4A544147u /* 'JTAG' */
 
 int main(void) {
