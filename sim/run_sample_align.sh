@@ -28,6 +28,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 RUN_DIR=$(mktemp -d "$SCRIPT_DIR/.sample_align_run.XXXXXX")
 cleanup() {
@@ -172,7 +174,7 @@ echo "[run_sample_align.sh] Stimulus source: $STIMULUS_DIR"
 echo "[run_sample_align.sh] Auto-detected SAMPLE_COUNT=$sample_count"
 echo "[run_sample_align.sh] expected_classes.hex semantics: Python predicted_class for RTL alignment"
 
-iverilog -g2012 -gno-assertions -f sim_sample_align.f -s top_tb_sample_align -o "$RUN_DIR/sample_align.out"
+run_iverilog -g2012 -gno-assertions -f sim_sample_align.f -s top_tb_sample_align -o "$RUN_DIR/sample_align.out"
 
 VVP_ARGS=("$@")
 for arg in "$@"; do
@@ -188,7 +190,7 @@ fi
 
 (
   cd "$RUN_DIR"
-  vvp ./sample_align.out "${VVP_ARGS[@]}"
+  run_vvp ./sample_align.out "${VVP_ARGS[@]}"
 ) | tee "$SCRIPT_DIR/sample_align.log"
 
 mkdir -p "$SCRIPT_DIR/waves"

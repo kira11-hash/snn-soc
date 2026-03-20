@@ -8,9 +8,11 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 echo "[INFO] Compiling AXI-Lite bridge test (Icarus)..."
-iverilog -g2012 -gno-assertions \
+run_iverilog -g2012 -gno-assertions \
          -o axi_bridge_test \
          -f sim_axi_bridge.f \
          2>&1 | tee axi_bridge_compile.log
@@ -22,7 +24,7 @@ fi
 echo "[INFO] Compilation OK"
 
 echo "[INFO] Running simulation..."
-vvp axi_bridge_test 2>&1 | tee axi_bridge_sim.log
+run_vvp axi_bridge_test 2>&1 | tee axi_bridge_sim.log
 
 echo ""
 if grep -q "AXI_BRIDGE_SMOKETEST_PASS" axi_bridge_sim.log; then

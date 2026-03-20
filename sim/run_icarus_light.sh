@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 RUN_DIR=$(mktemp -d "$SCRIPT_DIR/.icarus_light_run.XXXXXX")
 cleanup() {
@@ -19,10 +21,10 @@ EXPECTED_OUT_COUNT="${SMOKE_EXPECTED_OUT_COUNT:-100}"
 CHECK_OUT_COUNT="${SMOKE_CHECK_OUT_COUNT:-1}"
 
 # Disable SVA assertions for Icarus compatibility ($past is not fully supported).
-iverilog -g2012 -gno-assertions -f sim_icarus_light.f -s top_tb_icarus_light -o "$RUN_DIR/icarus_light.out"
+run_iverilog -g2012 -gno-assertions -f sim_icarus_light.f -s top_tb_icarus_light -o "$RUN_DIR/icarus_light.out"
 (
   cd "$RUN_DIR"
-  vvp ./icarus_light.out \
+  run_vvp ./icarus_light.out \
     +EXPECTED_OUT_COUNT="$EXPECTED_OUT_COUNT" \
     +CHECK_OUT_COUNT="$CHECK_OUT_COUNT"
 ) | tee "$SCRIPT_DIR/icarus_light.log"

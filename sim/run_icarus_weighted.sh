@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 RUN_DIR=$(mktemp -d "$SCRIPT_DIR/.icarus_weighted_run.XXXXXX")
 cleanup() {
@@ -57,10 +59,10 @@ fi
 cp "$WEIGHT_SRC_DIR/weight_pos.hex" "$RUN_DIR/weight_pos.hex"
 cp "$WEIGHT_SRC_DIR/weight_neg.hex" "$RUN_DIR/weight_neg.hex"
 
-iverilog -g2012 -gno-assertions -f sim_icarus_weighted.f -s top_tb_icarus_weighted -o "$RUN_DIR/icarus_weighted.out"
+run_iverilog -g2012 -gno-assertions -f sim_icarus_weighted.f -s top_tb_icarus_weighted -o "$RUN_DIR/icarus_weighted.out"
 (
   cd "$RUN_DIR"
-  vvp ./icarus_weighted.out "$@"
+  run_vvp ./icarus_weighted.out "$@"
 ) | tee "$SCRIPT_DIR/icarus_weighted.log"
 
 mkdir -p "$SCRIPT_DIR/waves"

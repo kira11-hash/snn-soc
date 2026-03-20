@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 rm -f jtag_loader_test
 
 echo "[INFO] Compiling JTAG loader test (Icarus)..."
-iverilog -g2012 -gno-assertions \
+run_iverilog -g2012 -gno-assertions \
          -o jtag_loader_test \
          -f sim_jtag_loader.f \
          2>&1 | tee jtag_loader_compile.log
@@ -17,7 +20,7 @@ if [ ! -f jtag_loader_test ]; then
 fi
 
 echo "[INFO] Running simulation..."
-vvp jtag_loader_test 2>&1 | tee jtag_loader_sim.log
+run_vvp jtag_loader_test 2>&1 | tee jtag_loader_sim.log
 
 if grep -q "JTAG_MEM_LOADER_PASS" jtag_loader_sim.log; then
   echo "============================================"

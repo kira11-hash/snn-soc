@@ -8,9 +8,11 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 echo "[INFO] Compiling UART TX test (Icarus)..."
-iverilog -g2012 -gno-assertions \
+run_iverilog -g2012 -gno-assertions \
          -o uart_test \
          -f sim_uart.f \
          2>&1 | tee uart_compile.log
@@ -22,7 +24,7 @@ fi
 echo "[INFO] Compilation OK"
 
 echo "[INFO] Running simulation..."
-vvp uart_test 2>&1 | tee uart_sim.log
+run_vvp uart_test 2>&1 | tee uart_sim.log
 
 echo ""
 if grep -q "UART_SMOKETEST_PASS" uart_sim.log; then

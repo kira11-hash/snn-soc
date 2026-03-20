@@ -3,13 +3,16 @@
 # Build and run SPI unit smoke test with Icarus.
 
 set -euo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
 # Remove stale outputs so a failed compile cannot accidentally reuse an old binary.
 rm -f spi_test
 
 echo "[INFO] Compiling SPI test (Icarus)..."
-iverilog -g2012 -gno-assertions \
+run_iverilog -g2012 -gno-assertions \
          -o spi_test \
          -f sim_spi.f \
          2>&1 | tee spi_compile.log
@@ -20,7 +23,7 @@ if [ ! -f spi_test ]; then
 fi
 
 echo "[INFO] Running simulation..."
-vvp spi_test 2>&1 | tee spi_sim.log
+run_vvp spi_test 2>&1 | tee spi_sim.log
 
 echo ""
 if grep -q "SPI_SMOKETEST_PASS" spi_sim.log; then
