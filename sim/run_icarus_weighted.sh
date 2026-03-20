@@ -15,39 +15,9 @@ trap cleanup EXIT
 
 mkdir -p "$RUN_DIR/waves"
 
-find_weight_dir() {
-  local auto_export_pos
-  local dir
-
-  for dir in \
-    "$ROOT_DIR/项目相关文件/器件对齐/Python建模/results/exports" \
-    "$ROOT_DIR/fpga/cim_model" \
-    "$SCRIPT_DIR"
-  do
-    if [ -f "$dir/weight_pos.hex" ] && [ -f "$dir/weight_neg.hex" ]; then
-      printf '%s\n' "$dir"
-      return 0
-    fi
-  done
-
-  auto_export_pos=$(find "$ROOT_DIR" -path '*/results/exports/weight_pos.hex' ! -path '*/backups/*' -print -quit 2>/dev/null || true)
-  if [ -n "$auto_export_pos" ] && [ -f "${auto_export_pos%/weight_pos.hex}/weight_neg.hex" ]; then
-    printf '%s\n' "${auto_export_pos%/weight_pos.hex}"
-    return 0
-  fi
-
-  auto_export_pos=$(find "$ROOT_DIR" -path '*/results/exports/weight_pos.hex' -print -quit 2>/dev/null || true)
-  if [ -n "$auto_export_pos" ] && [ -f "${auto_export_pos%/weight_pos.hex}/weight_neg.hex" ]; then
-    printf '%s\n' "${auto_export_pos%/weight_pos.hex}"
-    return 0
-  fi
-
-  return 1
-}
-
 WEIGHT_SRC_DIR="${WEIGHT_SRC_DIR:-}"
 if [ -z "$WEIGHT_SRC_DIR" ]; then
-  WEIGHT_SRC_DIR=$(find_weight_dir || true)
+  WEIGHT_SRC_DIR=$(find_weight_dir "$ROOT_DIR" "$SCRIPT_DIR" || true)
 fi
 
 if [ -z "$WEIGHT_SRC_DIR" ]; then

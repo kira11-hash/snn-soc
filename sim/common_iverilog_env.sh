@@ -106,3 +106,92 @@ run_vvp() {
 run_python() {
   "$PYTHON_BIN" "$@"
 }
+
+to_windows_path() {
+  local path="$1"
+  local abs
+
+  case "$path" in
+    /*)
+      abs="$path"
+      ;;
+    *)
+      abs="$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
+      ;;
+  esac
+
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$abs" | tr -d '\r'
+    return 0
+  fi
+
+  if command -v wslpath >/dev/null 2>&1; then
+    wslpath -w "$abs" | tr -d '\r'
+    return 0
+  fi
+
+  printf '%s\n' "$abs"
+}
+
+find_weight_dir() {
+  local root_dir="$1"
+  local fallback_dir="${2:-}"
+  local auto_export_pos
+  local dir
+
+  auto_export_pos=$(find "$root_dir" -path '*/results/exports/weight_pos.hex' ! -path '*/backups/*' -print -quit 2>/dev/null || true)
+  if [ -n "$auto_export_pos" ] && [ -f "${auto_export_pos%/weight_pos.hex}/weight_neg.hex" ]; then
+    printf '%s\n' "${auto_export_pos%/weight_pos.hex}"
+    return 0
+  fi
+
+  auto_export_pos=$(find "$root_dir" -path '*/results/exports/weight_pos.hex' -print -quit 2>/dev/null || true)
+  if [ -n "$auto_export_pos" ] && [ -f "${auto_export_pos%/weight_pos.hex}/weight_neg.hex" ]; then
+    printf '%s\n' "${auto_export_pos%/weight_pos.hex}"
+    return 0
+  fi
+
+  for dir in "$root_dir/fpga/cim_model" "$fallback_dir"; do
+    [ -n "$dir" ] || continue
+    if [ -f "$dir/weight_pos.hex" ] && [ -f "$dir/weight_neg.hex" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+find_stimulus_dir() {
+  local root_dir="$1"
+  local fallback_dir="${2:-}"
+  local auto_stimulus
+  local dir
+
+  auto_stimulus=$(find "$root_dir" -path '*/rtl_stimulus/all_samples.hex' ! -path '*/backups/*' -print -quit 2>/dev/null || true)
+  if [ -n "$auto_stimulus" ] && [ -f "${auto_stimulus%/all_samples.hex}/expected_classes.hex" ]; then
+    printf '%s\n' "${auto_stimulus%/all_samples.hex}"
+    return 0
+  fi
+
+  auto_stimulus=$(find "$root_dir" -path '*/rtl_stimulus/all_samples.hex' -print -quit 2>/dev/null || true)
+  if [ -n "$auto_stimulus" ] && [ -f "${auto_stimulus%/all_samples.hex}/expected_classes.hex" ]; then
+    printf '%s\n' "${auto_stimulus%/all_samples.hex}"
+    return 0
+  fi
+
+  for dir in "$fallback_dir"; do
+    [ -n "$dir" ] || continue
+    if [ -f "$dir/all_samples.hex" ] && [ -f "$dir/expected_classes.hex" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+find_vendor_e203_rtl_dir() {
+  local root_dir="$1"
+  find "$root_dir" -type d -path '*/e203_hbirdv2-master/rtl' -print -quit 2>/dev/null || true
+}

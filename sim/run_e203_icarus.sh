@@ -2,11 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/common_iverilog_env.sh"
 resolve_iverilog_tools
 if command -v wslpath >/dev/null 2>&1; then
-  REPO_WSL="$(cd .. && pwd)"
+  REPO_WSL="$ROOT_DIR"
   REPO_WIN="$(wslpath -w "$REPO_WSL" | tr -d '\r')"
   run_in_wsl() {
     bash -lc "cd '$REPO_WSL' && $1"
@@ -21,7 +22,15 @@ else
 fi
 REPO_WIN="${REPO_WIN//\//\\}"
 VENDOR_ASCII_WIN="${REPO_WIN}\\rtl\\vendor_e203"
-VENDOR_SRC_WIN="${REPO_WIN}\\项目相关文件\\未添加的IP的源代码\\e203_hbirdv2-master\\rtl"
+VENDOR_SRC_POSIX="$(find_vendor_e203_rtl_dir "$ROOT_DIR")"
+
+if [ -z "$VENDOR_SRC_POSIX" ]; then
+  echo "[ERROR] Unable to locate e203_hbirdv2-master/rtl under repo root: $ROOT_DIR" >&2
+  exit 1
+fi
+
+VENDOR_SRC_WIN="$(to_windows_path "$VENDOR_SRC_POSIX")"
+VENDOR_SRC_WIN="${VENDOR_SRC_WIN//\//\\}"
 
 mkdir -p waves
 

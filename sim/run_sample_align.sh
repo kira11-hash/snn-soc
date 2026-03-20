@@ -39,65 +39,6 @@ trap cleanup EXIT
 
 mkdir -p "$RUN_DIR/waves"
 
-find_weight_dir() {
-  local auto_export_pos
-  local dir
-
-  for dir in \
-    "$ROOT_DIR/项目相关文件/器件对齐/Python建模/results/exports" \
-    "$ROOT_DIR/fpga/cim_model" \
-    "$SCRIPT_DIR"
-  do
-    if [ -f "$dir/weight_pos.hex" ] && [ -f "$dir/weight_neg.hex" ]; then
-      printf '%s\n' "$dir"
-      return 0
-    fi
-  done
-
-  auto_export_pos=$(find "$ROOT_DIR" -path '*/results/exports/weight_pos.hex' ! -path '*/backups/*' -print -quit 2>/dev/null || true)
-  if [ -n "$auto_export_pos" ] && [ -f "${auto_export_pos%/weight_pos.hex}/weight_neg.hex" ]; then
-    printf '%s\n' "${auto_export_pos%/weight_pos.hex}"
-    return 0
-  fi
-
-  auto_export_pos=$(find "$ROOT_DIR" -path '*/results/exports/weight_pos.hex' -print -quit 2>/dev/null || true)
-  if [ -n "$auto_export_pos" ] && [ -f "${auto_export_pos%/weight_pos.hex}/weight_neg.hex" ]; then
-    printf '%s\n' "${auto_export_pos%/weight_pos.hex}"
-    return 0
-  fi
-
-  return 1
-}
-
-find_stimulus_dir() {
-  local auto_stimulus
-  local dir
-
-  for dir in \
-    "$ROOT_DIR/项目相关文件/器件对齐/Python建模/results/exports/rtl_stimulus" \
-    "$SCRIPT_DIR"
-  do
-    if [ -f "$dir/all_samples.hex" ] && [ -f "$dir/expected_classes.hex" ]; then
-      printf '%s\n' "$dir"
-      return 0
-    fi
-  done
-
-  auto_stimulus=$(find "$ROOT_DIR" -path '*/rtl_stimulus/all_samples.hex' ! -path '*/backups/*' -print -quit 2>/dev/null || true)
-  if [ -n "$auto_stimulus" ] && [ -f "${auto_stimulus%/all_samples.hex}/expected_classes.hex" ]; then
-    printf '%s\n' "${auto_stimulus%/all_samples.hex}"
-    return 0
-  fi
-
-  auto_stimulus=$(find "$ROOT_DIR" -path '*/rtl_stimulus/all_samples.hex' -print -quit 2>/dev/null || true)
-  if [ -n "$auto_stimulus" ] && [ -f "${auto_stimulus%/all_samples.hex}/expected_classes.hex" ]; then
-    printf '%s\n' "${auto_stimulus%/all_samples.hex}"
-    return 0
-  fi
-
-  return 1
-}
-
 count_nonempty_lines() {
   awk 'NF { count++ } END { print count + 0 }' "$1"
 }
@@ -121,7 +62,7 @@ pad_hex_file() {
 
 WEIGHT_SRC_DIR="${WEIGHT_SRC_DIR:-}"
 if [ -z "$WEIGHT_SRC_DIR" ]; then
-  WEIGHT_SRC_DIR=$(find_weight_dir || true)
+  WEIGHT_SRC_DIR=$(find_weight_dir "$ROOT_DIR" "$SCRIPT_DIR" || true)
 fi
 
 if [ -z "$WEIGHT_SRC_DIR" ]; then
@@ -135,7 +76,7 @@ cp "$WEIGHT_SRC_DIR/weight_neg.hex" "$RUN_DIR/weight_neg.hex"
 
 STIMULUS_DIR="${STIMULUS_DIR:-}"
 if [ -z "$STIMULUS_DIR" ]; then
-  STIMULUS_DIR=$(find_stimulus_dir || true)
+  STIMULUS_DIR=$(find_stimulus_dir "$ROOT_DIR" "$SCRIPT_DIR" || true)
 fi
 
 if [ -z "$STIMULUS_DIR" ] || [ ! -f "$STIMULUS_DIR/all_samples.hex" ] || [ ! -f "$STIMULUS_DIR/expected_classes.hex" ]; then

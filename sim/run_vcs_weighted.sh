@@ -34,7 +34,9 @@ if [ ! -x "$VERDI_BIN" ]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
 
 RUN_DIR=$(mktemp -d "$SCRIPT_DIR/.vcs_weighted_run.XXXXXX")
 cleanup() {
@@ -47,14 +49,7 @@ mkdir -p "$SCRIPT_DIR/waves"
 
 WEIGHT_SRC_DIR="${WEIGHT_SRC_DIR:-}"
 if [ -z "$WEIGHT_SRC_DIR" ]; then
-  AUTO_EXPORT_POS=$(find .. -path '*/results/exports/weight_pos.hex' -print -quit 2>/dev/null || true)
-  if [ -n "$AUTO_EXPORT_POS" ] && [ -f "${AUTO_EXPORT_POS%/weight_pos.hex}/weight_neg.hex" ]; then
-    WEIGHT_SRC_DIR="${AUTO_EXPORT_POS%/weight_pos.hex}"
-  elif [ -f "../fpga/cim_model/weight_pos.hex" ] && [ -f "../fpga/cim_model/weight_neg.hex" ]; then
-    WEIGHT_SRC_DIR="../fpga/cim_model"
-  elif [ -f "./weight_pos.hex" ] && [ -f "./weight_neg.hex" ]; then
-    WEIGHT_SRC_DIR="."
-  fi
+  WEIGHT_SRC_DIR=$(find_weight_dir "$ROOT_DIR" "$SCRIPT_DIR" || true)
 fi
 
 if [ -z "$WEIGHT_SRC_DIR" ]; then

@@ -61,7 +61,8 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 
 补充说明：
 - `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 依赖 WSL 内可用的 `riscv64-unknown-elf-gcc / objcopy`。
-- `run_icarus_weighted.sh` 与 `run_sample_align.sh` 依赖 `weight_pos.hex / weight_neg.hex`，当前默认来源是 `项目相关文件/器件对齐/Python建模/results/exports/`。
+- `run_icarus_weighted.sh`、`run_sample_align.sh` 和 `run_vcs_weighted.sh` 会优先在仓库内自动搜索任意 `results/exports/` 目录下的 `weight_pos.hex / weight_neg.hex`（跳过 `backups/`），找不到时再回退到 `fpga/cim_model/` 或 `sim/`；如有多套导出物，建议显式设置 `WEIGHT_SRC_DIR=<目录>`。
+- `run_sample_align.sh` 还会自动搜索任意 `rtl_stimulus/` 目录下的 `all_samples.hex / expected_classes.hex`（同样跳过 `backups/`），必要时可显式设置 `STIMULUS_DIR=<目录>`。
 
 ---
 
@@ -201,9 +202,10 @@ SMOKE_CHECK_OUT_COUNT=0 bash run_icarus_light.sh
 
 权重 hex 文件必须存在。脚本会按以下顺序自动查找：
 
-1. `../项目相关文件/器件对齐/Python建模/results/exports/weight_pos.hex`（自动 find）
-2. `../fpga/cim_model/weight_pos.hex`
-3. `./weight_pos.hex`（sim 目录下）
+1. 若已设置 `WEIGHT_SRC_DIR`，直接使用该目录
+2. 仓库内任意 `results/exports/` 目录（自动 `find`，默认跳过 `backups/`）
+3. `../fpga/cim_model/`
+4. `./`（sim 目录下）
 
 如果自动查找失败，手动指定：
 
@@ -562,7 +564,81 @@ bash run_verdi_weighted.sh
 
 ---
 
-## 4. SVA 断言说明
+## 4. Step 3.4 — Python↔RTL 样本对齐（本机 Windows）
+
+### 4.1 这一步验证什么
+
+- 使用 Python 导出的**正式样本集**而不是十字图样，验证 RTL 推理结果与 Python 建模的 `predicted_class` 一致。
+- 覆盖完整带权重路径：`data_sram -> DMA -> CIM weighted model -> ADC diff -> LIF -> output_fifo`。
+- 这是进入 tapeout 前数值一致性检查的关键门禁，不再只看“链路通不通”，而是看“分类结果是否与软件参考口径一致”。
+
+### 4.2 前置条件
+
+需要同时具备两类导出物：
+
+- 权重：`weight_pos.hex` / `weight_neg.hex`
+- 样本：`all_samples.hex` / `expected_classes.hex`
+
+脚本默认自动发现规则：
+
+1. 若设置了 `WEIGHT_SRC_DIR` / `STIMULUS_DIR`，优先使用显式目录。
+2. 否则在仓库内自动搜索任意 `results/exports/` 与 `rtl_stimulus/` 目录，并优先跳过 `backups/`。
+3. 若样本或权重被临时复制到 `sim/`，脚本也会接受当前目录下的同名文件。
+
+### 4.3 运行命令
+
+```bash
+cd sim
+bash run_sample_align.sh
+```
+
+调试时可缩小样本数：
+
+```bash
+cd sim
+bash run_sample_align.sh +SAMPLE_COUNT=8
+```
+
+若需要显式指定资源目录：
+
+```bash
+cd sim
+WEIGHT_SRC_DIR="../项目相关文件/器件对齐/Python建模/results/exports" \
+STIMULUS_DIR="../项目相关文件/器件对齐/Python建模/results/exports/rtl_stimulus" \
+bash run_sample_align.sh
+```
+
+### 4.4 预期输出与通过标准
+
+正常通过时，日志会逐样本打印：
+
+- `expected_python_class=<n>`
+- `OUT_FIFO_COUNT=<m>`
+- `PASS (predicted=<x> expected=<x>)`
+
+最终必须看到：
+
+```text
+SAMPLE_ALIGN_PASS (100/100 samples matched)
+```
+
+通过标准：
+
+1. `SAMPLE_ALIGN_PASS` 出现
+2. 默认正式语料下为 `100/100`
+3. 无任何 `[FAIL]` 或 `[ERR]` 打印
+4. 若只跑子集调试，子集内所有样本也必须全部匹配
+
+### 4.5 常见问题
+
+| 症状 | 可能原因 | 排查方法 |
+|------|---------|---------|
+| `weight_pos.hex / weight_neg.hex not found` | 权重目录未被自动扫描到 | 手动设 `WEIGHT_SRC_DIR=<路径>` |
+| `Stimulus files not found` | `rtl_stimulus/` 导出物不存在或目录不对 | 先重新导出样本，再设 `STIMULUS_DIR=<路径>` |
+| `all_samples.hex has only ... planes` | 样本平面数与 `expected_classes.hex` 不匹配 | 检查 Python 导出脚本是否完整跑完 |
+| 子集能过、100 样本不过 | 个别样本数值口径漂移 | 先用 `+SAMPLE_COUNT=<n>` 缩小范围，再对照 Python 端对应样本日志 |
+
+## 5. SVA 断言说明
 
 项目中在两个模块埋入了 SVA 断言，用 `` `ifdef VCS `` 保护，仅在 VCS 仿真时启用：
 
@@ -591,7 +667,7 @@ bash run_verdi_weighted.sh
 
 ---
 
-## 5. 故障排查指南
+## 6. 故障排查指南
 
 ### 5.1 通用问题
 
@@ -630,7 +706,7 @@ bash run_verdi_weighted.sh
 
 ---
 
-## 6. 最小通过标准汇总
+## 7. 最小通过标准汇总
 
 | 阶段 | 通过标准 | 工具 | 环境 |
 |------|---------|------|------|
@@ -642,7 +718,7 @@ bash run_verdi_weighted.sh
 
 ---
 
-## 7. 快速参考命令
+## 8. 快速参考命令
 
 ```bash
 # === 本机 Windows（Git Bash / MSYS2）===
@@ -678,7 +754,7 @@ grep -iE "error|fatal|assertion" sim/vcs_weighted_compile.log sim/vcs_weighted.l
 
 ---
 
-## 8. E203 V1 最小接入的验证标准补充
+## 9. E203 V1 最小接入的验证标准补充
 
 对于本轮 **最小面积 E203 接入**，当前判断是：**Icarus 验证已足够，暂不要求额外跑 VCS/Verdi**。
 

@@ -38,7 +38,8 @@
 - 若平台版本不同，可在 `sim/run_vcs.sh` 中调整 PLI 路径。
 - Windows 下请优先使用 Git for Windows 自带的 `bash.exe` / `sh.exe` 运行 `sim/*.sh`；不要直接用 `C:\Windows\System32\bash.exe`（WSL bash），否则可能找不到本机安装的 `iverilog` / `verilator`。
 - 若在 `bash`/WSL 中看到 `$'\r': command not found`，说明本地 checkout 把 `.sh` 脚本变成了 CRLF；仓库期望 `*.sh` 为 LF（见 `.gitattributes`），请先按 LF 重新检出后再运行。
-- 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下。
+- 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下；如需显式指定来源，可设置 `WEIGHT_SRC_DIR=<目录>`。
+- `run_sample_align.sh` 额外依赖 `all_samples.hex` / `expected_classes.hex`；脚本会在仓库内自动查找 `rtl_stimulus/` 目录，也可通过 `STIMULUS_DIR=<目录>` 强制指定。
 
 ## 常用回归入口
 > Windows 日常回归建议用 Git Bash；`run_e203_icarus.sh` 额外依赖 WSL 中可用的 `riscv64-unknown-elf-gcc / objcopy`。
