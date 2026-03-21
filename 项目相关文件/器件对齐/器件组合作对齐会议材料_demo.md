@@ -146,16 +146,23 @@ input_fifo 就绪后，对每一帧（TIMESTEPS 次，可重复同一张图以�
 ### 6.1 已实现（可仿真跑通 + 通过 lint）
 - 总线/寄存器映射（simple bus）
 - instr/data/weight SRAM（当前默认各 16KB）
-- DMA（固定路径：data_sram → input_fifo）
+- DMA（已支持 `data_sram -> input_fifo` 主路径，以及 `weight_sram / instr_sram` 两条额外写目标）
 - input_fifo / output_fifo（速率解耦与事件缓冲）
 - SNN 控制链：DAC_CTRL / CIM_CTRL / ADC_CTRL（含 10 路时分复用）
 - LIF 神经元：按 bitplane_shift 移位累加 + 阈值比较 + spike 输出
 - CIM Macro：仿真用行为模型（可复现输出），综合时为黑盒（替换真实宏）
-- TB/脚本：VCS+Verdi smoke test、Verilator lint
+- UART：`uart_ctrl` 已接入主线（TX 可用，RX 仍为 V1 占位）
+- SPI：`spi_ctrl` 已接入主线（Mode 0 master，含 Flash model / TB）
+- JTAG：已接入最小 `jtag_mem_loader` rescue 通路，可访问三块 SRAM 并控制 CPU 局部 reset hold
+- E203：wrapper + bootloader / SPI boot / UART printf / bare-metal smoke 已接入主线
+- TB/脚本：Icarus 单测/顶层回归、sample-align、E203 / JTAG rescue 回归、Verilator lint
 
-### 6.2 未实现/占位（V1 完整版要补）
-- UART/SPI/JTAG：目前是 stub（占位，不做真实协议）
-- CPU(E203) + AXI-Lite 总线：规划中，后续接入以支持固件/外部 Flash 启动
+### 6.2 当前仍是预留/后续增强项
+- UART：RX 路径仍为 V1 占位；若要完整串口收发，再补 RX FIFO / 中断 / 更完整寄存器语义
+- SPI：当前仅收口 Mode 0 主控；Mode 3、更多缓冲/事务能力仍是增强项
+- JTAG：当前是最小 rescue loader，不是标准 vendor debug module / OpenOCD 全功能调试链
+- AXI-Lite：bridge 与 TB 已完成，但尚未替换主线 simple bus 成为默认系统总线
+- FPGA / tapeout 真正收口仍需补 pad library、后端、DFT、板级 bring-up 等非 RTL 工作
 
 ---
 

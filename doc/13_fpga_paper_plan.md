@@ -220,8 +220,8 @@ FPGA:  cim_macro_fpga.sv       →  BRAM 权重 + 数字 MAC + 可选噪声
 ### 3.3 迭代路径（两条线并行）与当前进度
 
 > **重要说明**：下表的"当前状态"按当前 `main` 口径更新。
-> `main` 已集成 `uart_ctrl`（TX only）与 AXI-Lite bridge 独立脚手架；
-> `spi` 仍停留在 stub，E203 顶层接入也尚未完成。
+> `main` 已集成 `uart_ctrl`（TX only）、`spi_ctrl`、最小 `jtag_mem_loader` 与 E203 顶层接入；
+> AXI-Lite bridge 也已具备独立脚手架与 TB 回归，但尚未替换主线 simple bus。
 
 ```
 ASIC 主线                               FPGA 论文兜底线
@@ -233,7 +233,7 @@ ASIC 主线                               FPGA 论文兜底线
 
 ② UART TX                               共用
    状态：已合并到 main
-   完成：uart_ctrl.sv + TB (PASS=12, FAIL=0，含 busy-ignore 与 CTRL 生效时序检查，寄存器映射已对齐 stub)
+   完成：uart_ctrl.sv + TB (PASS=12, FAIL=0，含 busy-ignore 与 CTRL 生效时序检查，寄存器映射已对齐主线 MMIO 口径)
    当前限制：RX 路径仍为 V1 占位，若需要完整串口收发再继续扩展
 
 ③ SPI Master                             共用
@@ -242,10 +242,14 @@ ASIC 主线                               FPGA 论文兜底线
    当前限制：V1 仅实现 Mode 0，Mode 3 与更深缓冲留待后续版本
 
 ④ DMA 扩展                               共用
-   状态：未开始
+   状态：已合并到 main
+   完成：DMA 现已支持 `INPUT_FIFO / WEIGHT_SRAM / INSTR_SRAM` 三路目标，相关 TB 已覆盖奇偶长度、越界、backpressure 与 busy 期间写保护
+   当前限制：正式推理默认主路径仍是 `data_sram -> dma_engine -> input_fifo`
 
 ⑤ E203 接入                              共用
-   状态：未开始（依赖 ①②③④ 全部合并到 main）
+   状态：已合并到 main
+   完成：`e203_min_wrap.sv` + `icb2simple_bridge.sv` + bootloader / SPI boot / UART printf / bare-metal smoke，专用 Icarus TB 已通过
+   当前限制：当前主线仍以 simple bus 为主；AXI-Lite bridge 还未切成 E203 的默认系统总线
                                           │
                                           ▼
                                     ⑥ cim_macro_fpga.sv（替换 blackbox）

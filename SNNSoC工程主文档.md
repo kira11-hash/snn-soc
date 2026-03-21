@@ -397,9 +397,9 @@ main                    # 主分支：始终保持可流片状态
 
 | ⑧ | UART 控制器 (与PC通信) | ✅ 已接入（TX 可用，RX 占位） | ✅ 已落地 |
 
-> 当前 `main` 的事实口径：`uart_ctrl`、`spi_ctrl`、E203 wrapper 已接入主线并有独立回归；UART 当前是 TX-only，RX 仍为 V1 占位；JTAG 仍为 stub。
+> 当前 `main` 的事实口径：`uart_ctrl`、`spi_ctrl`、`jtag_mem_loader`、E203 wrapper 已接入主线并有独立回归；UART 当前是 TX-only，RX 仍为 V1 占位；JTAG 当前是最小 rescue loader，而不是 vendor debug module。
 
-| ⑨ | JTAG 接口 | ❌ 仅 stub | 🟡 可后期 |
+| ⑨ | JTAG 接口 | ✅ 已接入最小 rescue loader | 🟡 vendor DM / 全功能调试可后期 |
 
 | ⑩ | 输入 Spike FIFO 256×64bit | ✅ 有 | ✅ 匹配 |
 
@@ -561,15 +561,15 @@ rtl/bus/axi2simple_bridge.sv ← 可选：桥接现有slave
 **剩余工作量**：以收口与精简为主，不再是“从 0 到 1”的集成工作。
 
 ---
-### **改进 6：JTAG 调试接口** 🟢 优先级最低
+### **改进 6：JTAG 调试接口** 🟡 最小救援通路已落地，完整 debug 可后期增强
 
-**原因**：E203 自带 JTAG，集成 Core 时一并处理即可
+**原因**：当前 tapeout 前必须保留板级救援/回写能力，但不必在本轮同时引入 vendor DM / OpenOCD 全栈复杂度。
 
-**当前状态**：`jtag_stub.sv` 空壳
+**当前状态**：主线已接入 `jtag_mem_loader.sv`，支持 `instr_sram / data_sram / weight_sram` 访问、`cpu_reset_hold` 与超时释放；`jtag_stub.sv` 仅作为历史兼容文件保留。
 
-**添加时机**：阶段 5（与 E203 集成同步处理）
+**当前口径**：最小 rescue loader 已通过单测与顶层回归，可支撑 bring-up / rescue / live patch；若后续需要标准 RISC-V debug，再单独扩展 vendor DM 路线。
 
-**处理方式**：集成 E203 时直接使用其 JTAG 模块
+**后续增强项**：OpenOCD 兼容、断点/单步、更多 CPU 控制语义，以及与板级调试流程的一体化收口。
 
 ---
 ### **改进 7：中断支持 (IRQ)** 🟡 优先级中（E203 集成阶段同步添加）
