@@ -13,6 +13,7 @@
 - **把本文当主线，但不要当唯一真源**。它负责给你学习顺序，不负责覆盖所有最新收口信息。
 - **当前阶段只先完成 Part A（阶段 A-E）**。先把现有 MVP 主链路、寄存器、TB、回归方式吃透，再进入 Part B 的 UART / SPI / AXI / E203 扩展内容。
 - **项目现状与阶段性收口信息**，优先参考 `doc/11_analog_handoff_execution_plan.md`。
+- **当前主线的已通过回归基线与执行命令**，优先参考 `doc/09_smoke_test_checklist.md`，不要只凭 Part B 的“应学内容”判断主线是否已经收口。
 - **ASIC pad / pin 真源**，以 `doc/15_asic_pad_map.md` 为准，不再以旧文档里的零散 pin 算术为准。
 - **数模接口与板级约束口径**，以 `doc/08_cim_analog_interface.md` 为准。
 - **对齐验证链路**，重点看 `tb/top_tb_sample_align.sv`、`sim/run_sample_align.sh`、`项目相关文件/器件对齐/Python建模/export_expected_spike_ids.py` 这三处。
@@ -905,6 +906,11 @@ ST_IDLE ──tx_valid──> ST_START ──> ST_DATA(×8) ──> ST_STOP ─�
 | [tb/uart_tb.sv](../tb/uart_tb.sv) | T1~T8 独立烟雾测试 |
 | `sim/run_uart_icarus.sh` | 运行脚本，PASS 标准 `UART_SMOKETEST_PASS` |
 
+> **当前口径提醒**：
+> `uart_ctrl` 上电默认 `baud_div=434`，这是 50MHz / 115200 的硬件口径。
+> 但 `run_e203_icarus.sh` 和 `run_jtag_rescue_top_icarus.sh` 为了缩短 Icarus 仿真时间，会在构建固件时临时覆盖 `UART_BAUD_DIV=2`。
+> 这只影响仿真 smoke 固件，不代表板级 bring-up 或真实芯片的推荐串口配置。
+
 ### 检验标准
 
 - [ ] 115200 波特率在 50MHz 时钟下的分频系数是多少？
@@ -1060,6 +1066,10 @@ bus_interconnect (地址译码)
 | [fw/include/soc_regs.h](../fw/include/soc_regs.h) | 寄存器地址头文件 |
 | [tb/e203_tb.sv](../tb/e203_tb.sv) | E203 专用 TB |
 | `sim/run_e203_icarus.sh` | 运行脚本，PASS 标准 `E203_SMOKETEST_PASS` |
+
+> **读固件时要注意两层口径**：
+> 启动链本身（bootloader → SPI 读镜像 → 跳转 app → DMA + SNN）是真实要检查的主线；
+> 其中 UART 分频值在 Icarus 脚本里会临时覆盖成 `2` 做仿真加速，而不是把真实 50MHz / 115200 目标改掉。
 
 ### 推荐资源
 

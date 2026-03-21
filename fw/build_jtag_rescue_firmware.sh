@@ -30,6 +30,9 @@ LDFLAGS=(
 )
 
 COMMON_CFLAGS=(-I"$SCRIPT_DIR")
+if [ -n "${UART_BAUD_DIV_OVERRIDE:-}" ]; then
+  COMMON_CFLAGS+=("-DUART_BAUD_DIV=${UART_BAUD_DIV_OVERRIDE}")
+fi
 
 "$CROSS"-gcc "${CFLAGS[@]}" "${COMMON_CFLAGS[@]}" -c "$SCRIPT_DIR/crt0.S" -o "$OUT_DIR/jtag_rescue_crt0.o"
 "$CROSS"-gcc "${CFLAGS[@]}" "${COMMON_CFLAGS[@]}" -c "$SCRIPT_DIR/uart_printf.c" -o "$OUT_DIR/jtag_rescue_uart_printf.o"

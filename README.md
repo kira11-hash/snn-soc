@@ -44,6 +44,7 @@
 
 ## 常用回归入口
 > Windows 日常回归建议用 Git Bash；`run_e203_icarus.sh` 额外依赖 WSL 中可用的 `riscv64-unknown-elf-gcc / objcopy`。
+> `run_e203_icarus.sh` / `run_jtag_rescue_top_icarus.sh` 会在构建固件时临时覆盖 `UART_BAUD_DIV=2` 以缩短 Icarus 仿真时间；`uart_ctrl` 的默认硬件口径仍是 `434`（50MHz / 115200）。
 
 - `cd sim && bash run_uart_icarus.sh`：UART 单测，期望 `UART_SMOKETEST_PASS`
 - `cd sim && bash run_spi_icarus.sh`：SPI 单测，期望 `SPI_SMOKETEST_PASS`

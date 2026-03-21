@@ -49,7 +49,7 @@ if [ ! -e ../rtl/vendor_e203 ]; then
 fi
 
 echo "[INFO] Building rescue firmware..."
-run_in_wsl "bash fw/build_jtag_rescue_firmware.sh" > jtag_rescue_top_fw_build.log 2>&1
+run_in_wsl "UART_BAUD_DIV_OVERRIDE=2u bash fw/build_jtag_rescue_firmware.sh" > jtag_rescue_top_fw_build.log 2>&1
 
 echo "[INFO] Compiling JTAG rescue top test (Icarus)..."
 run_iverilog -g2012 -gno-assertions \
