@@ -37,8 +37,8 @@ rm -f jtag_rescue_top_test jtag_rescue_top_compile.log jtag_rescue_top_sim.log
 
 CREATED_VENDOR_JUNCTION=0
 cleanup() {
-  if [ "$CREATED_VENDOR_JUNCTION" -eq 1 ] && [ -e ../rtl/vendor_e203 ]; then
-    cmd.exe /c "rmdir \"$VENDOR_ASCII_WIN\"" > /dev/null 2>&1 || true
+  if [ "$CREATED_VENDOR_JUNCTION" -eq 1 ]; then
+    MSYS2_ARG_CONV_EXCL='*' cmd.exe /c rmdir "$VENDOR_ASCII_WIN" > /dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
