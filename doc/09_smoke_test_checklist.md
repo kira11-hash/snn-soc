@@ -73,6 +73,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 
 补充说明：
 - `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 依赖 WSL 内可用的 `riscv64-unknown-elf-gcc / objcopy`。
+- `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 在构建固件时会显式传入 `UART_BAUD_DIV_OVERRIDE=2u`，仅用于缩短 Icarus 仿真时间；`uart_ctrl` 的默认硬件口径仍是 `434`（50MHz / 115200）。
 - `run_icarus_weighted.sh`、`run_sample_align.sh` 和 `run_vcs_weighted.sh` 会优先在仓库内自动搜索任意 `results/exports/` 目录下的 `weight_pos.hex / weight_neg.hex`（跳过 `backups/`），找不到时再回退到 `fpga/cim_model/` 或 `sim/`；如有多套导出物，建议显式设置 `WEIGHT_SRC_DIR=<目录>`。
 - `run_sample_align.sh` 还会自动搜索任意 `rtl_stimulus/` 目录下的 `all_samples.hex / expected_classes.hex`（同样跳过 `backups/`），必要时可显式设置 `STIMULUS_DIR=<目录>`。
 - 所有直接使用 `iverilog -f *.f` 的命令都默认**当前工作目录是 `sim/`**；如果从仓库根目录执行，请保留文档里的 `cd sim &&` 前缀，否则 `.f` 内相对路径会解析失败。
@@ -776,7 +777,7 @@ grep -iE "error|fatal|assertion" sim/vcs_weighted_compile.log sim/vcs_weighted.l
 
 - 关闭 `cache / ITCM / DTCM / JTAG / NICE / ECC / AMO / share-muldiv`
 - 覆盖 `RV32I + mem_icb + MMIO + SPI boot + DMA/SNN` 的最小 bare-metal 启动链
-- 固件通过 WSL 中的 `riscv64-unknown-elf-gcc / objcopy` 构建，`sim/run_e203_icarus.sh` 会先生成 `bootloader.hex` 与 `flash_image.hex` 再跑仿真
+- 固件通过 WSL 中的 `riscv64-unknown-elf-gcc / objcopy` 构建，`sim/run_e203_icarus.sh` 会先生成 `bootloader.hex` 与 `flash_image.hex` 再跑仿真；为缩短 Icarus 时间，脚本构建时默认临时覆盖 `UART_BAUD_DIV=2u`
 - 不涉及 Debug Module / JTAG 单步
 - 不做大规模 ISA regression，也不做复杂 assertion 收敛
 

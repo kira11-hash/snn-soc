@@ -47,7 +47,7 @@ if [ ! -e ../rtl/vendor_e203 ]; then
   CREATED_VENDOR_JUNCTION=1
 fi
 
-run_in_wsl "bash fw/build_e203_firmware.sh" > e203_fw_build.log 2>&1
+run_in_wsl "UART_BAUD_DIV_OVERRIDE=2u bash fw/build_e203_firmware.sh" > e203_fw_build.log 2>&1
 
 run_iverilog -g2012 -gno-assertions -f sim_e203.f -s e203_tb -o e203_smoke.out > e203_compile.log 2>&1
 run_vvp e203_smoke.out | tee e203_sim.log

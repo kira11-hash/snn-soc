@@ -102,7 +102,15 @@
 #define THRESHOLD_VALUE    2550u
 #define TIMESTEPS_VALUE    10u
 #define DMA_LEN_VALUE      (TIMESTEPS_VALUE * PIXEL_BITS_VALUE * 2u)
-#define UART_BAUD_DIV      2u
+/*
+ * Default board / FPGA bring-up UART divider:
+ *   50 MHz / 115200 ~= 434
+ * Icarus-only smoke scripts may override this at build time with
+ * -DUART_BAUD_DIV=<small value> to shorten simulation runtime.
+ */
+#ifndef UART_BAUD_DIV
+#define UART_BAUD_DIV      434u
+#endif
 
 #define BOOT_IMAGE_MAGIC   0x544F4F42u /* 'BOOT' */
 
