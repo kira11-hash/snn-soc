@@ -79,8 +79,8 @@ doc/   中文说明文档
 
 ## 关键说明
 - **参数口径**：所有默认参数与时序常量以 `rtl/top/snn_soc_pkg.sv` 为准，文档中的数值仅作说明与示例，若不一致请以 pkg 为准。
-- 当前工程冻结的 RTL / bring-up 参数：`ADC=8`、`PIXEL_BITS=8`、`T=10`、`ratio_code=1`、`THRESHOLD_DEFAULT=2550`、`reset_mode=soft`，默认离线压缩/预处理口径为 `avgpool8x8`。
-- `W=4` 仅属于历史训练/量化实验口径，用于解释部分建模结果；它不是当前 `rtl/top/snn_soc_pkg.sv` 中的冻结参数。
+- 当前工程冻结的 RTL / bring-up 参数：`NUM_INPUTS=64`、`ADC_BITS=8`、`PIXEL_BITS=8`、`ADC_CHANNELS=20`、`T=10`、`ratio_code=1`、`THRESHOLD_DEFAULT=2550`、`NEURON_DATA_WIDTH=9`、`reset_mode=soft`，默认离线压缩/预处理口径为 `avgpool8x8`。
+- `W=4`（4-bit 量化权重）仅属于 Python 训练/量化实验口径，用于解释建模结果中的权重精度；它**不是** RTL 冻结参数，`rtl/top/snn_soc_pkg.sv` 中无此定义。
 - 输入编码：当前默认离线压缩/预处理口径为 `avgpool8x8`，得到 8x8=64 维特征（NUM_INPUTS=64）、每维 8bit；RTL 仅冻结 64x8 接口，不在硬件中固化前处理算法。同一子时间步并行送 64 维特征的第 x 位，顺序为 MSB->LSB。
 - data_sram 排布：每个 bit-plane 为 64-bit，按 2 个 32-bit word 保存（word0=低32位，word1=高32位）。
 - TIMESTEPS 表示帧数；总子时间步 = TIMESTEPS × PIXEL_BITS。
@@ -129,6 +129,7 @@ doc/   中文说明文档
 | `doc/11_analog_handoff_execution_plan.md` | 数字→模拟接口对接文档（参数已冻结，供模拟团队参考） |
 | `doc/12_fpga_validation_guide.md` | FPGA 系统验证指南 |
 | `doc/13_fpga_paper_plan.md` | FPGA 验证平台方案 |
+| `doc/14_gemm_accelerator_plan.md` | 双模态 AI SoC（GEMM+SNN）扩展规划（V2/V3 远景） |
 | `doc/15_asic_pad_map.md` | **ASIC Pad Map（48 pad 冻结真源）** |
 | `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
 

@@ -74,6 +74,9 @@
   - `signed_in = $signed(neuron_in_data[i])` （9-bit 有符号差分值）
   - `addend = sign_extend(signed_in, 32) <<< bitplane_shift`（算术左移）
   - 累加到有符号膜电位，超过正阈值产生 spike
+- 膜电位复位行为由 `RESET_MODE`（reg offset 0x10）配置：
+  - `0`（soft，默认）：`V = V - Vth`，保留残余电位，当前工程冻结默认
+  - `1`（hard）：`V = 0`，可选项，经建模验证与 soft 等效（见 README §建模定版补充）
 
 ## bring-up 时最值得看的观察点
 

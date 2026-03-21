@@ -25,8 +25,8 @@
 |   0x1C | OUT_FIFO_DATA    | spike_id       | [3:0]   | RO  | 0                 | 读一次弹出一个 spike_id，空则返回 0（边沿检测 pop：一次总线读请求只触发一次 FIFO 弹出，即使 req_valid 保持多拍） |
 |   0x20 | OUT_FIFO_COUNT   | count          | [12:0]  | RO  | 0                 | 输出 FIFO 当前计数（有效位 [12:0]，其余为 0；默认深度 4096）                                 |
 |   0x24 | THRESHOLD_RATIO  | ratio          | [7:0]   | RW  | 8'd1              | 阈值比例（1/255≈0.00392，定版 ratio_code），供固件计算绝对阈值                              |
-|   0x28 | ADC_SAT_COUNT    | sat_high       | [15:0]  | RO  | 0                 | ADC 采样 == MAX (0xFF) 累计次数，每次推理自动清零                                       |
-|   0x28 | ADC_SAT_COUNT    | sat_low        | [31:16] | RO  | 0                 | ADC 采样 == 0 累计次数，每次推理自动清零                                                |
+|   0x28 | ADC_SAT_COUNT    | sat_high       | [15:0]  | RO  | 0                 | ADC 采样 == MAX (0xFF) 累计次数，CIM_CTRL.START 脉冲自动清零（见下方说明）                   |
+|   0x28 | ADC_SAT_COUNT    | sat_low        | [31:16] | RO  | 0                 | ADC 采样 == 0 累计次数，CIM_CTRL.START 脉冲自动清零（见下方说明）                            |
 |   0x2C | CIM_TEST         | test_mode      | [0]     | RW  | 0                 | CIM 测试模式使能（1=旁路模拟宏，用数字假响应）                                               |
 |   0x2C | CIM_TEST         | test_data_pos  | [15:8]  | RW  | 0                 | 测试模式下正通道（ch 0~9）bl_data 返回值（8-bit）                                       |
 |   0x2C | CIM_TEST         | test_data_neg  | [23:16] | RW  | 0                 | 测试模式下负通道（ch 10~19）bl_data 返回值（8-bit）；令 pos≠neg 使差分非零，可验证 LIF 全链路         |
@@ -41,6 +41,7 @@
 - CIM_TEST：硅上测试模式。写 test_mode=1 后，数字侧生成 fake CIM/ADC 响应（cim_done 延迟 2 拍, adc_done 延迟 1 拍）；bl_data 按 bl_sel 分路返回：ch 0~9 返回 test_data_pos，ch 10~19 返回 test_data_neg；DAC 阶段仍按固定 `DAC_LATENCY_CYCLES` 时序运行（无 `dac_ready` 握手）。用于不依赖真实 RRAM 宏验证数字逻辑完整性。
 - 推荐写法（全链路自检）：写 `test_mode=1, test_data_pos=100, test_data_neg=0`，Scheme B 差分 = 100；按当前默认 `T=10` 推理后 `OUT_FIFO_COUNT` 应明显非零（验证 DMA→FIFO→FSM→ADC→LIF→输出FIFO 全通路）。若只想做更快冒烟，也可先将 `TIMESTEPS` 软件写成更小值。单写 `REG_CIM_TEST = 32'h0000_6401`（wstrb=4'b0111）即可同时配置三字段。
 - 用途边界：CIM_TEST 仅用于时序/通路自检，不用于分类数值链路正确性验证（差分结果非真实权重，推理结果无意义）。**双芯片 bring-up 场景下，CIM_TEST 是验证数字芯片独立工作的首选手段**——不需要模拟芯片即可确认数字链路完整性。
+- ADC_SAT_COUNT 清零时机：每次写 `CIM_CTRL.START=1` 启动新一轮推理时，硬件自动将 `sat_high` 和 `sat_low` 归零（`cim_array_ctrl` 在 `start_pulse` 时执行清零）。因此每次推理结束后读到的值仅反映**本轮推理**期间的饱和采样数。计数器为 16-bit，最大值 65535（饱和，不回绕）。`rst_n` 也会清零。
 - DBG_CNT_0/1：16-bit 饱和计数器，仅 rst_n 清零。用于运行时诊断 DMA 搬运量、推理耗时、spike 输出量、WL mux 协议违规。
 - OUT_FIFO_DATA 的 pop 机制（2026-03-15 修复）：采用**边沿检测**——`reg_bank.sv` 内部用 `out_data_read_seen` 标志确保一次总线读请求只触发一次 FIFO 弹出。此修复解决了原电平检测方案下 `bus_read()` task 的 `m_valid` 保持 2 拍导致多次 pop 的问题（Step 3.4 根因）。
 

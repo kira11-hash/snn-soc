@@ -59,6 +59,18 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | Shell 语法检查 | `bash -n sim/*.sh fw/*.sh` | 全部通过 |
 | Python 语法检查 | `python -m py_compile scripts\\jtag_rescue.py scripts\\test_jtag_rescue.py fw\\bin_to_readmemh.py fw\\build_flash_image.py doc\\threshold_recommend.py` | 全部通过 |
 
+### 参数覆盖说明
+
+上述全量回归均使用冻结默认配置（T=10, ratio=1, reset_mode=soft）。当前 V1 仅冻结单一参数点，不做参数扫描。如需在 bring-up 阶段做额外验证，可手动修改 TB 中的 `TIMESTEPS` / `THRESHOLD` 值进行快速冒烟，但**正式回归以冻结配置为准**。
+
+| 测试 | 基线配置 | 可选手动变参 |
+|------|----------|-------------|
+| LIGHT_SMOKETEST | T=10, ratio=1, test_mode | T∈{3,5} 快速冒烟 |
+| WEIGHTED_SIM | T=10, ratio=1 | 改 threshold 后验证输出变化合理 |
+| SAMPLE_ALIGN | T=10, ratio=1, 100 样本 | 固定配置，不做变参 |
+| ADC_SAT_COUNTER | T=2+1, test_data_pos=0xFF | 固定配置 |
+| E203_SMOKETEST | T=10, ratio=1 | 固定配置 |
+
 补充说明：
 - `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 依赖 WSL 内可用的 `riscv64-unknown-elf-gcc / objcopy`。
 - `run_icarus_weighted.sh`、`run_sample_align.sh` 和 `run_vcs_weighted.sh` 会优先在仓库内自动搜索任意 `results/exports/` 目录下的 `weight_pos.hex / weight_neg.hex`（跳过 `backups/`），找不到时再回退到 `fpga/cim_model/` 或 `sim/`；如有多套导出物，建议显式设置 `WEIGHT_SRC_DIR=<目录>`。

@@ -20,7 +20,7 @@
 | --- | --- | --- | --- | --- |
 | `instr_sram` | E203 bootloader / rescue 指令区 | TB、JTAG rescue loader | E203 IFU | 当前 `run_e203_icarus.sh` 和 `run_jtag_rescue_top_icarus.sh` 都会实际使用 |
 | `data_sram` | 推理 bit-plane 暂存区；E203 app 装载区 | TB、E203 bootloader、JTAG rescue loader | DMA、E203 LSU | 当前主线默认 DMA 源窗口 |
-| `weight_sram` | 保留/调试窗口，支持 live patch | DMA（`DST_SEL=WEIGHT_SRAM`）、JTAG rescue loader | 调试逻辑、后续扩展 | 不是当前正式推理默认输入路径 |
+| `weight_sram` | V1 保留/调试窗口，支持 live patch | DMA（`DST_SEL=WEIGHT_SRAM`）、JTAG rescue loader | 调试逻辑、V2 权重缓存扩展 | V1 不参与正式推理数据流；V2 计划用于片上权重缓存 |
 
 ## MMIO 窗口职责
 
