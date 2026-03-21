@@ -852,6 +852,9 @@ pop = popcount(wl_latched)  // 0-64（在 dac_valid 单拍触发后锁存）
 
 **前置条件**: Part A 检验清单全部通过
 
+> **注意**：Part B 的阶段 9–14 既介绍协议原理，也会指引你去读当前 `main` 分支上已完成的 V1 实现。每个阶段的"实际实现参考"小节列出了对应的 RTL/TB/脚本文件，建议结合代码阅读。
+> 迭代变更详情见 `doc/16_iteration_log.md`（Iteration 1–7）。
+
 ---
 
 ## 阶段 9：UART 外设设计（Day 15-17）
@@ -892,11 +895,22 @@ ST_IDLE ──tx_valid──> ST_START ──> ST_DATA(×8) ──> ST_STOP ─�
 - 采样点在位中心（半位时间延迟）
 - RX FIFO 缓冲
 
+### 实际实现参考
+
+当前 `main` 分支上的 UART 实现：
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/periph/uart_ctrl.sv](../rtl/periph/uart_ctrl.sv) | TX 4态FSM（IDLE/START/DATA/STOP），baud_div 可配，RX V1 占位 |
+| [tb/uart_tb.sv](../tb/uart_tb.sv) | T1~T8 独立烟雾测试 |
+| `sim/run_uart_icarus.sh` | 运行脚本，PASS 标准 `UART_SMOKETEST_PASS` |
+
 ### 检验标准
 
 - [ ] 115200 波特率在 50MHz 时钟下的分频系数是多少？
 - [ ] 为什么 RX 要在位中心采样？
 - [ ] UART TX 发送一个字节需要多少个波特周期？
+- [ ] 阅读 `uart_ctrl.sv` 并与上面的协议框架对比，理解 `baud_div=0` 钳位防御
 
 ---
 
@@ -928,11 +942,23 @@ ST_IDLE ──tx_valid──> ST_START ──> ST_DATA(×8) ──> ST_STOP ─�
 ST_IDLE ──> ST_CS_LOW ──> ST_TRANSFER(×8) ──> ST_CS_HIGH ──> ST_IDLE
 ```
 
+### 实际实现参考
+
+当前 `main` 分支上的 SPI 实现：
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/periph/spi_ctrl.sv](../rtl/periph/spi_ctrl.sv) | SPI Master（Mode 0，3态FSM，8-bit 全双工，软件控 CS，baud_div 7级） |
+| [tb/spi_flash_model.sv](../tb/spi_flash_model.sv) | SPI Flash 行为模型（RDID/READ，64KB 窗口） |
+| [tb/spi_tb.sv](../tb/spi_tb.sv) | T1~T3+T1b 独立烟雾测试 |
+| `sim/run_spi_icarus.sh` | 运行脚本，PASS 标准 `SPI_SMOKETEST_PASS` |
+
 ### 检验标准
 
 - [ ] SPI Mode 0 和 Mode 3 的区别是什么？
 - [ ] 为什么 SPI 比 UART 快？
 - [ ] 如何读取 Flash 的 JEDEC ID？
+- [ ] 阅读 `spi_ctrl.sv`，理解 `clk_div=0+spi_en=1` 安全钳位机制
 
 ---
 
@@ -960,15 +986,28 @@ valid 一旦拉高，在 ready 之前不能撤销
 ### 11.3 AXI to Simple Bridge
 
 **为什么需要桥接**:
-- E203 使用 AXI 接口
+- 外部调试/测试主机可能使用 AXI-Lite 接口
 - 现有 slave 使用 simple 接口
 - 桥接器转换协议，保持 slave 不变
+
+> **V1 实际架构**：E203 使用的是 ICB（Internal Coherent Bus）而非 AXI。当前 `main` 分支采用 **ICB→simple 直桥**（`icb2simple_bridge.sv`）而非 ICB→AXI→simple 双桥路径，减少一层协议转换面积和时序负担。AXI-Lite bridge（`axi2simple_bridge.sv`）作为独立模块已验证通过，可供后续需要 AXI 接入时复用。
+
+### 实际实现参考
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/bus/axi_lite_if.sv](../rtl/bus/axi_lite_if.sv) | AXI4-Lite SystemVerilog interface 定义 |
+| [rtl/bus/axi2simple_bridge.sv](../rtl/bus/axi2simple_bridge.sv) | AXI-Lite → bus_simple 协议转换桥（5态FSM） |
+| [rtl/bus/icb2simple_bridge.sv](../rtl/bus/icb2simple_bridge.sv) | ICB → bus_simple 直桥（V1 E203 主路径） |
+| [tb/axi_bridge_tb.sv](../tb/axi_bridge_tb.sv) | T1~T13 端到端测试 |
+| `sim/run_axi_bridge_icarus.sh` | 运行脚本，PASS 标准 `AXI_BRIDGE_SMOKETEST_PASS` |
 
 ### 检验标准
 
 - [ ] AXI-Lite 有几个通道？各有什么作用？
 - [ ] valid/ready 握手的规则是什么？
 - [ ] 为什么选择 AXI-Lite 而不是完整 AXI4？
+- [ ] V1 为什么最终用 ICB→simple 直桥而非 AXI 双桥？
 
 ---
 
@@ -985,27 +1024,42 @@ valid 一旦拉高，在 ready 之前不能撤销
 | 流水线 | 2 级 |
 | 开源协议 | Apache 2.0 |
 
-### 12.2 E203 集成架构
+### 12.2 E203 集成架构（V1 实际实现）
 
 ```
-E203 Core
-    ↓ (ICB)
-ICB-to-AXI Bridge
-    ↓ (AXI-Lite)
-AXI Interconnect
+E203 Core (e203_min_wrap.sv)
+    ↓ mem_icb
+ICB-to-Simple Bridge (icb2simple_bridge.sv)
+    ↓ bus_simple
+bus_interconnect (地址译码)
     ↓
-各个 Slave（SRAM、寄存器、外设）
+各个 Slave（instr_sram / data_sram / weight_sram / reg_bank / dma / uart / spi / fifo_regs）
 ```
 
-### 12.3 启动流程
+> V1 采用 ICB→simple **直桥**，不经过 AXI。`e203_min_wrap.sv` 关闭 JTAG/ITCM/DTCM/NICE/ECC/AMO/share-muldiv，仅保留 RV32I 主路径与 `mem_icb`。PPI/CLINT/PLIC/FIO 全部接到 `icb_err_slave`。
+
+### 12.3 启动流程（V1 实际实现）
 
 ```
 1. 上电复位
-2. E203 从 0x0 取第一条指令
-3. 执行 bootloader（初始化堆栈、BSS）
-4. 跳转到 main()
-5. main() 控制 SNN 推理
+2. E203 从 0x0000_0000 取第一条指令 → bootloader（预加载在 instr_sram）
+3. bootloader: UART 输出 "BL start" → SPI RDID → SPI READ header + app payload
+4. bootloader: 将 app 装载到 data_sram @ 0x0001_0000 → fence.i → 跳转
+5. app: UART 输出 "APP start" → DMA + SNN 推理 → UART 输出结果
 ```
+
+### 实际实现参考
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/top/e203_min_wrap.sv](../rtl/top/e203_min_wrap.sv) | E203 最小包装层 |
+| [rtl/bus/icb2simple_bridge.sv](../rtl/bus/icb2simple_bridge.sv) | ICB→simple 直桥 |
+| [rtl/bus/icb_err_slave.sv](../rtl/bus/icb_err_slave.sv) | ICB 错误应答从设备 |
+| [fw/boot_main.c](../fw/boot_main.c) | bootloader 源码 |
+| [fw/main.c](../fw/main.c) | app 固件源码 |
+| [fw/include/soc_regs.h](../fw/include/soc_regs.h) | 寄存器地址头文件 |
+| [tb/e203_tb.sv](../tb/e203_tb.sv) | E203 专用 TB |
+| `sim/run_e203_icarus.sh` | 运行脚本，PASS 标准 `E203_SMOKETEST_PASS` |
 
 ### 推荐资源
 
@@ -1014,9 +1068,10 @@ AXI Interconnect
 
 ### 检验标准
 
-- [ ] E203 支持哪些 RISC-V 指令集扩展？
+- [ ] E203 支持哪些 RISC-V 指令集扩展？（V1 裁剪后只用 RV32I）
 - [ ] ICB 总线和 AXI 总线的区别是什么？
 - [ ] E203 复位后从哪个地址开始执行？
+- [ ] 为什么 V1 用 ICB→simple 直桥而不是 ICB→AXI→simple 双桥？
 
 ---
 
@@ -1071,6 +1126,58 @@ int snn_wait_done(void) {
 
 ---
 
+## 阶段 14：DMA 多目标与 JTAG 救援通路（Day 30-32）
+
+**目标**: 理解 DMA 扩展后的多目标路由机制，以及 JTAG 救援通路的设计与使用
+
+### 14.1 DMA 多目标扩展
+
+V1 的 DMA 新增了 `DMA_DST_SEL` 寄存器，支持三种目标：
+
+| `DST_SEL[1:0]` | 目标 | 行为 |
+|---|---|---|
+| `2'b00` | `input_fifo` | 每两个 word 拼成 64-bit push（原有行为） |
+| `2'b01` | `weight_sram` | 逐 word 写入，允许奇数长度 |
+| `2'b10` | `instr_sram` | 逐 word 写入，允许奇数长度 |
+
+FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `RD0→WR`。
+
+### 14.2 JTAG 救援通路
+
+当 CPU/bootloader/SPI 启动失败时，JTAG rescue loader 提供独立的直写 SRAM + CPU 重启能力。
+
+**TAP 指令**:
+
+| IR (4-bit) | 名称 | 说明 |
+|---|---|---|
+| `4'h1` | IDCODE | 返回 `32'hE203_0001` |
+| `4'h2` | MEMACC | 读写 `instr/data/weight_sram`，MMIO 一律返回 `err=1` |
+| `4'h3` | CPUCTL | `cpu_reset_hold`：只复位 CPU+bridge，不影响 SRAM/SNN/外设 |
+| `4'hF` | BYPASS | 标准 bypass |
+
+**仲裁策略**: JTAG 等待 `cpu_bridge_busy=0` 后接管；256 周期超时自动触发 `jtag_timeout_force`。
+
+### 实际实现参考
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/dma/dma_engine.sv](../rtl/dma/dma_engine.sv) | DMA 多目标扩展（`DST_SEL`、`ST_WR` 状态） |
+| [rtl/periph/jtag_mem_loader.sv](../rtl/periph/jtag_mem_loader.sv) | 自定义 4-wire JTAG TAP |
+| [tb/dma_tb.sv](../tb/dma_tb.sv) | DMA 独立 TB（T1~T10） |
+| [tb/jtag_mem_loader_tb.sv](../tb/jtag_mem_loader_tb.sv) | JTAG 单元测试 |
+| [tb/jtag_rescue_top_tb.sv](../tb/jtag_rescue_top_tb.sv) | JTAG 系统级测试 |
+| [scripts/jtag_rescue.py](../scripts/jtag_rescue.py) | Python 主机侧工具 |
+| [doc/05_debug_guide.md](05_debug_guide.md) | JTAG 调试/救援指南 |
+
+### 检验标准
+
+- [ ] DMA 的 `DST_INPUT_FIFO` 和 `DST_WEIGHT_BUF` 路径有什么区别？为什么 `DST_INPUT_FIFO` 要求偶数长度？
+- [ ] JTAG rescue 可以访问哪些地址范围？MMIO 访问会发生什么？
+- [ ] `cpu_reset_hold` 复位 CPU 后，SRAM/SNN/外设状态会被影响吗？
+- [ ] 256 周期超时机制解决什么问题？
+
+---
+
 ## Part B 时间规划
 
 | 天数 | 内容 | 时长 |
@@ -1080,8 +1187,9 @@ int snn_wait_done(void) {
 | Day 21-24 | AXI-Lite 总线 | 8-10h |
 | Day 25-27 | E203 集成 | 6-8h |
 | Day 28-29 | 固件开发 | 4-6h |
+| Day 30-32 | DMA 多目标 + JTAG 救援 | 6-8h |
 
-**Part B 总计约 2 周**，每天投入 3-4 小时。
+**Part B 总计约 2.5 周**，每天投入 3-4 小时。
 
 ---
 
@@ -1105,6 +1213,6 @@ int snn_wait_done(void) {
 
 ---
 
-*最后更新：2026-01-30*
+*最后更新：2026-03-21*
 
 **学习建议**：Part A 必须完全掌握后再开始 Part B。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。

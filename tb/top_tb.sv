@@ -444,14 +444,14 @@ module top_tb;
     // 写 REG_THRESHOLD（0x4000_0000）：使用 snn_soc_pkg 中的默认值
     // THRESHOLD_DEFAULT 来自 snn_soc_pkg，确保与包参数一致
     // 1) 配置阈值与时步
-    bus_write32(32'h4000_0000, THRESHOLD_DEFAULT, 4'hF); // THRESHOLD
+    bus_write32(ADDR_REG_BASE + 32'h00, THRESHOLD_DEFAULT, 4'hF); // THRESHOLD
     // 写 REG_TIMESTEPS（0x4000_0004）：frames=TIMESTEPS_DEFAULT=10（工程默认），使用 wstrb=4'h1 只写 byte0
-    bus_write32(32'h4000_0004, frames,   4'h1); // TIMESTEPS
+    bus_write32(ADDR_REG_BASE + 32'h04, frames,   4'h1); // TIMESTEPS
 
     // 读 REG_THRESHOLD_RATIO（0x4000_0024）：验证默认值
     // 期望值 = THRESHOLD_RATIO_DEFAULT = 1（ratio_code=1，1/255≈0.00392，定版锁定）
     // 读回 THRESHOLD_RATIO 验证默认值
-    bus_read32(32'h4000_0024, rd);
+    bus_read32(ADDR_REG_BASE + 32'h24, rd);
     $display("[TB] THRESHOLD_RATIO = %0d (expected %0d)", rd[7:0], THRESHOLD_RATIO_DEFAULT);
 
     // =======================================================================
@@ -487,8 +487,8 @@ module top_tb;
         word1 = plane_vec[63:32];  // 高 32-bit（像素 32~63 的第 b 位）
         // 写入 data_sram（物理地址 0x0001_0000 = data_sram 基址）
         // 步长：每个 bit-plane 占 8 字节（= write_idx * 8）
-        bus_write32(32'h0001_0000 + write_idx*8,     word0, 4'hF);
-        bus_write32(32'h0001_0000 + write_idx*8 + 4, word1, 4'hF);
+        bus_write32(ADDR_DATA_BASE + write_idx*8,     word0, 4'hF);
+        bus_write32(ADDR_DATA_BASE + write_idx*8 + 4, word1, 4'hF);
         write_idx++;
       end
     end
@@ -510,14 +510,14 @@ module top_tb;
     //   do-while 轮询：每次读 DMA_CTRL，直到 bit[1]=1
     // =======================================================================
     // 3) Start DMA
-    bus_write32(32'h4000_0100, 32'h0001_0000, 4'hF); // DMA_SRC_ADDR = data_sram 起始物理地址
-    bus_write32(32'h4000_0104, frames*PIXEL_BITS*2, 4'hF); // DMA_LEN_WORDS = frames*PIXEL_BITS*2
-    bus_write32(32'h4000_0108, 32'h1,         4'h1); // DMA_CTRL.START W1P：bit[0]=1 触发
+    bus_write32(ADDR_DMA_BASE + 32'h00, ADDR_DATA_BASE, 4'hF); // DMA_SRC_ADDR = data_sram 起始物理地址
+    bus_write32(ADDR_DMA_BASE + 32'h04, frames*PIXEL_BITS*2, 4'hF); // DMA_LEN_WORDS = frames*PIXEL_BITS*2
+    bus_write32(ADDR_DMA_BASE + 32'h08, 32'h1,         4'h1); // DMA_CTRL.START W1P：bit[0]=1 触发
 
     // 轮询 DMA DONE
     // rd[1] = DMA_CTRL.DONE（bit[1]）；= 1 时 DMA 完成
     do begin
-      bus_read32(32'h4000_0108, rd);
+      bus_read32(ADDR_DMA_BASE + 32'h08, rd);
     end while (rd[1] == 1'b0);
 
     // =======================================================================
@@ -529,12 +529,12 @@ module top_tb;
     //   本 TB 在读到 DONE=1 后不清零（留供诊断，$finish 后自然消失）
     // =======================================================================
     // 4) 启动 CIM 推理
-    bus_write32(32'h4000_0014, 32'h1, 4'h1); // CIM_CTRL.START W1P：bit[0]=1 触发推理
+    bus_write32(ADDR_REG_BASE + 32'h14, 32'h1, 4'h1); // CIM_CTRL.START W1P：bit[0]=1 触发推理
 
     // 轮询 CIM DONE（bit7）
     // rd[7] = CIM_CTRL.DONE（done_sticky）；= 1 时推理完成
     do begin
-      bus_read32(32'h4000_0014, rd);
+      bus_read32(ADDR_REG_BASE + 32'h14, rd);
     end while (rd[7] == 1'b0);
 
     // -----------------------------------------------------------------------
@@ -560,20 +560,20 @@ module top_tb;
     //   rd[23:16] = cim_test_data_neg（默认 0，ch 10~19）
     // -----------------------------------------------------------------------
     // 4b) 读取 ADC 饱和计数（诊断）
-    bus_read32(32'h4000_0028, rd);
+    bus_read32(ADDR_REG_BASE + 32'h28, rd);
     $display("[TB] ADC_SAT_COUNT = 0x%08X (sat_high=%0d, sat_low=%0d)",
              rd, rd[15:0], rd[31:16]);
 
     // 4c) 读取 Debug 计数器
-    bus_read32(32'h4000_0030, rd); // DBG_CNT_0
+    bus_read32(ADDR_REG_BASE + 32'h30, rd); // DBG_CNT_0
     $display("[TB] DBG_CNT_0 = 0x%08X (dma_frame=%0d, cim_cycle=%0d)",
              rd, rd[15:0], rd[31:16]);
-    bus_read32(32'h4000_0034, rd); // DBG_CNT_1
+    bus_read32(ADDR_REG_BASE + 32'h34, rd); // DBG_CNT_1
     $display("[TB] DBG_CNT_1 = 0x%08X (spike=%0d, wl_stall=%0d)",
              rd, rd[15:0], rd[31:16]);
 
     // 4d) 读取 CIM_TEST 寄存器（默认值应为 0）
-    bus_read32(32'h4000_002C, rd);
+    bus_read32(ADDR_REG_BASE + 32'h2C, rd);
     $display("[TB] CIM_TEST = 0x%08X (test_mode=%0b, pos=0x%02X, neg=0x%02X)",
              rd, rd[0], rd[15:8], rd[23:16]);
 
@@ -595,12 +595,12 @@ module top_tb;
     //   每个 spike_id 对应一个膜电位超过阈值的输出神经元（数字分类结果）。
     // =======================================================================
     // 5) 读取 output_fifo
-    bus_read32(32'h4000_0020, rd); // OUT_FIFO_COUNT：当前 spike 数量
+    bus_read32(ADDR_REG_BASE + 32'h20, rd); // OUT_FIFO_COUNT：当前 spike 数量
     $display("[TB] OUT_FIFO_COUNT = %0d", rd);
 
     // 逐个弹出并打印 spike_id
     for (int k = 0; k < rd; k = k + 1) begin
-      bus_read32(32'h4000_001C, word0); // OUT_FIFO_DATA：队头 spike_id（读触发 pop）
+      bus_read32(ADDR_REG_BASE + 32'h1C, word0); // OUT_FIFO_DATA：队头 spike_id（读触发 pop）
       $display("[TB] spike_id[%0d] = %0d", k, word0[3:0]); // 低 4-bit = spike_id
     end
 

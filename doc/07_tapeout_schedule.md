@@ -31,21 +31,21 @@ V1 先完成数字 SoC 单独流片，并进行片外混合集成验证；V2/V3 
 
 ## V1 版本目标 vs 当前 MVP
 
-| 模块 | V1 设计要求 | 当前 MVP 状态 | 改进阶段 |
+| 模块 | V1 设计要求 | 当前状态（2026-03-21） | 完成阶段 |
 |:---|:---|:---|:---:|
-| RISC-V Core (E203) | 需要 | ❌ 无 | Phase 5 |
-| 指令 SRAM 16KB | 需要 | ✅ 有 | - |
-| 数据 SRAM 16KB | 需要 | ✅ 有 | - |
-| 权重 Buffer 16KB | 需要 | ⚠️ 需改造 | Phase 3 |
-| DMA 引擎 | 多目标 | ⚠️ 单目标 | Phase 3 |
-| 寄存器 Bank | 需要 | ✅ 有 | - |
-| **SPI 控制器** | 需要 | ⚠️ 主线已集成 `spi_ctrl`（Mode 0，软件控 CS） | Phase 2（Mode 3/增强项按需补齐） |
-| **UART 控制器** | 需要 | ⚠️ 主线已集成 `uart_ctrl`（TX only，RX V1 占位） | Phase 2（RX/增强项按需补齐） |
-| JTAG 接口 | 需要 | ✅ 已有最小 rescue JTAG（独立于 vendor DM） | 后续仅保留主机工具/板级收口 |
-| 输入 Spike FIFO | 需要 | ✅ 有 | - |
-| 输出 Spike FIFO | 需要 | ✅ 有 | - |
-| CIM 子系统 | 需要 | ✅ 有 | - |
-| **系统总线** | AXI-Lite | ⚠️ bus_simple | Phase 4 |
+| RISC-V Core (E203) | 需要 | ✅ 已接入（最小面积裁剪，ICB→simple 直桥） | Iter 5-6 |
+| 指令 SRAM 16KB | 需要 | ✅ 有 | MVP |
+| 数据 SRAM 16KB | 需要 | ✅ 有 | MVP |
+| 权重 Buffer 16KB | 需要 | ✅ 已改造（DMA 多目标写入） | Iter 4 |
+| DMA 引擎 | 多目标 | ✅ 已支持 INPUT_FIFO / WEIGHT_SRAM / INSTR_SRAM | Iter 4 |
+| 寄存器 Bank | 需要 | ✅ 有 | MVP |
+| **SPI 控制器** | 需要 | ✅ 已集成 `spi_ctrl`（Mode 0，软件控 CS） | Iter 3 |
+| **UART 控制器** | 需要 | ✅ 已集成 `uart_ctrl`（TX only，RX V1 占位） | Iter 2 |
+| JTAG 接口 | 需要 | ✅ 已有最小 rescue JTAG（独立于 vendor DM） | Iter 7 |
+| 输入 Spike FIFO | 需要 | ✅ 有 | MVP |
+| 输出 Spike FIFO | 需要 | ✅ 有 | MVP |
+| CIM 子系统 | 需要 | ✅ 有 | MVP |
+| **系统总线** | AXI-Lite | ✅ AXI-Lite bridge 已独立验证，ICB→simple 主路径贯通 | Iter 1, 5 |
 
 ---
 

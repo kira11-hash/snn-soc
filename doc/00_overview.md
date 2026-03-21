@@ -67,7 +67,10 @@ reset
 - `SPI_SMOKETEST_PASS`
 - `DMA_SMOKETEST_PASS`
 - `ADC_SAT_COUNTER_PASS`
-- E203 `bootloader / SPI boot / UART printf` 通过
+- `E203_SMOKETEST_PASS`（bootloader / SPI boot / UART printf）
+- `JTAG_MEM_LOADER_PASS`
+- `JTAG_RESCUE_TOP_PASS`
+- `JTAG_PYHOST_SELFTEST_PASS`
 
 ## 真源文档
 
