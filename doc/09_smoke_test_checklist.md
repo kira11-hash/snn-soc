@@ -1,6 +1,6 @@
 # Smoke Test 完整操作手册
 
-最后更新：2026-03-15
+最后更新：2026-03-21
 
 ---
 
@@ -35,7 +35,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | THRESHOLD_DEFAULT | 2550 | = 1 × 255 × 10 |
 | reset_mode | soft | V = V - Vth |
 
-### 2026-03-20 全量审计覆盖面
+### 2026-03-21 全量审计覆盖面
 
 以下命令已在当前主线环境实际跑通，可作为 tapeout 前的最低复核基线：
 
@@ -63,6 +63,8 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 - `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 依赖 WSL 内可用的 `riscv64-unknown-elf-gcc / objcopy`。
 - `run_icarus_weighted.sh`、`run_sample_align.sh` 和 `run_vcs_weighted.sh` 会优先在仓库内自动搜索任意 `results/exports/` 目录下的 `weight_pos.hex / weight_neg.hex`（跳过 `backups/`），找不到时再回退到 `fpga/cim_model/` 或 `sim/`；如有多套导出物，建议显式设置 `WEIGHT_SRC_DIR=<目录>`。
 - `run_sample_align.sh` 还会自动搜索任意 `rtl_stimulus/` 目录下的 `all_samples.hex / expected_classes.hex`（同样跳过 `backups/`），必要时可显式设置 `STIMULUS_DIR=<目录>`。
+- 所有直接使用 `iverilog -f *.f` 的命令都默认**当前工作目录是 `sim/`**；如果从仓库根目录执行，请保留文档里的 `cd sim &&` 前缀，否则 `.f` 内相对路径会解析失败。
+- `top_tb` 入口没有单独的 `PASS` 字符串；判定标准是 `vvp` 退出码为 0，且日志尾部出现 `[TB] Simulation finished.`。
 
 ---
 
