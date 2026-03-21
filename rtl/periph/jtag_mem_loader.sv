@@ -78,20 +78,20 @@ module jtag_mem_loader (
   logic        cpuctl_hold_tck;
   logic        cpuctl_toggle_tck;
 
-  logic        rsp_toggle_meta_tck;
-  logic        rsp_toggle_sync_tck;
+  (* async_reg = "TRUE" *) logic        rsp_toggle_meta_tck;
+  (* async_reg = "TRUE" *) logic        rsp_toggle_sync_tck;
   logic        rsp_toggle_seen_tck;
 
   logic [31:0] mem_rsp_rdata_tck;
   logic        mem_rsp_err_tck;
   logic        mem_rsp_done_tck;
 
-  logic        req_toggle_meta_clk;
-  logic        req_toggle_sync_clk;
+  (* async_reg = "TRUE" *) logic        req_toggle_meta_clk;
+  (* async_reg = "TRUE" *) logic        req_toggle_sync_clk;
   logic        req_toggle_seen_clk;
 
-  logic        cpuctl_toggle_meta_clk;
-  logic        cpuctl_toggle_sync_clk;
+  (* async_reg = "TRUE" *) logic        cpuctl_toggle_meta_clk;
+  (* async_reg = "TRUE" *) logic        cpuctl_toggle_sync_clk;
   logic        cpuctl_toggle_seen_clk;
 
   logic [31:0] mem_rsp_rdata_clk;

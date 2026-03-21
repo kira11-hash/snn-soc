@@ -24,6 +24,7 @@ int main(void) {
 
     DMA_SRC_ADDR  = (uint32_t)(uintptr_t)&input_words[0];
     DMA_LEN_WORDS = DMA_LEN_VALUE;
+    DMA_DST_SEL   = DMA_DST_INPUT_FIFO;
     DMA_CTRL      = DMA_CTRL_START_MASK;
 
     while ((DMA_CTRL & DMA_CTRL_DONE_MASK) == 0u) {

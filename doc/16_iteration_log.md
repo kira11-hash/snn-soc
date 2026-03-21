@@ -306,10 +306,77 @@ chip_top Verilator lint:             -> 通过
 
 ---
 
-## 后续迭代计划（Phase 4 剩余）
+## Iteration 7 — JTAG 救援通路（jtag_mem_loader）（2026-03-20）
 
-| 迭代 | 内容 | 验证标准 |
-|------|------|---------|
-| Iter 7 | 更完整 boot image 格式 / 校验 / 真实板级 bring-up 流程 | 从仿真启动链过渡到板级启动链 |
+### 变更内容
+
+新增独立于 E203 debug module 的最小 JTAG 救援通路，满足 CPU/bootloader/SPI 启动失败时仍能直写 SRAM 并重启 CPU。
+
+**新增文件（6 个 RTL/TB/脚本/工具）：**
+
+| 文件 | 说明 |
+|------|------|
+| `rtl/periph/jtag_mem_loader.sv` | 自定义 4-wire JTAG TAP + MEMACC/CPUCTL 协议，含 TCK↔CLK CDC（req/rsp toggle + 2-FF sync），SRAM-only 地址过滤 |
+| `tb/jtag_mem_loader_tb.sv` | 单元测试：TAP reset / IDCODE / MEMACC 读写三块 SRAM / 非法地址 err / outstanding 请求拒绝 |
+| `tb/jtag_rescue_top_tb.sv` | 系统级测试：CPUCTL hold → JTAG 灌 instr_sram → release → CPU 启动 → UART 输出验证 |
+| `sim/sim_jtag_loader.f` / `sim/run_jtag_loader_icarus.sh` | 单元测试 filelist 和运行脚本 |
+| `sim/sim_jtag_rescue_top.f` / `sim/run_jtag_rescue_top_icarus.sh` | 系统测试 filelist 和运行脚本 |
+| `scripts/jtag_rescue.py` / `scripts/test_jtag_rescue.py` | Python 主机侧工具（TAP 状态机、IDCODE、MEMACC 批量读写、CPUCTL hold/release、rescue-load 流程）及其自测脚本 |
+| `fw/jtag_rescue_main.c` / `fw/build_jtag_rescue_firmware.sh` | JTAG 救援专用最小固件及构建脚本 |
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/top/snn_soc_top.sv` | 集成 `jtag_mem_loader`；fabric 二选一 → 三路仲裁（JTAG / E203 / bus_if）；新增 `cpu_reset_hold_effective`、`jtag_timeout_force`（256 周期超时恢复）；`cpu_bus_m_valid` 在 JTAG 活跃或 CPU reset hold 时被 gate |
+| `rtl/top/chip_top.sv` | JTAG pad 从 `jtag_stub` 切换到 `jtag_mem_loader` 路径 |
+| `rtl/top/e203_min_wrap.sv` | 新增 `cpu_local_rst_n` 输入，只复位 CPU 核，不波及 SRAM 和外设 |
+| `rtl/bus/icb2simple_bridge.sv` | 新增 `busy_o` 输出（bridge 非 IDLE 时拉高），供 JTAG 仲裁逻辑判断 CPU 事务是否在途 |
+| `sim/sim_e203.f` 等主线 filelist | 补齐 `jtag_mem_loader.sv` |
+
+### JTAG 协议定义
+
+| IR (4-bit) | 名称 | DR 宽度 | 说明 |
+|---|---|---|---|
+| `4'h1` | IDCODE | 32 | 返回 `32'hE203_0001`（项目自定义 ID） |
+| `4'h2` | MEMACC | 69 | `[0]=write, [32:1]=addr, [36:33]=wstrb, [68:37]=wdata`；响应：`[31:0]=rdata, [32]=err, [33]=done` |
+| `4'h3` | CPUCTL | 2 | `[0]=cpu_reset_hold, [1]=reserved`；hold=1 时只复位 CPU+bridge，SRAM/SNN/外设不复位 |
+| `4'hF` | BYPASS | 1 | 标准 bypass |
+
+可访问地址范围仅限 `instr_sram / data_sram / weight_sram`，MMIO 一律返回 `err=1`。
+
+### 仲裁策略
+
+- JTAG 请求到来时，等待 `cpu_bridge_busy=0` 后接管 fabric（不硬抢占）
+- 若 `cpu_bridge_busy` 持续 256 周期不释放，自动触发 `jtag_timeout_force`：局部复位 CPU+bridge 后接管
+- CPU 暂停为总线级 gate（`cpu_bus_m_valid & ~jtag_grant & ~cpu_reset_hold`），不做时钟门控
+
+### 验证结果
+
+```
+JTAG 单元测试:   全部 PASS  → JTAG_MEM_LOADER_PASS
+JTAG 系统测试:   全部 PASS  → JTAG_RESCUE_TOP_PASS
+Python 自测:     全部 PASS  → JTAG_PYHOST_SELFTEST_PASS
+黑盒 smoke 回归: OUT_FIFO_COUNT=100  → LIGHT_SMOKETEST_PASS
+带权重回归:      OUT_FIFO_COUNT=55   → WEIGHTED_SIM_PASS
+sample-align:    100/100 matched     → SAMPLE_ALIGN_PASS
+E203 启动回归:                       → E203_SMOKETEST_PASS
+SPI 单测回归:                        → SPI_SMOKETEST_PASS
+ADC 饱和回归:                        → ADC_SAT_COUNTER_PASS
+chip_top lint:                       → verilator lint clean
+```
+
+---
+
+## 后续计划（Tapeout 准备）
+
+| 项目 | 内容 | 说明 |
+|------|------|------|
+| Pad cell | 替换 chip_top 信号直连为工艺 pad cell 实例化 | ESD / drive / IO type 配置 |
+| DC 综合 | 55nm 标准单元库综合 | 面积 / 时序 / 功耗报告 |
+| DFT | Scan chain 插入 | 可测试性 |
+| P&R | 布局布线 | 1×1mm die |
+| Signoff | STA / DRC / LVS / ERC | 最终检查 |
+| 板级 bring-up | boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash | 仿真→板级过渡 |
 
 每次迭代完成后在本文档追加一节记录。

@@ -15,7 +15,7 @@
 | Q3 | **chip_top 当前已完成 pad-facing 信号直连**：`rtl/top/chip_top.sv` 已把外部复用端口接到 `snn_soc_top` 的 `_ext` 端口，用于接口冻结/lint；但它仍不是最终工艺 pad-ring 实现，tapeout 前必须完成 pad cell 实例化、ESD/drive 配置与真实物理连线 | ✅ 已明确 |
 | Q4 | **Step 3.4/3.5 Python↔RTL 数值对齐已通过（2026-03-16 复核）**：正式 100 样本语料的 `predicted_class` 与 RTL 完全一致（SAMPLE_ALIGN_PASS）。根因修复：`reg_bank.sv` 的 `REG_OUT_DATA` pop 机制从电平检测改为边沿检测，解决了 `bus_read()` 的 `m_valid` 保持 2 拍导致单次读多次 pop 的问题。参数强冻结版本：T=10, ratio_code=1, THRESHOLD_DEFAULT=2550 | ✅ 已通过 |
 | Q5 | **双芯片 PCB 集成架构确认**：数字芯片与模拟 CIM 芯片为独立封装、分别流片，通过 PCB 走线互联。所有接口文档已按此架构更新。P0/P1/P2 问题需按"数字芯片侧"与"模拟芯片侧"分别讨论 | ✅ 已明确 |
-| Q6 | **数字芯片进入 Phase 4 外设集成**：推理核心链路验证完毕，开始 AXI-Lite → UART → SPI → DMA扩展 → E203接入的集成工作。此阶段不影响数模接口协议，但模拟侧回复后可能触发时序参数更新 | ℹ️ 知会 |
+| Q6 | **Phase 4 外设集成已完成**：AXI-Lite → UART → SPI → DMA 多目标扩展 → E203 接入 → Bootloader/SPI 启动 → JTAG 救援通路，全部集成并通过回归验证。数字芯片已进入 tapeout 准备阶段 | ✅ 已完成 |
 
 ---
 
@@ -274,18 +274,19 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
   已完成全部 Stage A~E
 ```
 
-### 第二阶段（正在进行：Phase 4 外设集成）
+### 第二阶段（已完成：Phase 4 外设集成，2026-03-21）
 
 ```
-数字芯片外设集成顺序（不依赖模拟侧回复）：
-  1. AXI-Lite：interconnect → snn_soc_top 集成 → AXI bridge TB → 黑盒 smoke → 带权重仿真 → VCS/Verdi
-  2. UART：uart_stub → uart_ctrl → UART TB → 黑盒 smoke → 带权重仿真
-  3. SPI：spi_stub → spi_ctrl → SPI TB → 黑盒 smoke → 带权重仿真
-  4. DMA 扩展：SPI→SRAM + SRAM→input_fifo 各通路独立 TB → 黑盒 smoke → 带权重仿真 → VCS/Verdi
-  5. E203 接入：最小固件（UART 打印 → SPI 读权重 → DMA 搬运 → CIM 推理）→ 端到端 → VCS/Verdi
+数字芯片外设集成顺序（全部完成）：
+  1. ✅ AXI-Lite：interconnect → snn_soc_top 集成 → AXI bridge TB → 黑盒 smoke → 带权重仿真
+  2. ✅ UART：uart_stub → uart_ctrl → UART TB → 黑盒 smoke → 带权重仿真
+  3. ✅ SPI：spi_stub → spi_ctrl → SPI TB → 黑盒 smoke → 带权重仿真
+  4. ✅ DMA 扩展：多目标路由（INPUT_FIFO / WEIGHT_SRAM / INSTR_SRAM）→ DMA TB → 黑盒 smoke → 带权重仿真
+  5. ✅ E203 接入：ICB→simple bridge + 最小 wrap → bootloader/SPI 启动 → UART printf → 端到端推理
+  6. ✅ JTAG 救援通路：自定义 TAP（IDCODE/MEMACC/CPUCTL/BYPASS）→ SRAM 直写 → CPU 局部复位
 
-每步完成后进行双回归（黑盒 + 带权重），确认推理链路无回归。
-AXI-Lite、DMA 扩展、E203 接入为关键步骤，必须跑 VCS/Verdi（含 SVA 断言）。
+每步完成后均进行了多层回归验证，推理链路无回归。
+详见 doc/16_iteration_log.md。
 ```
 
 ### 第三阶段（拿到模拟侧 A5 之后）
@@ -340,7 +341,7 @@ AXI-Lite、DMA 扩展、E203 接入为关键步骤，必须跑 VCS/Verdi（含 S
 | 总推理延迟（80 bit-plane） | 80 × 125 = 10000 cycles ≈ 200 μs | 估算（T=10 默认） |
 | 集成架构 | 双芯片 PCB 互联 | 数字芯片 + 模拟 CIM 芯片，独立封装 |
 | 数字侧验证状态 | Step 3.4/3.5 PASS（正式 100 样本口径） | Python↔RTL 100/100 样本对齐；`expected_classes.hex` 为 Python `predicted_class` |
-| 数字侧当前阶段 | Phase 4 外设集成 | AXI-Lite → UART → SPI → DMA → E203 |
+| 数字侧当前阶段 | Phase 4 已完成，进入 tapeout 准备 | AXI-Lite / UART / SPI / DMA / E203 / JTAG 全部集成 |
 ## 2026-03-19 Status Sync
 
 下面关于 `AXI-Lite -> UART -> SPI -> DMA -> E203` 的阶段描述保留了原始 handoff 计划口径。当前实际进度已经前推到：

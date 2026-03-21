@@ -198,7 +198,7 @@ module reg_bank (
   // 标记未使用高位（lint 友好）
   // req_addr[31:8]: 高位用于顶层 bus_interconnect 路由，本模块不使用
   // req_wstrb[3:2]: 暂未用于任何字节精确写逻辑（当前只有 byte0/byte1 被精确控制）
-  wire _unused = &{1'b0, req_addr[31:8], req_wstrb[3]}; // wstrb[2] 现用于 cim_test_data_neg 写入
+  wire _unused = &{1'b0, req_addr[31:8]}; // wstrb[3:0] 均被使用（threshold byte-write / cim_test）
 
   // -----------------------------------------------------------------------
   // 主寄存器写逻辑（同步时序）

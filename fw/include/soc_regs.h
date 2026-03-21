@@ -24,6 +24,8 @@
 
 #define REG_THRESHOLD      (*(volatile uint32_t *)(REG_BANK_BASE + 0x00u))
 #define REG_TIMESTEPS      (*(volatile uint32_t *)(REG_BANK_BASE + 0x04u))
+#define REG_NUM_INPUTS     (*(volatile uint32_t *)(REG_BANK_BASE + 0x08u))  /* RO */
+#define REG_NUM_OUTPUTS    (*(volatile uint32_t *)(REG_BANK_BASE + 0x0Cu))  /* RO */
 #define REG_RESET_MODE     (*(volatile uint32_t *)(REG_BANK_BASE + 0x10u))
 #define REG_OUT_DATA       (*(volatile uint32_t *)(REG_BANK_BASE + 0x1Cu))
 #define REG_OUT_COUNT      (*(volatile uint32_t *)(REG_BANK_BASE + 0x20u))
@@ -41,6 +43,7 @@
 #define DMA_DST_SEL        (*(volatile uint32_t *)(DMA_BASE + 0x0Cu))
 
 #define UART_TXDATA        (*(volatile uint32_t *)(UART_BASE + 0x00u))
+#define UART_RXDATA        (*(volatile uint32_t *)(UART_BASE + 0x04u))  /* RX V2, read-only */
 #define UART_STATUS        (*(volatile uint32_t *)(UART_BASE + 0x08u))
 #define UART_CTRL          (*(volatile uint32_t *)(UART_BASE + 0x0Cu))
 

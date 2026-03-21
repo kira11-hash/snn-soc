@@ -103,7 +103,7 @@ A: 数据流走固定通路（data_sram → DMA → input_fifo → CIM → outpu
 | ADC_BITS | 8 | ADC 输出位宽 |
 | ADC_CHANNELS | 20 | ADC 通道数（Scheme B: 10 正 + 10 负） |
 | NEURON_DATA_WIDTH | 9 | 有符号差分输出位宽（ADC_BITS+1） |
-| LIF_MEM_WIDTH | 32 | LIF 膜电位位宽（建议 >= ADC_BITS + PIXEL_BITS） |
+| LIF_MEM_WIDTH | 32 | LIF 膜电位位宽（32-bit signed，需覆盖多帧累加最大值，保守上界 255×255×10 < 2^20） |
 | ADDR_DATA_BASE | 0x0001_0000 | 数据存储起始地址 |
 | ADDR_REG_BASE | 0x4000_0000 | 寄存器起始地址 |
 
@@ -197,7 +197,8 @@ ST_IDLE ──start_pulse──> ST_SETUP
 - [ ] 能手画 bus_write32 和 bus_read32 的时序图
 - [ ] 能解释 DMA 的 5 个状态各自做什么
 - [ ] 能说出为什么 push 和 pop 是单拍信号
-- [ ] 能解释 DMA_LEN_WORDS 为什么必须是偶数
+- [ ] 能解释 DMA 多目标扩展后 `ST_WR` 状态的作用（`DST_WEIGHT_BUF` / `DST_INSTR_SRAM` 走 `ST_RD0→ST_WR` 而非 `ST_PUSH`）
+- [ ] 能解释 DMA_LEN_WORDS 为什么 `DST_INPUT_FIFO` 目标要求偶数（`DST_WEIGHT_BUF` / `DST_INSTR_SRAM` 允许奇数）
 
 ---
 

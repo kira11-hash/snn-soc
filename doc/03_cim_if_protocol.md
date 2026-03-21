@@ -13,8 +13,8 @@
 | input | dac_valid | 1 | 脉冲 | 单拍触发信号；行为模型在该拍锁存 `wl_spike`（真实芯片由 `wl_latch` 时序控制） |
 | input | cim_start | 1 | 脉冲 | CIM 计算启动 |
 | output | cim_done | 1 | 脉冲 | CIM 计算完成 |
-| input | adc_start | 1 | 脉冲 | ADC 启动 |
-| output | adc_done | 1 | 脉冲 | ADC 完成 |
+| input | adc_start | 1 | 脉冲 | ADC 启动（**仅内部仿真接口**，不在外部 45-pad 接口中；流片后由 `snn_soc_top` 内部固定延迟生成 `adc_done`） |
+| output | adc_done | 1 | 脉冲 | ADC 完成（**仅内部仿真接口**，同上） |
 | input | bl_sel | $clog2(ADC_CHANNELS)(=5) | 控制 | bitline 选择（0..ADC_CHANNELS-1，Scheme B: 0-9 正列, 10-19 负列） |
 | output | bl_data | ADC_BITS(=8) | 数据 | 当前通道的 8-bit ADC 输出 |
 
