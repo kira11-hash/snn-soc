@@ -18,6 +18,7 @@
 - **ASIC pad / pin 真源**，以 `doc/15_asic_pad_map.md` 为准，不再以旧文档里的零散 pin 算术为准。
 - **数模接口与板级约束口径**，以 `doc/08_cim_analog_interface.md` 为准。
 - **对齐验证链路**，重点看 `tb/top_tb_sample_align.sv`、`sim/run_sample_align.sh`、`项目相关文件/器件对齐/Python建模/export_expected_spike_ids.py` 这三处。
+- **如果你在复核 output_fifo / 对齐读数语义**，注意 `reg_bank.sv` 的 `REG_OUT_DATA` 已按边沿触发 pop 收口；单次 `bus_read()` 不应因为 `m_valid` 保持两拍而多 pop。这是 2026-03-16 对齐收口里修过的真实问题。
 
 一句话总结：**用 06 建立学习顺序，用 `pkg` / `11` / `08` / `15` 校准当前项目真相。**
 
@@ -28,8 +29,8 @@
 如果你现在的目标不是“从零入门”，而是“把当前主线彻底复核一遍，确保 tapeout 前没有认知盲区”，建议按下面顺序读：
 
 1. 先看 `doc/09_smoke_test_checklist.md`，确认**哪些门禁真的跑过、怎么重跑、PASS 判据是什么**。
-2. 再看 `doc/15_asic_pad_map.md`、`doc/08_cim_analog_interface.md`、`doc/11_analog_handoff_execution_plan.md`，确认**pad/pin、数模接口、对外 handoff 口径**。
-3. 然后看 `doc/07_tapeout_schedule.md` 的文末 status sync，确认**哪些事情已经完成、哪些仍属于 tapeout 前未闭环项**。
+2. 再看 `doc/15_asic_pad_map.md`、`doc/08_cim_analog_interface.md`、`doc/11_analog_handoff_execution_plan.md`，确认**pad/pin、数模接口、对外 handoff 口径**；其中以 `11` 文末 `2026-03-19 Status Sync` 为阶段性收口补充。
+3. 然后看 `doc/07_tapeout_schedule.md` 的文末 `2026-03-21 Status Sync`，确认**哪些事情已经完成、哪些仍属于 tapeout 前未闭环项**。
 4. 接着回到 Part A，只做“查漏补缺式”阅读：`00/01/02` → `snn_soc_pkg.sv` → `snn_soc_top.sv` → 关键 TB / 脚本。
 5. 最后再进 Part B，把 UART / SPI / AXI / E203 / JTAG rescue 当作**已落地主线**逐块核对，而不是把它们当“以后再看”的增量功能。
 
@@ -772,10 +773,11 @@ endmodule
 ### Q2: 仿真跑不起来怎么办？
 ```
 检查清单:
-1. VCS 和 Verdi 环境变量是否设置（VERDI_HOME）
-2. sim.f 文件路径是否正确
-3. vcs.log 中的第一个 Error 是什么
-4. 确保在 Linux 环境下运行（Windows 需要 WSL 或服务器）
+1. 先区分你跑的是 Icarus 还是 VCS/Verdi 流程，不要混着排查
+2. Icarus（Windows）优先用 Git for Windows 自带的 `bash.exe` 跑 `sim/*.sh`，不要直接用 `C:\Windows\System32\bash.exe`
+3. `run_e203_icarus.sh` / `run_jtag_rescue_top_icarus.sh` 额外依赖 WSL 里的 `riscv64-unknown-elf-gcc / objcopy`
+4. 若是直接 `iverilog -f *.f`，确认当前目录在 `sim/`，否则相对路径会错
+5. 若是 VCS/Verdi，检查 `VERDI_HOME`、`vcs.log` 的第一个 Error、以及服务器 Linux 环境是否初始化完成
 ```
 
 ### Q3: 波形太多信号，不知道看哪个？
@@ -958,6 +960,8 @@ ST_IDLE ──tx_valid──> ST_START ──> ST_DATA(×8) ──> ST_STOP ─�
 
 **建议**: 先实现 Mode 0
 
+> **当前主线口径**：`main` 里已冻结并回归通过的是 `spi_ctrl` 的 **Mode 0** 主路径；Mode 3 在这里保留为协议学习对照和后续扩展练习，不是当前 V1 主线的必选实现项。
+
 ### 10.3 SPI Master 状态机
 
 ```
@@ -1042,7 +1046,7 @@ valid 一旦拉高，在 ready 之前不能撤销
 | 特性 | 说明 |
 |------|------|
 | 架构 | 32 位 RISC-V |
-| 指令集 | RV32IMAC |
+| 指令集 | 上游 E203 为 RV32IMAC；本项目当前接入口径裁剪后实际只保留 RV32I 主路径 |
 | 流水线 | 2 级 |
 | 开源协议 | Apache 2.0 |
 
@@ -1111,6 +1115,8 @@ bus_interconnect (地址译码)
 # 安装 RISC-V 工具链
 sudo apt install gcc-riscv64-unknown-elf
 ```
+
+> **环境提醒**：当前仓库的 `run_e203_icarus.sh` / `run_jtag_rescue_top_icarus.sh` 默认是“Windows 下用 Git Bash 跑 Icarus + WSL 里调用 `riscv64-unknown-elf-gcc/objcopy` 构建固件”的混合流程；不是要求你把全部仿真都切到 WSL 内完成。
 
 ### 13.2 寄存器访问
 

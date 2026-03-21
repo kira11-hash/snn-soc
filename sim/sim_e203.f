@@ -72,5 +72,6 @@
 ../rtl/vendor_e203/e203/core/e203_lsu.v
 ../rtl/vendor_e203/e203/core/e203_reset_ctrl.v
 ../rtl/vendor_e203/e203/core/e203_srams.v
+../rtl/vendor_e203/e203/subsys/e203_subsys_nice_core.v
 ../tb/spi_flash_model.sv
 ../tb/e203_tb.sv
