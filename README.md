@@ -7,10 +7,11 @@
 | 版本      |   状态   | 说明                              |
 | :------ | :----: | :------------------------------ |
 | **MVP** |  ✅ 完成  | 基础功能可仿真跑通                       |
-| **V1**  | 🚧 开发中 | 完整版本，支持 E203 + UART + SPI + AXI |
+| **V1 RTL** | ✅ 功能冻结 | E203 + UART + SPI + DMA多目标 + AXI-Lite bridge + JTAG rescue 全部接入，仿真全量通过 |
+| **V1 TO** | 🚧 进行中 | 综合 / PPA / 后端 P&R / DFT / STA 签核 / pad cell 集成 |
 
 **流片目标**：2026年6月30日，数字 SoC 单独流片 + 片外混合集成验证（数字 SoC + 模拟 CIM Macro）
-**时钟频率**：50MHz
+**时钟频率**：50MHz（目标）
 
 ## MVP 功能
 - 支持寄存器配置阈值与推理帧数（TIMESTEPS）
@@ -111,14 +112,25 @@ doc/   中文说明文档
 ## 文档索引
 
 ### 正式文档（推荐阅读）
-- `doc/00_overview.md`：工程总览
-- `doc/01_memory_map.md`：地址映射
-- `doc/02_reg_map.md`：寄存器说明
-- `doc/03_cim_if_protocol.md`：CIM 接口协议
-- `doc/04_walkthrough.md`：流程详解
-- `doc/05_debug_guide.md`：调试指南
-- `doc/06_learning_path.md`：**学习路径（新手必读！）**
-- `doc/07_tapeout_schedule.md`：**流片时间规划（V1路线图）**
+
+| 文件 | 内容 |
+|------|------|
+| `doc/00_overview.md` | 工程总览、当前状态与验证结论 |
+| `doc/01_memory_map.md` | 地址映射（SRAM 窗口 + MMIO 分区） |
+| `doc/02_reg_map.md` | **寄存器完整说明（权威真源）** |
+| `doc/03_cim_if_protocol.md` | CIM 内部接口协议（信号 + 时序） |
+| `doc/04_walkthrough.md` | 一次完整推理流程详解 |
+| `doc/05_debug_guide.md` | 调试/救援指南（JTAG、常见问题） |
+| `doc/06_learning_path.md` | **新手必读学习路径** |
+| `doc/07_tapeout_schedule.md` | 流片路线图（主体为历史计划，以文末 Status Sync 为当前状态） |
+| `doc/08_cim_analog_interface.md` | 数模接口规格（双芯片 PCB 集成，对外发送权威版本） |
+| `doc/09_smoke_test_checklist.md` | **全量仿真操作手册（含命令、预期输出、故障排查）** |
+| `doc/10_server_proxy_guide.md` | 校园网服务器代理/VPN 配置 |
+| `doc/11_analog_handoff_execution_plan.md` | 数字→模拟接口对接文档（参数已冻结，供模拟团队参考） |
+| `doc/12_fpga_validation_guide.md` | FPGA 系统验证指南 |
+| `doc/13_fpga_paper_plan.md` | FPGA 验证平台方案 |
+| `doc/15_asic_pad_map.md` | **ASIC Pad Map（48 pad 冻结真源）** |
+| `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
 
 ### 草稿文档（已整合到正式文档）
 - 早期 `develop docs` 草稿目录已从仓库移除，相关内容已整合到上述 `doc/*.md` 正式文档中；如需追溯演进过程，请查看 Git 历史。

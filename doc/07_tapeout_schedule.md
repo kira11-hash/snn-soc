@@ -473,9 +473,28 @@ set_output_delay 2.0 -clock clk [all_outputs]
 *最后更新：2026-01-30*
 
 **注意**：此时间表基于理想情况估算，实际执行时应根据具体进展灵活调整。建议每周回顾并更新计划。
-## 2026-03-19 Status Sync
 
-本文件主体仍保留原始阶段计划属性。当前实际进度以这段同步说明为准：
+## 2026-03-21 Status Sync（当前状态，以此为准）
+
+本文件主体仍保留原始阶段计划属性。**当前实际进度以本节为准，主体中带 `[ ]` 的里程碑大多已实际完成，请勿以主体 checkbox 状态判断当前进度。**
+
+### 已完成
+
+- ✅ `UART / SPI / DMA（多目标）/ AXI-Lite bridge` 已完成主线接入并通过独立 TB 与主链回归（对应 Iteration 1~4，2026-03-18）
+- ✅ `E203` 已完成最小面积接入：裁剪 vendor config，ICB→simple 直接桥，不走 AXI 双桥路径（Iteration 5，2026-03-18）
+- ✅ `bootloader / SPI 启动 / UART printf` 已在专用 E203 Icarus 仿真链路中跑通（Iteration 6，2026-03-19）
+- ✅ `JTAG rescue loader` 已完成：自定义 4-wire TAP（IDCODE/MEMACC/CPUCTL），TCK↔CLK CDC 安全，SRAM-only 访问过滤，Python 主机工具及 256-cycle timeout 自动恢复（Iteration 7，2026-03-20）
+- ✅ `chip_top` 已完成 tapeout-intent 信号直连（ENABLE_E203=1，ENABLE_EXT_CIM_IF=1），外部 CIM pad 接口已贯通
+- ✅ 全量仿真回归：`LIGHT_SMOKETEST_PASS` / `WEIGHTED_SIM_PASS` / `SAMPLE_ALIGN_PASS(100/100)` / `E203_SMOKETEST_PASS` / `JTAG_MEM_LOADER_PASS` / `JTAG_RESCUE_TOP_PASS` 均通过
+
+### 还未闭环的事项
+
+- `chip_top` pad 级工艺 pad cell 实例化（ESD/drive strength/IO type 配置）
+- TO 版本是否默认启用 E203 的冻结决策（当前 `chip_top` 显式置 `ENABLE_E203=1`，`snn_soc_top` 默认仍为 0，保护主回归）
+- 综合 / PPA / 后端 P&R / DFT scan chain 插入 / STA 签核
+- 板级 bring-up：boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash 验证
+
+## 2026-03-19 Status Sync（历史备份，已被上方 2026-03-21 节覆盖）
 
 - `UART / SPI / DMA / AXI-Lite bridge` 已完成主线接入并通过独立 TB 与主链回归
 - `E203` 已完成最小面积接入

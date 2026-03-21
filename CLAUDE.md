@@ -47,7 +47,7 @@
 ## CIM Test Mode（流片后自检关键）
 
 - `test_mode=1` → 绕过模拟 CIM 宏，可在无模拟芯片情况下验证数字链路
-- 写法：`wstrb=4'b0111`，`data=32'h0000_6400`（pos=0x64=100，neg=0）
+- 写法：`wstrb=4'b0111`，`data=32'h0000_6401`（pos=0x64=100，neg=0，bit[0]=test_mode=1）
 - 结果：diff = 100，T=10 即可观察到 LIF 累加 → OUT_FIFO_COUNT > 0 = 数字链路正常
 - MUX 逻辑：`bl_sel < NUM_OUTPUTS ? cim_test_data_pos : cim_test_data_neg`
 
