@@ -1,6 +1,6 @@
 # Smoke Test 完整操作手册
 
-最后更新：2026-03-21
+最后更新：2026-03-22
 
 ---
 
@@ -35,9 +35,9 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | THRESHOLD_DEFAULT | 2550 | = 1 × 255 × 10 |
 | reset_mode | soft | V = V - Vth |
 
-### 2026-03-21 全量审计覆盖面
+### 2026-03-22 全量复核覆盖面
 
-以下命令已在当前主线环境实际跑通，可作为 tapeout 前的最低复核基线：
+以下命令已在当前主线环境重新执行并通过，可作为 tapeout 前的最低复核基线：
 
 | 类别 | 命令 | 结果 |
 |------|------|------|
@@ -103,11 +103,13 @@ bash run_icarus_light.sh
 ```
 [INFO] Icarus light smoke test start
 [INFO] Config: EXPECTED_OUT_COUNT=100 CHECK_OUT_COUNT=1
-[INFO] DMA done after 42 polls, DMA_CTRL=0x00000002
-[INFO] CIM done after 137 polls, CIM_CTRL=0x00000080
+[INFO] DMA done after 81 polls, DMA_CTRL=0x00000002
+[INFO] CIM done after 4722 polls, CIM_CTRL=0x00000080
 [INFO] OUT_FIFO_COUNT=0x00000064 (100)
 LIGHT_SMOKETEST_PASS
 ```
+
+> 注：上面的轮询次数来自 2026-03-22 对当前 `main` 的实际复核结果；如果后续 TB 轮询节奏或日志抽样点变化，poll 次数可不同，但 `PASS` 字符串与 `OUT_FIFO_COUNT=100` 判据不应漂移。
 
 **通过标准**：
 1. 终端出现 `LIGHT_SMOKETEST_PASS`
@@ -239,12 +241,12 @@ bash run_icarus_weighted.sh
 
 ```
 [INFO] Weighted Icarus source-level simulation start
-[INFO] Config: TIMESTEPS=10 THRESHOLD=2550 FAIL_ON_ZERO_SPIKE=0
-[INFO] DMA done after 42 polls
-[INFO] CIM done after 137 polls
-[INFO] OUT_FIFO_COUNT=6
-[INFO] spike_id[0]=3
-[INFO] spike_id[1]=7
+[INFO] Config: TIMESTEPS=10 THRESHOLD=2550 FAIL_ON_ZERO_SPIKE=1
+[INFO] DMA done after 81 polls
+[INFO] CIM done after 4722 polls
+[INFO] OUT_FIFO_COUNT=55
+[INFO] spike_id[0]=0
+[INFO] spike_id[1]=6
 ...
 WEIGHTED_SIM_PASS
 ```
