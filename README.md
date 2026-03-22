@@ -22,7 +22,7 @@
 - Testbench 自动跑完整流程，并按仿真器生成 FSDB 或 VCD 波形
 
 ## 快速开始（VCS + Verdi）
-> 使用 bash 运行脚本（Linux/WSL/Git Bash 均可）。
+> Linux / WSL 原生环境可直接使用 bash。Windows 本机回归建议优先使用 Git Bash；WSL 在本仓库里主要用于 `run_e203_icarus.sh` / `run_jtag_rescue_top_icarus.sh` 的 RISC-V 固件构建链路。
 
 1) 编译并仿真（生成 FSDB）
 ```
@@ -41,6 +41,7 @@
 - 若在 `bash`/WSL 中看到 `$'\r': command not found`，说明本地 checkout 把 `.sh` 脚本变成了 CRLF；仓库期望 `*.sh` 为 LF（见 `.gitattributes`），请先按 LF 重新检出后再运行。
 - 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下；如需显式指定来源，可设置 `WEIGHT_SRC_DIR=<目录>`。
 - `run_sample_align.sh` 额外依赖 `all_samples.hex` / `expected_classes.hex`；脚本会在仓库内自动查找 `rtl_stimulus/` 目录，也可通过 `STIMULUS_DIR=<目录>` 强制指定。
+- 若在 Windows PowerShell 里直接跑 `chip_top` 门禁，请使用 `iverilog.exe` / `verilator.cmd`；不要把 `iverilog` / `verilator` 包在 `bash -lc "..."` 里，否则可能误走到 WSL 环境中的错误 PATH。
 
 ## 常用回归入口
 > Windows 日常回归建议用 Git Bash；`run_e203_icarus.sh` 额外依赖 WSL 中可用的 `riscv64-unknown-elf-gcc / objcopy`。
@@ -60,6 +61,8 @@
 - `cd sim && bash run_e203_icarus.sh`：E203 最小启动链回归，期望 `E203_SMOKETEST_PASS`
 - `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
 - `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
+
+完整的 2026-03-22 全量复核覆盖面、通过口径和故障排查入口见 `doc/09_smoke_test_checklist.md`。
 
 ## 目录结构
 ```

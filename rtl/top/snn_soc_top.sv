@@ -53,7 +53,7 @@
 //             → cim_macro_blackbox (RRAM 仿真行为模型)
 //             → adc_ctrl (Scheme B：数字差分减法，20 通道 MUX)
 //             → lif_neurons (有符号膜电位 LIF，输出 spike)
-//             → [输出 FIFO] → SW 读取分类结果
+//             → [输出 FIFO] → SW 读取 spike_id 事件流并在软件侧统计分类结果
 //
 //  CIM Test Mode（cim_test_mode=1）：
 //    旁路 cim_macro_blackbox 的所有输出，由数字侧产生伪造延迟响应，
@@ -287,7 +287,7 @@ module snn_soc_top #(
   // ----------------------------------------------------------
   logic        out_fifo_push, out_fifo_pop;
   logic [3:0]  out_fifo_wdata; // LIF 写入的 4-bit 类别标签
-  logic [3:0]  out_fifo_rdata; // reg_bank/SW 读出的分类结果
+  logic [3:0]  out_fifo_rdata; // reg_bank/SW 读出的 spike_id 事件（0~9）
   logic        out_fifo_empty, out_fifo_full;
   logic        out_fifo_overflow, out_fifo_underflow; // 错误标志（接 _unused 以抑制 lint）
   logic [$clog2(OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count;
@@ -762,7 +762,7 @@ module snn_soc_top #(
 
   //======================
   // FIFO
-  // 两个同步 FIFO：input FIFO（像素 bitmap）和 output FIFO（分类结果）
+  // 两个同步 FIFO：input FIFO（像素 bitmap）和 output FIFO（spike_id 事件流）
   //======================
 
   // 输入 FIFO：WIDTH=NUM_INPUTS=64，DEPTH=INPUT_FIFO_DEPTH（见 pkg）
@@ -782,16 +782,16 @@ module snn_soc_top #(
     .underflow (in_fifo_underflow)  // pop 时已空（接 _unused，TB 可加 assertion）
   );
 
-  // 输出 FIFO：WIDTH=4（分类结果 0-9，4-bit 足够），DEPTH=OUTPUT_FIFO_DEPTH
-  // 生产者：lif_neurons（推理完成后 push 获胜神经元编号）
-  // 消费者：reg_bank（SW 读取分类结果时 pop）
+  // 输出 FIFO：WIDTH=4（spike_id 0-9，4-bit 足够），DEPTH=OUTPUT_FIFO_DEPTH
+  // 生产者：lif_neurons（每次神经元发放 spike 时 push 对应神经元编号）
+  // 消费者：reg_bank（SW 读取 spike 事件流时 pop，并在软件侧统计直方图）
   fifo_sync #(.WIDTH(4), .DEPTH(OUTPUT_FIFO_DEPTH)) u_output_fifo (
     .clk       (clk),
     .rst_n     (rst_n),
     .push      (out_fifo_push),
     .push_data (out_fifo_wdata),
-    .pop       (out_fifo_pop),       // reg_bank 被 SW 读取结果时产生 pop 脉冲
-    .rd_data   (out_fifo_rdata),     // SW 读到的 4-bit 分类结果
+    .pop       (out_fifo_pop),       // reg_bank 被 SW 读取事件时产生 pop 脉冲
+    .rd_data   (out_fifo_rdata),     // SW 读到的 4-bit spike_id
     .empty     (out_fifo_empty),
     .full      (out_fifo_full),
     .count     (out_fifo_count),
@@ -833,8 +833,8 @@ module snn_soc_top #(
     .in_fifo_full   (in_fifo_full),
     .out_fifo_empty (out_fifo_empty),
     .out_fifo_full  (out_fifo_full),
-    .out_fifo_rdata (out_fifo_rdata),  // SW 读结果寄存器时直接返回这个值
-    .out_fifo_count (out_fifo_count),  // 待读取结果数量
+    .out_fifo_rdata (out_fifo_rdata),  // SW 读 OUT_FIFO_DATA 时返回当前队头 spike_id
+    .out_fifo_count (out_fifo_count),  // 待读取的 spike 事件数量
     // ADC 饱和监控（来自 adc_ctrl，映射到可读寄存器）
     .adc_sat_high   (adc_sat_high),
     .adc_sat_low    (adc_sat_low),
@@ -844,7 +844,7 @@ module snn_soc_top #(
     .dbg_spike_cnt    (dbg_spike_cnt),
     .dbg_wl_stall_cnt (dbg_wl_stall_cnt),
     // 控制输出（SW 写 reg_bank 后产生的脉冲/电平信号）
-    .neuron_threshold(neuron_threshold), // 阈值（32-bit，低 8-bit 有效）
+    .neuron_threshold(neuron_threshold), // 阈值（32-bit 绝对值，完整位宽生效）
     .timesteps      (timesteps),          // 时间步数
     .reset_mode     (reset_mode),         // LIF 复位模式（0=软, 1=硬）
     .start_pulse    (snn_start_pulse),    // 推理启动脉冲（单拍）
@@ -1032,7 +1032,7 @@ module snn_soc_top #(
     .bitplane_shift (bitplane_shift),        // 比特平面偏移（来自 cim_array_ctrl）
     .threshold      (neuron_threshold),      // LIF 阈值（来自 reg_bank）
     .reset_mode     (reset_mode),            // 复位模式（来自 reg_bank）
-    .out_fifo_push  (out_fifo_push),         // 推理完成时 push 分类结果
+    .out_fifo_push  (out_fifo_push),         // 每次产生 spike 时 push 神经元编号
     .out_fifo_wdata (out_fifo_wdata),        // 4-bit 类别编号（0-9）
     .out_fifo_full  (out_fifo_full)          // FIFO 满时不 push（防 overflow）
   );
