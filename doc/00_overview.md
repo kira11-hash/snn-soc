@@ -21,6 +21,8 @@
 - `AXI-Lite bridge` 已完成独立验证
 - `E203` 已接入，并已通过最小 bare-metal 固件验证
 - `bootloader / SPI 启动 / UART printf` 已在专用 E203 Icarus TB 中验证通过
+- `chip_top` 已通过 Icarus 编译门禁与 Verilator lint
+- 旧 `top_tb` 入口、shell 脚本语法和 Python 主机工具语法已重新复核
 
 ## 重要边界
 
@@ -57,6 +59,13 @@ reset
 用于：
 - `E203_SMOKETEST_PASS`
 
+## 2026-03-23 复核基线
+
+- 主线 Icarus 回归、JTAG rescue 链路、E203 启动链与 `sample_align 100/100` 已重新执行
+- `chip_top` 已通过 `iverilog` 编译门禁与 `verilator` lint
+- 旧 `top_tb` 入口已跑通，日志尾部出现 `[TB] Simulation finished.`
+- `bash -n sim/*.sh fw/*.sh` 与 `python -m py_compile ...` 已通过
+
 ## 关键验证结论
 
 - `LIGHT_SMOKETEST_PASS`
@@ -71,6 +80,8 @@ reset
 - `JTAG_MEM_LOADER_PASS`
 - `JTAG_RESCUE_TOP_PASS`
 - `JTAG_PYHOST_SELFTEST_PASS`
+- `chip_top` Icarus compile gate 通过
+- `chip_top` Verilator lint 通过
 
 ## 真源文档
 

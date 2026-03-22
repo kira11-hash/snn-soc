@@ -1,6 +1,6 @@
 # Smoke Test 完整操作手册
 
-最后更新：2026-03-22
+最后更新：2026-03-23
 
 ---
 
@@ -35,7 +35,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | THRESHOLD_DEFAULT | 2550 | = 1 × 255 × 10 |
 | reset_mode | soft | V = V - Vth |
 
-### 2026-03-22 全量复核覆盖面
+### 2026-03-23 全量复核覆盖面
 
 以下命令已在当前主线环境重新执行并通过，可作为 tapeout 前的最低复核基线：
 
@@ -110,7 +110,7 @@ bash run_icarus_light.sh
 LIGHT_SMOKETEST_PASS
 ```
 
-> 注：上面的轮询次数来自 2026-03-22 对当前 `main` 的实际复核结果；如果后续 TB 轮询节奏或日志抽样点变化，poll 次数可不同，但 `PASS` 字符串与 `OUT_FIFO_COUNT=100` 判据不应漂移。
+> 注：上面的轮询次数来自 2026-03-23 对当前 `main` 的实际复核结果；如果后续 TB 轮询节奏或日志抽样点变化，poll 次数可不同，但 `PASS` 字符串与 `OUT_FIFO_COUNT=100` 判据不应漂移。
 
 **通过标准**：
 1. 终端出现 `LIGHT_SMOKETEST_PASS`
@@ -277,10 +277,11 @@ gtkwave sim/waves/icarus_weighted.vcd
 
 #### （1）权重加载确认
 
-权重模型 `cim_macro_blackbox_weighted_icarus.sv` 会在仿真开始时用 `$readmemh` 加载权重。在日志中应看到：
+权重模型 `cim_macro_blackbox_weighted_icarus.sv` 会在仿真开始时用 `$readmemh` 加载权重。在当前主线日志中应看到类似：
 
 ```
-Weight memory layout: 64 rows x 20 cols (10 pos + 10 neg)
+[cim_macro_weighted] loaded weight_pos.hex / weight_neg.hex
+[cim_macro_weighted] layout=row-major by input_row, outputs=10 inputs=64
 ```
 
 #### （2）CIM 输出（BL 数据）
@@ -687,7 +688,7 @@ SAMPLE_ALIGN_PASS (100/100 samples matched)
 
 ## 6. 故障排查指南
 
-### 5.1 通用问题
+### 6.1 通用问题
 
 | 症状 | 可能原因 | 排查方法 |
 |------|---------|---------|
@@ -696,7 +697,7 @@ SAMPLE_ALIGN_PASS (100/100 samples matched)
 | 编译错误 `unknown module type: snn_soc_top` | filelist 路径错误 | 检查 `sim_icarus_light.f` 或 `sim_icarus_weighted.f` 内的相对路径 |
 | VCS 编译报 `Syntax error` | CRLF 行尾问题 | `sed -i 's/\r$//' sim/*.sh sim/*.f` |
 
-### 5.2 黑盒 smoke 失败
+### 6.2 黑盒 smoke 失败
 
 | 症状 | 可能原因 | 排查方法 |
 |------|---------|---------|
@@ -705,7 +706,7 @@ SAMPLE_ALIGN_PASS (100/100 samples matched)
 | `OUT_FIFO_COUNT mismatch` | threshold 太高或数据错误 | 看波形 LIF membrane 是否在增长但未超过 threshold |
 | `OUT_FIFO_COUNT=0` | test mode 数据未进入链路 | 检查 `REG_CIM_TEST` 配置是否正确 |
 
-### 5.3 带权重 smoke 失败
+### 6.3 带权重 smoke 失败
 
 | 症状 | 可能原因 | 排查方法 |
 |------|---------|---------|
@@ -714,7 +715,7 @@ SAMPLE_ALIGN_PASS (100/100 samples matched)
 | spike_id 全相同 | 权重可能只有一个 neuron 有效 | 检查 weight hex 是否 10 列都有非零值 |
 | 重跑结果不一致 | 存在时序竞争 | 检查是否有未初始化的 reg |
 
-### 5.4 VCS 特有问题
+### 6.4 VCS 特有问题
 
 | 症状 | 可能原因 | 排查方法 |
 |------|---------|---------|
