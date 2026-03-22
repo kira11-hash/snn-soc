@@ -194,7 +194,10 @@ A: 用 2 个 word：word0[31:0] + word1[31:0] = 64 bit（整打包，无废 bit�
 
 ### DMA 状态机详解
 
+DMA 支持三种目标（`DST_SEL`），不同目标走不同的 FSM 路径：
+
 ```
+[DST_INPUT_FIFO (默认)]：
 ST_IDLE ──start_pulse──> ST_SETUP
    ↑                        │
    │                        ▼
@@ -208,7 +211,21 @@ ST_IDLE ──start_pulse──> ST_SETUP
    │        ├─Yes──────────┘
    │        │
    └─No─────┘
+
+[DST_WEIGHT_BUF / DST_INSTR_SRAM]：
+ST_IDLE ──start_pulse──> ST_SETUP
+   ↑                        │
+   │                        ▼
+   │                     ST_RD0 ──────> 读 1 个 word
+   │                        │
+   │                        ▼
+   │      还有数据?      ST_WR  ──────> 逐 word 写入目标 SRAM
+   │        ├─Yes──────────┘
+   │        │
+   └─No─────┘
 ```
+
+注意：`DST_INPUT_FIFO` 需要每两个 word 拼成 64-bit 再 push，因此 `DMA_LEN_WORDS` 必须为偶数。`DST_WEIGHT_BUF` / `DST_INSTR_SRAM` 逐 word 写入，允许奇数长度。
 
 ### 检验标准
 
