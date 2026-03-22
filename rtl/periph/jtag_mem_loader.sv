@@ -105,6 +105,11 @@ module jtag_mem_loader (
   logic [31:0] mem_req_wdata_clk;
   clk_state_t  clk_state_q;
 
+  // CLK-side bus timeout: if bus hangs (no grant or no response) for 1023 cycles,
+  // force error+done so the rescue module itself doesn't get permanently stuck.
+  localparam int CLK_TIMEOUT_MAX = 1023;
+  logic [9:0] clk_timeout_cnt;
+
   function automatic tap_state_t tap_next(
     input tap_state_t cur,
     input logic       tms
@@ -290,6 +295,7 @@ module jtag_mem_loader (
       mem_req_wdata_clk     <= 32'h0;
       clk_state_q           <= CLK_IDLE;
       cpu_reset_hold        <= 1'b0;
+      clk_timeout_cnt       <= '0;
     end else begin
       req_toggle_meta_clk    <= req_toggle_tck;
       req_toggle_sync_clk    <= req_toggle_meta_clk;
@@ -321,11 +327,23 @@ module jtag_mem_loader (
         end
         CLK_WAIT_GRANT: begin
           if (mem_req_grant) begin
-            clk_state_q <= CLK_ISSUE;
+            clk_state_q   <= CLK_ISSUE;
+            clk_timeout_cnt <= '0;
+          end else if (clk_timeout_cnt == CLK_TIMEOUT_MAX[9:0]) begin
+            // Bus grant never came — force error response to unblock JTAG
+            mem_rsp_rdata_clk <= 32'h0;
+            mem_rsp_err_clk   <= 1'b1;
+            mem_rsp_done_clk  <= 1'b1;
+            rsp_toggle_clk    <= ~rsp_toggle_clk;
+            clk_state_q       <= CLK_IDLE;
+            clk_timeout_cnt   <= '0;
+          end else begin
+            clk_timeout_cnt <= clk_timeout_cnt + 10'd1;
           end
         end
         CLK_ISSUE: begin
-          clk_state_q <= CLK_WAIT_RSP;
+          clk_state_q     <= CLK_WAIT_RSP;
+          clk_timeout_cnt <= '0;
         end
         CLK_WAIT_RSP: begin
           if ((mem_req_write_clk && mem_m_ready) ||
@@ -335,6 +353,17 @@ module jtag_mem_loader (
             mem_rsp_done_clk  <= 1'b1;
             rsp_toggle_clk    <= ~rsp_toggle_clk;
             clk_state_q       <= CLK_IDLE;
+            clk_timeout_cnt   <= '0;
+          end else if (clk_timeout_cnt == CLK_TIMEOUT_MAX[9:0]) begin
+            // Bus response never came — force error response
+            mem_rsp_rdata_clk <= 32'h0;
+            mem_rsp_err_clk   <= 1'b1;
+            mem_rsp_done_clk  <= 1'b1;
+            rsp_toggle_clk    <= ~rsp_toggle_clk;
+            clk_state_q       <= CLK_IDLE;
+            clk_timeout_cnt   <= '0;
+          end else begin
+            clk_timeout_cnt <= clk_timeout_cnt + 10'd1;
           end
         end
         default: begin

@@ -45,6 +45,7 @@ module spi_ctrl (
   logic        mosi_int;
   logic        busy;
   logic        rx_valid;
+  logic        last_bit_sampled;
 
   wire write_en = req_valid && req_write;
   wire read_en  = req_valid && !req_write;
@@ -93,8 +94,9 @@ module spi_ctrl (
       rx_shift   <= 8'h00;
       sck_int    <= 1'b0;
       mosi_int   <= 1'b0;
-      busy       <= 1'b0;
-      rx_valid   <= 1'b0;
+      busy              <= 1'b0;
+      rx_valid          <= 1'b0;
+      last_bit_sampled  <= 1'b0;
     end else begin
       // Reading RXDATA consumes rx_valid.
       if (read_en && (addr_offset == REG_RXDATA)) begin
@@ -133,18 +135,27 @@ module spi_ctrl (
               // Rising edge: sample MISO (Mode 0, CPHA=0).
               sck_int <= 1'b1;
               if (bit_idx == 3'd7) begin
-                rx_shadow <= {rx_shift[6:0], spi_miso};
-                rx_valid  <= 1'b1;
-                state     <= ST_DONE;
+                rx_shadow        <= {rx_shift[6:0], spi_miso};
+                rx_valid         <= 1'b1;
+                last_bit_sampled <= 1'b1;
+                // Stay in ST_SHIFT for a full SCK high half-period
               end else begin
                 rx_shift <= {rx_shift[6:0], spi_miso};
                 bit_idx  <= bit_idx + 3'd1;
               end
             end else begin
-              // Falling edge: launch next MOSI bit.
-              sck_int  <= 1'b0;
-              tx_shift <= {tx_shift[6:0], 1'b0};
-              mosi_int <= tx_shift[6];
+              // Falling edge
+              if (last_bit_sampled) begin
+                // Last bit had its full high phase; now go low and finish
+                sck_int          <= 1'b0;
+                last_bit_sampled <= 1'b0;
+                state            <= ST_DONE;
+              end else begin
+                // Normal: launch next MOSI bit
+                sck_int  <= 1'b0;
+                tx_shift <= {tx_shift[6:0], 1'b0};
+                mosi_int <= tx_shift[6];
+              end
             end
           end else begin
             div_cnt <= div_cnt + 8'd1;
