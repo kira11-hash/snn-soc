@@ -77,6 +77,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 - `run_icarus_weighted.sh`、`run_sample_align.sh` 和 `run_vcs_weighted.sh` 会优先在仓库内自动搜索任意 `results/exports/` 目录下的 `weight_pos.hex / weight_neg.hex`（跳过 `backups/`），找不到时再回退到 `fpga/cim_model/` 或 `sim/`；如有多套导出物，建议显式设置 `WEIGHT_SRC_DIR=<目录>`。
 - `run_sample_align.sh` 还会自动搜索任意 `rtl_stimulus/` 目录下的 `all_samples.hex / expected_classes.hex`（同样跳过 `backups/`），必要时可显式设置 `STIMULUS_DIR=<目录>`。
 - 所有直接使用 `iverilog -f *.f` 的命令都默认**当前工作目录是 `sim/`**；如果从仓库根目录执行，请保留文档里的 `cd sim &&` 前缀，否则 `.f` 内相对路径会解析失败。
+- Windows PowerShell 下若直接跑 `chip_top` / `top_tb` 这类裸命令，请使用 `iverilog.exe` / `vvp.exe` / `verilator.cmd`，不要套在 `bash -lc "..."` 里；后者可能会误切到 WSL PATH，出现“`iverilog: command not found`”或错误的 `verilator` 安装路径。
 - `top_tb` 入口没有单独的 `PASS` 字符串；判定标准是 `vvp` 退出码为 0，且日志尾部出现 `[TB] Simulation finished.`。
 
 ---
