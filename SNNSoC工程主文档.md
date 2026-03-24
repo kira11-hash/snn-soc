@@ -1512,8 +1512,8 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
 - 已有 tapeout-intent 逻辑包装层：`rtl/top/chip_top.sv` 已把 pad-facing 端口连到 `snn_soc_top` 的 `_ext` 信号，并默认打开 E203 + 外部 CIM 接口路径
 - 当前状态说明（避免误解）：`chip_top` 已完成逻辑级信号贯通，但**仍不是最终工艺 pad-ring 实现**；Tapeout 前仍需完成 pad cell 实例化、ESD/drive/electrical 配置与最终物理约束。
 - 后端前必须完成以下收口：
-  - 复核 `chip_top.sv` 中外部复用信号（`wl_data/wl_group_sel/wl_latch/cim_start/cim_done/bl_sel/bl_data`）与 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) 完全一致
-  - 统一 pad 口径：以 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) 作为唯一真源，冻结最终引脚表、方向、电平和复位策略
+  - 复核 `chip_top.sv` 中外部复用信号（`wl_data/wl_group_sel/wl_latch/cim_start/cim_done/bl_sel/bl_data`）与 [`doc/15_asic_pad_map.md`](doc/15_asic_pad_map.md) 完全一致
+  - 统一 pad 口径：以 [`doc/15_asic_pad_map.md`](doc/15_asic_pad_map.md) 作为唯一真源，冻结最终引脚表、方向、电平和复位策略
   - 完成 pad ring 实例化与约束（时序/电气）
   - 与模拟团队二次对齐 `doc/08_cim_analog_interface.md`（去掉“待确认”项）
 - 验收标准：
@@ -1718,7 +1718,7 @@ bus_write(REG_CIM_TEST, 32'h0000_6401);  // neg=0x00, pos=0x64, mode=1
 ---
 ### IO Pad 方案（已确认：48 pad 总视图，45 个可用 pad + 3 个 ESD/保留 pad）
 
-> ASIC pad/pin 的正式真源见 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md)。
+> ASIC pad/pin 的正式真源见 [`doc/15_asic_pad_map.md`](doc/15_asic_pad_map.md)。
 > 当前口径为：48 pad 总计，其中 45 个可用 pad = 39 个功能信号 pad + 6 个电源/地 pad；另有 3 个 ESD/保留 pad。
 
 #### 器件模型关键参数（来自 memristor_plugin.py）
