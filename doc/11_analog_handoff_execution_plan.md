@@ -27,7 +27,7 @@
 | ★★★ | `doc/08_cim_analog_interface.md`          | 主合同：信号定义、时序协议、接口边界、待确认事项                      |
 | ★★★ | `doc/03_cim_if_protocol.md`               | 快速版协议参考（固定时序、ADC MUX 流程）                      |
 | ★★★ | `doc/02_reg_map.md`                       | 可调参数口径（THRESHOLD、TIMESTEPS、THRESHOLD_RATIO 等） |
-| ★★  | `SNNSoC工程主文档.md` 中 §"关键决策点" + [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md) | 已定版参数、pad/pin 分配真源 |
+| ★★  | `SNNSoC工程主文档.md` 中 §"关键决策点" + [`doc/15_asic_pad_map.md`](15_asic_pad_map.md) | 已定版参数、pad/pin 分配真源 |
 
 **文档一致性约束（对外发送时请附带）**：
 - 以上 5 份为当前唯一”对外有效口径”，均已更新为**双芯片 PCB 集成**架构描述。
@@ -140,7 +140,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P0-1 | 请确认最终 48 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](/d:/SoC%20Design/SoC%20Design/doc/15_asic_pad_map.md)），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
+| P0-1 | 请确认最终 48 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
 | P0-2 | 模拟芯片的 die size（长×宽，mm）和封装形式？ | 模拟芯片 | 影响 PCB 布局和走线长度 |
 | P0-3 | 模拟芯片信号 pad 的排列顺序（wl_data/bl_data 各从哪侧引出）？ | 模拟芯片 | 影响 PCB 走线对齐和信号完整性 |
 | P0-4 | 两颗芯片的供电方案：AVDD/AVSS（模拟）和 DVDD/DVSS（数字）在 PCB 上如何分区？是否需要独立 LDO？ | PCB 设计 | 影响电源完整性和噪声隔离 |

@@ -10,7 +10,7 @@
 - CPU：E203
 - 启动链：最小 `bootloader + SPI boot + UART printf`
 
-参数、地址映射和默认常量以 [snn_soc_pkg.sv](/d:/SoC Design/SoC Design/rtl/top/snn_soc_pkg.sv) 为准。
+参数、地址映射和默认常量以 [`rtl/top/snn_soc_pkg.sv`](../rtl/top/snn_soc_pkg.sv) 为准。
 
 ## 当前状态
 
@@ -26,9 +26,9 @@
 
 ## 重要边界
 
-- [chip_top.sv](/d:/SoC Design/SoC Design/rtl/top/chip_top.sv) 现在已经是**RTL 级 tapeout-intent 包装层**：默认启用 E203，并将外部 CIM 接口接到 pad 端口
+- [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv) 现在已经是**RTL 级 tapeout-intent 包装层**：默认启用 E203，并将外部 CIM 接口接到 pad 端口
 - 但它仍未包含工艺库相关的真实 `pad cell / ESD / drive strength / package` 实现，这部分属于后续 pad-library 适配工作
-- [snn_soc_top.sv](/d:/SoC Design/SoC Design/rtl/top/snn_soc_top.sv) 的 `ENABLE_E203` 默认值仍是 `0`，这是为了不打扰既有主回归；真正 TO 路径由 `chip_top` 显式覆写为 `1`
+- [`rtl/top/snn_soc_top.sv`](../rtl/top/snn_soc_top.sv) 的 `ENABLE_E203` 默认值仍是 `0`，这是为了不打扰既有主回归；真正 TO 路径由 `chip_top` 显式覆写为 `1`
 
 ## 当前执行形态
 
@@ -59,9 +59,9 @@ reset
 用于：
 - `E203_SMOKETEST_PASS`
 
-## 2026-03-23 复核基线
+## 2026-03-24 复核基线
 
-- 主线 Icarus 回归、JTAG rescue 链路、E203 启动链与 `sample_align 100/100` 已重新执行
+- 主线 Icarus 回归、JTAG rescue 链路、E203 启动链与 `sample_align 100/100` 已于 2026-03-24 重新执行
 - `chip_top` 已通过 `iverilog` 编译门禁与 `verilator` lint
 - 旧 `top_tb` 入口已跑通，日志尾部出现 `[TB] Simulation finished.`
 - `bash -n sim/*.sh fw/*.sh` 与 `python -m py_compile ...` 已通过
@@ -85,12 +85,12 @@ reset
 
 ## 真源文档
 
-- [01_memory_map.md](/d:/SoC Design/SoC Design/doc/01_memory_map.md)
-- [02_reg_map.md](/d:/SoC Design/SoC Design/doc/02_reg_map.md)
-- [08_cim_analog_interface.md](/d:/SoC Design/SoC Design/doc/08_cim_analog_interface.md)
-- [09_smoke_test_checklist.md](/d:/SoC Design/SoC Design/doc/09_smoke_test_checklist.md)
-- [15_asic_pad_map.md](/d:/SoC Design/SoC Design/doc/15_asic_pad_map.md)
-- [16_iteration_log.md](/d:/SoC Design/SoC Design/doc/16_iteration_log.md)
+- [`doc/01_memory_map.md`](01_memory_map.md)
+- [`doc/02_reg_map.md`](02_reg_map.md)
+- [`doc/08_cim_analog_interface.md`](08_cim_analog_interface.md)
+- [`doc/09_smoke_test_checklist.md`](09_smoke_test_checklist.md)
+- [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)
+- [`doc/16_iteration_log.md`](16_iteration_log.md)
 
 ## 当前还没完成的事情
 
@@ -100,7 +100,7 @@ reset
 
 ## 阅读建议
 
-- 想看地址和寄存器：先看 [01_memory_map.md](/d:/SoC Design/SoC Design/doc/01_memory_map.md) 和 [02_reg_map.md](/d:/SoC Design/SoC Design/doc/02_reg_map.md)
-- 想看当前做到哪：先看 [16_iteration_log.md](/d:/SoC Design/SoC Design/doc/16_iteration_log.md)
-- 想看 pad / pin：直接看 [15_asic_pad_map.md](/d:/SoC Design/SoC Design/doc/15_asic_pad_map.md)
+- 想看地址和寄存器：先看 [`doc/01_memory_map.md`](01_memory_map.md) 和 [`doc/02_reg_map.md`](02_reg_map.md)
+- 想看当前做到哪：先看 [`doc/16_iteration_log.md`](16_iteration_log.md)
+- 想看 pad / pin：直接看 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)
 - 想看 Python 对齐口径：直接看 `tb/top_tb_sample_align.sv` 和 `sim/run_sample_align.sh`

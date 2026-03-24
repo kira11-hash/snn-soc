@@ -31,7 +31,7 @@
 
 ## 3. 主机工具
 
-主机侧固定使用 [`scripts/jtag_rescue.py`](/d:/SoC%20Design/SoC%20Design/scripts/jtag_rescue.py)。
+主机侧固定使用 [`scripts/jtag_rescue.py`](../scripts/jtag_rescue.py)。
 
 常用命令：
 

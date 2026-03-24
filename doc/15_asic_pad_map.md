@@ -6,7 +6,7 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 
 - Scope: ASIC mainline only
 - Physical intent: full 48-pad package view
-- Current RTL status: [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv) now routes the digital core signals to the documented pad-facing ports, but still does not instantiate technology-specific pad cells
+- Current RTL status: [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv) now routes the digital core signals to the documented pad-facing ports, but still does not instantiate technology-specific pad cells
 - Counting rule:
   - 48 pads total
   - 45 usable pads
@@ -19,7 +19,7 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 - `default/reset behavior` describes the current repository behavior and reset expectation. Where `chip_top.sv` still lacks technology-specific pad-cell implementation, that is called out explicitly.
 - `expected signal owner`:
   - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
-  - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](/d:/SoC%20Design/SoC%20Design/rtl/top/chip_top.sv), but still not backed by technology pad cells
+  - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv), but still not backed by technology pad cells
 - JTAG remains 4-wire only in the current pad freeze. There is no dedicated `TRST_n` pad.
 
 ## Full 48-Pad Table

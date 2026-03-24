@@ -4,6 +4,42 @@
 
 ---
 
+## Iteration 8 — main 分支全量复核刷新（2026-03-24）
+
+### 本次复核范围
+
+- 重新执行 `doc/09_smoke_test_checklist.md` 中登记的主线验证矩阵
+- 复跑 `sample_align 100/100`、JTAG rescue、E203 启动链、`chip_top` 编译/lint 和旧 `top_tb` 入口
+- 复查正式文档中的仓库内文件链接，修正 Windows 本地绝对路径引用
+
+### 结果摘要
+
+```text
+JTAG_PYHOST_SELFTEST_PASS
+UART_SMOKETEST_PASS
+SPI_SMOKETEST_PASS
+DMA_SMOKETEST_PASS
+AXI_BRIDGE_SMOKETEST_PASS
+LIGHT_SMOKETEST_PASS
+WEIGHTED_SIM_PASS
+SAMPLE_ALIGN_PASS (100/100)
+ADC_SAT_COUNTER_PASS
+JTAG_MEM_LOADER_PASS
+JTAG_RESCUE_TOP_PASS
+E203_SMOKETEST_PASS
+chip_top Icarus compile gate 通过
+chip_top Verilator lint 通过
+legacy top_tb 入口通过
+shell / python 语法门禁通过
+```
+
+### 文档修订
+
+- 将 `doc/00_overview.md`、`doc/05_debug_guide.md`、`doc/08_cim_analog_interface.md`、`doc/11_analog_handoff_execution_plan.md`、`doc/15_asic_pad_map.md`、`SNNSoC工程主文档.md` 中的本地绝对路径链接改为仓库相对路径，避免 GitHub/跨机器阅读时跳转失效
+- 将 `README.md` 与 `doc/09_smoke_test_checklist.md` 的全量复核日期刷新为 `2026-03-24`
+
+---
+
 ## Iteration 1 — AXI-Lite 基础骨架接入（2026-03-18）
 
 ### 变更内容
