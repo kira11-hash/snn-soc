@@ -59,12 +59,13 @@ reset
 用于：
 - `E203_SMOKETEST_PASS`
 
-## 2026-03-24 复核基线
+## 2026-03-31 复核基线
 
-- 主线 Icarus 回归、JTAG rescue 链路、E203 启动链与 `sample_align 100/100` 已于 2026-03-24 重新执行
+- 主线 Icarus 回归、JTAG rescue 链路、E203 启动链与 `sample_align 100/100` 已于 2026-03-31 重新执行通过
 - `chip_top` 已通过 `iverilog` 编译门禁与 `verilator` lint
 - 旧 `top_tb` 入口已跑通，日志尾部出现 `[TB] Simulation finished.`
 - `bash -n sim/*.sh fw/*.sh` 与 `python -m py_compile ...` 已通过
+- RTL / TB / filelist / 文档全面交叉审计：参数一致性 100%，寄存器地址 100%，无硬件阻塞项
 
 ## 关键验证结论
 
@@ -85,18 +86,22 @@ reset
 
 ## 真源文档
 
-- [`doc/01_memory_map.md`](01_memory_map.md)
-- [`doc/02_reg_map.md`](02_reg_map.md)
-- [`doc/08_cim_analog_interface.md`](08_cim_analog_interface.md)
-- [`doc/09_smoke_test_checklist.md`](09_smoke_test_checklist.md)
-- [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)
-- [`doc/16_iteration_log.md`](16_iteration_log.md)
+- [`doc/01_memory_map.md`](01_memory_map.md) — 地址映射
+- [`doc/02_reg_map.md`](02_reg_map.md) — 寄存器定义（权威）
+- [`doc/07_tapeout_schedule.md`](07_tapeout_schedule.md) — 流片路线图（以文末 2026-03-31 Status Sync 为准）
+- [`doc/08_cim_analog_interface.md`](08_cim_analog_interface.md) — 数模接口规格
+- [`doc/09_smoke_test_checklist.md`](09_smoke_test_checklist.md) — 全量仿真操作手册
+- [`doc/11_analog_handoff_execution_plan.md`](11_analog_handoff_execution_plan.md) — 数模对接 handoff
+- [`doc/15_asic_pad_map.md`](15_asic_pad_map.md) — Pad Map（冻结真源）
+- [`doc/16_iteration_log.md`](16_iteration_log.md) — 迭代变更日志
 
-## 当前还没完成的事情
+## 当前还没完成的事情（Phase 6 后端）
 
-- `chip_top` 到 pad 级的真实集成
-- tapeout 版本到底是否默认启用 E203 的冻结决策
-- 综合 / PPA / 后端 / DFT / 签核闭环
+- `chip_top` pad cell 实例化（ESD / drive strength / IO type 配置）
+- 综合 / PPA / 后端 P&R / DFT scan chain / STA 签核
+- 板级 bring-up：boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash 验证
+
+> **已冻结决策**：tapeout 版本 `chip_top` 显式启用 `ENABLE_E203=1` + `ENABLE_EXT_CIM_IF=1`；`snn_soc_top` 默认值仍为 `0` 以保护既有主回归 TB 不受影响。
 
 ## 阅读建议
 

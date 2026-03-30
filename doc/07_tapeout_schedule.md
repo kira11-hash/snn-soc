@@ -476,9 +476,9 @@ set_output_delay 2.0 -clock clk [all_outputs]
 
 *初始版本：2026-01-30 / 最后更新：2026-03-21*
 
-**注意**：Phase 1–5 已全部完成（见文末 Status Sync），当前处于 Phase 6 综合后端阶段。
+**注意**：Phase 1–5 已全部完成，当前处于 Phase 6 综合后端阶段。以文末 **2026-03-31 Status Sync** 为当前状态真源。
 
-## 2026-03-21 Status Sync（当前状态，以此为准）
+## 2026-03-21 Status Sync（历史备份，已被上方 2026-03-31 节覆盖）
 
 本文件主体仍保留原始阶段计划属性。**当前实际进度以本节为准，主体中带 `[ ]` 的里程碑大多已实际完成，请勿以主体 checkbox 状态判断当前进度。**
 
@@ -498,7 +498,35 @@ set_output_delay 2.0 -clock clk [all_outputs]
 - 综合 / PPA / 后端 P&R / DFT scan chain 插入 / STA 签核
 - 板级 bring-up：boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash 验证
 
-## 2026-03-19 Status Sync（历史备份，已被上方 2026-03-21 节覆盖）
+## 2026-03-31 Status Sync（当前最新，以此为准）
+
+### 已完成
+
+- ✅ Phase 1–5 所有功能全部完成（Iteration 1–7），Phase 4 全量外设集成已通过独立 TB 与主链回归
+- ✅ Iteration 8（2026-03-24）全量回归基线刷新，13 项仿真 + chip_top 编译/lint + 脚本语法门禁全部通过
+- ✅ 2026-03-31 全面交叉审计（RTL / TB / sim scripts / 文档）：
+  - 参数一致性 100%（snn_soc_pkg ↔ 文档 ↔ TB ↔ CLAUDE.md）
+  - 寄存器地址 100% 正确（reg_bank / dma_engine / doc/02）
+  - 所有 filelist 引用文件均存在，PASS 标准与 CLAUDE.md 完全一致
+  - 无发现硬件阻塞级 bug
+- ✅ **E203 冻结决策已明确**：`chip_top` 显式 `ENABLE_E203=1` + `ENABLE_EXT_CIM_IF=1`；`snn_soc_top` 默认值保持 `0` 以保护主回归
+
+### 还未闭环的事项（Phase 6 后端）
+
+- `chip_top` pad cell 实例化（工艺库 pad cell / ESD / drive strength / IO type 配置）
+- 综合 / PPA / 后端 P&R / DFT scan chain 插入 / STA 签核
+- 板级 bring-up：boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash 验证
+- 流片目标日期：2026-06-30
+
+### 风险评估
+
+- 数字 RTL 功能已冻结，无新增 feature；后端工作为主要时间消耗项
+- JTAG rescue 提供了硅上救援路径，降低首次 bring-up 风险
+- CIM 模拟侧 pad 参数冻结于 doc/08 v3.0（2026-03-16），数字侧无变更
+
+---
+
+## 2026-03-19 Status Sync（历史备份，已被上方覆盖）
 
 - `UART / SPI / DMA / AXI-Lite bridge` 已完成主线接入并通过独立 TB 与主链回归
 - `E203` 已完成最小面积接入
