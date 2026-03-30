@@ -22,7 +22,7 @@
 - `E203` 已接入，并已通过最小 bare-metal 固件验证
 - `bootloader / SPI 启动 / UART printf` 已在专用 E203 Icarus TB 中验证通过
 - `chip_top` 已通过 Icarus 编译门禁与 Verilator lint
-- 旧 `top_tb` 入口、shell 脚本语法和 Python 主机工具语法已重新复核
+- 旧 `top_tb` 入口、shell 脚本语法、Python 主机工具语法，以及 Git 跟踪 Markdown 的本地链接已重新复核
 
 ## 重要边界
 
@@ -65,6 +65,7 @@ reset
 - `chip_top` 已通过 `iverilog` 编译门禁与 `verilator` lint
 - 旧 `top_tb` 入口已跑通，日志尾部出现 `[TB] Simulation finished.`
 - `bash -n sim/*.sh fw/*.sh` 与 `python -m py_compile ...` 已通过
+- `python scripts/check_markdown_links.py` 已通过
 - RTL / TB / filelist / 文档全面交叉审计：参数一致性 100%，寄存器地址 100%，无硬件阻塞项
 
 ## 关键验证结论

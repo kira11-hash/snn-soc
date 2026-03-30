@@ -38,10 +38,12 @@
 - `VERDI_HOME`：指向 Verdi 安装目录（用于 FSDB PLI）。
 - 若平台版本不同，可在 `sim/run_vcs.sh` 中调整 PLI 路径。
 - Windows 下请优先使用 Git for Windows 自带的 `bash.exe` / `sh.exe` 运行 `sim/*.sh`；不要直接用 `C:\Windows\System32\bash.exe`（WSL bash），否则可能找不到本机安装的 `iverilog` / `verilator`。
+- 若在 PowerShell 中先执行 `Get-Command bash` 发现命中的是 `C:\Windows\System32\bash.exe`，说明当前 `bash` 实际指向 WSL，而不是 Git Bash；此时普通 Icarus / shell 语法门禁请显式调用 Git Bash（常见路径：`C:\Program Files\Git\bin\bash.exe`），只有 `run_e203_icarus.sh` / `run_jtag_rescue_top_icarus.sh` 这类需要交叉编译固件的脚本才会在内部再转去 WSL。
 - 若在 `bash`/WSL 中看到 `$'\r': command not found`，说明本地 checkout 把 `.sh` 脚本变成了 CRLF；仓库期望 `*.sh` 为 LF（见 `.gitattributes`），请先按 LF 重新检出后再运行。
 - 带权重的 Icarus/VCS 流程依赖外部生成的 `weight_pos.hex` / `weight_neg.hex`；仓库默认不提交这些导出物，可放在任意 `results/exports/` 目录、`fpga/cim_model/` 或 `sim/` 下；如需显式指定来源，可设置 `WEIGHT_SRC_DIR=<目录>`。
 - `run_sample_align.sh` 额外依赖 `all_samples.hex` / `expected_classes.hex`；脚本会在仓库内自动查找 `rtl_stimulus/` 目录，也可通过 `STIMULUS_DIR=<目录>` 强制指定。
 - 若在 Windows PowerShell 里直接跑 `chip_top` 门禁，请使用 `iverilog.exe` / `verilator.cmd`；不要把 `iverilog` / `verilator` 包在 `bash -lc "..."` 里，否则可能误走到 WSL 环境中的错误 PATH。
+- `run_e203_icarus.sh` / `run_jtag_rescue_top_icarus.sh` 会在运行时临时创建 `rtl/vendor_e203` junction，把仓库内 `e203_hbirdv2-master/rtl` 映射到纯 ASCII 路径后再编译；这是为了规避 Windows + Icarus 对 vendor 路径/非 ASCII 路径的读取问题。脚本退出时会自动清理该 junction，因此不要把 `sim_e203.f` / `sim_jtag_rescue_top.f` 视为完全脱离脚本即可裸跑的 filelist。
 
 ## 常用回归入口
 > Windows 日常回归建议用 Git Bash；`run_e203_icarus.sh` 额外依赖 WSL 中可用的 `riscv64-unknown-elf-gcc / objcopy`。
@@ -61,8 +63,9 @@
 - `cd sim && bash run_e203_icarus.sh`：E203 最小启动链回归，期望 `E203_SMOKETEST_PASS`
 - `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
 - `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
+- `python scripts/check_markdown_links.py`：检查所有 Git 跟踪 `.md` 文件的本地相对链接是否存在
 
-2026-03-31 实跑复核结论：上述 UART/SPI/DMA/AXI-Lite bridge/light smoke/weighted/sample-align/ADC/JTAG loader/JTAG rescue top/E203、`chip_top` 编译/lint、旧 `top_tb` 入口，以及 shell/python 语法门禁已在当前 `main` 重新执行通过。
+2026-03-31 实跑复核结论：上述 UART/SPI/DMA/AXI-Lite bridge/light smoke/weighted/sample-align/ADC/JTAG loader/JTAG rescue top/E203、`chip_top` 编译/lint、旧 `top_tb` 入口、shell/python 语法门禁，以及 Markdown 本地链接门禁已在当前 `main` 重新执行通过。
 
 完整的 2026-03-31 全量复核覆盖面、通过口径，以及 `chip_top` 编译/lint、旧 `top_tb` 入口和脚本语法门禁说明见 `doc/09_smoke_test_checklist.md`。
 
