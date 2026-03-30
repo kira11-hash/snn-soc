@@ -12,7 +12,14 @@
 | 0x4000_0200 ~ 0x4000_02FF | 256B | uart_regs         |
 | 0x4000_0300 ~ 0x4000_03FF | 256B | spi_regs          |
 | 0x4000_0400 ~ 0x4000_04FF | 256B | fifo_regs         |
-|                           |      |                   |
+
+## DMA 目标与地址窗口对应
+
+| `DMA_DST_SEL` | DMA 读取源 | DMA 写入目标 | 约束 / 说明 |
+| --- | --- | --- | --- |
+| `INPUT_FIFO` (`0`) | `data_sram` | `input_fifo` | 当前正式推理路径；`DMA_LEN_WORDS` 必须为偶数，因为硬件按 2 个 32-bit word 拼 1 个 64-bit bit-plane |
+| `WEIGHT_SRAM` (`1`) | `data_sram` | `weight_sram` | 逐 word 写入；允许奇数长度；适合 live patch / 调试装载 |
+| `INSTR_SRAM` (`2`) | `data_sram` | `instr_sram` | 逐 word 写入；允许奇数长度；常见于 rescue / bring-up 装载链路 |
 
 ## SRAM 窗口的当前职责
 
@@ -34,6 +41,7 @@
 
 - 正式推理输入路径是 `data_sram -> dma_engine -> input_fifo -> cim_array_ctrl`。
 - `weight_sram` 仍保留在地址空间内，但它不是当前 `main` 分支默认 DMA 源，也不是当前正式推理输入窗口。
+- `DMA_SRC_ADDR` 的合法物理地址范围始终是 `data_sram`；`DST_SEL` 只决定“写到哪里”，不改变“从哪里读”。
 - `instr_sram` / `data_sram` / `weight_sram` 三个 SRAM 窗口都可由 JTAG rescue loader 访问，这是当前硅上/板级救援路径的基础假设。
 
 ## data_sram 布局（bit-plane）
