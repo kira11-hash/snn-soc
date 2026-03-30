@@ -227,9 +227,11 @@ module wl_mux_wrapper #(
         // ── DONE：发送完成通知 ────────────────────────────────────────
         // wl_latch = 0（state!=ST_SEND，组合逻辑立即生效）
         // wl_valid_pulse_out = 1（通知 dac_ctrl/cim_macro 位图已全部串行化完成）
-        // 下一拍回到 ST_IDLE，等待新帧
+        // 注意：DONE 拍仍保持 busy=1，因为当前拍 wrapper 还不能接受新帧；
+        // 真正可重入要等下一拍回到 ST_IDLE。这样 dbg_wl_stall_cnt 也不会漏记
+        // “恰好撞在 DONE 拍”的协议违规输入。
         ST_DONE: begin
-          wl_busy            <= 1'b0;
+          wl_busy            <= 1'b1;
           wl_valid_pulse_out <= 1'b1; // 所有组发送完成后，触发内部链路
           state              <= ST_IDLE;
         end
