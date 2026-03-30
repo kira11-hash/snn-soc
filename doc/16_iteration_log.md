@@ -4,6 +4,62 @@
 
 ---
 
+## Iteration 9 — 2026-03-31 main 分支再审计与 WL wrapper 边界修正
+
+### 本次复核范围
+
+- 重新执行当前 `doc/09_smoke_test_checklist.md` 主线回归矩阵，包括：
+  `JTAG_PYHOST_SELFTEST_PASS`、UART/SPI/DMA/AXI-Lite bridge、light smoke、weighted smoke、
+  `sample_align 100/100`、ADC saturation、JTAG loader、JTAG rescue top、E203 smoke、
+  `chip_top` Icarus 编译门禁、`chip_top` Verilator lint、旧 `top_tb` 入口、
+  shell/python 语法门禁
+- 复查 `rtl/top/chip_top.sv`、`rtl/top/snn_soc_top.sv`、`rtl/snn/wl_mux_wrapper.sv`
+  的 TO 路径与 WL 协议边界语义
+- 检查 `doc/06_learning_path.md` 当前阅读顺序口径是否仍与主线现状一致
+
+### 代码修正
+
+- `rtl/snn/wl_mux_wrapper.sv`
+  - 修正 `wl_busy` 在 `ST_DONE` 拍提前拉低的问题，改为 **直到回到 `ST_IDLE` 前都保持 busy=1**
+  - 修正后，`dbg_wl_stall_cnt` 不会漏记“新 `wl_valid_pulse_in` 恰好撞在 `ST_DONE` 拍”的协议违规输入
+  - 此修改不改变主功能时序，不影响 `wl_latch` / `wl_valid_pulse_out` 语义，只补齐 wrapper 边界可观测性
+
+### 文档修订
+
+- `doc/09_smoke_test_checklist.md`
+  - 补充 `u_wl_mux_wrapper.wl_busy` 的波形观察口径，明确其在 `SEND` 和 `DONE` 期间都应保持为 1
+- `doc/16_iteration_log.md`
+  - 追加本轮复核与修正记录，保持正式日志与当前主线一致
+
+### 结果摘要
+
+```text
+JTAG_PYHOST_SELFTEST_PASS
+UART_SMOKETEST_PASS
+SPI_SMOKETEST_PASS
+DMA_SMOKETEST_PASS
+AXI_BRIDGE_SMOKETEST_PASS
+LIGHT_SMOKETEST_PASS
+WEIGHTED_SIM_PASS
+SAMPLE_ALIGN_PASS (100/100)
+ADC_SAT_COUNTER_PASS
+JTAG_MEM_LOADER_PASS
+JTAG_RESCUE_TOP_PASS
+E203_SMOKETEST_PASS
+chip_top Icarus compile gate 通过
+chip_top Verilator lint 通过
+legacy top_tb 入口通过
+shell / python 语法门禁通过
+```
+
+### 学习路径口径复核
+
+- `doc/06_learning_path.md` 当前结论仍成立：
+  - 想“反向吃透当前项目现状”，**不要**只按 06 从头顺排到尾
+  - 更高效的顺序仍是先看 `09/15/08/11/07` 收口现状，再回到 06 作为代码解剖路线图
+
+---
+
 ## Iteration 8 — main 分支全量复核刷新（2026-03-24）
 
 ### 本次复核范围

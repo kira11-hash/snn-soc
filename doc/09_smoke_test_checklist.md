@@ -512,6 +512,7 @@ bash run_verdi_weighted.sh
 | `dut.u_wl_mux_wrapper.wl_data` [8-bit]            | grp0=wl_buf[7:0]，grp1=wl_buf[15:8]，...，grp7=wl_buf[63:56] |
 | `dut.u_wl_mux_wrapper.wl_group_sel` [3-bit]       | 跟随 grp_idx：0,1,2,3,4,5,6,7                                |
 | `dut.u_wl_mux_wrapper.wl_latch` [1-bit]           | SEND 期间为 1，IDLE/DONE 期间为 0（组合逻辑）                          |
+| `dut.u_wl_mux_wrapper.wl_busy` [1-bit]            | SEND 和 DONE 期间都为 1；只有回到 IDLE 后才为 0，用于抓边界重入/stall |
 | `dut.u_wl_mux_wrapper.wl_valid_pulse_out` [1-bit] | DONE 状态拉高 1 拍，转发给 dac_ctrl                                |
 
 ---
