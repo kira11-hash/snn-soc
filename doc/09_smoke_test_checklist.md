@@ -37,7 +37,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 
 ### 2026-03-31 全量复核覆盖面
 
-以下 17 项命令已在当前 `main` 主线环境重新执行并通过，可作为 tapeout 前的最低复核基线：
+以下 18 项命令已在当前 `main` 主线环境重新执行并通过，可作为 tapeout 前的最低复核基线：
 
 | 类别 | 命令 | 结果 |
 |------|------|------|
@@ -58,6 +58,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | 旧 `top_tb` 入口 | `cd sim && iverilog -g2012 -gno-assertions -f sim.f -s top_tb -o top_tb_check.out && vvp top_tb_check.out` | 跑通 |
 | Shell 语法检查 | `bash -n sim/*.sh fw/*.sh` | 全部通过 |
 | Python 语法检查 | `python -m py_compile scripts\\jtag_rescue.py scripts\\test_jtag_rescue.py fw\\bin_to_readmemh.py fw\\build_flash_image.py doc\\threshold_recommend.py` | 全部通过 |
+| Markdown 本地链接检查 | `python scripts\\check_markdown_links.py` | `MARKDOWN_LINK_CHECK_PASS` |
 
 ### 参数覆盖说明
 
@@ -78,6 +79,8 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 - `run_sample_align.sh` 还会自动搜索任意 `rtl_stimulus/` 目录下的 `all_samples.hex / expected_classes.hex`（同样跳过 `backups/`），必要时可显式设置 `STIMULUS_DIR=<目录>`。
 - 所有直接使用 `iverilog -f *.f` 的命令都默认**当前工作目录是 `sim/`**；如果从仓库根目录执行，请保留文档里的 `cd sim &&` 前缀，否则 `.f` 内相对路径会解析失败。
 - Windows PowerShell 下若直接跑 `chip_top` / `top_tb` 这类裸命令，请使用 `iverilog.exe` / `vvp.exe` / `verilator.cmd`，不要套在 `bash -lc "..."` 里；后者可能会误切到 WSL PATH，出现“`iverilog: command not found`”或错误的 `verilator` 安装路径。
+- Windows PowerShell 下若 `Get-Command bash` 显示的是 `C:\Windows\System32\bash.exe`，说明当前 `bash` 实际指向 WSL；普通 Icarus / shell 语法门禁请显式调用 Git Bash（常见路径：`C:\Program Files\Git\bin\bash.exe`），只有 `run_jtag_rescue_top_icarus.sh` / `run_e203_icarus.sh` 这类需要交叉编译固件的脚本才会在内部再转去 WSL。
+- `run_jtag_rescue_top_icarus.sh` / `run_e203_icarus.sh` 会在运行时临时创建 `rtl/vendor_e203` junction，把仓库内 `e203_hbirdv2-master/rtl` 映射成纯 ASCII 路径后再编译；这是为了规避 Windows + Icarus 对 vendor 路径/非 ASCII 路径的读取问题。脚本退出时会自动清理该 junction，因此 `sim_jtag_rescue_top.f` / `sim_e203.f` 应视为“脚本驱动入口”，而不是完全脱离脚本即可裸跑的 filelist。
 - `top_tb` 入口没有单独的 `PASS` 字符串；判定标准是 `vvp` 退出码为 0，且日志尾部出现 `[TB] Simulation finished.`。
 
 ---
