@@ -1,6 +1,6 @@
 # Smoke Test 完整操作手册
 
-最后更新：2026-03-24
+最后更新：2026-03-31
 
 ---
 
@@ -35,9 +35,9 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | THRESHOLD_DEFAULT | 2550 | = 1 × 255 × 10 |
 | reset_mode | soft | V = V - Vth |
 
-### 2026-03-24 全量复核覆盖面
+### 2026-03-31 全量复核覆盖面
 
-以下命令已在当前主线环境重新执行并通过，可作为 tapeout 前的最低复核基线：
+以下 17 项命令已在当前 `main` 主线环境重新执行并通过，可作为 tapeout 前的最低复核基线：
 
 | 类别 | 命令 | 结果 |
 |------|------|------|
@@ -110,7 +110,7 @@ bash run_icarus_light.sh
 LIGHT_SMOKETEST_PASS
 ```
 
-> 注：上面的轮询次数来自 2026-03-24 对当前 `main` 的实际复核结果；如果后续 TB 轮询节奏或日志抽样点变化，poll 次数可不同，但 `PASS` 字符串与 `OUT_FIFO_COUNT=100` 判据不应漂移。
+> 注：上面的轮询次数来自 2026-03-31 对当前 `main` 的实际复核结果；如果后续 TB 轮询节奏或日志抽样点变化，poll 次数可不同，但 `PASS` 字符串与 `OUT_FIFO_COUNT=100` 判据不应漂移。
 
 **通过标准**：
 1. 终端出现 `LIGHT_SMOKETEST_PASS`

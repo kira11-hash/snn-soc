@@ -62,7 +62,9 @@
 - `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
 - `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
 
-完整的 2026-03-24 全量复核覆盖面、通过口径，以及 `chip_top` 编译/lint、旧 `top_tb` 入口和脚本语法门禁说明见 `doc/09_smoke_test_checklist.md`。
+2026-03-31 实跑复核结论：上述 UART/SPI/DMA/AXI-Lite bridge/light smoke/weighted/sample-align/ADC/JTAG loader/JTAG rescue top/E203、`chip_top` 编译/lint、旧 `top_tb` 入口，以及 shell/python 语法门禁已在当前 `main` 重新执行通过。
+
+完整的 2026-03-31 全量复核覆盖面、通过口径，以及 `chip_top` 编译/lint、旧 `top_tb` 入口和脚本语法门禁说明见 `doc/09_smoke_test_checklist.md`。
 
 ## 目录结构
 ```
