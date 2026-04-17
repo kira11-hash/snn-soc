@@ -141,6 +141,10 @@ doc/   中文说明文档
 | `doc/14_gemm_accelerator_plan.md` | 双模态 AI SoC（GEMM+SNN）扩展规划（V2/V3 远景） |
 | `doc/15_asic_pad_map.md` | **ASIC Pad Map（48 pad 冻结真源）** |
 | `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
+| `eassy-prompt/17_ic_paper_prompt_shared.md` | IC 论文总控 prompt 共享模块（共性流程、真实性与门控） |
+| `eassy-prompt/18_ic_paper_prompt_A_fpga.md` | 模式 A：系统架构 / FPGA 原型验证论文 prompt 模块 |
+| `eassy-prompt/19_ic_paper_prompt_B1_digital_silicon.md` | 模式 B.1：数字流片成功论文 prompt 模块 |
+| `eassy-prompt/20_ic_paper_prompt_B2_dual_chip_silicon.md` | 模式 B.2：双芯片集成成功论文 prompt 模块 |
 
 ### 草稿文档（已整合到正式文档）
 - 早期 `develop docs` 草稿目录已从仓库移除，相关内容已整合到上述 `doc/*.md` 正式文档中；如需追溯演进过程，请查看 Git 历史。
@@ -154,3 +158,12 @@ doc/   中文说明文档
 - V2/V3：片上数模混合集成
 - 接口约定：`cim_macro_blackbox.sv` 的端口定义保持不变
 - 时钟频率：目标 50MHz（数模混合需要保守时序裕量）
+
+### 论文写作口径备忘（V1 vs V2）
+
+- 当前 `V1` 的真实形态是**双芯片 PCB 集成**：数字 SoC 与模拟 `CIM Macro` 独立流片、独立封装，通过 `wl_data / bl_sel / bl_data / cim_start / cim_done` 等 pad 信号互联。
+- 因此，当前版本**不能**写成“已实现片上数模混合集成”或“已解决互联问题”；更准确的说法是：本工作完成了面向混合集成的数字 SoC，并验证了其与外部 `CIM Macro` 协同工作的控制逻辑、接口协议和推理链路。
+- 面向后续 `V2/V3`，可以将“单芯片数模混合集成以降低片间通信延迟、接口能耗与数据搬运开销”写成 roadmap / motivation，但必须明确这是未来工作，而非 `V1` 已实现事实。
+- 若后续实现同一颗 die 上的数模混合集成，则可强调“控制器与 `CIM Macro` 的片上紧耦合”带来的系统级收益；若仅做到同封装 `MCM/SiP`，则应表述为“封装级集成”，不等同于单 die 片上集成。
+
+> 推荐备用句式：本工作完成了完整数字 SoC 的设计与 RTL 级验证，并确认了其与外部 `CIM Macro` 协同工作的控制逻辑、接口协议和推理链路；当前 `V1` 采用双芯片 PCB 集成，后续 `V2/V3` 将进一步推进单芯片数模混合集成，以降低片间通信开销并实现更紧耦合的系统级协同。
