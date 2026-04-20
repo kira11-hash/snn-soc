@@ -113,7 +113,7 @@ package snn_soc_pkg;
   //   NUM_OUTPUTS=10 时保守上界 = 255 * 10 = 2550，故 4096 留出安全余量。
   // ──────────────────────────────────────────────────────────────────────────
   parameter int INPUT_FIFO_DEPTH  = 256;  // 输入 FIFO 深度（64 位宽：bit-plane 数据）
-  parameter int OUTPUT_FIFO_DEPTH = 4096; // 输出 FIFO 深度（4 位宽：spike 神经元编号）
+  parameter int OUTPUT_FIFO_DEPTH = 4096; // 输出 FIFO 深度（宽度=$clog2(MAX_NEURONS)：spike 神经元编号）
 
   // ──────────────────────────────────────────────────────────────────────────
   // 行为模型延迟参数（仅用于仿真，不影响综合；可在仿真顶层覆盖）
@@ -183,6 +183,116 @@ package snn_soc_pkg;
   // FIFO 状态寄存器窗口：0x4000_0400 ~ 0x4000_04FF（256B）
   localparam logic [31:0] ADDR_FIFO_BASE   = 32'h4000_0400;
   localparam logic [31:0] ADDR_FIFO_END    = 32'h4000_04FF;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // V2 CIM 编程参数（ENABLE_PROGRAM_MODE=1 时生效）
+  // ──────────────────────────────────────────────────────────────────────────
+  parameter int PROG_LEVELS           = 16;  // 16 档电阻级别（N pulse = 第 N 档）
+  parameter int PROG_PULSE_WIDTH_CYC  = 8;   // 编程脉冲默认周期数（运行时由 REG_PROG_PULSE_WIDTH 寄存器覆盖）
+  parameter int PROG_ERASE_WIDTH_CYC = 50000; // 全阵列擦除默认周期数（1ms@50MHz，由 REG_PROG_ERASE_WIDTH 覆盖）
+  parameter int PROG_VERIFY_RETRY_MAX = 4;   // verify 失败后最大重试次数
+  parameter int PROG_ROWS             = 64;  // 可编程行数（= NUM_INPUTS）
+  parameter int PROG_COLS             = 20;  // 可编程列数（= ADC_CHANNELS）
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // V2 多层 SNN 参数（ENABLE_MULTI_LAYER=1 时生效）
+  // ──────────────────────────────────────────────────────────────────────────
+`ifdef SIM_MULTI_LAYER
+  parameter bit ENABLE_MULTI_LAYER = 1'b1;
+`else
+  parameter bit ENABLE_MULTI_LAYER = 1'b0;
+`endif
+  parameter int MAX_LAYERS         = 4;   // 最多支持层数
+  parameter int MAX_NEURONS        = 128; // 时分复用神经元最大数目
+  parameter int MAX_WL_COUNT       = 128; // 单层最大 WL 行数
+  parameter int MAX_BL_COUNT       = 256; // 单层最大 BL 列数（含 pos+neg）
+  parameter int MAX_BL_SCAN        = 128; // ADC 单次推理最大扫描列数（含 pos+neg）
+
+  // 层描述符实际在 REG_BANK offset 0x50..0x8F（REG_LAYER_BASE 起）
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // V2 行为模型开关（D3-002 修复）
+  // ──────────────────────────────────────────────────────────────────────────
+  // 【为什么要独立这个开关？】
+  //   cim_macro_blackbox 行为模型有两种模式：
+  //     (a) popcount 近似：BL 返回 ~popcount(wl_spike)，V1 smoke 默认用此
+  //     (b) BRAM 权重：`$readmemh` 加载真实权重，BL 返回 weighted sum
+  //
+  //   之前 snn_soc_top 把 P_USE_BRAM_WEIGHTS 绑在 ENABLE_PROGRAM_MODE 上，
+  //   但 V2 多层 sample_align TB 的需求可能是：
+  //     - 不要编程控制器（ENABLE_PROGRAM_MODE=0，省面积）
+  //     - 但仍要 BRAM 权重模型（才能对齐 Python 结果）
+  //
+  //   解耦后：
+  //     - V1 baseline: 两个都 0（popcount 行为）
+  //     - V2 编程 TB:   ENABLE_PROGRAM_MODE=1（BRAM 跟着自动开）
+  //     - V2 对齐 TB:   定义 SIM_BRAM_WEIGHT_MODEL，ENABLE_PROGRAM_MODE 可独立选
+  //
+  //   snn_soc_top 的 P_USE_BRAM_WEIGHTS 入参改为 OR 两者。
+`ifdef SIM_BRAM_WEIGHT_MODEL
+  parameter bit ENABLE_BRAM_WEIGHT_MODEL = 1'b1;
+`else
+  parameter bit ENABLE_BRAM_WEIGHT_MODEL = 1'b0;
+`endif
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // V2.B streamed-rate constants (REV 3.3 D15/D16)
+  //
+  // Additive to V1 parameters above. New V2.B modules
+  // (input_stream_sram, stream_buffer_v2, tile_partial_buf, layer_sequencer_v2)
+  // reference these. V1 regressions remain untouched.
+  //
+  // Policy (B0 mini-spec §B0.1):
+  //   - HW array is 256×256 (square for easier RRAM fabrication)
+  //   - ADC compile-time 10-bit (D15; runtime-switchable deferred to V3)
+  //   - T_MAX=256 (covers T ∈ {32, 64, 128, 256} Python sweep)
+  //   - Scheme B differential (unchanged from V1)
+  //   - Partial-sum accumulator stored [T_MAX × MAX_OUT_NEURONS] per D1
+  //
+  // Memory budget (Phase B0 §B0.2, D16 precise):
+  //   - input_stream_sram   = T_MAX × V2B_NUM_INPUTS = 64 Kbit (~8 KB)
+  //   - stream_buf_A/B each = T_MAX × V2B_MAX_OUT_NEURONS = 32 Kbit (~4 KB)
+  //   - tile_partial_buf    = T_MAX × V2B_MAX_OUT_NEURONS × signed V2B_PARTIAL_WIDTH
+  //                         = 256 × 128 × 14 bit = 459 Kbit (~56 KB)
+  // ──────────────────────────────────────────────────────────────────────────
+  parameter int V2B_NUM_INPUTS         = 256; // WL rows in V2.B 256×256 array
+  parameter int V2B_MAX_BL_SCAN        = 256; // Scheme B pos+neg = 2 × out_dim, up to 256
+  parameter int V2B_MAX_OUT_NEURONS    = 128; // = V2B_MAX_BL_SCAN / 2
+  parameter int V2B_MAX_TIMESTEPS      = 256; // T_MAX for streamed rate (P5-P7 T=256 covered)
+  parameter int V2B_ADC_BITS           = 10;  // REV 3.3 D15: compile-time 10-bit
+  parameter int V2B_ADC_MAX            = (1 << V2B_ADC_BITS) - 1;
+  // Per-tile ADC diff width = adc_bits + 1 (signed pos - neg); widen for safe
+  // cross-tile accumulation: diff + ceil(log2(N_tiles_max=4)) = 11 + 2 = 13 → pad to 14.
+  parameter int V2B_PARTIAL_WIDTH      = 14;
+  // LIF membrane width grows to absorb T_MAX × partial_diff accumulation + safety margin.
+  // Max per-t partial_diff ≤ 2 * V2B_ADC_MAX = 2046 ≤ 2^11.
+  // Worst-case membrane over T=256 ≤ 256 × 2046 ≈ 2^19. 32-bit signed is ample.
+  parameter int V2B_LIF_MEM_WIDTH      = 32;
+
+  // Sum-max policy (topology_desc.bin adc_full_scale field):
+  //   mode 0 = ARRAY:     SUM_MAX = V2B_NUM_INPUTS × 15     (fixed 3840)
+  //   mode 1 = ACTIVE_WL: SUM_MAX = stage.in_dim × 15      (per-tile, firmware-supplied)
+  parameter int V2B_SUM_MAX_ARRAY      = V2B_NUM_INPUTS * 15; // = 3840
+
+  // Stream buffer ownership encoding (REV 3.3 D14 state machine)
+  parameter logic [1:0] V2B_BUF_STATE_FREE    = 2'd0;
+  parameter logic [1:0] V2B_BUF_STATE_WRITING = 2'd1;
+  parameter logic [1:0] V2B_BUF_STATE_READY   = 2'd2;
+  parameter logic [1:0] V2B_BUF_STATE_READING = 2'd3;
+
+  // INPUT_SRC / OUTPUT_DST encoding for STAGE_CFG3
+  parameter logic [1:0] V2B_BUF_SEL_INPUT_SRAM = 2'd0;
+  parameter logic [1:0] V2B_BUF_SEL_STREAM_A   = 2'd1;
+  parameter logic [1:0] V2B_BUF_SEL_STREAM_B   = 2'd2;
+  parameter logic [1:0] V2B_BUF_SEL_OUTPUT_FIFO = 2'd3; // OUTPUT_DST only
+
+  // Stage error codes (STAGE_STATUS.ERR[23:16])
+  parameter logic [7:0] V2B_STAGE_ERR_OK                   = 8'h00;
+  parameter logic [7:0] V2B_STAGE_ERR_START_WHILE_BUSY     = 8'h01;
+  parameter logic [7:0] V2B_STAGE_ERR_SRC_DST_CONFLICT     = 8'h02;
+  parameter logic [7:0] V2B_STAGE_ERR_TILE_BUF_UNAVAILABLE = 8'h03;
+  parameter logic [7:0] V2B_STAGE_ERR_CIM_NOT_READY        = 8'h04;
+  parameter logic [7:0] V2B_STAGE_ERR_DIM_OUT_OF_RANGE     = 8'h05;
 
 endpackage
 /* verilator lint_on UNUSEDPARAM */
