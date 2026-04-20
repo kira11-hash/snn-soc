@@ -99,10 +99,19 @@ module stage_engine_v2
   output logic [$clog2(P_N_OUT)-1:0]   tpb_rd_j,
   input  logic signed [P_PARTIAL_W-1:0] tpb_rd_data,
 
-  // ── behavioral-MAC placeholder (replace with cim_array_ctrl in B2) ─
-  // Simple popcount-driven dummy diff; lets the FSM exercise end-to-end
-  // before real CIM integration. Stage TB uses this to pin-down FSM.
-  input  logic signed [P_PARTIAL_W-1:0] stub_weight_signed  // fixed dummy weight used for all neurons
+  // ── MAC coupling (external cim_mac_behavioral_v2 or real cim_array_ctrl) ─
+  // The stage engine issues mac_start once wl_latched is ready. It then
+  // waits for mac_done, after which it reads per-neuron diff via
+  // mac_diff_rd_data indexed by mac_diff_rd_j = j_idx.
+  output logic                              mac_start,
+  input  logic                              mac_done,
+  input  logic                              mac_busy,
+  output logic [P_N_IN-1:0]                 mac_wl_mask,
+  output logic [15:0]                       mac_cfg_in_dim,
+  output logic [15:0]                       mac_cfg_out_dim,
+  output logic [31:0]                       mac_cfg_sum_max,
+  output logic [$clog2(P_N_OUT)-1:0]        mac_diff_rd_j,
+  input  logic signed [P_PARTIAL_W-1:0]     mac_diff_rd_data
 );
 
   // ── FSM state encoding ─────────────────────────────────────────────
@@ -113,12 +122,14 @@ module stage_engine_v2
     S_READ_WL    = 4'd3,   // issue isr_rd_en for current t
     S_MAC_WAIT   = 4'd4,   // SRAM 1-cycle delay: data not yet on bus
     S_MAC_LATCH  = 4'd5,   // isr_rd_data is valid now, latch it
-    S_NEURON_LOOP= 4'd6,   // walk j=0..out_dim-1
-    S_NEXT_T     = 4'd7,
-    S_FINAL_LIF  = 4'd8,   // tile_mode flush (is_tile_final)
-    S_FINAL_READ = 4'd9,
-    S_FINAL_NEURON = 4'd10,
-    S_DONE       = 4'd11
+    S_MAC_KICK   = 4'd6,   // pulse mac_start for 1 cycle
+    S_MAC_RUN    = 4'd7,   // wait mac_done (external MAC runs j=0..out_dim-1)
+    S_NEURON_LOOP= 4'd8,   // walk j=0..out_dim-1, consume mac_diff_rd_data
+    S_NEXT_T     = 4'd9,
+    S_FINAL_LIF  = 4'd10,  // tile_mode flush (is_tile_final)
+    S_FINAL_READ = 4'd11,
+    S_FINAL_NEURON = 4'd12,
+    S_DONE       = 4'd13
   } state_e;
 
   state_e state, next_state;
@@ -129,44 +140,18 @@ module stage_engine_v2
   logic [P_N_OUT-1:0]         spike_this_t;
   logic                       write_to_A;
 
-  // popcount of wl_mask (used for behavioral MAC)
-  logic [$clog2(P_N_IN+1)-1:0] wl_popcount;
+  // Wire MAC coupling out of FSM
   logic [P_N_IN-1:0]           wl_latched;
-
   assign debug_t_idx = t_idx;
+  assign mac_wl_mask     = wl_latched;
+  assign mac_cfg_in_dim  = cfg_in_dim;
+  assign mac_cfg_out_dim = cfg_out_dim;
+  assign mac_cfg_sum_max = cfg_sum_max;
+  assign mac_diff_rd_j   = j_idx;
 
-  // Behavioral MAC (placeholder): per-neuron diff = popcount × stub_weight
-  // Real CIM will replace this with cim_array_ctrl + adc_ctrl.
-  // Assume P_PARTIAL_W = 14 for V0 (fixed constants below).
-  logic signed [P_PARTIAL_W-1:0] behavioral_diff;
-  logic signed [23:0]            behavioral_prod;
-  assign behavioral_prod = $signed({{14{1'b0}}, wl_popcount}) * stub_weight_signed;
-
-  localparam logic signed [23:0] PARTIAL_MAX_POS =  24'sd8191;  // 2^13 - 1
-  localparam logic signed [23:0] PARTIAL_MIN_NEG = -24'sd8192;  // -2^13
-
-  always @* begin
-    if (behavioral_prod > PARTIAL_MAX_POS)
-      behavioral_diff = 14'sd8191;
-    else if (behavioral_prod < PARTIAL_MIN_NEG)
-      behavioral_diff = -14'sd8192;
-    else
-      behavioral_diff = behavioral_prod[13:0];
-  end
-
-  // popcount combinational — sum over all P_N_IN bits; upper bits beyond
-  // cfg_in_dim are guaranteed 0 by input_stream_sram (write path only
-  // populates [cfg_in_dim-1:0]). Using always @* avoids Icarus constant-
-  // select limitation with loop-varying index.
-  logic [P_N_IN-1:0] popcount_mask;
-  integer pi;
-  always @* begin
-    popcount_mask = wl_latched;
-    wl_popcount = 0;
-    for (pi = 0; pi < P_N_IN; pi = pi + 1) begin
-      wl_popcount = wl_popcount + popcount_mask[pi];
-    end
-  end
+  // Diff used by S_NEURON_LOOP / S_FINAL_NEURON (combinational from external MAC)
+  logic signed [P_PARTIAL_W-1:0] mac_diff_used;
+  assign mac_diff_used = mac_diff_rd_data;
 
   // Determine output buffer
   assign write_to_A = (cfg_output_dst == V2B_BUF_SEL_STREAM_A);
@@ -192,7 +177,9 @@ module stage_engine_v2
       S_CLEAR_TPB:    next_state = S_READ_WL;
       S_READ_WL:      next_state = S_MAC_WAIT;
       S_MAC_WAIT:     next_state = S_MAC_LATCH;
-      S_MAC_LATCH:    next_state = S_NEURON_LOOP;
+      S_MAC_LATCH:    next_state = S_MAC_KICK;
+      S_MAC_KICK:     next_state = S_MAC_RUN;
+      S_MAC_RUN:      if (mac_done) next_state = S_NEURON_LOOP;
       S_NEURON_LOOP:  if (last_j) next_state = S_NEXT_T;
       S_NEXT_T: begin
         if (last_t) begin
@@ -227,6 +214,7 @@ module stage_engine_v2
       wl_latched   <= '0;
       for (k = 0; k < P_N_OUT; k++) membrane[k] <= '0;
 
+      mac_start <= 1'b0;
       isr_rd_en  <= 1'b0; isr_rd_addr <= '0;
       sbA_wr_en  <= 1'b0; sbA_wr_addr <= '0; sbA_wr_data <= '0;
       sbB_wr_en  <= 1'b0; sbB_wr_addr <= '0; sbB_wr_data <= '0;
@@ -244,6 +232,7 @@ module stage_engine_v2
       tpb_acc_en    <= 1'b0;
       tpb_rd_en     <= 1'b0;
       tpb_clear_all <= 1'b0;
+      mac_start     <= 1'b0;
 
       state <= next_state;
 
@@ -296,22 +285,36 @@ module stage_engine_v2
           wl_latched <= isr_rd_data;
         end
 
+        S_MAC_KICK: begin
+          // Pulse mac_start for one cycle; external cim_mac_behavioral_v2
+          // will then compute per-neuron diff in parallel of out_dim cycles.
+          mac_start <= 1'b1;
+          j_idx <= '0;
+        end
+
+        S_MAC_RUN: begin
+          // Wait for external MAC to finish. mac_done asserts for 1 cycle.
+          // Nothing to drive here; FSM transitions via next_state logic.
+          // j_idx already reset in S_MAC_KICK, so S_NEURON_LOOP starts at j=0.
+        end
+
         S_NEURON_LOOP: begin
-          // behavioral_diff is combinational from wl_latched + stub_weight_signed
+          // mac_diff_used is combinational from external cim_mac_behavioral_v2
+          // indexed by mac_diff_rd_j = j_idx.
           if (cfg_tile_mode) begin
             // accumulate into tile_partial_buf[t][j]
             tpb_acc_en  <= 1'b1;
             tpb_wr_t    <= t_idx;
             tpb_wr_j    <= j_idx;
-            tpb_wr_diff <= behavioral_diff;
+            tpb_wr_diff <= mac_diff_used;
           end else begin
             // accumulate membrane, fire LIF
-            if ((membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){behavioral_diff[P_PARTIAL_W-1]}}, behavioral_diff})) >= $signed(cfg_threshold)) begin
+            if ((membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used})) >= $signed(cfg_threshold)) begin
               spike_this_t[j_idx] <= 1'b1;
-              membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){behavioral_diff[P_PARTIAL_W-1]}}, behavioral_diff}) - $signed(cfg_threshold);
+              membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used}) - $signed(cfg_threshold);
             end else begin
               spike_this_t[j_idx] <= 1'b0;
-              membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){behavioral_diff[P_PARTIAL_W-1]}}, behavioral_diff});
+              membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used});
             end
           end
           j_idx <= j_idx + 1;

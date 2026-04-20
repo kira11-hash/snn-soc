@@ -1,0 +1,7 @@
+in_dim 8
+out_dim 4
+T 16
+adc_bits 10
+threshold 8
+sum_max 120
+seed 0

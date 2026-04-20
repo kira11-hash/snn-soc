@@ -82,8 +82,29 @@ module stage_engine_v2_tb;
   logic [J_AW-1:0] tpb_rd_j;
   logic signed [PW-1:0] tpb_rd_data;
 
-  // stub weight
-  logic signed [PW-1:0] stub_w;
+  // ── cim_mac_behavioral_v2 external MAC ─────────────────────────────
+  logic                       mac_w_load_en = 0;
+  logic [$clog2(N_IN)-1:0]    mac_w_load_i = '0;
+  logic [J_AW-1:0]            mac_w_load_j = '0;
+  logic [3:0]                 mac_w_load_pos = '0;
+  logic [3:0]                 mac_w_load_neg = '0;
+  logic                       mac_start, mac_done, mac_busy;
+  logic [N_IN-1:0]            mac_wl_mask;
+  logic [15:0]                mac_cfg_in_dim, mac_cfg_out_dim;
+  logic [31:0]                mac_cfg_sum_max;
+  logic [J_AW-1:0]            mac_diff_rd_j;
+  logic signed [PW-1:0]       mac_diff_rd_data;
+
+  cim_mac_behavioral_v2 #(.P_ADC_BITS(10)) u_mac (
+    .clk(clk), .rst_n(rst_n),
+    .w_load_en(mac_w_load_en), .w_load_i(mac_w_load_i), .w_load_j(mac_w_load_j),
+    .w_load_pos_data(mac_w_load_pos), .w_load_neg_data(mac_w_load_neg),
+    .mac_start(mac_start), .wl_mask(mac_wl_mask),
+    .cfg_in_dim(mac_cfg_in_dim), .cfg_out_dim(mac_cfg_out_dim),
+    .cfg_sum_max(mac_cfg_sum_max),
+    .mac_busy(mac_busy), .mac_done(mac_done),
+    .diff_rd_j(mac_diff_rd_j), .diff_rd_data(mac_diff_rd_data)
+  );
 
   // ── DUTs ───────────────────────────────────────────────────────────
   input_stream_sram u_isr (
@@ -131,18 +152,15 @@ module stage_engine_v2_tb;
     .tpb_wr_t(tpb_wr_t), .tpb_wr_j(tpb_wr_j), .tpb_wr_diff(tpb_wr_diff),
     .tpb_rd_en(tpb_rd_en), .tpb_rd_t(tpb_rd_t), .tpb_rd_j(tpb_rd_j),
     .tpb_rd_data(tpb_rd_data),
-    .stub_weight_signed(stub_w)
+    .mac_start(mac_start), .mac_done(mac_done), .mac_busy(mac_busy),
+    .mac_wl_mask(mac_wl_mask), .mac_cfg_in_dim(mac_cfg_in_dim),
+    .mac_cfg_out_dim(mac_cfg_out_dim), .mac_cfg_sum_max(mac_cfg_sum_max),
+    .mac_diff_rd_j(mac_diff_rd_j), .mac_diff_rd_data(mac_diff_rd_data)
   );
 
   // ── Debug monitor ─────────────────────────────────────────────────
   always @(posedge clk) if (sbA_wr_en)
     $display("  [monitor] sbA WRITE addr=%0d data=%b", sbA_wr_addr, sbA_wr_data[3:0]);
-  always @(posedge clk) if (rst_n && u_se.state == u_se.S_NEURON_LOOP)
-    $display("  [trace] S_NEURON_LOOP j=%0d t=%0d mem[0]=%0d mem[1]=%0d diff=%0d spike=%b",
-             u_se.j_idx, u_se.t_idx, u_se.membrane[0], u_se.membrane[1],
-             u_se.behavioral_diff, u_se.spike_this_t[3:0]);
-  always @(posedge clk) if (rst_n && u_se.state == u_se.S_NEXT_T)
-    $display("  [trace] S_NEXT_T t=%0d spike_this_t=%b", u_se.t_idx, u_se.spike_this_t[3:0]);
 
   // ── Test harness ──────────────────────────────────────────────────
   int errors = 0;
@@ -175,7 +193,6 @@ module stage_engine_v2_tb;
     cfg_output_dst = V2B_BUF_SEL_STREAM_A;
     cfg_tile_mode = 0; cfg_is_tile_final = 0; cfg_preserve_membrane = 0;
     cfg_t_count = 0;
-    stub_w = 14'sd1;
     isr_wr_en = 0; sbA_rd_en_tb = 0; sbA_rd_addr_tb = 0;
 
     rst_n = 0;
@@ -183,10 +200,23 @@ module stage_engine_v2_tb;
     rst_n = 1;
     @(posedge clk);
 
+    // Load MAC weights: w_pos[i][j]=1 for all (i,j), w_neg=0.
+    // With wl_mask popcount=3 and sum_max=60, adc_pos = (3*1023 + 30)/60 = 51.
+    // diff = 51 - 0 = 51 per neuron per timestep. Threshold 40 guarantees fire.
+    for (int i = 0; i < 4; i++) begin
+      for (int j = 0; j < 2; j++) begin
+        @(posedge clk);
+        mac_w_load_en  <= 1'b1;
+        mac_w_load_i   <= i[$clog2(N_IN)-1:0];
+        mac_w_load_j   <= j[J_AW-1:0];
+        mac_w_load_pos <= 4'd1;
+        mac_w_load_neg <= 4'd0;
+      end
+    end
+    @(posedge clk);
+    mac_w_load_en <= 1'b0;
+
     // Load input_stream_sram: 4 timesteps, wl[0..3] = 4'b1101 (popcount=3)
-    // Upper bits (>=4) = 0 so popcount sums only first 4 bits (padding).
-    // But popcount is over all N_IN bits → remaining must be zero. input_stream_sram
-    // already resets to 0 and we only write 4 words.
     for (int t = 0; t < 4; t++) begin
       logic [N_IN-1:0] wl = '0;
       wl[0] = 1'b1;
@@ -196,19 +226,18 @@ module stage_engine_v2_tb;
       load_isr(t[T_AW-1:0], wl);
     end
 
-    // Configure stage
+    // Configure stage: in_dim=4, out_dim=2, sum_max=60, threshold=40
     @(posedge clk);
     cfg_in_dim = 16'd4;
     cfg_out_dim = 16'd2;
-    cfg_threshold = 32'd5;
-    cfg_sum_max = 32'd60;   // unused in behavioral path
+    cfg_threshold = 32'd40;
+    cfg_sum_max = 32'd60;
     cfg_input_src = V2B_BUF_SEL_INPUT_SRAM;
     cfg_output_dst = V2B_BUF_SEL_STREAM_A;
     cfg_tile_mode = 0;
     cfg_is_tile_final = 1;
     cfg_preserve_membrane = 0;
     cfg_t_count = 16'd4;
-    stub_w = 14'sd1;
 
     // Pulse start
     @(posedge clk);
@@ -234,23 +263,23 @@ module stage_engine_v2_tb;
     end
     repeat (3) @(posedge clk);
 
-    // Verify expected spikes per timestep (popcount=3, thr=5):
-    //   t=0: membrane 3 → no fire, spike[t=0]=0
-    //   t=1: membrane 6 → fire, soft reset to 1, spike[t=1]=1
-    //   t=2: membrane 4 → no fire, spike[t=2]=0
-    //   t=3: membrane 7 → fire, soft reset to 2, spike[t=3]=1
-    // out_dim=2 → spike mask per timestep: bit0..bit1 = {fire, fire}
+    // Verify expected spikes per timestep (popcount=3, ADC scale ~51, thr=40):
+    //   t=0: membrane 51 → fire, soft reset to 11, spike[t=0] = 2'b11
+    //   t=1: membrane 11+51=62 → fire, reset to 22, spike[t=1] = 2'b11
+    //   t=2: membrane 22+51=73 → fire, reset to 33, spike[t=2] = 2'b11
+    //   t=3: membrane 33+51=84 → fire, reset to 44, spike[t=3] = 2'b11
+    // All 4 timesteps fire on both neurons.
     read_sbA(0, got);
-    if (got[1:0] !== 2'b00) begin $display("[FAIL] t=0 spike got=%b exp=00", got[1:0]); errors++; end
-    else                        $display("[PASS] t=0 spike = 00");
+    if (got[1:0] !== 2'b11) begin $display("[FAIL] t=0 spike got=%b exp=11", got[1:0]); errors++; end
+    else                        $display("[PASS] t=0 spike = 11");
 
     read_sbA(1, got);
     if (got[1:0] !== 2'b11) begin $display("[FAIL] t=1 spike got=%b exp=11", got[1:0]); errors++; end
     else                        $display("[PASS] t=1 spike = 11");
 
     read_sbA(2, got);
-    if (got[1:0] !== 2'b00) begin $display("[FAIL] t=2 spike got=%b exp=00", got[1:0]); errors++; end
-    else                        $display("[PASS] t=2 spike = 00");
+    if (got[1:0] !== 2'b11) begin $display("[FAIL] t=2 spike got=%b exp=11", got[1:0]); errors++; end
+    else                        $display("[PASS] t=2 spike = 11");
 
     read_sbA(3, got);
     if (got[1:0] !== 2'b11) begin $display("[FAIL] t=3 spike got=%b exp=11", got[1:0]); errors++; end
