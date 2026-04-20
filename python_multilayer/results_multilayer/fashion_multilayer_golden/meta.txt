@@ -1,0 +1,12 @@
+topology 196_64_10
+T 64
+adc_bits 10
+num_samples 10
+stage0_in_dim 196
+stage0_out_dim 64
+stage0_threshold 16
+stage0_sum_max 2940
+stage1_in_dim 64
+stage1_out_dim 10
+stage1_threshold 8
+stage1_sum_max 960

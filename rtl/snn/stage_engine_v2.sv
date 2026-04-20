@@ -227,6 +227,8 @@ module stage_engine_v2
       // default pulses
       done_pulse    <= 1'b0;
       isr_rd_en     <= 1'b0;
+      sbA_rd_en     <= 1'b0;
+      sbB_rd_en     <= 1'b0;
       sbA_wr_en     <= 1'b0;
       sbB_wr_en     <= 1'b0;
       tpb_acc_en    <= 1'b0;
@@ -270,8 +272,22 @@ module stage_engine_v2
         end
 
         S_READ_WL: begin
-          isr_rd_en   <= 1'b1;
-          isr_rd_addr <= t_idx;
+          // Pulse the read-enable of the selected input buffer.
+          case (cfg_input_src)
+            V2B_BUF_SEL_INPUT_SRAM: begin
+              isr_rd_en   <= 1'b1;
+              isr_rd_addr <= t_idx;
+            end
+            V2B_BUF_SEL_STREAM_A: begin
+              sbA_rd_en   <= 1'b1;
+              sbA_rd_addr <= t_idx;
+            end
+            V2B_BUF_SEL_STREAM_B: begin
+              sbB_rd_en   <= 1'b1;
+              sbB_rd_addr <= t_idx;
+            end
+            default: begin end
+          endcase
         end
 
         S_MAC_WAIT: begin
@@ -281,8 +297,20 @@ module stage_engine_v2
         end
 
         S_MAC_LATCH: begin
-          // Now isr_rd_data is valid; latch it.
-          wl_latched <= isr_rd_data;
+          // Now rd_data from the selected buffer is valid; latch it.
+          case (cfg_input_src)
+            V2B_BUF_SEL_INPUT_SRAM:
+              wl_latched <= isr_rd_data;
+            V2B_BUF_SEL_STREAM_A:
+              // stream_buffer is P_N_OUT wide (128), wl_latched is P_N_IN (256).
+              // Zero-pad upper bits; MAC's wl_mask[i] for i>=cfg_in_dim is
+              // ignored anyway (gated by in_dim_latched).
+              wl_latched <= { {(P_N_IN - P_N_OUT){1'b0}}, sbA_rd_data };
+            V2B_BUF_SEL_STREAM_B:
+              wl_latched <= { {(P_N_IN - P_N_OUT){1'b0}}, sbB_rd_data };
+            default:
+              wl_latched <= '0;
+          endcase
         end
 
         S_MAC_KICK: begin
