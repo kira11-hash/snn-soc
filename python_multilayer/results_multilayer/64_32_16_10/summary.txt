@@ -1,0 +1,6 @@
+Topology: 64_32_16_10
+Float test accuracy:     0.9435
+Quantized test accuracy: 0.9346
+Epochs: 45   QAT: True
+Final loss: 0.2492
+RTL-like reference accuracy: 0.2590 (1000 samples)

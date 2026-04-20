@@ -1,0 +1,226 @@
+schema_version: '1.0'
+global:
+  scheme: B
+  adc_bits: 8
+  weight_bits: 4
+  reset_mode: soft
+  preprocess: avgpool_8x8
+v1_baseline:
+  python_dir: ../项目相关文件/器件对齐/Python建模
+  weight_pos_hex: results/exports/weight_pos.hex
+  weight_neg_hex: results/exports/weight_neg.hex
+  alignment_manifest: results/exports/rtl_stimulus_batch100/alignment_manifest.json
+  reported_full_test_accuracy: 0.8776
+  alignment_subset_accuracy: null
+  frozen_rtl_threshold: 2550
+topologies:
+- name: 64to10_baseline
+  role: v1_frozen_baseline
+  num_fc_stages: 1
+  input_dim: 64
+  stages:
+  - in_dim: 64
+    out_dim: 10
+    timesteps: 10
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64to10_baseline/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/64to10_baseline/weights/L0_neg.hex
+- name: '64_10'
+  role: v2_demo
+  num_fc_stages: 1
+  input_dim: 64
+  stages:
+  - in_dim: 64
+    out_dim: 10
+    timesteps: 10
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/64_10/weights/L0_neg.hex
+- name: '64_24_10'
+  role: v2_demo
+  num_fc_stages: 2
+  input_dim: 64
+  stages:
+  - in_dim: 64
+    out_dim: 24
+    timesteps: 10
+    use_bitplane: true
+    threshold: 12000
+    weight_pos_hex: results_multilayer/64_24_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/64_24_10/weights/L0_neg.hex
+  - in_dim: 24
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_24_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/64_24_10/weights/L1_neg.hex
+- name: '64_32_10'
+  role: v2_demo
+  num_fc_stages: 2
+  input_dim: 64
+  stages:
+  - in_dim: 64
+    out_dim: 32
+    timesteps: 10
+    use_bitplane: true
+    threshold: 10000
+    weight_pos_hex: results_multilayer/64_32_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/64_32_10/weights/L0_neg.hex
+  - in_dim: 32
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_32_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/64_32_10/weights/L1_neg.hex
+- name: '64_64_10'
+  role: v2_demo
+  num_fc_stages: 2
+  input_dim: 64
+  stages:
+  - in_dim: 64
+    out_dim: 64
+    timesteps: 10
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_64_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/64_64_10/weights/L0_neg.hex
+  - in_dim: 64
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_64_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/64_64_10/weights/L1_neg.hex
+- name: '64_32_16_10'
+  role: v2_demo
+  num_fc_stages: 3
+  input_dim: 64
+  stages:
+  - in_dim: 64
+    out_dim: 32
+    timesteps: 10
+    use_bitplane: true
+    threshold: 4000
+    weight_pos_hex: results_multilayer/64_32_16_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/64_32_16_10/weights/L0_neg.hex
+  - in_dim: 32
+    out_dim: 16
+    timesteps: 1
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_32_16_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/64_32_16_10/weights/L1_neg.hex
+  - in_dim: 16
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: true
+    threshold: 2550
+    weight_pos_hex: results_multilayer/64_32_16_10/weights/L2_pos.hex
+    weight_neg_hex: results_multilayer/64_32_16_10/weights/L2_neg.hex
+
+# ═══════════════════════════════════════════════════════════════════════
+# V2.B REV 2 streamed-rate topologies (2026-04-20)
+# Fashion-MNIST 14×14 (196 dim), 256×256 CIM array, true BSRC streamed rate
+# ═══════════════════════════════════════════════════════════════════════
+
+- name: '196_10'
+  role: v2_demo
+  dataset: fashion_mnist
+  input_encoding: streamed_rate
+  stream_timesteps: 64
+  adc_bits: 10
+  adc_full_scale: active_wl
+  num_fc_stages: 1
+  input_dim: 196
+  stages:
+  - in_dim: 196
+    out_dim: 10
+    timesteps: 1              # NOT used under streamed_rate (stream_timesteps dominates)
+    use_bitplane: false       # streamed_rate requires use_bitplane=false everywhere
+    threshold: 16             # TBD via firing-rate calibration (placeholder)
+    sum_max: 2940             # 196 × 15 (active_wl)
+    weight_pos_hex: results_multilayer/196_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/196_10/weights/L0_neg.hex
+
+- name: '196_64_10'
+  role: v2_demo
+  dataset: fashion_mnist
+  input_encoding: streamed_rate
+  stream_timesteps: 64
+  adc_bits: 10
+  adc_full_scale: active_wl
+  num_fc_stages: 2
+  input_dim: 196
+  stages:
+  - in_dim: 196
+    out_dim: 64
+    timesteps: 1
+    use_bitplane: false
+    threshold: 16
+    sum_max: 2940             # 196 × 15
+    weight_pos_hex: results_multilayer/196_64_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/196_64_10/weights/L0_neg.hex
+  - in_dim: 64
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: false
+    threshold: 8
+    sum_max: 960              # 64 × 15
+    weight_pos_hex: results_multilayer/196_64_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/196_64_10/weights/L1_neg.hex
+
+# ═══════════════════════════════════════════════════════════════════════
+# MNIST 14×14 streamed rate (same topology structure, easier task — for
+# comparison: on MNIST depth gap tends to be smaller but absolute numbers
+# are higher; tests if Fashion's low 52% is encoding/ADC or task difficulty)
+# ═══════════════════════════════════════════════════════════════════════
+
+- name: 'mnist_196_10'
+  role: v2_demo
+  dataset: mnist
+  input_encoding: streamed_rate
+  stream_timesteps: 64
+  adc_bits: 10
+  adc_full_scale: active_wl
+  num_fc_stages: 1
+  input_dim: 196
+  stages:
+  - in_dim: 196
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: false
+    threshold: 16
+    sum_max: 2940
+    weight_pos_hex: results_multilayer/mnist_196_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/mnist_196_10/weights/L0_neg.hex
+
+- name: 'mnist_196_64_10'
+  role: v2_demo
+  dataset: mnist
+  input_encoding: streamed_rate
+  stream_timesteps: 64
+  adc_bits: 10
+  adc_full_scale: active_wl
+  num_fc_stages: 2
+  input_dim: 196
+  stages:
+  - in_dim: 196
+    out_dim: 64
+    timesteps: 1
+    use_bitplane: false
+    threshold: 16
+    sum_max: 2940
+    weight_pos_hex: results_multilayer/mnist_196_64_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/mnist_196_64_10/weights/L0_neg.hex
+  - in_dim: 64
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: false
+    threshold: 8
+    sum_max: 960
+    weight_pos_hex: results_multilayer/mnist_196_64_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/mnist_196_64_10/weights/L1_neg.hex

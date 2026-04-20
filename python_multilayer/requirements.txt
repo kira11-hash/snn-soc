@@ -1,0 +1,25 @@
+# V2 multilayer Python requirements
+# (verified with Python 3.14 on Windows; Python 3.11 on Windows + Linux)
+
+# Schema / config
+pydantic>=2.0,<3.0
+PyYAML>=6.0
+
+# Deep learning
+torch>=2.0,<3.0
+torchvision>=0.15
+
+# Numerical
+numpy>=1.24
+scipy>=1.11
+
+# Testing / formatting
+pytest>=7.4
+pytest-cov>=4.1
+black>=24.0
+ruff>=0.1.0
+
+# Device model (V1 shared, imported via sys.path)
+# pandas + openpyxl are needed for memristor_plugin.py to read I-V.xlsx
+pandas>=2.2
+openpyxl>=3.1

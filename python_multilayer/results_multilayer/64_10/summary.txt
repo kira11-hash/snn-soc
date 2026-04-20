@@ -1,0 +1,5 @@
+Topology: 64_10
+Float test accuracy:     0.7514
+Quantized test accuracy: 0.7483
+Epochs: 45   QAT: True
+Final loss: 0.6637
