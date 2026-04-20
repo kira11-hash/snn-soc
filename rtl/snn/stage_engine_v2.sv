@@ -115,21 +115,23 @@ module stage_engine_v2
 );
 
   // ── FSM state encoding ─────────────────────────────────────────────
-  typedef enum logic [3:0] {
-    S_IDLE       = 4'd0,
-    S_SETUP      = 4'd1,
-    S_CLEAR_TPB  = 4'd2,   // tile_mode=1 initial
-    S_READ_WL    = 4'd3,   // issue isr_rd_en for current t
-    S_MAC_WAIT   = 4'd4,   // SRAM 1-cycle delay: data not yet on bus
-    S_MAC_LATCH  = 4'd5,   // isr_rd_data is valid now, latch it
-    S_MAC_KICK   = 4'd6,   // pulse mac_start for 1 cycle
-    S_MAC_RUN    = 4'd7,   // wait mac_done (external MAC runs j=0..out_dim-1)
-    S_NEURON_LOOP= 4'd8,   // walk j=0..out_dim-1, consume mac_diff_rd_data
-    S_NEXT_T     = 4'd9,
-    S_FINAL_LIF  = 4'd10,  // tile_mode flush (is_tile_final)
-    S_FINAL_READ = 4'd11,
-    S_FINAL_NEURON = 4'd12,
-    S_DONE       = 4'd13
+  typedef enum logic [4:0] {
+    S_IDLE       = 5'd0,
+    S_SETUP      = 5'd1,
+    S_CLEAR_TPB  = 5'd2,
+    S_READ_WL    = 5'd3,
+    S_MAC_WAIT   = 5'd4,
+    S_MAC_LATCH  = 5'd5,
+    S_MAC_KICK   = 5'd6,
+    S_MAC_RUN    = 5'd7,
+    S_NEURON_LOOP= 5'd8,
+    S_NEXT_T     = 5'd9,
+    S_FINAL_LIF  = 5'd10,
+    S_FINAL_READ = 5'd11,
+    S_FINAL_WAIT = 5'd12,
+    S_FINAL_NEURON = 5'd13,
+    S_FINAL_WRITE= 5'd14,   // write sbA after last_j's spike_this_t NBA lands
+    S_DONE       = 5'd15
   } state_e;
 
   state_e state, next_state;
@@ -171,10 +173,13 @@ module stage_engine_v2
     case (state)
       S_IDLE:         if (start_pulse) next_state = S_SETUP;
       S_SETUP: begin
-                      if (cfg_tile_mode) next_state = S_CLEAR_TPB;
-                      else               next_state = S_READ_WL;
+                      // tile_mode no longer auto-clears tile_partial_buf:
+                      // firmware must issue STREAM_BUF_CTRL.CLEAR_TILE_BUF
+                      // before the first tile of a multi-tile stage.
+                      // Single-tile demo (tile_mode=0) doesn't use tpb.
+                      next_state = S_READ_WL;
                      end
-      S_CLEAR_TPB:    next_state = S_READ_WL;
+      S_CLEAR_TPB:    next_state = S_READ_WL;   // kept for backward compat; unreachable
       S_READ_WL:      next_state = S_MAC_WAIT;
       S_MAC_WAIT:     next_state = S_MAC_LATCH;
       S_MAC_LATCH:    next_state = S_MAC_KICK;
@@ -190,8 +195,13 @@ module stage_engine_v2
         end
       end
       S_FINAL_LIF:    next_state = S_FINAL_READ;
-      S_FINAL_READ:   next_state = S_FINAL_NEURON;
-      S_FINAL_NEURON: if (last_j) begin
+      S_FINAL_READ:   next_state = S_FINAL_WAIT;
+      S_FINAL_WAIT:   next_state = S_FINAL_NEURON;
+      S_FINAL_NEURON: begin
+        if (last_j) next_state = S_FINAL_WRITE;    // commit spike_this_t update first
+        else        next_state = S_FINAL_READ;
+      end
+      S_FINAL_WRITE: begin
         if (last_t) next_state = S_DONE;
         else        next_state = S_FINAL_READ;
       end
@@ -392,23 +402,29 @@ module stage_engine_v2
             membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data});
           end
           if (last_j) begin
-            // finished neuron loop for this t → write stream, advance t
-            if (write_to_A) begin
-              sbA_wr_en   <= 1'b1;
-              sbA_wr_addr <= t_idx;
-              sbA_wr_data <= spike_this_t;
-            end else begin
-              sbB_wr_en   <= 1'b1;
-              sbB_wr_addr <= t_idx;
-              sbB_wr_data <= spike_this_t;
-            end
-            spike_this_t <= '0;
+            // spike_this_t[last_j] just updated above (NBA); S_FINAL_WRITE
+            // will commit it to sbA next cycle (after NBA lands).
             j_idx <= '0;
-            if (!last_t) begin
-              t_idx <= t_idx + 1;
-            end
           end else begin
             j_idx <= j_idx + 1;
+          end
+        end
+
+        S_FINAL_WRITE: begin
+          // spike_this_t NBAs from the previous S_FINAL_NEURON (including
+          // last_j update) are now visible. Issue the stream buffer write.
+          if (write_to_A) begin
+            sbA_wr_en   <= 1'b1;
+            sbA_wr_addr <= t_idx;
+            sbA_wr_data <= spike_this_t;
+          end else begin
+            sbB_wr_en   <= 1'b1;
+            sbB_wr_addr <= t_idx;
+            sbB_wr_data <= spike_this_t;
+          end
+          spike_this_t <= '0;
+          if (!last_t) begin
+            t_idx <= t_idx + 1;
           end
         end
 

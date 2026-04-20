@@ -1,0 +1,10 @@
+in_dim 16
+out_dim 4
+T 16
+threshold 6
+adc_bits 10
+n_tiles 2
+tile0_in_dim 8
+tile0_sum_max 120
+tile1_in_dim 8
+tile1_sum_max 120
