@@ -316,15 +316,21 @@ reprogram latency 决定 28×28 scalability demo 不进 accuracy 主表。
 
 ---
 
-## Open items（B0 freeze 前要敲定）
+## Open items — FREEZE 记录（GPT review 2026-04-20 后）
 
-- [ ] WL 扫描策略：一 WL 一 cycle（串行，简单） vs group=8 × time-division mux（现有 V1 方式，快 8×）。倾向保留 V1 group mux，避免 in_dim=196 时 196 cycle/timestep 过慢
-- [ ] `ADC_BITS` 真的是 compile-time 还是也保留 runtime bit？（D15 推荐 compile-time 10-bit；runtime 切换需 RTL 复杂度 +15%）
-- [ ] `input_stream_sram` 是否做 ping-pong？（REV 3.2 D6 写了可选；B0 决定）
-- [ ] `tile_partial_buf` 在非 tile 模式下是否物理存在？（T=64 × 128 × 14-bit = 14 KB；若主 demo 不用，可用 config parameter 关闭）
-- [ ] `ML_CTRL` (0x48) 寄存器废弃策略：完全删除 vs 保留但不再驱动 layer loop
+| # | Item | 决议 | 说明 |
+|---|---|---|---|
+| 1 | WL 扫描策略 | **保留 V1 group=8 time-division mux**（功能冻结，不 freeze cycle count） | parity TB 只验 MAC 结果值正确；真 cycle latency 留到 Phase D synthesis 前精化 |
+| 2 | ADC_BITS policy | **compile-time 10-bit**，`P_ADC_BITS = 10` 参数化；ADC_CFG 寄存器若保留做 RO build info | firmware 不能 runtime 切 8/12；`topology_desc.required_adc_bits` 必须 == 10 否则 boot 报错 |
+| 3 | input_stream_sram ping-pong | **单 buffer**（C-Milestone-1 resident 14×14 单 buffer 够）；ping-pong 留给 tile/chunk/overlap 优化 |
+| 4 | tile_partial_buf 物理 | **参数化 `V2B_ENABLE_TILE`**；默认 resident demo 可关闭以节省 14 KB BRAM；tile demo (Phase C4) 前开启 | C-Milestone-1 不依赖 |
+| 5 | ML_CTRL (0x48) | **保留 legacy，不驱动 V2B**；V2B 新寄存器从 0x50 开始 | 避免 V1 multilayer legacy 和 V2B stage engine 语义冲突 |
 
-B0 review 后答复这些。
+执行级影响：
+- `cim_mac_behavioral_v2.sv`：P_ADC_BITS=10 已按此实装 ✅
+- `reg_bank` (将在 C integration 中扩充)：STAGE_CTRL/CFG 从 0x50 起，0x48 ML_CTRL 保持 legacy 不动
+- `snn_soc_v2b_top.sv` (新 top，避免 V1 冲突)：单 input_stream_sram，tile_partial_buf 可 config parameter
+- WL mux 实际实现：V2B `cim_mac_behavioral_v2` 当前用 parallel popcount（不 time-div mux）。真 CIM path 集成时才需 group mux (Phase B2-real 或 Phase D)
 
 ---
 
