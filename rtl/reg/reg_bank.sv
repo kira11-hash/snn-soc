@@ -39,7 +39,7 @@
 //                                      bit[3]    out_fifo_empty
 //                                      bit[4]    out_fifo_full
 //                                      bit[15:8] timestep_counter（当前时步）
-//   0x1C  REG_OUT_DATA       [3:0]   只读：弹出 output_fifo 的 spike_id（读后自动 pop）
+//   0x1C  REG_OUT_DATA       [$clog2(MAX_NEURONS)-1:0] 只读：弹出 output_fifo 的 spike_id（读后自动 pop）
 //   0x20  REG_OUT_COUNT      只读：output_fifo 当前 entry 数
 //   0x24  REG_THRESHOLD_RATIO [7:0]  shadow 寄存器：Scheme B 阈值比例（定版默认 1 ≈ 0.392%）
 //                                     注意：此寄存器不驱动硬件，固件需手动计算后写 REG_THRESHOLD
@@ -116,7 +116,7 @@ module reg_bank (
   input  logic        in_fifo_full,     // 输入 FIFO 满（DMA 暂停）
   input  logic        out_fifo_empty,   // 输出 FIFO 空（无 spike 可读）
   input  logic        out_fifo_full,    // 输出 FIFO 满（LIF 暂停输出）
-  input  logic [3:0]  out_fifo_rdata,   // 输出 FIFO 队头 spike_id（4-bit，fall-through）
+  input  logic [$clog2(snn_soc_pkg::MAX_NEURONS)-1:0] out_fifo_rdata,
   input logic [$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count, // 当前 spike 数量
 
   // ADC 饱和监控（来自 adc_ctrl）
@@ -148,7 +148,35 @@ module reg_bank (
 
   // 输出 FIFO 弹出控制（在 rvalid 那拍）
   // 由 pop_pending 2-cycle pipeline 驱动，确保读出后下一拍才 pop
-  output logic        out_fifo_pop
+  output logic        out_fifo_pop,
+
+  // V2 CIM Programming control outputs
+  output logic        prog_start_pulse,
+  output logic        prog_erase,
+  output logic        prog_full_array,
+  output logic [5:0]  prog_row,
+  output logic [4:0]  prog_col,
+  output logic [3:0]  prog_level,
+  output logic [2:0]  prog_retry_limit,
+  output logic [15:0] prog_pulse_width,
+  output logic [15:0] prog_erase_width,
+  // V2 CIM Programming status inputs
+  input  logic        prog_busy,
+  input  logic        prog_done_pulse,
+  input  logic        prog_pass,
+  input  logic        prog_fail,
+  input  logic [2:0]  prog_retry_count,
+
+  // V2 Multi-layer descriptor outputs
+  output logic [1:0]  ml_num_layers,
+  output logic        ml_enable,
+  output logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_cfg,
+  output logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_timing,
+  output logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_threshold,
+  output logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_neuron_cfg,
+
+  // V2 spike 队列溢出标志（来自 lif_neuron_alu，sticky，soft_reset 清零）
+  input  logic spike_q_overflow
 );
   import snn_soc_pkg::*;
 
@@ -180,6 +208,20 @@ module reg_bank (
   localparam logic [7:0] REG_DBG_CNT_0       = 8'h30; // [15:0]=dma_frame, [31:16]=cim_cycle
   localparam logic [7:0] REG_DBG_CNT_1       = 8'h34; // [15:0]=spike, [31:16]=wl_stall
 
+  // V2 CIM Programming registers
+  localparam logic [7:0] REG_PROG_CTRL       = 8'h38; // [0]=START W1P, [1]=ERASE, [2]=FULL_ARRAY, [7:4]=LEVEL, [10:8]=RETRY_LIMIT
+  localparam logic [7:0] REG_PROG_ROW        = 8'h3C; // [5:0]=row
+  localparam logic [7:0] REG_PROG_COL        = 8'h40; // [4:0]=col
+  localparam logic [7:0] REG_PROG_STATUS     = 8'h44; // [0]=BUSY, [1]=PASS, [2]=FAIL, [5:3]=RETRY_COUNT, [7]=DONE W1C
+  localparam logic [7:0] REG_PROG_PULSE_WIDTH = 8'h90; // [17:16]=write pulse preset (RW): 0=1us,1=10us,2=100us,3=reserved(treated as 100us); [15:0]=resolved cycles (RO)
+  localparam logic [7:0] REG_PROG_ERASE_WIDTH = 8'h94; // fixed erase pulse width: 50000 cycles = 1ms @ 50MHz, writes ignored
+
+  // V2 Multi-layer registers
+  localparam logic [7:0] REG_ML_CTRL         = 8'h48; // [1:0]=num_layers, [8]=enable
+  // Layer descriptors: 4 layers × 4 regs × 4 bytes = 0x50..0x8F
+  // Layer N base = 0x50 + N*0x10
+  localparam logic [7:0] REG_LAYER_BASE      = 8'h50;
+
   // -----------------------------------------------------------------------
   // 内部寄存器说明
   // threshold_ratio : Scheme B 阈值比例 shadow（不驱动硬件，仅 SW 可见）
@@ -190,6 +232,22 @@ module reg_bank (
   logic done_sticky;
   logic pop_pending;
   logic out_data_read_seen;
+
+  // V2 programming registers
+  logic prog_done_sticky;
+  logic [1:0] prog_write_pulse_sel;
+
+  function automatic logic [15:0] decode_write_pulse_width(input logic [1:0] sel);
+    case (sel)
+      2'd0: decode_write_pulse_width = PROG_WRITE_PULSE_1US_CYC[15:0];
+      2'd1: decode_write_pulse_width = PROG_WRITE_PULSE_10US_CYC[15:0];
+      2'd2: decode_write_pulse_width = PROG_WRITE_PULSE_100US_CYC[15:0];
+      // 2'd3 is reserved for the 1ms erase preset. If software writes it
+      // while configuring a write operation, keep the strongest valid write
+      // pulse rather than allowing an accidental 1ms SET pulse.
+      default: decode_write_pulse_width = PROG_WRITE_PULSE_100US_CYC[15:0];
+    endcase
+  endfunction
 
   // addr_offset 只取低 8 位用于寄存器解码
   wire [7:0] addr_offset = req_addr[7:0];
@@ -235,15 +293,39 @@ module reg_bank (
       cim_test_mode     <= 1'b0;
       cim_test_data_pos <= '0;
       cim_test_data_neg <= '0;
+      // V2 programming defaults
+      prog_start_pulse  <= 1'b0;
+      prog_erase        <= 1'b0;
+      prog_full_array   <= 1'b0;
+      prog_row          <= 6'd0;
+      prog_col          <= 5'd0;
+      prog_level        <= 4'd0;
+      prog_retry_limit  <= PROG_VERIFY_RETRY_MAX[2:0];
+      prog_write_pulse_sel <= 2'd0;
+      prog_pulse_width  <= PROG_PULSE_WIDTH_CYC[15:0];
+      prog_erase_width  <= PROG_ERASE_WIDTH_CYC[15:0];
+      prog_done_sticky  <= 1'b0;
+      // V2 multi-layer defaults
+      ml_num_layers     <= 2'd0;
+      ml_enable         <= 1'b0;
+      for (int i = 0; i < snn_soc_pkg::MAX_LAYERS; i++) begin
+        ml_layer_cfg[i]        <= 32'd0;
+        ml_layer_timing[i]     <= 32'd0;
+        ml_layer_threshold[i]  <= 32'd0;
+        ml_layer_neuron_cfg[i] <= 32'd0;
+      end
     end else begin
       // W1P 默认每拍清零（确保脉冲只有 1 拍宽度）
-      // 这两行必须在 case 之前，以便 case 中的赋值可以覆盖它们
       start_pulse      <= 1'b0;
       soft_reset_pulse <= 1'b0;
+      prog_start_pulse <= 1'b0;
 
       // sticky DONE：SNN 推理完成脉冲将 done_sticky 置 1（直到 W1C 清零）
       if (snn_done_pulse) begin
         done_sticky <= 1'b1;
+      end
+      if (prog_done_pulse) begin
+        prog_done_sticky <= 1'b1;
       end
 
       if (write_en) begin
@@ -280,17 +362,67 @@ module reg_bank (
             if (req_wstrb[2]) cim_test_data_neg <= req_wdata[23:16];
           end
           REG_CIM_CTRL: begin
-            // W1P: START / RESET
-            // 这三个控制位都位于 byte0，需同时满足 wstrb[0]=1 才生效
-            // 写 bit[0]=1 → start_pulse 被置 1，覆盖本拍开头的默认清零
-            if (req_wstrb[0] && req_wdata[0]) start_pulse <= 1'b1;
-            // 写 bit[1]=1 → soft_reset_pulse 被置 1，同上
+            // D1-005：编程进行中屏蔽推理启动，防止 arbiter 切换时竞争
+            if (req_wstrb[0] && req_wdata[0] && !prog_busy) start_pulse <= 1'b1;
             if (req_wstrb[0] && req_wdata[1]) soft_reset_pulse <= 1'b1;
-            // W1C: DONE
-            // 写 bit[7]=1 → done_sticky 清零（SW 确认完成）
             if (req_wstrb[0] && req_wdata[7]) done_sticky <= 1'b0;
           end
+          REG_PROG_CTRL: begin
+            // D1-005：推理进行中屏蔽编程启动，两条路径互锁
+            if (req_wstrb[0] && req_wdata[0] && !snn_busy) prog_start_pulse <= 1'b1;
+            if (req_wstrb[0]) prog_erase <= req_wdata[1];
+            if (req_wstrb[0]) prog_full_array <= req_wdata[2];
+            if (req_wstrb[0]) prog_level <= req_wdata[7:4];
+            if (req_wstrb[1]) prog_retry_limit <= req_wdata[10:8];
+          end
+          REG_PROG_PULSE_WIDTH: begin
+            if (req_wstrb[2]) begin
+              prog_write_pulse_sel <= req_wdata[17:16];
+              prog_pulse_width <= decode_write_pulse_width(req_wdata[17:16]);
+            end
+          end
+          REG_PROG_ERASE_WIDTH: begin
+            // Erase pulse is intentionally fixed to 1ms. Ignore writes so
+            // firmware cannot accidentally shorten erase below device-safe width.
+            prog_erase_width <= PROG_ERASE_WIDTH_CYC[15:0];
+          end
+          REG_PROG_ROW: begin
+            if (req_wstrb[0]) prog_row <= req_wdata[5:0];
+          end
+          REG_PROG_COL: begin
+            if (req_wstrb[0]) prog_col <= req_wdata[4:0];
+          end
+          REG_PROG_STATUS: begin
+            if (req_wstrb[0] && req_wdata[7]) prog_done_sticky <= 1'b0;
+          end
+          // V2 Multi-layer control
+          REG_ML_CTRL: begin
+            if (req_wstrb[0]) ml_num_layers <= req_wdata[1:0];
+            if (req_wstrb[1]) ml_enable     <= req_wdata[8];
+          end
           default: begin
+            // V2 Layer descriptors: 0x50..0x8F, 4 layers × 4 regs
+            // 层描述符写：按绝对偏移展开（Icarus 不支持变量数组下标做 LHS）
+            // Layer 0: 0x50..0x5C
+            if (addr_offset == 8'h50) begin if (req_wstrb[0]) ml_layer_cfg[0][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_cfg[0][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_cfg[0][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_cfg[0][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h54) begin if (req_wstrb[0]) ml_layer_timing[0][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_timing[0][15:8]<=req_wdata[15:8]; end
+            if (addr_offset == 8'h58) begin if (req_wstrb[0]) ml_layer_threshold[0][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_threshold[0][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_threshold[0][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_threshold[0][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h5C) begin if (req_wstrb[0]) ml_layer_neuron_cfg[0][7:0]<=req_wdata[7:0]; end
+            // Layer 1: 0x60..0x6C
+            if (addr_offset == 8'h60) begin if (req_wstrb[0]) ml_layer_cfg[1][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_cfg[1][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_cfg[1][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_cfg[1][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h64) begin if (req_wstrb[0]) ml_layer_timing[1][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_timing[1][15:8]<=req_wdata[15:8]; end
+            if (addr_offset == 8'h68) begin if (req_wstrb[0]) ml_layer_threshold[1][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_threshold[1][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_threshold[1][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_threshold[1][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h6C) begin if (req_wstrb[0]) ml_layer_neuron_cfg[1][7:0]<=req_wdata[7:0]; end
+            // Layer 2: 0x70..0x7C
+            if (addr_offset == 8'h70) begin if (req_wstrb[0]) ml_layer_cfg[2][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_cfg[2][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_cfg[2][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_cfg[2][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h74) begin if (req_wstrb[0]) ml_layer_timing[2][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_timing[2][15:8]<=req_wdata[15:8]; end
+            if (addr_offset == 8'h78) begin if (req_wstrb[0]) ml_layer_threshold[2][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_threshold[2][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_threshold[2][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_threshold[2][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h7C) begin if (req_wstrb[0]) ml_layer_neuron_cfg[2][7:0]<=req_wdata[7:0]; end
+            // Layer 3: 0x80..0x8C
+            if (addr_offset == 8'h80) begin if (req_wstrb[0]) ml_layer_cfg[3][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_cfg[3][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_cfg[3][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_cfg[3][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h84) begin if (req_wstrb[0]) ml_layer_timing[3][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_timing[3][15:8]<=req_wdata[15:8]; end
+            if (addr_offset == 8'h88) begin if (req_wstrb[0]) ml_layer_threshold[3][7:0]<=req_wdata[7:0]; if (req_wstrb[1]) ml_layer_threshold[3][15:8]<=req_wdata[15:8]; if (req_wstrb[2]) ml_layer_threshold[3][23:16]<=req_wdata[23:16]; if (req_wstrb[3]) ml_layer_threshold[3][31:24]<=req_wdata[31:24]; end
+            if (addr_offset == 8'h8C) begin if (req_wstrb[0]) ml_layer_neuron_cfg[3][7:0]<=req_wdata[7:0]; end
             // 其他地址忽略（包括只读寄存器：写入无效）
           end
         endcase
@@ -358,7 +490,9 @@ module reg_bank (
   //   → bit[15:0]  = dma_frame_cnt
   // -----------------------------------------------------------------------
   // 状态寄存器组合逻辑
-  always_comb begin
+  // Use always @* instead of always_comb for Icarus compatibility: older
+  // Icarus versions warn on constant bit-select assignments inside always_*.
+  always @* begin
     rdata = 32'h0;
     case (addr_offset)
       REG_THRESHOLD:   rdata = neuron_threshold;                    // 读回当前阈值
@@ -377,6 +511,7 @@ module reg_bank (
         rdata[2]   = in_fifo_full;      // 输入 FIFO 满
         rdata[3]   = out_fifo_empty;    // 输出 FIFO 空
         rdata[4]   = out_fifo_full;     // 输出 FIFO 满
+        rdata[6]   = spike_q_overflow;  // spike 队列溢出（sticky，soft_reset 清零）
         rdata[15:8]= timestep_counter;  // 当前时步（0 ~ timesteps-1）
       end
       REG_OUT_DATA: begin
@@ -385,7 +520,7 @@ module reg_bank (
         if (out_fifo_empty) begin
           rdata = 32'h0;
         end else begin
-          rdata = {{(32-4){1'b0}}, out_fifo_rdata}; // 高 28 位填 0，低 4 位 = spike_id
+          rdata = {{(32-$clog2(snn_soc_pkg::MAX_NEURONS)){1'b0}}, out_fifo_rdata};
         end
       end
       REG_OUT_COUNT: rdata = {{(32-$clog2(snn_soc_pkg::OUTPUT_FIFO_DEPTH+1)){1'b0}}, out_fifo_count}; // entry 数
@@ -398,7 +533,29 @@ module reg_bank (
       REG_DBG_CNT_0:       rdata = {dbg_cim_cycle_cnt, dbg_dma_frame_cnt};
       // Debug 计数器 1：高 16=wl_stall，低 16=spike
       REG_DBG_CNT_1:       rdata = {dbg_wl_stall_cnt, dbg_spike_cnt};
-      default:        rdata = 32'h0; // 未映射地址读回 0
+      // V2 programming registers
+      REG_PROG_CTRL:       rdata = {21'h0, prog_retry_limit, prog_level, 1'b0, prog_full_array, prog_erase, 1'b0};
+      REG_PROG_ROW:        rdata = {26'h0, prog_row};
+      REG_PROG_COL:        rdata = {27'h0, prog_col};
+      REG_PROG_STATUS:     rdata = {24'h0, prog_done_sticky, 1'b0, prog_retry_count, prog_fail, prog_pass, prog_busy};
+      REG_ML_CTRL:         rdata = {23'h0, ml_enable, 6'h0, ml_num_layers};
+      default: begin
+        rdata = 32'h0;
+        // 层描述符读回（展开）
+        case (addr_offset)
+          8'h50: rdata = ml_layer_cfg[0];       8'h54: rdata = ml_layer_timing[0];
+          8'h58: rdata = ml_layer_threshold[0]; 8'h5C: rdata = ml_layer_neuron_cfg[0];
+          8'h60: rdata = ml_layer_cfg[1];       8'h64: rdata = ml_layer_timing[1];
+          8'h68: rdata = ml_layer_threshold[1]; 8'h6C: rdata = ml_layer_neuron_cfg[1];
+          8'h70: rdata = ml_layer_cfg[2];       8'h74: rdata = ml_layer_timing[2];
+          8'h78: rdata = ml_layer_threshold[2]; 8'h7C: rdata = ml_layer_neuron_cfg[2];
+          8'h80: rdata = ml_layer_cfg[3];       8'h84: rdata = ml_layer_timing[3];
+          8'h88: rdata = ml_layer_threshold[3]; 8'h8C: rdata = ml_layer_neuron_cfg[3];
+          REG_PROG_PULSE_WIDTH: rdata = {14'h0, prog_write_pulse_sel, prog_pulse_width};
+          REG_PROG_ERASE_WIDTH: rdata = {16'h0, prog_erase_width};
+          default: ;
+        endcase
+      end
     endcase
   end
 endmodule

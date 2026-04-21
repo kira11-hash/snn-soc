@@ -27,8 +27,9 @@ module e203_tb;
   logic       wl_latch_ext;
   logic       cim_start_ext;
   logic       cim_done_ext;
-  logic [4:0] bl_sel_ext;
+  logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic       prog_en_ext, erase_en_ext, verify_en_ext;
 
   integer f;
   integer i;
@@ -76,7 +77,48 @@ module e203_tb;
 
     repeat (5) @(posedge clk);
     rst_n = 1'b1;
+    release_cpu_for_preloaded_boot();
   end
+
+  // -------------------------------------------------------------------
+  // release_cpu_for_preloaded_boot() — CPU 释放 helper（TB 专用）
+  //
+  // 【V2 安全引导语义】
+  //   真实芯片上电时，`jtag_mem_loader` 会把 `cpu_reset_hold` 初始化成 1'b1，
+  //   CPU 核心被 hold 在复位状态，PC 停在 0x0 不动。这是有意设计的：
+  //   - 防止 CPU 还没装好程序就乱跑
+  //   - 给 SPI boot / JTAG rescue 留充足时间把代码装进 instr_sram
+  //   - 装好后通过 JTAG CPUCTL 指令（shift_ir(IR_CPUCTL) + shift_dr(...)）
+  //     把 cpu_reset_hold 改写成 0，CPU 才开始 fetch
+  //
+  // 【为什么 e203_tb 需要 helper？】
+  //   本 TB 是"仿真级快速通道"：
+  //   - 不模拟真实的 SPI Flash + boot ROM 加载过程（太慢）
+  //   - 而是用 Verilog 的 `$readmemh` 把 bootloader.hex 直接搬进 instr_sram
+  //   - 这种"作弊"方式 bypass 了 JTAG CPUCTL 释放流程
+  //
+  //   如果不释放 cpu_reset_hold，PC 会永远停在 0，TB 所有检查都 fail。
+  //
+  //   helper 用 `force` 层级把 cpu_reset_hold 强制为 0，等价于"仿真里的 JTAG 释放"。
+  //
+  // 【何时使用？何时不能用？】
+  //   ✅ 用：TB 用 $readmemh 预加载 bootloader 直接启动 CPU 的场景
+  //   ❌ 不用：jtag_rescue_top_tb.sv 这种专门验证"JTAG 释放流程"的 TB
+  //          （它要验证的正是上电 hold → JTAG 解锁的正常通路，
+  //           用 force 会让验证失去意义）
+  //
+  // 【force 的配套 release】
+  //   仿真主 initial 的 $finish 前会调用 `release dut.u_jtag_loader.cpu_reset_hold`
+  //   （见下方 $finish 前的 release 语句），防止 force 状态"渗漏"到后续仿真 session。
+  // -------------------------------------------------------------------
+  task automatic release_cpu_for_preloaded_boot;
+    begin
+      // 让 rst_n 释放后的 2 拍稳定下来，再 force
+      // （保证异步复位信号先完成释放，避免和 force 同时发生）
+      repeat (2) @(posedge clk);
+      force dut.u_jtag_loader.cpu_reset_hold = 1'b0;
+    end
+  endtask
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -203,6 +245,9 @@ module e203_tb;
       $fatal(1);
     end
 
+    // D2-007: $finish 前 release force 信号，保持 cpu_reset_hold 回到正常驱动，
+    //         避免污染后续同 session 的 TB 或回归套件
+    release dut.u_jtag_loader.cpu_reset_hold;
     #100;
     $finish;
   end

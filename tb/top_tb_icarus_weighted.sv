@@ -32,8 +32,9 @@ module top_tb_icarus_weighted;
   logic       wl_latch_ext;
   logic       cim_start_ext;
   logic       cim_done_ext;
-  logic [4:0] bl_sel_ext;
+  logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic       prog_en_ext, erase_en_ext, verify_en_ext;
 
   // Keep branch-compatibility ports for wildcard binding across old/new tops.
   // They are intentionally idle on main and would otherwise trip lint-only noise.
@@ -250,7 +251,7 @@ module top_tb_icarus_weighted;
 
     for (poll_i = 0; poll_i < out_fifo_count; poll_i = poll_i + 1) begin
       bus_read(REG_OUT_DATA, rd);
-      $display("[INFO] spike_id[%0d]=%0d", poll_i, rd[3:0]);
+      $display("[INFO] spike_id[%0d]=%0d", poll_i, rd[6:0]);
     end
 
     if ((out_fifo_count == 0) && (fail_on_zero_spike != 0)) begin

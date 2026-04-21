@@ -1,8 +1,8 @@
-# CIM Analog Interface Specification
+# CIM 模拟接口规范（CIM Analog Interface Specification）
 
 **文档用途**：供数字芯片团队与模拟 CIM 芯片团队进行双芯片 PCB 集成接口商讨
-**版本**：v3.0
-**日期**：2026-03-16（2026-03-31 审核确认：自 v3.0 以来数字侧接口参数无变更，保持冻结）
+**版本**：v3.2（V2 编程接口 §10 + V2 ADC 扫描参数化 §11）
+**日期**：2026-04-18（V2 编程脉冲/擦除接口补充 + bl_sel 从 5-bit 扩到 7-bit 支持多层可配扫描）
 **时钟频率目标**：50MHz（周期 20ns）
 **参数口径**：本文涉及的默认时序参数以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 **集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联（非片上集成）。
@@ -63,9 +63,15 @@
 为避免后续接口漂移，V1 统一采用“内部并行 + 外部复用”双层口径：
 
 - 内部并行口径（当前 `snn_soc_top` / `cim_macro_blackbox`）：
-  `wl_spike[63:0] + dac_valid + cim_start/done + bl_sel[4:0] + adc_start/done + bl_data[7:0]`
-- 外部复用口径（对应 45 个可用 pad 中的功能信号子集，供 chip_top/pad 使用）：
-  `wl_data[7:0] + wl_group_sel[2:0] + wl_latch + cim_start/done + bl_sel[4:0] + bl_data[7:0] + clk + rst_n`
+  `wl_spike[63:0] + dac_valid + cim_start/done + bl_sel[6:0] + adc_start/done + bl_data[7:0]`
+  > **V2 更新**：`bl_sel` 从 5-bit 扩到 **7-bit**（`$clog2(MAX_BL_SCAN=128)`），V1 推理只用低 5 位（值 0-19），
+  > V2 多层支持最多 128 路扫描（见 §11）。流片时 V1 baseline 仅需模拟侧接 bl_sel[4:0]；
+  > 若未来 V2 多层要和模拟 macro 联调，需要模拟侧 BL MUX 支持 7-bit 寻址。
+- 外部复用口径（对应数字芯片 72-pad 预算中的 V1 baseline 功能信号子集，供 chip_top/pad 使用）：
+  `wl_data[7:0] + wl_group_sel[2:0] + wl_latch + cim_start/done + bl_sel[6:0] + bl_data[7:0] + clk + rst_n`
+  > **V2 新增 pad**：`prog_en + erase_en + verify_en`（3 pin，告知模拟侧当前操作模式，见 §10）
+  > 加上 bl_sel 扩宽 2 pin，V2 对数字芯片 pad 预算的净增 = 5 pin，数字 72 pad 总预算仍有 19 pin 富余。
+  > 模拟芯片 48 pad 的接收侧如果也需要扩 bl_sel，请评估其 pad 预算。
 
 当前 RTL 已加入协议原型：`rtl/snn/wl_mux_wrapper.sv`。
 
@@ -104,7 +110,7 @@
 ### 2.1 信号总表
 
 > 说明：本节表格为**内部并行接口口径**（`snn_soc_top` 与 `cim_macro_blackbox` 之间，仅用于仿真）。
-> 实际双芯片 PCB 互联使用**外部 45 个可用 pad 的复用口径**，以 §1.3 和 `doc/15_asic_pad_map.md` 为准。
+> 实际双芯片 PCB 互联使用**数字芯片 72-pad 预算中的外部复用口径**，以 §1.3 和 `doc/15_asic_pad_map.md` 为准。
 
 | 信号名 | 方向 | 位宽 | 类型 | 说明 |
 |:---|:---:|---:|:---:|:---|
@@ -119,9 +125,9 @@
 | `cim_start` | D→A | 1 | 脉冲 | CIM 计算启动，单拍脉冲 |
 | `cim_done` | A→D | 1 | 脉冲 | CIM 计算完成，单拍脉冲 |
 | **ADC 接口** |||||
-| `bl_sel` | D→A | 5 | 控制 | 位线选择，0-19 有效（Scheme B：10 正 + 10 负） |
-| `adc_start` | D→A | 1 | 脉冲 | ADC 采样启动，单拍脉冲（**仅内部仿真，不在外部 45 个可用 pad 接口中**） |
-| `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 45 个可用 pad 接口中**） |
+| `bl_sel` | D→A | 7 | 控制 | 位线选择。V1 推理固定 0-19 有效（Scheme B：10 正 + 10 负，低 5 位即可覆盖）；V2 多层最多 0-127，见 §11。**流片时模拟侧至少接 5 位**，如果后续要支持多层扩展再决定是否接满 7 位 |
+| `adc_start` | D→A | 1 | 脉冲 | ADC 采样启动，单拍脉冲（**仅内部仿真，不在外部 pad 接口中**） |
+| `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 pad 接口中**） |
 | `bl_data` | A→D | 8 | 数据 | 当前通道 ADC 输出，8-bit |
 
 **注**：D→A = 数字芯片到模拟芯片（经 PCB 走线），A→D = 模拟芯片到数字芯片（经 PCB 走线）
@@ -582,6 +588,80 @@ endgenerate
 
 ---
 
+## 10. V2 编程接口（CIM Program-and-Verify）
+
+> 本节描述 V2 新增的 RRAM 编程/擦除/验证接口。V1 流片不使用此接口；V2 数字芯片通过 `cim_program_ctrl` 模块控制编程脉冲，仍然经由 PCB 走线与模拟 CIM 芯片互联。
+
+### 10.1 编程操作模式
+
+| 模式 | PROG_CTRL 配置 | WL 行为 | 脉冲宽度来源 | 验证 |
+|------|--------------|---------|------------|------|
+| 逐 cell 写入（SET） | ERASE=0, FULL_ARRAY=0 | one-hot（目标行=1） | `PROG_PULSE_WIDTH.write_pulse_sel`：1us / 10us / 100us | 写入后 ADC 读回验证 |
+| 逐 cell 擦除（RESET） | ERASE=1, FULL_ARRAY=0 | one-hot（目标行=1） | 固定 `PROG_ERASE_WIDTH` = 1ms | 擦除后 ADC 读回验证（≤1 LSB） |
+| 全阵列擦除 | ERASE=1, FULL_ARRAY=1 | 全部 64 WL 同时拉高 | 固定 `PROG_ERASE_WIDTH` = 1ms | 跳过 verify，直接 PASS |
+
+### 10.2 编程时序（自计时模式）
+
+```
+                         selected write width / fixed erase width
+                    ┌──────────────────────────────────────┐
+dac_valid    ───────┤    持续拉高（ST_SETUP → ST_PULSE_HOLD） ├──────
+                    └──────────────────────────────────────┘
+                    ↑          (ST_PULSE 隐式保持)          ↑
+               ST_SETUP                              ST_READBACK
+              (prog_en/                              入口拉低
+              erase_en)
+
+cim_start    ──────────▓────────────────────────────────────────── (单拍)
+                       ↑
+                   ST_PULSE
+
+prog_adc_start ─────────────────────────────────────────────▓──── (仅非全阵列模式)
+                                                            ↑
+                                                       ST_READBACK
+                                                    → ST_RB_WAIT(等 adc_done)
+                                                    → ST_VERIFY
+```
+
+**关键设计决策**：编程脉冲由数字侧自计时（`ST_PULSE_HOLD` 状态倒计时 `pulse_width_cnt`），不等待模拟侧 `cim_done` 返回。写入只开放 1us / 10us / 100us 三档，用于摸索器件 SET 所需脉宽；擦除统一使用 1ms，保证 RESET 能量足够。
+
+### 10.3 可配置脉冲宽度
+
+| 寄存器 | 默认值 | 范围 | 物理含义（@50MHz） |
+|--------|--------|------|-------------------|
+| 寄存器 / 字段 | 默认值 | 可选项 | 物理含义（@50MHz） |
+|--------|--------|------|-------------------|
+| `PROG_PULSE_WIDTH.write_pulse_sel`（0x90[17:16]） | 0 | 0 / 1 / 2 | 写入脉冲：1us(50 cycles) / 10us(500 cycles) / 100us(5000 cycles) |
+| `PROG_ERASE_WIDTH`（0x94[15:0]） | 50000 | 固定 | 擦除脉冲：1ms(50000 cycles)，写寄存器无效 |
+
+器件写入所需脉宽未知，因此 SET 写入保留 1us / 10us / 100us 三档；RESET 擦除统一使用 1ms。`PROG_PULSE_WIDTH` 读回低 16 位为 resolved cycle 数，高位 [17:16] 为选择档位。
+
+### 10.4 全阵列擦除特殊行为
+
+全阵列擦除（`PROG_CTRL.FULL_ARRAY=1 && PROG_CTRL.ERASE=1`）与逐 cell 操作的关键差异：
+
+1. **WL 驱动**：所有 64 根 WL 同时拉高（`wl_spike = {NUM_INPUTS{1'b1}}`），而非 one-hot
+2. **脉冲宽度**：使用固定 1ms `PROG_ERASE_WIDTH`，而非写入档位
+3. **跳过验证**：脉冲完成后直接 → ST_PASS → ST_DONE，不做 ADC 读回验证
+4. **用途**：层间全阵列擦除（时间多层推理的层切换时使用）
+
+### 10.5 对模拟侧的影响
+
+V2 编程操作对模拟 CIM 芯片的额外要求：
+
+| 编号 | 问题 | 说明 |
+|------|------|------|
+| V2-1 | 编程模式下 WL 持续驱动（非推理时的单拍脉冲），模拟侧 WL 驱动器能否承受长时间高电平？ | 最长 ~1ms |
+| V2-2 | 全阵列擦除时所有 64 WL 同时为高，阵列功耗和 sneak path 电流情况？ | 最坏情况功耗评估 |
+| V2-3 | 编程/擦除电压（V_SET / V_RESET）与读电压（V_read=1.5V）如何切换？是否需要额外的控制信号？ | 数字侧目前通过 `prog_en` / `erase_en` / `verify_en` 三个使能信号区分模式 |
+| V2-4 | 逐 cell 编程后 ADC 读回验证精度要求？数字侧当前使用 ±2 LSB 窗口 | `ST_VERIFY` 中判定：`readback ∈ [target-2, target+2]` 即 PASS |
+| V2-5 | 擦除后 ADC 读回值 ≤1 LSB 的判据是否合理？ | `ST_VERIFY` 擦除模式：`readback ≤ 1` 即 PASS |
+| V2-6 | 写入脉冲宽度推荐档位？当前默认 1us，另有 10us / 100us；擦除固定 1ms @50MHz | 器件老师建议最终 SET 档位？ |
+
+> 这些问题需在下次器件老师会议中确认。数字侧已预留 `prog_en`、`erase_en`、`verify_en` 三个使能信号，可通过 PCB 走线连接到模拟芯片的编程/擦除/验证模式切换逻辑。
+
+---
+
 ## 附录 A：Verilog 端口定义
 
 ```systemverilog
@@ -617,7 +697,7 @@ module cim_macro_blackbox #(
 
 **模拟芯片团队需要提供：**
 
-1. ✅ 符合接口定义的 CIM Macro（外部复用口径与 45 个可用 pad 方案完全匹配）
+1. ✅ 符合接口定义的 CIM Macro（外部复用口径与数字芯片 72-pad 预算中的 V1 baseline pad 方案匹配）
 2. ✅ 确认表格中的时序参数（DAC/CIM/ADC 延迟）
 3. ✅ 提供模拟芯片 IO 时序模型（用于数字芯片 STA 约束推导）
 4. ✅ 确认 IO 电平标准（VIH/VIL/VOH/VOL）及与数字芯片的兼容性
@@ -694,3 +774,42 @@ module cim_macro_blackbox #(
 - 对齐语义说明：`expected_classes.hex` 存的是 Python `predicted_class`，用于 RTL 等价性比对；真实标签保存在 `alignment_manifest.json`
 - 数字芯片推理链路已验证完整：DMA→input FIFO→CIM FSM→ADC MUX→LIF 神经元→output FIFO
 - 当前进入 Phase 4 外设集成阶段（AXI-Lite → UART → SPI → DMA扩展 → E203接入）
+
+---
+
+## 11. V2 ADC 扫描参数化（bl_sel 扩宽）
+
+> 本节描述 V2 新增的"可配扫描通道数"对模拟接口的影响。V1 流片如果不支持多层，模拟侧不需要做任何改动；只在未来 V2 多层扩展到模拟 macro 时才要考虑。
+
+### 11.1 背景
+
+V2 时间多层架构支持 64→32→16→10 这类"每层 BL 数量不同"的网络。为此数字侧 ADC 控制器做了三个改动：
+- `bl_sel` 从 5-bit 扩到 7-bit（最大支持 128 路扫描）
+- 增加 `bl_scan_count` 软件寄存器（偶数 2~128，运行时可配；Scheme B 正负列成对）
+- 差分切分点从固定 10 改为 `bl_scan_count / 2`（前半正、后半负）
+
+### 11.2 对模拟 CIM macro 的潜在要求
+
+以下仅在"未来要支持多层扩展到模拟 macro"时才生效：
+
+| 需求 | 说明 | V1 流片是否必需 |
+|---|---|---|
+| BL MUX 支持 7-bit 寻址 | 扫描更多 BL 列时选择器需要扩宽 | ❌ 不需要（V1 只用 5-bit） |
+| ADC 采样速率足够 | 一次推理要扫 128 路而不是 20 路，总时间 ×6 | ❌ 不需要 |
+| WL 规模对齐 | 64→32→16→10 的后三层 WL 数量 < 64，复用阵列前 N 行 | ❌ 不需要 |
+| bl_sel 高 2 位的物理连接 | pad 层面是否暴露 bl_sel[6:5] | ⚠️ 建议保留（未来扩展用） |
+
+### 11.3 当前 chip_top pad 状态
+
+`rtl/top/chip_top.sv` 的 `bl_sel_pad` 已经是 7-bit。流片时模拟芯片可以：
+- (a) 只接收 bl_sel[4:0]，忽略高 2 位（V1 baseline 兼容）
+- (b) 接满 bl_sel[6:0]（未来多层扩展准备）
+
+建议 (b)，因为 pad 预算允许（数字 72/模拟 48），且未来不用改 pad map。
+
+### 11.4 数字侧运行时控制
+
+- `use_scan_cfg=0`（默认）：固定 V1 20 路扫描，bl_sel 最大 19
+- `use_scan_cfg=1` + `bl_scan_count=N`（N ∈ [2, 128]）：扫描 N 路，bl_sel 最大 N-1
+
+V2 多层 TB（`multilayer_scan_ext_tb.sv`）已验证 bl_sel 达到 63（bl_scan_count=64）和 127（bl_scan_count=128），对应的 MULTILAYER_SCAN_EXT_PASS 在 2026-04-18 通过。

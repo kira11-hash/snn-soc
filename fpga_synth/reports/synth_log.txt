@@ -1,0 +1,944 @@
+
+*** Running vivado
+    with args -log snn_soc_v2b_top.vds -m64 -product Vivado -mode batch -messageDb vivado.pb -notrace -source snn_soc_v2b_top.tcl
+
+
+
+****** Vivado v2022.2 (64-bit)
+  **** SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022
+  **** IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
+    ** Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
+
+source snn_soc_v2b_top.tcl -notrace
+create_project: Time (s): cpu = 00:00:05 ; elapsed = 00:00:06 . Memory (MB): peak = 377.730 ; gain = 52.512
+Command: synth_design -top snn_soc_v2b_top -part xczu9eg-ffvb1156-2-e
+Starting synth_design
+Attempting to get a license for feature 'Synthesis' and/or device 'xczu9eg'
+INFO: [Common 17-349] Got license for feature 'Synthesis' and/or device 'xczu9eg'
+INFO: [Device 21-403] Loading part xczu9eg-ffvb1156-2-e
+INFO: [Synth 8-7079] Multithreading enabled for synth_design using a maximum of 2 processes.
+INFO: [Synth 8-7078] Launching helper process for spawning children vivado processes
+INFO: [Synth 8-7075] Helper process launched with PID 4408
+INFO: [Synth 8-11241] undeclared symbol 'REGCCE', assumed default net type 'wire' [D:/Xilinx/Vivado/2022.2/data/verilog/src/unimacro/BRAM_SINGLE_MACRO.v:2170]
+WARNING: [Synth 8-11067] parameter 'NUM_INPUTS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:45]
+WARNING: [Synth 8-11067] parameter 'NUM_OUTPUTS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:48]
+WARNING: [Synth 8-11067] parameter 'WL_GROUP_WIDTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:56]
+WARNING: [Synth 8-11067] parameter 'WL_GROUP_COUNT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:57]
+WARNING: [Synth 8-11067] parameter 'ADC_CHANNELS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:63]
+WARNING: [Synth 8-11067] parameter 'PIXEL_BITS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:67]
+WARNING: [Synth 8-11067] parameter 'ADC_BITS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:71]
+WARNING: [Synth 8-11067] parameter 'NEURON_DATA_WIDTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:76]
+WARNING: [Synth 8-11067] parameter 'LIF_MEM_WIDTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:84]
+WARNING: [Synth 8-11067] parameter 'THRESHOLD_RATIO_DEFAULT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:93]
+WARNING: [Synth 8-11067] parameter 'TIMESTEPS_DEFAULT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:97]
+WARNING: [Synth 8-11067] parameter 'THRESHOLD_DEFAULT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:102]
+WARNING: [Synth 8-11067] parameter 'INPUT_FIFO_DEPTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:115]
+WARNING: [Synth 8-11067] parameter 'OUTPUT_FIFO_DEPTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:116]
+WARNING: [Synth 8-11067] parameter 'DAC_LATENCY_CYCLES' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:121]
+WARNING: [Synth 8-11067] parameter 'CIM_LATENCY_CYCLES' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:122]
+WARNING: [Synth 8-11067] parameter 'ADC_MUX_SETTLE_CYCLES' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:124]
+WARNING: [Synth 8-11067] parameter 'ADC_SAMPLE_CYCLES' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:125]
+WARNING: [Synth 8-11067] parameter 'PROG_LEVELS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:190]
+WARNING: [Synth 8-11067] parameter 'PROG_WRITE_PULSE_1US_CYC' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:193]
+WARNING: [Synth 8-11067] parameter 'PROG_WRITE_PULSE_10US_CYC' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:194]
+WARNING: [Synth 8-11067] parameter 'PROG_WRITE_PULSE_100US_CYC' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:195]
+WARNING: [Synth 8-11067] parameter 'PROG_ERASE_WIDTH_CYC' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:196]
+WARNING: [Synth 8-11067] parameter 'PROG_PULSE_WIDTH_CYC' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:197]
+WARNING: [Synth 8-11067] parameter 'PROG_VERIFY_RETRY_MAX' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:198]
+WARNING: [Synth 8-11067] parameter 'PROG_ROWS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:199]
+WARNING: [Synth 8-11067] parameter 'PROG_COLS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:200]
+WARNING: [Synth 8-11067] parameter 'ENABLE_MULTI_LAYER' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:208]
+WARNING: [Synth 8-11067] parameter 'MAX_LAYERS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:210]
+WARNING: [Synth 8-11067] parameter 'MAX_NEURONS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:211]
+WARNING: [Synth 8-11067] parameter 'MAX_WL_COUNT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:212]
+WARNING: [Synth 8-11067] parameter 'MAX_BL_COUNT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:213]
+WARNING: [Synth 8-11067] parameter 'MAX_BL_SCAN' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:214]
+WARNING: [Synth 8-11067] parameter 'ENABLE_BRAM_WEIGHT_MODEL' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:240]
+WARNING: [Synth 8-11067] parameter 'V2B_NUM_INPUTS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:263]
+WARNING: [Synth 8-11067] parameter 'V2B_MAX_BL_SCAN' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:264]
+WARNING: [Synth 8-11067] parameter 'V2B_MAX_OUT_NEURONS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:265]
+WARNING: [Synth 8-11067] parameter 'V2B_MAX_TIMESTEPS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:266]
+WARNING: [Synth 8-11067] parameter 'V2B_ADC_BITS' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:267]
+WARNING: [Synth 8-11067] parameter 'V2B_ADC_MAX' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:268]
+WARNING: [Synth 8-11067] parameter 'V2B_PARTIAL_WIDTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:271]
+WARNING: [Synth 8-11067] parameter 'V2B_LIF_MEM_WIDTH' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:275]
+WARNING: [Synth 8-11067] parameter 'V2B_SUM_MAX_ARRAY' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:280]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_STATE_FREE' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:283]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_STATE_WRITING' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:284]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_STATE_READY' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:285]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_STATE_READING' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:286]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_SEL_INPUT_SRAM' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:289]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_SEL_STREAM_A' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:290]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_SEL_STREAM_B' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:291]
+WARNING: [Synth 8-11067] parameter 'V2B_BUF_SEL_OUTPUT_FIFO' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:292]
+WARNING: [Synth 8-11067] parameter 'V2B_STAGE_ERR_OK' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:295]
+WARNING: [Synth 8-11067] parameter 'V2B_STAGE_ERR_START_WHILE_BUSY' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:296]
+WARNING: [Synth 8-11067] parameter 'V2B_STAGE_ERR_SRC_DST_CONFLICT' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:297]
+WARNING: [Synth 8-11067] parameter 'V2B_STAGE_ERR_TILE_BUF_UNAVAILABLE' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:298]
+WARNING: [Synth 8-11067] parameter 'V2B_STAGE_ERR_CIM_NOT_READY' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:299]
+WARNING: [Synth 8-11067] parameter 'V2B_STAGE_ERR_DIM_OUT_OF_RANGE' declared inside package 'snn_soc_pkg' shall be treated as localparam [d:/SoCDesign/rtl/top/snn_soc_pkg.sv:300]
+---------------------------------------------------------------------------------
+Starting RTL Elaboration : Time (s): cpu = 00:00:04 ; elapsed = 00:00:05 . Memory (MB): peak = 1753.098 ; gain = 339.348
+---------------------------------------------------------------------------------
+INFO: [Synth 8-6157] synthesizing module 'snn_soc_v2b_top' [d:/SoCDesign/rtl/top/snn_soc_v2b_top.sv:67]
+INFO: [Synth 8-6157] synthesizing module 'tile_partial_buf' [d:/SoCDesign/rtl/snn/tile_partial_buf.sv:35]
+INFO: [Synth 8-6155] done synthesizing module 'tile_partial_buf' (0#1) [d:/SoCDesign/rtl/snn/tile_partial_buf.sv:35]
+INFO: [Synth 8-6157] synthesizing module 'input_stream_sram' [d:/SoCDesign/rtl/snn/input_stream_sram.sv:31]
+INFO: [Synth 8-6155] done synthesizing module 'input_stream_sram' (0#1) [d:/SoCDesign/rtl/snn/input_stream_sram.sv:31]
+INFO: [Synth 8-6157] synthesizing module 'stream_buffer_v2' [d:/SoCDesign/rtl/snn/stream_buffer_v2.sv:29]
+INFO: [Synth 8-6155] done synthesizing module 'stream_buffer_v2' (0#1) [d:/SoCDesign/rtl/snn/stream_buffer_v2.sv:29]
+INFO: [Synth 8-6157] synthesizing module 'cim_mac_behavioral_v2' [d:/SoCDesign/rtl/snn/cim_mac_behavioral_v2.sv:51]
+	Parameter P_ADC_BITS bound to: 32'sb00000000000000000000000000001010 
+INFO: [Synth 8-6157] synthesizing module 'v2b_weight_col_bram' [d:/SoCDesign/rtl/snn/cim_mac_behavioral_v2.sv:362]
+	Parameter P_DEPTH bound to: 32'sb00000000000000000000000100000000 
+	Parameter P_ADDR_W bound to: 32'sb00000000000000000000000000001000 
+	Parameter P_DATA_W bound to: 32'sb00000000000000000000000000001000 
+INFO: [Synth 8-6155] done synthesizing module 'v2b_weight_col_bram' (0#1) [d:/SoCDesign/rtl/snn/cim_mac_behavioral_v2.sv:362]
+INFO: [Synth 8-6155] done synthesizing module 'cim_mac_behavioral_v2' (0#1) [d:/SoCDesign/rtl/snn/cim_mac_behavioral_v2.sv:51]
+INFO: [Synth 8-6157] synthesizing module 'stage_engine_v2' [d:/SoCDesign/rtl/snn/stage_engine_v2.sv:38]
+INFO: [Synth 8-6155] done synthesizing module 'stage_engine_v2' (0#1) [d:/SoCDesign/rtl/snn/stage_engine_v2.sv:38]
+INFO: [Synth 8-6155] done synthesizing module 'snn_soc_v2b_top' (0#1) [d:/SoCDesign/rtl/top/snn_soc_v2b_top.sv:67]
+WARNING: [Synth 8-3917] design snn_soc_v2b_top has port cmd_ready driven by constant 1
+WARNING: [Synth 8-7129] Port mac_busy in module stage_engine_v2 is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[3] in module snn_soc_v2b_top is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[2] in module snn_soc_v2b_top is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[1] in module snn_soc_v2b_top is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[0] in module snn_soc_v2b_top is either unconnected or has no load
+---------------------------------------------------------------------------------
+Finished RTL Elaboration : Time (s): cpu = 00:00:08 ; elapsed = 00:00:10 . Memory (MB): peak = 1971.234 ; gain = 557.484
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Handling Custom Attributes
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Handling Custom Attributes : Time (s): cpu = 00:00:09 ; elapsed = 00:00:10 . Memory (MB): peak = 1971.234 ; gain = 557.484
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished RTL Optimization Phase 1 : Time (s): cpu = 00:00:09 ; elapsed = 00:00:10 . Memory (MB): peak = 1971.234 ; gain = 557.484
+---------------------------------------------------------------------------------
+Netlist sorting complete. Time (s): cpu = 00:00:01 ; elapsed = 00:00:00.306 . Memory (MB): peak = 1971.234 ; gain = 0.000
+INFO: [Project 1-570] Preparing netlist for logic optimization
+
+Processing XDC Constraints
+Initializing timing engine
+Parsing XDC File [d:/SoCDesign/fpga_synth/v2b_top.xdc]
+Finished Parsing XDC File [d:/SoCDesign/fpga_synth/v2b_top.xdc]
+Completed Processing XDC Constraints
+
+Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00.004 . Memory (MB): peak = 2069.848 ; gain = 0.000
+INFO: [Project 1-111] Unisim Transformation Summary:
+No Unisim elements were transformed.
+
+Constraint Validation Runtime : Time (s): cpu = 00:00:00 ; elapsed = 00:00:00.189 . Memory (MB): peak = 2069.848 ; gain = 0.000
+INFO: [Synth 8-11241] undeclared symbol 'REGCCE', assumed default net type 'wire' [D:/Xilinx/Vivado/2022.2/data/verilog/src/unimacro/BRAM_SINGLE_MACRO.v:2170]
+---------------------------------------------------------------------------------
+Finished Constraint Validation : Time (s): cpu = 00:00:22 ; elapsed = 00:00:25 . Memory (MB): peak = 2069.848 ; gain = 656.098
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Loading Part and Timing Information
+---------------------------------------------------------------------------------
+Loading part: xczu9eg-ffvb1156-2-e
+INFO: [Synth 8-6742] Reading net delay rules and data
+---------------------------------------------------------------------------------
+Finished Loading Part and Timing Information : Time (s): cpu = 00:00:22 ; elapsed = 00:00:25 . Memory (MB): peak = 2069.848 ; gain = 656.098
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Applying 'set_property' XDC Constraints
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished applying 'set_property' XDC Constraints : Time (s): cpu = 00:00:22 ; elapsed = 00:00:25 . Memory (MB): peak = 2069.848 ; gain = 656.098
+---------------------------------------------------------------------------------
+INFO: [Synth 8-802] inferred FSM for state register 'mac_state_reg' in module 'cim_mac_behavioral_v2'
+INFO: [Synth 8-802] inferred FSM for state register 'state_reg' in module 'stage_engine_v2'
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "v2b_weight_col_bram:/mem_reg"
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                 MS_IDLE |                              000 |                              000
+             MS_READ_ROW |                              001 |                              001
+                MS_ACCUM |                              010 |                              010
+             MS_ADC_INIT |                              011 |                              011
+              MS_DIV_RUN |                              100 |                              100
+            MS_ADC_WRITE |                              101 |                              101
+                 MS_DONE |                              110 |                              110
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'mac_state_reg' using encoding 'sequential' in module 'cim_mac_behavioral_v2'
+---------------------------------------------------------------------------------------------------
+                   State |                     New Encoding |                Previous Encoding 
+---------------------------------------------------------------------------------------------------
+                  S_IDLE |                  000000000000001 |                            00000
+                 S_SETUP |                  000000000000010 |                            00001
+               S_READ_WL |                  000000000000100 |                            00011
+              S_MAC_WAIT |                  000000000001000 |                            00100
+             S_MAC_LATCH |                  000000000010000 |                            00101
+              S_MAC_KICK |                  000000000100000 |                            00110
+               S_MAC_RUN |                  000000001000000 |                            00111
+           S_NEURON_LOOP |                  000000010000000 |                            01000
+                S_NEXT_T |                  000000100000000 |                            01001
+             S_FINAL_LIF |                  000001000000000 |                            01010
+            S_FINAL_READ |                  000010000000000 |                            01011
+            S_FINAL_WAIT |                  000100000000000 |                            01100
+          S_FINAL_NEURON |                  001000000000000 |                            01101
+           S_FINAL_WRITE |                  010000000000000 |                            01110
+                  S_DONE |                  100000000000000 |                            01111
+---------------------------------------------------------------------------------------------------
+INFO: [Synth 8-3354] encoded FSM with state register 'state_reg' using encoding 'one-hot' in module 'stage_engine_v2'
+---------------------------------------------------------------------------------
+Finished RTL Optimization Phase 2 : Time (s): cpu = 00:00:29 ; elapsed = 00:00:34 . Memory (MB): peak = 2069.848 ; gain = 656.098
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start RTL Component Statistics 
+---------------------------------------------------------------------------------
+Detailed RTL Component Info : 
++---Adders : 
+	   3 Input   32 Bit       Adders := 4     
+	   2 Input   32 Bit       Adders := 2     
+	   2 Input   15 Bit       Adders := 1     
+	   2 Input   14 Bit       Adders := 1     
+	   3 Input   13 Bit       Adders := 1     
+	   2 Input   12 Bit       Adders := 256   
+	   2 Input    9 Bit       Adders := 1     
+	   2 Input    8 Bit       Adders := 7     
+	   2 Input    7 Bit       Adders := 3     
+	   2 Input    6 Bit       Adders := 1     
++---Registers : 
+	              256 Bit    Registers := 3     
+	              128 Bit    Registers := 5     
+	               32 Bit    Registers := 147   
+	               16 Bit    Registers := 5     
+	               15 Bit    Registers := 1     
+	               14 Bit    Registers := 130   
+	               12 Bit    Registers := 256   
+	                8 Bit    Registers := 143   
+	                7 Bit    Registers := 3     
+	                6 Bit    Registers := 1     
+	                4 Bit    Registers := 2     
+	                2 Bit    Registers := 2     
+	                1 Bit    Registers := 29    
++---RAMs : 
+	               2K Bit	(256 X 8 bit)          RAMs := 128   
++---Muxes : 
+	   2 Input  256 Bit        Muxes := 1     
+	   4 Input  256 Bit        Muxes := 1     
+	   2 Input  128 Bit        Muxes := 3     
+	  15 Input  128 Bit        Muxes := 2     
+	   2 Input   32 Bit        Muxes := 9     
+	   7 Input   32 Bit        Muxes := 5     
+	  15 Input   32 Bit        Muxes := 1     
+	   8 Input   32 Bit        Muxes := 1     
+	   2 Input   15 Bit        Muxes := 6     
+	  15 Input   15 Bit        Muxes := 1     
+	   2 Input   14 Bit        Muxes := 3     
+	   7 Input   12 Bit        Muxes := 256   
+	   2 Input   12 Bit        Muxes := 4     
+	   2 Input    9 Bit        Muxes := 1     
+	   2 Input    8 Bit        Muxes := 11    
+	   7 Input    8 Bit        Muxes := 1     
+	  15 Input    8 Bit        Muxes := 1     
+	   3 Input    8 Bit        Muxes := 1     
+	   7 Input    7 Bit        Muxes := 1     
+	   2 Input    7 Bit        Muxes := 2     
+	  15 Input    7 Bit        Muxes := 1     
+	   7 Input    6 Bit        Muxes := 1     
+	   7 Input    3 Bit        Muxes := 1     
+	   2 Input    3 Bit        Muxes := 3     
+	   8 Input    3 Bit        Muxes := 1     
+	   2 Input    2 Bit        Muxes := 1     
+	   2 Input    1 Bit        Muxes := 295   
+	   3 Input    1 Bit        Muxes := 2     
+	   7 Input    1 Bit        Muxes := 263   
+	   4 Input    1 Bit        Muxes := 3     
+	  15 Input    1 Bit        Muxes := 148   
+	  21 Input    1 Bit        Muxes := 22    
+---------------------------------------------------------------------------------
+Finished RTL Component Statistics 
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Part Resource Summary
+---------------------------------------------------------------------------------
+Part Resources:
+DSPs: 2520 (col length:168)
+BRAMs: 1824 (col length: RAMB18 168 RAMB36 84)
+---------------------------------------------------------------------------------
+Finished Part Resource Summary
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Cross Boundary and Area Optimization
+---------------------------------------------------------------------------------
+WARNING: [Synth 8-7080] Parallel synthesis criteria is not met
+DSP Report: Generating DSP div_neg_num0, operation Mode is: C+A*(B:0x3ff).
+DSP Report: operator div_neg_num0 is absorbed into DSP div_neg_num0.
+DSP Report: operator div_neg_num1 is absorbed into DSP div_neg_num0.
+DSP Report: Generating DSP div_pos_num0, operation Mode is: C+A*(B:0x3ff).
+DSP Report: operator div_pos_num0 is absorbed into DSP div_pos_num0.
+DSP Report: operator div_pos_num1 is absorbed into DSP div_pos_num0.
+WARNING: [Synth 8-3917] design snn_soc_v2b_top has port cmd_ready driven by constant 1
+WARNING: [Synth 8-7129] Port mac_busy in module stage_engine_v2 is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[3] in module snn_soc_v2b_top is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[2] in module snn_soc_v2b_top is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[1] in module snn_soc_v2b_top is either unconnected or has no load
+WARNING: [Synth 8-7129] Port cmd_wstrb[0] in module snn_soc_v2b_top is either unconnected or has no load
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[0].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[1].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[2].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[3].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[4].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[5].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[6].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[7].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[8].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[9].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[10].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[11].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[12].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[13].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[14].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[15].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[16].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[17].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[18].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[19].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[20].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[21].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[22].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[23].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[24].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[25].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[26].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[27].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[28].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[29].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[30].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[31].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[32].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[33].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[34].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[35].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[36].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[37].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[38].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[39].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[40].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[41].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[42].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[43].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[44].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[45].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[46].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[47].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[48].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[49].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[50].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[51].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[52].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[53].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[54].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[55].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[56].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[57].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[58].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[59].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[60].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[61].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[62].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[63].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[64].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[65].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[66].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[67].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[68].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[69].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[70].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[71].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[72].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[73].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[74].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[75].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[76].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[77].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[78].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[79].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[80].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[81].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[82].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[83].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[84].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[85].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[86].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[87].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[88].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[89].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[90].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[91].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[92].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[93].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[94].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[95].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[96].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[97].u_wcol/mem_reg"
+INFO: [Synth 8-7030] Implemented Non-Cascaded Block Ram (cascade_height = 1) of width 8 for RAM "u_mac/g_wcol[98].u_wcol/mem_reg"
+INFO: [Common 17-14] Message 'Synth 8-7030' appears 100 times and further instances of the messages will be disabled. Use the Tcl command set_msg_config to change the current settings.
+---------------------------------------------------------------------------------
+Finished Cross Boundary and Area Optimization : Time (s): cpu = 00:04:03 ; elapsed = 00:04:33 . Memory (MB): peak = 2069.848 ; gain = 656.098
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+
+Block RAM: Preliminary Mapping Report (see note below)
++------------+----------------------------+------------------------+---+---+------------------------+---+---+------------------+--------+--------+-----------------+
+|Module Name | RTL Object                 | PORT A (Depth x Width) | W | R | PORT B (Depth x Width) | W | R | Ports driving FF | RAMB18 | RAMB36 | Cascade Heights | 
++------------+----------------------------+------------------------+---+---+------------------------+---+---+------------------+--------+--------+-----------------+
+|u_mac       | g_wcol[0].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[1].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[2].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[3].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[4].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[5].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[6].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[7].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[8].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[9].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[10].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[11].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[12].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[13].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[14].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[15].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[16].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[17].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[18].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[19].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[20].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[21].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[22].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[23].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[24].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[25].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[26].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[27].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[28].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[29].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[30].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[31].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[32].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[33].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[34].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[35].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[36].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[37].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[38].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[39].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[40].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[41].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[42].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[43].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[44].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[45].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[46].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[47].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[48].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[49].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[50].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[51].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[52].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[53].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[54].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[55].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[56].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[57].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[58].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[59].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[60].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[61].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[62].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[63].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[64].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[65].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[66].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[67].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[68].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[69].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[70].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[71].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[72].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[73].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[74].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[75].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[76].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[77].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[78].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[79].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[80].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[81].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[82].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[83].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[84].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[85].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[86].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[87].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[88].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[89].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[90].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[91].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[92].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[93].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[94].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[95].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[96].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[97].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[98].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[99].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[100].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[101].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[102].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[103].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[104].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[105].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[106].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[107].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[108].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[109].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[110].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[111].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[112].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[113].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[114].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[115].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[116].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[117].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[118].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[119].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[120].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[121].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[122].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[123].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[124].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[125].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[126].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[127].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
++------------+----------------------------+------------------------+---+---+------------------------+---+---+------------------+--------+--------+-----------------+
+
+Note: The table above is a preliminary report that shows the Block RAMs at the current stage of the synthesis flow. Some Block RAMs may be reimplemented as non Block RAM primitives later in the synthesis flow. Multiple instantiated Block RAMs are reported only once. 
+
+Distributed RAM: Preliminary Mapping Report (see note below)
++----------------+---------------------+----------------+----------------------+-----------------+
+|Module Name     | RTL Object          | Inference      | Size (Depth x Width) | Primitives      | 
++----------------+---------------------+----------------+----------------------+-----------------+
+|snn_soc_v2b_top | g_tpb.u_tpb/mem_reg | User Attribute | 32 K x 14            | RAM64M8 x 2048  | 
+|snn_soc_v2b_top | u_isr/mem_reg       | User Attribute | 256 x 256            | RAM64M8 x 296   | 
+|snn_soc_v2b_top | u_sbA/mem_reg       | User Attribute | 256 x 128            | RAM64M8 x 152   | 
+|snn_soc_v2b_top | u_sbB/mem_reg       | User Attribute | 256 x 128            | RAM64M8 x 152   | 
++----------------+---------------------+----------------+----------------------+-----------------+
+
+Note: The table above is a preliminary report that shows the Distributed RAMs at the current stage of the synthesis flow. Some Distributed RAMs may be reimplemented as non Distributed RAM primitives later in the synthesis flow. Multiple instantiated RAMs are reported only once.
+
+DSP: Preliminary Mapping Report (see note below. The ' indicates corresponding REG is set)
++----------------------+---------------+--------+--------+--------+--------+--------+------+------+------+------+-------+------+------+
+|Module Name           | DSP Mapping   | A Size | B Size | C Size | D Size | P Size | AREG | BREG | CREG | DREG | ADREG | MREG | PREG | 
++----------------------+---------------+--------+--------+--------+--------+--------+------+------+------+------+-------+------+------+
+|cim_mac_behavioral_v2 | C+A*(B:0x3ff) | 12     | 10     | 31     | -      | 32     | 0    | 0    | 0    | -    | -     | 0    | 0    | 
+|cim_mac_behavioral_v2 | C+A*(B:0x3ff) | 12     | 10     | 31     | -      | 32     | 0    | 0    | 0    | -    | -     | 0    | 0    | 
++----------------------+---------------+--------+--------+--------+--------+--------+------+------+------+------+-------+------+------+
+
+Note: The table above is a preliminary report that shows the DSPs inferred at the current stage of the synthesis flow. Some DSP may be reimplemented as non DSP primitives later in the synthesis flow. Multiple instantiated DSPs are reported only once.
+---------------------------------------------------------------------------------
+Finished ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Applying XDC Timing Constraints
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Applying XDC Timing Constraints : Time (s): cpu = 00:04:17 ; elapsed = 00:04:48 . Memory (MB): peak = 2541.754 ; gain = 1128.004
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Timing Optimization
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Timing Optimization : Time (s): cpu = 00:04:32 ; elapsed = 00:05:06 . Memory (MB): peak = 2817.176 ; gain = 1403.426
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+
+Block RAM: Final Mapping Report
++------------+----------------------------+------------------------+---+---+------------------------+---+---+------------------+--------+--------+-----------------+
+|Module Name | RTL Object                 | PORT A (Depth x Width) | W | R | PORT B (Depth x Width) | W | R | Ports driving FF | RAMB18 | RAMB36 | Cascade Heights | 
++------------+----------------------------+------------------------+---+---+------------------------+---+---+------------------+--------+--------+-----------------+
+|u_mac       | g_wcol[0].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[1].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[2].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[3].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[4].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[5].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[6].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[7].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[8].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[9].u_wcol/mem_reg   | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[10].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[11].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[12].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[13].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[14].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[15].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[16].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[17].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[18].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[19].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[20].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[21].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[22].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[23].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[24].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[25].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[26].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[27].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[28].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[29].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[30].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[31].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[32].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[33].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[34].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[35].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[36].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[37].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[38].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[39].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[40].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[41].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[42].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[43].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[44].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[45].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[46].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[47].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[48].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[49].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[50].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[51].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[52].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[53].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[54].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[55].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[56].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[57].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[58].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[59].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[60].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[61].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[62].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[63].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[64].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[65].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[66].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[67].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[68].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[69].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[70].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[71].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[72].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[73].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[74].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[75].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[76].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[77].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[78].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[79].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[80].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[81].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[82].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[83].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[84].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[85].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[86].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[87].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[88].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[89].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[90].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[91].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[92].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[93].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[94].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[95].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[96].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[97].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[98].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[99].u_wcol/mem_reg  | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[100].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[101].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[102].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[103].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[104].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[105].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[106].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[107].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[108].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[109].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[110].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[111].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[112].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[113].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[114].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[115].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[116].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[117].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[118].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[119].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[120].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[121].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[122].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[123].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[124].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[125].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[126].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
+|u_mac       | g_wcol[127].u_wcol/mem_reg | 256 x 8(WRITE_FIRST)   |   | R | 256 x 8(READ_FIRST)    | W |   | Port A and B     | 1      | 0      | 1               | 
++------------+----------------------------+------------------------+---+---+------------------------+---+---+------------------+--------+--------+-----------------+
+
+
+Distributed RAM: Final Mapping Report
++----------------+---------------------+----------------+----------------------+-----------------+
+|Module Name     | RTL Object          | Inference      | Size (Depth x Width) | Primitives      | 
++----------------+---------------------+----------------+----------------------+-----------------+
+|snn_soc_v2b_top | g_tpb.u_tpb/mem_reg | User Attribute | 32 K x 14            | RAM64M8 x 2048  | 
+|snn_soc_v2b_top | u_isr/mem_reg       | User Attribute | 256 x 256            | RAM64M8 x 296   | 
+|snn_soc_v2b_top | u_sbA/mem_reg       | User Attribute | 256 x 128            | RAM64M8 x 152   | 
+|snn_soc_v2b_top | u_sbB/mem_reg       | User Attribute | 256 x 128            | RAM64M8 x 152   | 
++----------------+---------------------+----------------+----------------------+-----------------+
+
+---------------------------------------------------------------------------------
+Finished ROM, RAM, DSP, Shift Register and Retiming Reporting
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Technology Mapping
+---------------------------------------------------------------------------------
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[0].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[1].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[2].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[3].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[4].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[5].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[6].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[7].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[8].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[9].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[10].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[11].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[12].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[13].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[14].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[15].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[16].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[17].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[18].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[19].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[20].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[21].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[22].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[23].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[24].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[25].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[26].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[27].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[28].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[29].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[30].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[31].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[32].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[33].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[34].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[35].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[36].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[37].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[38].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[39].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[40].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[41].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[42].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[43].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[44].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[45].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[46].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[47].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[48].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[49].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[50].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[51].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[52].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[53].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[54].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[55].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[56].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[57].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[58].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[59].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[60].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[61].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[62].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[63].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[64].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[65].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[66].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[67].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[68].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[69].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[70].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[71].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[72].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[73].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[74].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[75].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[76].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[77].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[78].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[79].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[80].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[81].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[82].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[83].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[84].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[85].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[86].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[87].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[88].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[89].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[90].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[91].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[92].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[93].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[94].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[95].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[96].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[97].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[98].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Synth 8-7052] The timing for the instance u_mac/g_wcol[99].u_wcol/mem_reg_bram_0 (implemented as a Block RAM) might be sub-optimal as no optional output register could be merged into the ram block. Providing additional output register may help in improving timing.
+INFO: [Common 17-14] Message 'Synth 8-7052' appears 100 times and further instances of the messages will be disabled. Use the Tcl command set_msg_config to change the current settings.
+---------------------------------------------------------------------------------
+Finished Technology Mapping : Time (s): cpu = 00:04:44 ; elapsed = 00:05:21 . Memory (MB): peak = 2834.648 ; gain = 1420.898
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start IO Insertion
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Flattening Before IO Insertion
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Flattening Before IO Insertion
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Final Netlist Cleanup
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Final Netlist Cleanup
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished IO Insertion : Time (s): cpu = 00:04:52 ; elapsed = 00:05:30 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Renaming Generated Instances
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Renaming Generated Instances : Time (s): cpu = 00:04:52 ; elapsed = 00:05:30 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Rebuilding User Hierarchy
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Rebuilding User Hierarchy : Time (s): cpu = 00:04:55 ; elapsed = 00:05:34 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Renaming Generated Ports
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Renaming Generated Ports : Time (s): cpu = 00:04:55 ; elapsed = 00:05:34 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Handling Custom Attributes
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Handling Custom Attributes : Time (s): cpu = 00:04:56 ; elapsed = 00:05:35 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Renaming Generated Nets
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Renaming Generated Nets : Time (s): cpu = 00:04:56 ; elapsed = 00:05:35 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Writing Synthesis Report
+---------------------------------------------------------------------------------
+
+DSP Final Report (the ' indicates corresponding REG is set)
++----------------------+-------------+--------+--------+--------+--------+--------+------+------+------+------+-------+------+------+
+|Module Name           | DSP Mapping | A Size | B Size | C Size | D Size | P Size | AREG | BREG | CREG | DREG | ADREG | MREG | PREG | 
++----------------------+-------------+--------+--------+--------+--------+--------+------+------+------+------+-------+------+------+
+|cim_mac_behavioral_v2 | (C+A*B)'    | 12     | 10     | 31     | -      | 32     | 0    | 0    | 0    | -    | -     | 0    | 1    | 
+|cim_mac_behavioral_v2 | (C+A*B)'    | 12     | 10     | 31     | -      | 32     | 0    | 0    | 0    | -    | -     | 0    | 1    | 
++----------------------+-------------+--------+--------+--------+--------+--------+------+------+------+------+-------+------+------+
+
+
+Report BlackBoxes: 
++-+--------------+----------+
+| |BlackBox name |Instances |
++-+--------------+----------+
++-+--------------+----------+
+
+Report Cell Usage: 
++------+----------------+------+
+|      |Cell            |Count |
++------+----------------+------+
+|1     |BUFG            |     1|
+|2     |CARRY8          |    37|
+|3     |DSP_ALU         |     2|
+|4     |DSP_A_B_DATA    |     2|
+|5     |DSP_C_DATA      |     2|
+|6     |DSP_MULTIPLIER  |     2|
+|7     |DSP_M_DATA      |     2|
+|8     |DSP_OUTPUT      |     2|
+|9     |DSP_PREADD      |     2|
+|10    |DSP_PREADD_DATA |     2|
+|11    |LUT1            |     3|
+|12    |LUT2            |   489|
+|13    |LUT3            |   765|
+|14    |LUT4            |  2741|
+|15    |LUT5            |  2048|
+|16    |LUT6            | 10048|
+|17    |MUXF7           |  3067|
+|18    |MUXF8           |  1476|
+|19    |RAM64M          |    16|
+|20    |RAM64M8         |  2632|
+|21    |RAMB18E2        |   128|
+|22    |FDCE            | 11225|
+|23    |FDPE            |     2|
+|24    |IBUF            |    48|
+|25    |OBUF            |    34|
++------+----------------+------+
+---------------------------------------------------------------------------------
+Finished Writing Synthesis Report : Time (s): cpu = 00:04:56 ; elapsed = 00:05:35 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+---------------------------------------------------------------------------------
+Synthesis finished with 0 errors, 0 critical warnings and 7 warnings.
+Synthesis Optimization Runtime : Time (s): cpu = 00:04:40 ; elapsed = 00:05:26 . Memory (MB): peak = 2846.270 ; gain = 1333.906
+Synthesis Optimization Complete : Time (s): cpu = 00:04:56 ; elapsed = 00:05:35 . Memory (MB): peak = 2846.270 ; gain = 1432.520
+INFO: [Project 1-571] Translating synthesized netlist
+Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00.441 . Memory (MB): peak = 2847.613 ; gain = 0.000
+INFO: [Netlist 29-17] Analyzing 7279 Unisim elements for replacement
+INFO: [Netlist 29-28] Unisim Transformation completed in 3 CPU seconds
+INFO: [Project 1-570] Preparing netlist for logic optimization
+INFO: [Opt 31-138] Pushed 0 inverter(s) to 0 load pin(s).
+Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00.018 . Memory (MB): peak = 2892.332 ; gain = 0.000
+INFO: [Project 1-111] Unisim Transformation Summary:
+  A total of 2699 instances were transformed.
+  BUFG => BUFGCE: 1 instance 
+  DSP48E2 => DSP48E2 (DSP_ALU, DSP_A_B_DATA, DSP_C_DATA, DSP_MULTIPLIER, DSP_M_DATA, DSP_OUTPUT, DSP_PREADD, DSP_PREADD_DATA): 2 instances
+  IBUF => IBUF (IBUFCTRL, INBUF): 48 instances
+  RAM64M => RAM64M (RAMD64E(x4)): 16 instances
+  RAM64M8 => RAM64M8 (RAMD64E(x8)): 2632 instances
+
+Synth Design complete, checksum: 73bc0e1d
+INFO: [Common 17-83] Releasing license: Synthesis
+237 Infos, 70 Warnings, 0 Critical Warnings and 0 Errors encountered.
+synth_design completed successfully
+synth_design: Time (s): cpu = 00:05:13 ; elapsed = 00:05:58 . Memory (MB): peak = 2892.332 ; gain = 2514.336
+INFO: [Common 17-1381] The checkpoint 'd:/SoCDesign/fpga_synth/v2b_synth_20260422_003318/v2b_synth_20260422_003318.runs/synth_1/snn_soc_v2b_top.dcp' has been generated.
+INFO: [runtcl-4] Executing : report_utilization -file snn_soc_v2b_top_utilization_synth.rpt -pb snn_soc_v2b_top_utilization_synth.pb
+INFO: [Common 17-206] Exiting Vivado at Wed Apr 22 00:39:37 2026...

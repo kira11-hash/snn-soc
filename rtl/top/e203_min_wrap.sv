@@ -1,24 +1,63 @@
 `timescale 1ns/1ps
-
+//======================================================================
+// 文件名: e203_min_wrap.sv
+// 模块名: e203_min_wrap
+//
+// 【功能概述】
+// 蜂鸟 E203 RISC-V CPU 核的最小化封装。
+// 将 E203 vendor IP 的复杂接口（PPI、CLINT、FIO 等多个 ICB 端口）
+// 归并到单一的 mem_icb 端口，由下游 icb2simple_bridge 转换为
+// simple bus 协议。
+//
+// 【编译开关】
+// - SOC_ENABLE_E203_VENDOR：启用真实 E203 IP 实例化
+//   - 无此宏时：使用行为模型（仿真用最小 CPU 替身）
+//
+// 【CPU 复位】
+// core_rst_n = rst_n & cpu_local_rst_n
+// - rst_n：全局系统复位
+// - cpu_local_rst_n：CPU 局部复位（由 JTAG cpu_reset_hold 控制）
+// 局部复位只影响 CPU 核，不影响 SRAM/DMA/外设
+//======================================================================
 module e203_min_wrap (
-  input  logic        clk,
-  input  logic        rst_n,
-  input  logic        cpu_local_rst_n,
-  output logic [31:0] inspect_pc,
-  output logic        core_wfi,
-  output logic        mem_icb_cmd_valid,
-  input  logic        mem_icb_cmd_ready,
-  output logic [31:0] mem_icb_cmd_addr,
-  output logic        mem_icb_cmd_read,
-  output logic [31:0] mem_icb_cmd_wdata,
-  output logic [3:0]  mem_icb_cmd_wmask,
-  input  logic        mem_icb_rsp_valid,
-  output logic        mem_icb_rsp_ready,
-  input  logic        mem_icb_rsp_err,
-  input  logic [31:0] mem_icb_rsp_rdata
+  input  logic        clk,              // 系统时钟
+  input  logic        rst_n,            // 全局复位
+  input  logic        cpu_local_rst_n,  // CPU 局部复位（JTAG 控制）
+  output logic [31:0] inspect_pc,       // 当前 PC（调试观察用）
+  output logic        core_wfi,         // CPU 进入 WFI（等待中断）
+
+  // ── ICB 主机端口（连接 icb2simple_bridge）──────────────────────────
+  output logic        mem_icb_cmd_valid,   // 命令有效
+  input  logic        mem_icb_cmd_ready,   // 命令就绪
+  output logic [31:0] mem_icb_cmd_addr,    // 命令地址
+  output logic        mem_icb_cmd_read,    // 1=读，0=写
+  output logic [31:0] mem_icb_cmd_wdata,   // 写数据
+  output logic [3:0]  mem_icb_cmd_wmask,   // 字节写使能
+  input  logic        mem_icb_rsp_valid,   // 响应有效
+  output logic        mem_icb_rsp_ready,   // 响应就绪
+  input  logic        mem_icb_rsp_err,     // 响应错误
+  input  logic [31:0] mem_icb_rsp_rdata    // 响应读数据
 );
+  // CPU 实际复位 = 全局复位 AND 局部复位
+  // cpu_local_rst_n 由 JTAG rescue 的 cpu_reset_hold 控制，
+  // 允许在不影响 SRAM/DMA/外设的情况下单独复位 CPU 核
   wire core_rst_n = rst_n & cpu_local_rst_n;
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 真实 E203 IP 实例化路径（需 SOC_ENABLE_E203_VENDOR 编译宏）
+  //
+  // E203 核有 5 个 ICB 主端口，按地址空间分区：
+  //   mem_icb   : 主存储空间（0x0000_0000 ~ 0x7FFF_FFFF）→ 本 SoC 实际使用
+  //   ppi_icb   : Private Peripheral 空间               → 未使用，接 err_slave
+  //   clint_icb : Core-Local Interrupt Timer 空间        → 未使用，接 err_slave
+  //   plic_icb  : Platform-Level Interrupt 空间          → 未使用，接 err_slave
+  //   fio_icb   : Fast IO 空间                           → 未使用，接 err_slave
+  //
+  // 未使用的 4 个端口全部接到 icb_err_slave，确保 CPU 误访问时
+  // 不会死锁，而是收到 bus error 进入异常处理。
+  // ═══════════════════════════════════════════════════════════════════════
 `ifdef SOC_ENABLE_E203_VENDOR
+  // ── PPI ICB 端口信号（Private Peripheral Interface）────────────────────
   logic        ppi_icb_cmd_valid;
   logic        ppi_icb_cmd_ready;
   logic [31:0] ppi_icb_cmd_addr;
@@ -30,6 +69,7 @@ module e203_min_wrap (
   logic        ppi_icb_rsp_err;
   logic [31:0] ppi_icb_rsp_rdata;
 
+  // ── CLINT ICB 端口信号（Core-Local Interrupt Timer）────────────────────
   logic        clint_icb_cmd_valid;
   logic        clint_icb_cmd_ready;
   logic [31:0] clint_icb_cmd_addr;
@@ -41,6 +81,7 @@ module e203_min_wrap (
   logic        clint_icb_rsp_err;
   logic [31:0] clint_icb_rsp_rdata;
 
+  // ── PLIC ICB 端口信号（Platform-Level Interrupt Controller）────────────
   logic        plic_icb_cmd_valid;
   logic        plic_icb_cmd_ready;
   logic [31:0] plic_icb_cmd_addr;
@@ -52,6 +93,7 @@ module e203_min_wrap (
   logic        plic_icb_rsp_err;
   logic [31:0] plic_icb_rsp_rdata;
 
+  // ── FIO ICB 端口信号（Fast IO）───────────────────────────────────────
   logic        fio_icb_cmd_valid;
   logic        fio_icb_cmd_ready;
   logic [31:0] fio_icb_cmd_addr;
@@ -63,6 +105,7 @@ module e203_min_wrap (
   logic        fio_icb_rsp_err;
   logic [31:0] fio_icb_rsp_rdata;
 
+  // ── E203 内部调试/中断信号（本 SoC 未使用，仅为接口兼容保留）────────
   logic        inspect_dbg_irq;
   logic        inspect_mem_cmd_valid;
   logic        inspect_mem_cmd_ready;
@@ -81,6 +124,7 @@ module e203_min_wrap (
   logic        wr_dscratch_ena;
   logic [31:0] wr_csr_nxt;
 
+  // lint 友好：以上调试信号全部未使用，通过哑线消除告警
   wire _unused = &{1'b0,
                    inspect_dbg_irq,
                    inspect_mem_cmd_valid,
@@ -100,6 +144,11 @@ module e203_min_wrap (
                    wr_dscratch_ena,
                    wr_csr_nxt};
 
+  // ── E203 CPU 核实例化 ──────────────────────────────────────────────────
+  // pc_rtvec = 0x0000_0000：CPU 复位后从指令 SRAM 起始地址取指
+  // 调试相关端口（dbg_*）全部接常量 0（无外部调试器接入时的安全默认值）
+  // 中断端口（ext_irq_a / sft_irq_a / tmr_irq_a）接 0（V1 无中断源）
+  // test_mode = 0：正常运行模式（非 DFT 扫描模式）
   e203_cpu_top u_e203_cpu_top (
     .inspect_pc           (inspect_pc),
     .inspect_dbg_irq      (inspect_dbg_irq),
@@ -191,6 +240,9 @@ module e203_min_wrap (
     .rst_n                (core_rst_n)
   );
 
+  // ── 未使用 ICB 端口 → 错误从机 ──────────────────────────────────────
+  // 以下 4 个 icb_err_slave 实例确保 CPU 误访问未映射地址空间时
+  // 能收到 bus error 而非总线死锁（详见 icb_err_slave.sv 注释）
   icb_err_slave u_ppi_err (
     .clk            (clk),
     .rst_n          (rst_n),
@@ -250,6 +302,11 @@ module e203_min_wrap (
     .i_icb_rsp_err  (fio_icb_rsp_err),
     .i_icb_rsp_rdata(fio_icb_rsp_rdata)
   );
+  // ═══════════════════════════════════════════════════════════════════════
+  // 无 E203 IP 时的行为模型（仿真用空 CPU 替身）
+  // 所有输出接常量 0，mem_icb 不产生任何事务，
+  // 适用于不需要 CPU 参与的仿真场景（如纯 SNN 推理路径测试）
+  // ═══════════════════════════════════════════════════════════════════════
 `else
   wire _unused_vendor_stub = &{1'b0,
                                clk,

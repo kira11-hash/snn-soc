@@ -137,8 +137,9 @@ module top_tb;
   logic       wl_latch_ext;
   logic       cim_start_ext;
   logic       cim_done_ext;
-  logic [4:0] bl_sel_ext;
+  logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic       prog_en_ext, erase_en_ext, verify_en_ext;
 
   // -----------------------------------------------------------------------
   // DUT 实例化：snn_soc_top
@@ -163,7 +164,10 @@ module top_tb;
     .cim_start_ext    (cim_start_ext),
     .cim_done_ext     (cim_done_ext),
     .bl_sel_ext       (bl_sel_ext),
-    .bl_data_ext      (bl_data_ext)
+    .bl_data_ext      (bl_data_ext),
+    .prog_en_ext      (prog_en_ext),
+    .erase_en_ext     (erase_en_ext),
+    .verify_en_ext    (verify_en_ext)
   );
 
   task automatic bus_write32(
@@ -584,7 +588,7 @@ module top_tb;
     //   1. 读 OUT_FIFO_COUNT（0x4000_0020）：获取 spike 数量（可能远大于 NUM_OUTPUTS，因为单个神经元可多次发放）
     //   2. 循环读 OUT_FIFO_DATA（0x4000_001C）：逐个读取 spike_id
     //      - reg_bank 的 pop_pending 机制确保读后下一拍自动 pop
-    //      - rd[3:0] = spike_id（4-bit，范围 0~9，对应 10 个输出神经元）
+    //      - rd[SPIKE_IDX_W-1:0] = spike_id（V1: 0~9，V2 多层: 0~MAX_NEURONS-1）
     //   3. 打印每个 spike_id
     //
     // 注意：此处的 rd（用于循环次数）是第一次读 OUT_COUNT 的值，
@@ -601,7 +605,7 @@ module top_tb;
     // 逐个弹出并打印 spike_id
     for (int k = 0; k < rd; k = k + 1) begin
       bus_read32(ADDR_REG_BASE + 32'h1C, word0); // OUT_FIFO_DATA：队头 spike_id（读触发 pop）
-      $display("[TB] spike_id[%0d] = %0d", k, word0[3:0]); // 低 4-bit = spike_id
+      $display("[TB] spike_id[%0d] = %0d", k, word0[6:0]); // 低 SPIKE_IDX_W bit = spike_id
     end
 
     // -----------------------------------------------------------------------

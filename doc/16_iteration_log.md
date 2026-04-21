@@ -4,6 +4,232 @@
 
 ---
 
+## Iteration 16 — V2 可配置脉冲宽度 + 全阵列擦除（2026-04-18）
+
+### 本次范围
+
+根据器件老师确认的需求，实现可配置编程脉冲宽度和全阵列擦除模式。
+
+### 需求来源
+
+器件老师确认 4 点：
+1. 编程脉冲宽度需 CPU 可配（当前实现：写入 1us / 10us / 100us 三档，擦除固定 1ms）
+2. 不强制先擦后写（已满足）
+3. 多层推理改为时间复用：推理完一层 → 全阵列擦除 → 写入下一层权重 → 继续
+4. 擦除分两种：逐 cell 小脉冲（宽度可配）+ 层间全阵列大擦除（1ms 单脉冲，所有 WL 同时拉高）
+
+**核心设计决策**：时间多层和图像 tiling 由固件驱动，不做硬件自动化。RTL 只需提供可配置脉冲宽度 + 全阵列擦除能力。
+
+### RTL 变更
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/reg/reg_bank.sv` | 新增 `REG_PROG_PULSE_WIDTH`(0x90) 写入档位选择 + resolved cycles 读回；新增 `REG_PROG_ERASE_WIDTH`(0x94) 固定 50000；`PROG_CTRL` 新增 bit[2]=FULL_ARRAY |
+| `rtl/snn/cim_program_ctrl.sv` | 完全重写 FSM：新增 `ST_PULSE_HOLD` 状态（自计时脉冲）；新增输入 `prog_full_array` / `prog_pulse_width[15:0]` / `prog_erase_width[15:0]`；`pulse_width_cnt` 扩展为 16-bit；全阵列擦除跳过 verify 直接 PASS |
+| `rtl/top/snn_soc_top.sv` | 布线 `prog_full_array` + `prog_pulse_width` + `prog_erase_width`（reg_bank → cim_program_ctrl） |
+| `rtl/snn/cim_macro_blackbox.sv` | 擦除逻辑更新：`&wl_latched` 检测全阵列擦除，清零所有行所有列 |
+
+### cim_program_ctrl FSM（11 状态）
+
+```
+ST_IDLE → ST_SETUP → ST_PULSE → ST_PULSE_HOLD(自计时) → ST_READBACK → ST_RB_WAIT → ST_VERIFY
+  ├─ ST_PASS → ST_DONE → ST_IDLE
+  └─ ST_RETRY → ST_SETUP（重试）
+      └─ ST_FAIL → ST_DONE → ST_IDLE
+
+全阵列擦除特殊路径：
+ST_IDLE → ST_SETUP → ST_PULSE → ST_PULSE_HOLD → ST_PASS → ST_DONE → ST_IDLE（跳过 verify）
+```
+
+### TB 变更
+
+`tb/cim_program_ctrl_tb.sv` 完全重写（7 个测试用例）：
+
+| 测试 | 内容 | 结果 |
+|------|------|------|
+| T1 | 逐 cell 擦除（pulse_width=8） | PASS |
+| T2 | 写入 level=5，verify pass（target=80） | PASS |
+| T3 | 写入 level=0 fast path（直接 PASS） | PASS |
+| T4 | 擦除验证失败 → 重试 → 成功 | PASS（retries=1） |
+| T5 | 可配置脉冲宽度=100（验证持续时间） | PASS |
+| T6 | 全阵列擦除（64 WL 全拉高，跳过 verify） | PASS |
+| T7 | 全阵列擦除使用 erase_width（验证脉冲宽度） | PASS |
+
+### 验证结果
+
+```text
+CIM_PROGRAM_CTRL_PASS（7/7 全过）
+LIGHT_SMOKETEST_PASS（V1 回归无影响）
+```
+
+---
+
+## Iteration 15 — V2 最终集成、深度风险审查与文档对齐（2026-04-18）
+
+### 本次范围
+
+- RTL 全量 review（32 个 .sv 文件），修正 4 处注释/参数问题
+- 深度风险审查：确认 5 个 RTL 设计风险（2 HIGH + 2 MEDIUM + 1 增强），全部修复
+- 误报分析：3 个 AI 报告经仿真验证确认为误报，记录到 CLAUDE.md（FP-006/007/008）
+- 注释 refine：9 个 RTL 文件中文注释增强
+- 文档一致性审计并全量更新（8 项文档修订）
+
+### 深度风险审查（5 个风险，全部已修复）
+
+#### HIGH 级别（2 项）
+
+| # | 风险 | 文件 | 修复内容 |
+|---|------|------|----------|
+| Fix 1 | JTAG CDC 复位 settling guard | `rtl/periph/jtag_mem_loader.sv` | JTAG TAP 复位后 TCK->CLK 跨时钟域同步链需要 settling 时间，新增 guard 逻辑确保 CDC 握手稳定后再接受 MEMACC 请求 |
+| Fix 2 | CIM arbiter 寄存器化输出 | `rtl/snn/cim_macro_arbiter.sv` | 仲裁器输出信号从组合逻辑改为寄存器化，消除下游 CIM macro 端口上的毛刺风险，改善时序路径 |
+
+#### MEDIUM 级别（2 项）
+
+| # | 风险 | 文件 | 修复内容 |
+|---|------|------|----------|
+| Fix 3 | 外部 CIM 输入 2-FF 同步器 | `rtl/top/snn_soc_top.sv` | 外部 CIM 接口输入信号（`cim_done`、`bl_data`）经过芯片 pad 进入数字域，新增 2-FF 同步器防止亚稳态 |
+| Fix 4 | CPU 启动安全 cpu_reset_hold=1 | `rtl/periph/jtag_mem_loader.sv` | 上电复位后 `cpu_reset_hold` 默认为 1（CPU 保持复位），防止 SRAM 未初始化时 CPU 取到随机指令；JTAG 或固件显式 release 后才启动 |
+
+#### 增强级别（1 项）
+
+| # | 风险 | 文件 | 修复内容 |
+|---|------|------|----------|
+| Fix 5 | spike_q_overflow 暴露到 STATUS[6] | `rtl/reg/reg_bank.sv` + `rtl/top/snn_soc_top.sv` | 将 output FIFO 溢出标志 `spike_q_overflow` 连接到 STATUS 寄存器 bit[6]，使固件可以检测并处理 FIFO 溢出事件 |
+
+### 误报确认（3 项，已记录到 CLAUDE.md）
+
+| 编号 | 误报内容 | 确认原因 |
+|------|----------|----------|
+| FP-006 | AI 报告 layer_sequencer 状态机可能死锁 | 经仿真验证，所有状态转移路径均有超时保护，无死锁可能 |
+| FP-007 | AI 报告 spike_feedback 位宽截断 | 实际 spike mask 宽度与 input_fifo 数据宽度匹配，无截断风险 |
+| FP-008 | AI 报告 cim_program_ctrl 重试计数器溢出 | RETRY_LIMIT 最大值 7（3-bit），计数器 3-bit，无溢出可能 |
+
+### 注释 refine（9 个 RTL 文件）
+
+对以下文件增强中文注释，补充模块功能说明、端口描述、关键时序约束：
+
+- `rtl/snn/cim_array_ctrl.sv`
+- `rtl/snn/cim_macro_blackbox.sv`
+- `rtl/snn/cim_macro_arbiter.sv`
+- `rtl/snn/cim_program_ctrl.sv`
+- `rtl/snn/layer_sequencer.sv`
+- `rtl/snn/lif_neuron_alu.sv`
+- `rtl/snn/lif_neurons.sv`
+- `rtl/snn/spike_feedback.sv`
+- `rtl/reg/reg_bank.sv`
+
+### 代码修正（4 处注释/参数）
+
+- `tb/multilayer_tb.sv`：DMA word count 从 80 改为 160（80 个 FIFO entry 需要 160 个 32-bit word）
+- `rtl/top/snn_soc_top.sv`：output_fifo 注释从 "4 位" 修正为 "SPIKE_IDX_W 位"
+- `rtl/top/snn_soc_pkg.sv`：output_fifo 深度注释从 "4 位宽" 修正为 "$clog2(MAX_NEURONS)"
+- `rtl/mem/fifo_sync.sv`：output_fifo 实例化注释从 "WIDTH=4" 修正为 "WIDTH=SPIKE_IDX_W"
+
+### 文档修订（8 项）
+
+- `doc/02_reg_map.md`：补全 V2 编程寄存器（0x38-0x44）和多层描述符（0x48-0x8F），修正 OUT_FIFO_DATA spike_id 位宽 [3:0] -> [6:0]
+- `doc/09_smoke_test_checklist.md`：补入 multilayer smoke 条目，修正 output FIFO 位宽描述
+- `doc/16_iteration_log.md`：补全 Iter 10-15
+- `doc/00_overview.md`：补入 V2 模块和功能描述
+- `doc/03_cim_if_protocol.md`：补入 V2 编程接口协议
+- `doc/04_walkthrough.md`：补入多层推理流程
+- `doc/05_debug_guide.md`：补入 V2 模块调试信号
+- `README.md`：补入 V2 内容和 multilayer 回归入口
+
+### 仿真结果
+
+```text
+LIGHT_SMOKETEST_PASS
+MULTILAYER_SMOKE_PASS
+```
+
+---
+
+## Iteration 14 — [已取消] CPU-ANN bridge（#5）（2026-04）
+
+- **状态**：CANCELLED
+- **原因**：用户与师兄讨论后决定取消，当前聚焦 SNN/CIM 主线，GEMM 扩展超出 V2 scope
+- 详见 `doc/14_gemm_accelerator_plan.md`
+
+---
+
+## Iteration 13 — Go/No-Go 评审（2026-04）
+
+- **结论**：模拟团队 macro v4 spec 对齐，pad budget 不是阻塞项（数字/模拟独立流片，各 48 pads）
+- 确认 V2 scope 为：CIM 编程 + 多层推理，rate coding 和 neuron plugin 不做
+
+---
+
+## Iteration 12 — [已取消] Rate Coding + Neuron Plugin（#1+#3）（2026-04）
+
+- **状态**：CANCELLED
+- **原因**：用户与师兄讨论后认为 rate coding 和 neuron plugin 当前不必要
+
+---
+
+## Iteration 11 — V2 多层 SNN 推理（2026-04）
+
+### 变更内容
+
+新增多层 SNN 推理支持（最多 4 层），层间 spike 自动回注。
+
+**新增文件（5 个 RTL/TB/脚本）：**
+
+| 文件 | 说明 |
+|------|------|
+| `rtl/snn/layer_sequencer.sv` | 多层调度器：按层描述符依次执行推理，控制 spike_feedback 回注 |
+| `rtl/snn/lif_neuron_alu.sv` | 独立 LIF ALU：支持可配置 active_neuron_count / threshold / output_fifo_en |
+| `rtl/snn/spike_feedback.sv` | spike mask → input_fifo bit-plane 转换，层间回注 |
+| `tb/multilayer_tb.sv` | 2 层 smoke test（64→10→10），CIM test mode，MULTILAYER_SMOKE_PASS |
+| `sim/run_multilayer.sh` / `sim/sim_multilayer.f` | 多层仿真入口 |
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/top/snn_soc_pkg.sv` | 新增 `ENABLE_MULTI_LAYER`、`MAX_LAYERS=4`、`MAX_NEURONS=128` 等参数 |
+| `rtl/top/snn_soc_top.sv` | 集成 `layer_sequencer` + `lif_neuron_alu` + `spike_feedback`，条件编译 `SIM_MULTI_LAYER` |
+| `rtl/reg/reg_bank.sv` | 新增 V2 多层寄存器（REG_ML_CTRL + 层描述符 0x48-0x8F） |
+| `rtl/snn/cim_array_ctrl.sv` | 支持可变 neuron count 和层间参数切换 |
+
+### 验证结果
+
+```text
+MULTILAYER_SMOKE_PASS（2 层 64→10→10，CIM test mode）
+LIGHT_SMOKETEST_PASS（V1 单层回归无影响）
+```
+
+---
+
+## Iteration 10 — V2 CIM 编程接口（2026-04）
+
+### 变更内容
+
+新增 RRAM 阵列写入/擦除/验证的数字控制接口。
+
+**新增文件（2 个 RTL）：**
+
+| 文件 | 说明 |
+|------|------|
+| `rtl/snn/cim_program_ctrl.sv` | CIM 编程控制器：SET/RESET/VERIFY FSM，支持重试和超时 |
+| `rtl/snn/cim_macro_arbiter.sv` | 推理/编程仲裁器：互斥访问 CIM macro（推理优先或编程优先可配） |
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `rtl/reg/reg_bank.sv` | 新增 V2 编程寄存器（REG_PROG_CTRL / ROW / COL / STATUS，0x38-0x44） |
+| `rtl/top/snn_soc_top.sv` | 集成 `cim_program_ctrl` + `cim_macro_arbiter` |
+| `rtl/snn/cim_macro_blackbox.sv` | 新增 `prog_en/erase_en/verify_en` 端口支持 |
+
+### 验证结果
+
+```text
+LIGHT_SMOKETEST_PASS（推理主链无回归）
+```
+
+---
+
 ## Iteration 9 — 2026-03-31 main 分支再审计与 WL wrapper 边界修正
 
 ### 本次复核范围

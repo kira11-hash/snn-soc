@@ -5,7 +5,13 @@
 当前仓库主线是一个面向 SNN/CIM 验证的数字 SoC。
 
 - 数字顶层：`rtl/top/snn_soc_top.sv`
-- 计算主链：`data_sram -> dma_engine -> input_fifo -> DAC/CIM/ADC -> lif_neurons -> output_fifo`
+- V1 计算主链：`data_sram -> dma_engine -> input_fifo -> DAC/CIM/ADC -> lif_neurons -> output_fifo`
+- V2 扩展模块（v2 分支）：
+  - `cim_program_ctrl`：RRAM 写入/擦除/验证数字控制
+  - `cim_macro_arbiter`：推理/编程互斥仲裁
+  - `layer_sequencer`：多层 SNN 推理调度（最多 4 层）
+  - `lif_neuron_alu`：独立 LIF 计算单元（支持可配置神经元数/阈值）
+  - `spike_feedback`：层间 spike mask → bit-plane 回注
 - 外设：`uart_ctrl`、`spi_ctrl`
 - CPU：E203
 - 启动链：最小 `bootloader + SPI boot + UART printf`
@@ -23,6 +29,17 @@
 - `bootloader / SPI 启动 / UART printf` 已在专用 E203 Icarus TB 中验证通过
 - `chip_top` 已通过 Icarus 编译门禁与 Verilator lint
 - 旧 `top_tb` 入口、shell 脚本语法、Python 主机工具语法，以及 Git 跟踪 Markdown 的本地链接已重新复核
+
+### V2 分支状态（2026-04-18）
+
+- `cim_program_ctrl` + `cim_macro_arbiter`：CIM 编程接口完成（Iter 10）
+- `layer_sequencer` + `lif_neuron_alu` + `spike_feedback`：多层推理完成（Iter 11），`MULTILAYER_SMOKE_PASS`
+- V2 寄存器扩展（0x38-0x94）已实现：编程寄存器 + 多层描述符 + 脉冲宽度配置
+- 编程脉冲宽度档位（`PROG_PULSE_WIDTH` 0x90：写入 1us/10us/100us；`PROG_ERASE_WIDTH` 0x94：擦除固定 1ms @ 50MHz）
+- 全阵列擦除模式（`PROG_CTRL.FULL_ARRAY` bit[2]）：所有 WL 同时拉高，单脉冲擦除，跳过 verify
+- `cim_program_ctrl` FSM 新增 `ST_PULSE_HOLD` 状态：数字侧自计时脉冲，不依赖 `cim_done` 握手
+- output FIFO 位宽从 4-bit 扩展到 SPIKE_IDX_W=7-bit（$clog2(MAX_NEURONS=128)）
+- Rate coding (#1/#3) 和 CPU-ANN bridge (#5) 已取消
 
 ## 重要边界
 
@@ -137,3 +154,25 @@ reset
 - 想看当前做到哪：先看 [`doc/16_iteration_log.md`](16_iteration_log.md)
 - 想看 pad / pin：直接看 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)
 - 想看 Python 对齐口径：直接看 `tb/top_tb_sample_align.sv` 和 `sim/run_sample_align.sh`
+
+## 架构演进
+
+| 阶段 | 定位 | 核心内容 |
+|------|------|----------|
+| **V0（概念验证）** | 算法可行性 | 纯行为模型，单层 SNN，Python 全流程（训练 + 推理 + 量化 + 权重导出）；不涉及 RTL |
+| **V1（流片目标）** | 完整数字 SoC | E203 RISC-V CPU + SPI + UART + JTAG + DMA + SNN 加速器（`cim_array_ctrl` + `adc_ctrl` + `lif_neurons`），单层推理，test mode 自检；全部外设集成并通过回归 |
+| **V2（多层扩展）** | 编程 + 多层 | CIM 编程通路（`cim_program_ctrl`：SET / RESET / Verify，Write-Verify 循环 + 重试，写入脉冲 1us/10us/100us 三档，擦除固定 1ms，全阵列擦除模式）+ `cim_macro_arbiter` 推理/编程互斥仲裁 + 多层推理（`layer_sequencer` 调度最多 4 层，`spike_feedback` 层间 spike mask 回注，`lif_neuron_alu` 独立 LIF 计算单元）+ 时间多层（固件驱动：推理→擦除→重编程→下一层推理） |
+
+### 双芯片架构
+
+当前 V1/V2 均采用**数字芯片 + 模拟 CIM 芯片分别流片**的方案：
+
+- **数字芯片**：包含 `snn_soc_top`（CPU + 外设 + SNN 数字控制链路），1mm×2mm 72 pad（V2 baseline 已用 53 pad，19 pad 富余），由 `chip_top.sv` 封装
+- **模拟 CIM 芯片**：包含 RRAM 阵列（128x256, 0T1R）+ ADC + DAC + 模拟前端，1mm×1mm 48 pad，独立流片
+- **互联方式**：两颗芯片通过 PCB 互联
+  - WL 方向：8-bit `wl_data` + 3-bit `wl_group_sel` + `wl_latch`（时分复用，8 组 x 8 = 64 行）
+  - BL 方向：7-bit `bl_sel` 扫描（V1 baseline 固定 20 通道 / V2 可配偶数 2~128 通道，Scheme B 正负列成对）+ 8-bit `bl_data` 读回
+  - 握手：`cim_start` / `cim_done`
+  - V2 新增：`prog_en` / `erase_en` / `verify_en`（编程使能，告知模拟侧当前操作类型）
+
+> 单芯片数模混合集成是 V3 目标，不在当前 V1/V2 范围内。详见本文"论文写作口径备忘"一节。

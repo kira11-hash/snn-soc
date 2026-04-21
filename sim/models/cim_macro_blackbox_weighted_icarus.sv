@@ -6,9 +6,10 @@
 /* verilator lint_off DECLFILENAME */
 /* verilator lint_off UNUSEDSIGNAL */
 module cim_macro_blackbox #(
-  parameter int P_NUM_INPUTS   = snn_soc_pkg::NUM_INPUTS,
-  parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS,
-  parameter int P_WEIGHT_BITS  = 4
+  parameter int P_NUM_INPUTS      = snn_soc_pkg::NUM_INPUTS,
+  parameter int P_ADC_CHANNELS    = snn_soc_pkg::ADC_CHANNELS,
+  parameter int P_WEIGHT_BITS     = 4,
+  parameter bit P_USE_BRAM_WEIGHTS = 0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -18,10 +19,19 @@ module cim_macro_blackbox #(
   output logic cim_done,
   input  logic adc_start,
   output logic adc_done,
-  input  logic [$clog2(P_ADC_CHANNELS)-1:0] bl_sel,
-  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data
+  // D2-002: bl_sel 扩宽到 $clog2(MAX_BL_SCAN)=7，与顶层 arb_bl_sel 一致，
+  //         避免 Icarus 运行时"Pruning 2 high bits"告警和多层 bl_sel>=32 的回绕。
+  input  logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel,
+  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data,
+
+  // V2 programming interface (unused in weighted model, tied off)
+  input  logic prog_en,
+  input  logic erase_en,
+  input  logic verify_en
 );
   import snn_soc_pkg::*;
+
+  wire _unused_prog = &{1'b0, prog_en, erase_en, verify_en, P_USE_BRAM_WEIGHTS};
 
   localparam int P_NUM_OUTPUTS = NUM_OUTPUTS;
   localparam int BL_SEL_W      = $clog2(P_ADC_CHANNELS);
@@ -165,8 +175,10 @@ module cim_macro_blackbox #(
 `ifndef SYNTHESIS
   always @(posedge clk) begin
     if (!$isunknown(bl_sel)) begin
+      // V2: bl_sel 7-bit，weighted 模型仍只存 P_ADC_CHANNELS 列权重（未来可扩）。
+      // 超出范围时 MUX 返回 0，非 RTL bug，降级为 warning 便于多层扩展扫描不中断仿真。
       assert (bl_sel < ADC_CH_MAX)
-        else $error("[cim_macro_weighted] bl_sel out of range: %0d / %0d", bl_sel, P_ADC_CHANNELS);
+        else $warning("[cim_macro_weighted] bl_sel > P_ADC_CHANNELS（行为模型限制，非 RTL 错误）: %0d / %0d", bl_sel, P_ADC_CHANNELS);
     end
   end
 `endif

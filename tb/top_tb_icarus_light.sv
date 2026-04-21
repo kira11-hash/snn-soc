@@ -32,8 +32,9 @@ module top_tb_icarus_light;
   logic       wl_latch_ext;
   logic       cim_start_ext;
   logic       cim_done_ext;
-  logic [4:0] bl_sel_ext;
+  logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic       prog_en_ext, erase_en_ext, verify_en_ext;
 
   // Optional external bus override ports exist on some branches.
   // Lint-only mode treats these compatibility placeholders as unused

@@ -399,7 +399,7 @@ module snn_soc_v2b_top
   logic cmd_read_sba, cmd_read_sbb;
 
   // Read addr decode (combinational from cmd)
-  always_comb begin
+  always @* begin
     cmd_read_sba = 1'b0;
     cmd_read_sbb = 1'b0;
     read_sb_t    = '0;
@@ -433,11 +433,11 @@ module snn_soc_v2b_top
   end
 
   // Read mux (combinational select, data latency handled by TB sequencing)
-  always_comb begin
+  always @* begin
     read_mux = 32'h0;
     case (cmd_addr)
       A_STAGE_CTRL:    read_mux = {24'h0, done_sticky, 7'h0};
-      A_STAGE_STATUS:  read_mux = {8'h0, reg_err_code, {(8-T_AW){1'b0}}, debug_t_idx, 7'h0, busy};
+      A_STAGE_STATUS:  read_mux = {8'h0, reg_err_code, debug_t_idx, 7'h0, busy};
       A_STAGE_CFG0:    read_mux = {reg_cfg_out_dim, reg_cfg_in_dim};
       A_STAGE_CFG1:    read_mux = reg_cfg_threshold;
       A_STAGE_CFG2:    read_mux = reg_cfg_sum_max;

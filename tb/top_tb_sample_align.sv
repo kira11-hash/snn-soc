@@ -49,8 +49,9 @@ module top_tb_sample_align;
   logic       wl_latch_ext;
   logic       cim_start_ext;
   logic       cim_done_ext;
-  logic [4:0] bl_sel_ext;
+  logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic       prog_en_ext, erase_en_ext, verify_en_ext;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic        ext_bus_enable;
@@ -308,8 +309,8 @@ module top_tb_sample_align;
       // 逐个读取 spike 并统计
       for (spike_i = 0; spike_i < out_fifo_count; spike_i = spike_i + 1) begin
         bus_read(REG_OUT_DATA, rd);
-        if (rd[3:0] < NUM_OUTPUTS) begin
-          spike_histogram[rd[3:0]] = spike_histogram[rd[3:0]] + 1;
+        if (rd[6:0] < NUM_OUTPUTS) begin
+          spike_histogram[rd[6:0]] = spike_histogram[rd[6:0]] + 1;
         end
       end
 

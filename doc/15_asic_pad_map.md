@@ -1,17 +1,18 @@
-# ASIC Pad Map Freeze
+# ASIC Pad 管脚分配（ASIC Pad Map Freeze）
 
-## Purpose
+## 文档说明
 
-This document is the canonical in-repo source of truth for the current ASIC pad plan.
+本文档是 ASIC pad 方案的仓库内权威真源。
 
-- Scope: ASIC mainline only
-- Physical intent: full 48-pad package view
-- Current RTL status: [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv) now routes the digital core signals to the documented pad-facing ports, but still does not instantiate technology-specific pad cells
-- Counting rule:
-  - 48 pads total
-  - 45 usable pads
-  - 3 `ESD-reserved` pads
-  - The 45 usable pads are split into 39 functional signal pads + 6 power/ground pads
+- 范围：仅覆盖 ASIC 主线（数字芯片）
+- **流片拓扑**：数字芯片和模拟芯片为**独立流片**，各自独立 die，通过 PCB 互联
+  - **数字芯片**：1mm × 2mm die，共 72 个 pad（按周长 / pad pitch 估算）
+  - **模拟芯片**：1mm × 1mm die，共 48 个 pad（独立 pad 方案，本文不覆盖）
+- 当前 RTL 状态：[`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv) 已将数字核心信号路由到文档定义的 pad 端口，但尚未实例化工艺相关的 pad cell
+- 管脚统计（数字芯片）：
+  - 共 72 个 pad（1mm × 2mm，50um pitch 估算）
+  - Pad 预算不再是编程 pad 或扩展接口的瓶颈
+  - 下表为 chip_top.sv 中当前实现的 **V1 基线 48-pad 子集**；剩余 pad 可用于 V2 编程接口及未来扩展
 
 ## Notes
 
@@ -71,21 +72,37 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 43 | `bl_data[5]` | BL readback data bit 5 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 44 | `bl_data[6]` | BL readback data bit 6 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 45 | `bl_data[7]` | BL readback data bit 7 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
-| 46 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
-| 47 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
-| 48 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 46 | `bl_sel[5]` | BL readback select bit 5 (V2 extended scan) | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` — V2 支持 `MAX_BL_SCAN=128`，扩宽 bl_sel 到 7-bit |
+| 47 | `bl_sel[6]` | BL readback select bit 6 (V2 extended scan) | out | signal | Driven from `snn_soc_top` external CIM interface | Current source: `adc_ctrl` — 同上 |
+| 48 | `prog_en` | CIM programming enable (SET operation) | out | signal | Driven from `snn_soc_top.prog_en_ext`；`ENABLE_PROGRAM_MODE=0` 时恒 0 | V2 编程使能，来自 `cim_program_ctrl` 的 `prog_en` |
+| 49 | `erase_en` | CIM erase enable (RESET operation) | out | signal | Driven from `snn_soc_top.erase_en_ext`；`ENABLE_PROGRAM_MODE=0` 时恒 0 | V2 擦除使能，来自 `cim_program_ctrl` 的 `erase_en` |
+| 50 | `verify_en` | CIM verify enable (readback during programming) | out | signal | Driven from `snn_soc_top.verify_en_ext`；`ENABLE_PROGRAM_MODE=0` 时恒 0 | V2 验证使能，来自 `cim_program_ctrl` 的 `verify_en` |
+| 51 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 52 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 53 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
 
-## Totals
+## Totals (V2 baseline, 53 of 72 pads allocated)
 
 | Class | Count |
 |---|---:|
-| `signal` | 39 |
+| `signal`（V1 原 39 + V2 新增 5：`bl_sel[5:6]` + `prog_en/erase_en/verify_en`） | 44 |
 | `power` | 6 |
 | `ESD-reserved` | 3 |
-| Total | 48 |
+| **V2 subtotal** | **53** |
+| Unallocated (available for future expansion) | 19 |
+| **Digital chip total** | **72** |
+
+## V2 新增 Pad 背景
+
+- `bl_sel[5]` / `bl_sel[6]`（Pad 46/47）：V2 把数字侧 ADC 扫描通道数从固定 20 扩到可配，最大 `MAX_BL_SCAN=128`，需要 7-bit bl_sel 才能寻址，原来的 5-bit 只能到 32
+- `prog_en` / `erase_en` / `verify_en`（Pad 48~50）：V2 CIM 编程通路引出的三组使能信号，告知模拟侧当前操作模式（写入 / 擦除 / 验证），`ENABLE_PROGRAM_MODE=0` 时由数字侧恒驱动 0
+- 原 V1 的 Pad 46~48（ESD_RSV）因此**推移到 Pad 51~53**
+
+V2 signal pad 增加后仍有 19 pad 富余，预算不紧张。
 
 ## Consistency Rules
 
 - Any document that mentions the ASIC pad plan must reference this file instead of re-deriving pin arithmetic inline.
 - Any future change to pad count, pad name, direction, or reset behavior must update this file first.
 - `rtl/top/chip_top.sv` is currently a signal-routing wrapper rather than a final pad-ring implementation, but its comments must stay aligned with this table.
+- Digital and analog chips have separate pad plans. This document covers the digital chip only.

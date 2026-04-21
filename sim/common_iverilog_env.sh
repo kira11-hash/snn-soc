@@ -193,5 +193,22 @@ find_stimulus_dir() {
 
 find_vendor_e203_rtl_dir() {
   local root_dir="$1"
+  local preferred_dir
+  local found_dir
+
+  preferred_dir="$root_dir/项目相关文件/未添加的IP的源代码/e203_hbirdv2-master/rtl"
+  if [ -d "$preferred_dir" ]; then
+    printf '%s\n' "$preferred_dir"
+    return 0
+  fi
+
+  found_dir=$(find "$root_dir" -type d -path '*/e203_hbirdv2-master/rtl' \
+    ! -path '*/oldverision/*' ! -path '*/oldversion/*' ! -path '*/backups/*' \
+    -print -quit 2>/dev/null || true)
+  if [ -n "$found_dir" ]; then
+    printf '%s\n' "$found_dir"
+    return 0
+  fi
+
   find "$root_dir" -type d -path '*/e203_hbirdv2-master/rtl' -print -quit 2>/dev/null || true
 }

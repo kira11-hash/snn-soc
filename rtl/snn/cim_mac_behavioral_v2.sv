@@ -14,7 +14,8 @@
 // 从 (N_OUT cycles) 变 (N_IN + N_OUT cycles)。
 //
 //   MS_IDLE     → (mac_start) latch cfg, zero accumulators, → MS_ACCUM
-//   MS_ACCUM    每 cycle 处理 si = 0..in_dim-1：
+//   MS_READ_ROW present BRAM address for si
+//   MS_ACCUM    使用上一 cycle BRAM read data，处理 si = 0..in_dim-1：
 //                 if wl_mask[si] && si<in_dim:
 //                   for (j=0..out_dim-1 parallel)
 //                     pos_acc[j] <= pos_acc[j] + w_pos_mem[si][j]
@@ -27,8 +28,9 @@
 //
 // 【FPGA synth 优点】
 // - 无 256-input 组合加法树；每 cycle 只 128 个 12-bit parallel adder
-// - weight read per cycle = w_pos_mem[si][0..N_OUT-1]，Vivado 可推成
-//   BRAM with 128 × 4-bit = 512-bit wide read port (or multi-BRAM)
+// - weight read per cycle = all output-neuron columns at current si.
+//   Each output neuron owns one 256×8 BRAM column (pos/neg packed),
+//   so Vivado can infer true block RAM instead of wide LUTRAM.
 // - critical path ≈ 1 adder + 1 FF = 2-3 ns，100 MHz 容易过
 //
 // 【bit-parity 保证】
@@ -83,115 +85,135 @@ module cim_mac_behavioral_v2
   // Max per-neuron raw sum: if all 256 WL are 1 and all weights are
   // 15 (4-bit max), raw = 256 * 15 = 3840, fits in 12 bits.
   localparam int RAW_W = $clog2((P_N_IN + 1) * ((1<<P_W_BITS) - 1) + 1);
+  localparam int SI_W = $clog2(P_N_IN);
+  localparam int J_W  = $clog2(P_N_OUT);
+  localparam int IN_DIM_W  = $clog2(P_N_IN + 1);
+  localparam int OUT_DIM_W = $clog2(P_N_OUT + 1);
 
-  // ── Weight memory: 1D packed word per si row ────────────────────
+  // Current si (WL row being accumulated) and j (neuron being ADC'd)
+  logic [SI_W-1:0]  si_idx;
+  logic [J_W-1:0]   j_idx;
+
+  // ── Weight memory: one BRAM column per output neuron ─────────────
   // Before (Vivado 3D-RAM killer):
   //   logic [3:0] w_pos_mem [0:P_N_IN-1][0:P_N_OUT-1];  // 3D unpacked
-  // After (1D BRAM-friendly):
-  //   Each row = P_N_OUT × P_W_BITS = 512-bit packed word; per-cycle
-  //   read delivers all neurons' weights for the current si in parallel.
-  //   Vivado partitions across multiple BRAMs (72-bit port max → 8 BRAMs).
-  localparam int P_ROW_BITS = P_N_OUT * P_W_BITS;  // 128 × 4 = 512
-  (* ram_style = "block" *)
-  logic [P_ROW_BITS-1:0] w_pos_mem [0:P_N_IN-1];
-  (* ram_style = "block" *)
-  logic [P_ROW_BITS-1:0] w_neg_mem [0:P_N_IN-1];
+  // After:
+  //   128 independent 256×8 memories. The low nibble is w_pos and the high
+  //   nibble is w_neg. All columns share rd_addr=si_idx, giving one
+  //   synchronous BRAM read latency before MS_ACCUM.
+  logic [P_W_BITS-1:0] w_pos_rd [0:P_N_OUT-1];
+  logic [P_W_BITS-1:0] w_neg_rd [0:P_N_OUT-1];
+
+  genvar gj;
+  generate
+    for (gj = 0; gj < P_N_OUT; gj = gj + 1) begin : g_wcol
+      localparam logic [J_W-1:0] GJ = J_W'(gj);
+      logic [(2*P_W_BITS)-1:0] rd_pair;
+
+      v2b_weight_col_bram #(
+        .P_DEPTH(P_N_IN),
+        .P_ADDR_W(SI_W),
+        .P_DATA_W(2*P_W_BITS)
+      ) u_wcol (
+        .clk     (clk),
+        .wr_en   (w_load_en && (w_load_j == GJ)),
+        .wr_addr (w_load_i),
+        .wr_data ({w_load_neg_data, w_load_pos_data}),
+        .rd_addr (si_idx),
+        .rd_data (rd_pair)
+      );
+
+      assign w_pos_rd[gj] = rd_pair[P_W_BITS-1:0];
+      assign w_neg_rd[gj] = rd_pair[(2*P_W_BITS)-1:P_W_BITS];
+    end
+  endgenerate
 
   // Per-neuron accumulators (128 FF × 12-bit = 1536 FF — small, OK)
   logic [RAW_W-1:0] pos_acc [0:P_N_OUT-1];
   logic [RAW_W-1:0] neg_acc [0:P_N_OUT-1];
 
-  // Diff result storage (128 × 14-bit = 1792 FF, distributed RAM)
-  (* ram_style = "distributed" *)
+  // Diff result storage (128 × 14-bit = 1792 FF). This is read
+  // combinationally by stage_engine, so keep it as simple registers instead
+  // of pretending it is a RAM.
   logic signed [P_PARTIAL_W-1:0] diff_mem [0:P_N_OUT-1];
 
   assign diff_rd_data = diff_mem[diff_rd_j];
 
-  // ── Weight load: subset write within 512-bit packed row ──────────
-  // Vivado synthesises `mem[addr][slice] <= data` as BRAM write-enable
-  // on the byte/nibble lane corresponding to the slice.
-`ifdef SYNTHESIS
-  // Synth: no reset-broadcast. Initial contents are don't-care until
-  // firmware loads. Real HW deployment will overwrite before first MAC.
-  always_ff @(posedge clk) begin
-    if (w_load_en) begin
-      w_pos_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_pos_data;
-      w_neg_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_neg_data;
-    end
-  end
-`else
-  // Sim: reset all cells to 0 for deterministic TB behaviour.
-  integer wi;
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      for (wi = 0; wi < P_N_IN; wi = wi + 1) begin
-        w_pos_mem[wi] <= '0;
-        w_neg_mem[wi] <= '0;
-      end
-    end else if (w_load_en) begin
-      w_pos_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_pos_data;
-      w_neg_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_neg_data;
-    end
-  end
-`endif
-
-  // ── ADC scale function (match Python rtl_adc_scale_v2) ───────────
-  function automatic logic [RAW_W-1:0] adc_scale
-    (input logic [RAW_W-1:0] raw, input logic [31:0] sum_max,
-     input int adc_bits);
-    logic [31:0] adc_max;
-    logic [63:0] num;
-    logic [31:0] scaled;
-    begin
-      adc_max = (32'd1 << adc_bits) - 32'd1;
-      num     = raw * adc_max + (sum_max >> 1);
-      scaled  = (sum_max == 32'd0) ? 32'd0 : num[63:0] / sum_max;
-      if (scaled > adc_max) adc_scale = adc_max[RAW_W-1:0];
-      else                  adc_scale = scaled[RAW_W-1:0];
-    end
-  endfunction
-
   // ── FSM ──────────────────────────────────────────────────────────
-  typedef enum logic [1:0] {
-    MS_IDLE      = 2'd0,
-    MS_ACCUM     = 2'd1,   // one WL row per cycle × all j parallel
-    MS_ADC       = 2'd2,   // one neuron per cycle, apply ADC + subtract
-    MS_DONE      = 2'd3
+  typedef enum logic [2:0] {
+    MS_IDLE      = 3'd0,
+    MS_READ_ROW  = 3'd1,   // present si_idx to synchronous BRAM columns
+    MS_ACCUM     = 3'd2,   // consume BRAM read data × all j parallel
+    MS_ADC_INIT  = 3'd3,   // setup exact sequential ADC dividers
+    MS_DIV_RUN   = 3'd4,   // 32-cycle restoring division for pos/neg
+    MS_ADC_WRITE = 3'd5,   // clamp, subtract, write diff_mem[j]
+    MS_DONE      = 3'd6
   } mac_state_e;
 
   mac_state_e mac_state;
-
-  // Current si (WL row being accumulated) and j (neuron being ADC'd)
-  logic [$clog2(P_N_IN)-1:0]  si_idx;
-  logic [$clog2(P_N_OUT)-1:0] j_idx;
 
   // Latched config/WL at start of MAC run
   logic [P_N_IN-1:0]          wl_latched_mac;
   logic [15:0]                in_dim_latched;
   logic [15:0]                out_dim_latched;
   logic [31:0]                sum_max_latched;
+  localparam logic [31:0] ADC_MAX_CONST = (32'd1 << P_ADC_BITS) - 32'd1;
 
   // Comparator helpers (per-cycle)
+  //
+  // Do not truncate cfg_*_dim to $clog2(MAX) before comparisons:
+  // cfg_in_dim=256 has low 8 bits == 0, and cfg_out_dim=128 has low
+  // 7 bits == 0.  Keep an extra dimension bit so "exactly max" stays max.
+  logic [IN_DIM_W-1:0]  in_dim_eff;
+  logic [OUT_DIM_W-1:0] out_dim_eff;
   logic in_dim_last, out_dim_last;
-  assign in_dim_last  = (si_idx == in_dim_latched[$clog2(P_N_IN)-1:0]  - 1);
-  assign out_dim_last = (j_idx  == out_dim_latched[$clog2(P_N_OUT)-1:0] - 1);
+
+  assign in_dim_eff =
+      (in_dim_latched > 16'(P_N_IN)) ? IN_DIM_W'(P_N_IN)
+                                     : in_dim_latched[IN_DIM_W-1:0];
+  assign out_dim_eff =
+      (out_dim_latched > 16'(P_N_OUT)) ? OUT_DIM_W'(P_N_OUT)
+                                       : out_dim_latched[OUT_DIM_W-1:0];
+
+  assign in_dim_last  = ({1'b0, si_idx} == (in_dim_eff  - IN_DIM_W'(1)));
+  assign out_dim_last = ({1'b0, j_idx}  == (out_dim_eff - OUT_DIM_W'(1)));
 
   // Active bit for current si
   logic si_active;
-  assign si_active = (si_idx < in_dim_latched[$clog2(P_N_IN)-1:0])
+  assign si_active = ({1'b0, si_idx} < in_dim_eff)
                    && wl_latched_mac[si_idx];
 
-  // ── ADC + clip for current j (combinational from pos_acc/neg_acc) ──
-  logic [RAW_W-1:0]              adc_pos_cur, adc_neg_cur;
+  // ── Exact sequential ADC scale state ──────────────────────────────
+  // Computes floor((raw * adc_max + sum_max/2) / sum_max) bit-exactly
+  // without a combinational divider on the timing path.
+  logic [31:0] div_den;
+  logic [31:0] div_pos_num, div_neg_num;
+  logic [31:0] div_pos_q, div_neg_q;
+  logic [31:0] div_pos_rem, div_neg_rem;
+  logic [5:0]  div_bit;
+  logic        div_zero_den;
+
+  logic [32:0] div_pos_rem_shift, div_neg_rem_shift;
+  assign div_pos_rem_shift = {1'b0, div_pos_rem[30:0], div_pos_num[div_bit]};
+  assign div_neg_rem_shift = {1'b0, div_neg_rem[30:0], div_neg_num[div_bit]};
+
+  logic [31:0] adc_pos_scaled, adc_neg_scaled;
   logic signed [31:0]            raw_diff_cur;
   logic signed [P_PARTIAL_W-1:0] diff_cur;
   localparam logic signed [31:0] PARTIAL_MAX_32 = (32'sd1 <<< (P_PARTIAL_W-1)) - 32'sd1;
   localparam logic signed [31:0] PARTIAL_MIN_32 = -(32'sd1 <<< (P_PARTIAL_W-1));
 
   always @* begin
-    adc_pos_cur = adc_scale(pos_acc[j_idx], sum_max_latched, P_ADC_BITS);
-    adc_neg_cur = adc_scale(neg_acc[j_idx], sum_max_latched, P_ADC_BITS);
-    raw_diff_cur = $signed({20'b0, adc_pos_cur[11:0]}) - $signed({20'b0, adc_neg_cur[11:0]});
+    if (div_zero_den) begin
+      adc_pos_scaled = 32'd0;
+      adc_neg_scaled = 32'd0;
+    end else begin
+      adc_pos_scaled = (div_pos_q > ADC_MAX_CONST) ? ADC_MAX_CONST : div_pos_q;
+      adc_neg_scaled = (div_neg_q > ADC_MAX_CONST) ? ADC_MAX_CONST : div_neg_q;
+    end
+
+    raw_diff_cur = $signed({20'b0, adc_pos_scaled[11:0]})
+                 - $signed({20'b0, adc_neg_scaled[11:0]});
     if (raw_diff_cur > PARTIAL_MAX_32)
       diff_cur = PARTIAL_MAX_32[P_PARTIAL_W-1:0];
     else if (raw_diff_cur < PARTIAL_MIN_32)
@@ -211,6 +233,15 @@ module cim_mac_behavioral_v2
       in_dim_latched  <= '0;
       out_dim_latched <= '0;
       sum_max_latched <= '0;
+      div_den         <= '0;
+      div_pos_num     <= '0;
+      div_neg_num     <= '0;
+      div_pos_q       <= '0;
+      div_neg_q       <= '0;
+      div_pos_rem     <= '0;
+      div_neg_rem     <= '0;
+      div_bit         <= '0;
+      div_zero_den    <= 1'b0;
       for (kk = 0; kk < P_N_OUT; kk = kk + 1) begin
         pos_acc[kk]  <= '0;
         neg_acc[kk]  <= '0;
@@ -231,41 +262,84 @@ module cim_mac_behavioral_v2
               pos_acc[kk] <= '0;
               neg_acc[kk] <= '0;
             end
-            mac_state <= MS_ACCUM;
+            mac_state <= MS_READ_ROW;
           end
         end
 
+        MS_READ_ROW: begin
+          // v2b_weight_col_bram registers rd_data at this clock edge.
+          // MS_ACCUM consumes that row on the next cycle.
+          mac_state <= MS_ACCUM;
+        end
+
         MS_ACCUM: begin
-          // One WL row per cycle; accumulate into ALL out neurons in parallel.
-          // Read the 512-bit packed row once, then bit-slice per neuron j.
-          // Vivado will pipeline the BRAM read through [kk*P_W_BITS +: P_W_BITS].
+          // Consume the synchronous BRAM row for si_idx; accumulate into ALL
+          // out neurons in parallel.
           if (si_active) begin
             for (kk = 0; kk < P_N_OUT; kk = kk + 1) begin
-              if (kk < out_dim_latched[$clog2(P_N_OUT)-1:0]) begin
+              if (OUT_DIM_W'(kk) < out_dim_eff) begin
                 pos_acc[kk] <= pos_acc[kk]
-                              + {{(RAW_W-P_W_BITS){1'b0}},
-                                 w_pos_mem[si_idx][kk*P_W_BITS +: P_W_BITS]};
+                              + {{(RAW_W-P_W_BITS){1'b0}}, w_pos_rd[kk]};
                 neg_acc[kk] <= neg_acc[kk]
-                              + {{(RAW_W-P_W_BITS){1'b0}},
-                                 w_neg_mem[si_idx][kk*P_W_BITS +: P_W_BITS]};
+                              + {{(RAW_W-P_W_BITS){1'b0}}, w_neg_rd[kk]};
               end
             end
           end
           if (in_dim_last) begin
             j_idx     <= '0;
-            mac_state <= MS_ADC;
+            mac_state <= MS_ADC_INIT;
           end else begin
             si_idx <= si_idx + 1;
+            mac_state <= MS_READ_ROW;
           end
         end
 
-        MS_ADC: begin
-          // One neuron per cycle; read accumulator, ADC scale, clip, latch diff
+        MS_ADC_INIT: begin
+          // Set up two exact 32-cycle dividers:
+          //   pos_q = (pos_acc[j] * ADC_MAX + sum_max/2) / sum_max
+          //   neg_q = (neg_acc[j] * ADC_MAX + sum_max/2) / sum_max
+          div_zero_den <= (sum_max_latched == 32'd0);
+          div_den      <= (sum_max_latched == 32'd0) ? 32'd1 : sum_max_latched;
+          div_pos_num  <= pos_acc[j_idx] * ADC_MAX_CONST + (sum_max_latched >> 1);
+          div_neg_num  <= neg_acc[j_idx] * ADC_MAX_CONST + (sum_max_latched >> 1);
+          div_pos_q    <= 32'd0;
+          div_neg_q    <= 32'd0;
+          div_pos_rem  <= 32'd0;
+          div_neg_rem  <= 32'd0;
+          div_bit      <= 6'd31;
+          mac_state    <= MS_DIV_RUN;
+        end
+
+        MS_DIV_RUN: begin
+          if (div_pos_rem_shift >= {1'b0, div_den}) begin
+            div_pos_rem <= div_pos_rem_shift[31:0] - div_den;
+            div_pos_q[div_bit] <= 1'b1;
+          end else begin
+            div_pos_rem <= div_pos_rem_shift[31:0];
+          end
+
+          if (div_neg_rem_shift >= {1'b0, div_den}) begin
+            div_neg_rem <= div_neg_rem_shift[31:0] - div_den;
+            div_neg_q[div_bit] <= 1'b1;
+          end else begin
+            div_neg_rem <= div_neg_rem_shift[31:0];
+          end
+
+          if (div_bit == 6'd0) begin
+            mac_state <= MS_ADC_WRITE;
+          end else begin
+            div_bit <= div_bit - 1;
+          end
+        end
+
+        MS_ADC_WRITE: begin
+          // One neuron result per divider run; clamp, subtract, latch diff.
           diff_mem[j_idx] <= diff_cur;
           if (out_dim_last) begin
             mac_state <= MS_DONE;
           end else begin
             j_idx <= j_idx + 1;
+            mac_state <= MS_ADC_INIT;
           end
         end
 
@@ -280,5 +354,40 @@ module cim_mac_behavioral_v2
 
   assign mac_busy = (mac_state != MS_IDLE);
   assign mac_done = (mac_state == MS_DONE);
+
+endmodule
+
+// One weight column BRAM for a single output neuron. Data packs
+// {w_neg, w_pos}. No synthesis reset; firmware overwrites weights before use.
+module v2b_weight_col_bram #(
+  parameter int P_DEPTH  = 256,
+  parameter int P_ADDR_W = 8,
+  parameter int P_DATA_W = 8
+) (
+  input  logic                  clk,
+  input  logic                  wr_en,
+  input  logic [P_ADDR_W-1:0]   wr_addr,
+  input  logic [P_DATA_W-1:0]   wr_data,
+  input  logic [P_ADDR_W-1:0]   rd_addr,
+  output logic [P_DATA_W-1:0]   rd_data
+);
+
+  (* ram_style = "block" *) logic [P_DATA_W-1:0] mem [0:P_DEPTH-1];
+
+`ifndef SYNTHESIS
+  integer init_i;
+  initial begin
+    for (init_i = 0; init_i < P_DEPTH; init_i = init_i + 1) begin
+      mem[init_i] = '0;
+    end
+  end
+`endif
+
+  always_ff @(posedge clk) begin
+    if (wr_en) begin
+      mem[wr_addr] <= wr_data;
+    end
+    rd_data <= mem[rd_addr];
+  end
 
 endmodule

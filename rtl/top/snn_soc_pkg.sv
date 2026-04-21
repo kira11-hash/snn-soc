@@ -188,8 +188,13 @@ package snn_soc_pkg;
   // V2 CIM 编程参数（ENABLE_PROGRAM_MODE=1 时生效）
   // ──────────────────────────────────────────────────────────────────────────
   parameter int PROG_LEVELS           = 16;  // 16 档电阻级别（N pulse = 第 N 档）
-  parameter int PROG_PULSE_WIDTH_CYC  = 8;   // 编程脉冲默认周期数（运行时由 REG_PROG_PULSE_WIDTH 寄存器覆盖）
-  parameter int PROG_ERASE_WIDTH_CYC = 50000; // 全阵列擦除默认周期数（1ms@50MHz，由 REG_PROG_ERASE_WIDTH 覆盖）
+  // Programming pulse width presets at 50MHz system clock.
+  // Writes use selectable 1us / 10us / 100us pulses; erase always uses 1ms.
+  parameter int PROG_WRITE_PULSE_1US_CYC   = 50;
+  parameter int PROG_WRITE_PULSE_10US_CYC  = 500;
+  parameter int PROG_WRITE_PULSE_100US_CYC = 5000;
+  parameter int PROG_ERASE_WIDTH_CYC       = 50000; // 1ms @ 50MHz
+  parameter int PROG_PULSE_WIDTH_CYC       = PROG_WRITE_PULSE_1US_CYC; // default write pulse = 1us
   parameter int PROG_VERIFY_RETRY_MAX = 4;   // verify 失败后最大重试次数
   parameter int PROG_ROWS             = 64;  // 可编程行数（= NUM_INPUTS）
   parameter int PROG_COLS             = 20;  // 可编程列数（= ADC_CHANNELS）

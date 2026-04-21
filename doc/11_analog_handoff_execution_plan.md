@@ -1,8 +1,8 @@
 # 11 数字-模拟接口对接文档
 
 **文档目的**：数字芯片团队向模拟 CIM 芯片团队传递当前设计口径，并列出需要模拟侧确认/提供的全部信息，以推进 V1 双芯片 PCB 集成。
-**版本**：v2.1
-**日期**：2026-03-22（2026-03-31 审核确认：自 v2.1 以来数字侧参数无变更，全部冻结事项保持有效）
+**版本**：v2.2（新增 V2 编程脉冲参数）
+**日期**：2026-04-18（V2 编程接口参数补充；V1 冻结事项保持有效）
 **集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联（非片上集成）。
 
 ---
@@ -140,7 +140,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P0-1 | 请确认最终 48 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
+| P0-1 | 请确认最终 pin list：数字芯片 72 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)）与模拟芯片 48 pad 全表，是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
 | P0-2 | 模拟芯片的 die size（长×宽，mm）和封装形式？ | 模拟芯片 | 影响 PCB 布局和走线长度 |
 | P0-3 | 模拟芯片信号 pad 的排列顺序（wl_data/bl_data 各从哪侧引出）？ | 模拟芯片 | 影响 PCB 走线对齐和信号完整性 |
 | P0-4 | 两颗芯片的供电方案：AVDD/AVSS（模拟）和 DVDD/DVSS（数字）在 PCB 上如何分区？是否需要独立 LDO？ | PCB 设计 | 影响电源完整性和噪声隔离 |
@@ -172,6 +172,33 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | P2-2 | 权重的保留时间（retention time）在工作温度下估计是多少年/月？ | 模拟芯片 | 评估权重写入后测试窗口 |
 | P2-3 | 读取操作对 RRAM 状态有无干扰（read disturb）？连续推理 N 次后权重是否退化？ | 模拟芯片 | 影响系统可靠性指标 |
 | P2-4 | V1 模拟芯片的权重写入方案：由模拟芯片自带写入控制逻辑（外部提供 Write/Erase 信号）？还是通过 wafer 测试设备直接写入？ | 模拟芯片 | V1 数字芯片不含写权重接口，Write/Erase/P&V 推迟到 V2 |
+
+---
+
+### V2 编程接口相关问题（2026-04-18 新增）
+
+> V2 新增了 RRAM 编程/擦除/验证的数字控制接口（`cim_program_ctrl`），以下问题需在下次器件老师会议中确认。
+
+| 编号 | 问题 | 优先级 | 说明 |
+|------|------|--------|------|
+| V2-1 | 编程模式下 WL 持续驱动时间可达 ~1ms，模拟侧 WL 驱动器能否承受？ | 高 | 推理时 WL 为短脉冲（~200ns），编程时 WL 持续拉高 |
+| V2-2 | 全阵列擦除时所有 64 WL 同时为高，功耗和 sneak path 电流情况？ | 高 | 最坏情况功耗评估 |
+| V2-3 | 编程/擦除电压（V_SET / V_RESET）与读电压（V_read=1.5V）如何切换？ | 高 | 数字侧提供 `prog_en` / `erase_en` / `verify_en` 三个使能信号 |
+| V2-4 | 逐 cell 编程后 ADC 读回验证的精度要求？当前数字侧验证窗口为 ±2 LSB | 中 | 影响 Write-Verify 循环的收敛速度 |
+| V2-5 | 逐 cell 擦除后 ADC 读回值应 ≤1 LSB，此判据是否合理？ | 中 | 当前行为模型用此值判断擦除成功 |
+| V2-6 | 写入脉冲宽度推荐档位？当前提供 1us / 10us / 100us 三档，擦除固定 1ms @ 50MHz | 低 | 通过 `PROG_PULSE_WIDTH.write_pulse_sel` 选择 |
+| V2-7 | 数字侧 `bl_sel` 已扩到 7-bit 支持最多 128 路扫描（V2 多层），模拟 BL MUX 需要跟进吗？V1 流片不强制，但 pad 分配建议预留 | 中 | 详见 `doc/08` §11 |
+| V2-8 | 跳过零权重优化 + 每层开头全阵列擦除的编程流程，器件层面是否推荐？（V2 固件默认策略） | 中 | 能省 ~30% 编程时间，依赖"全擦后所有 cell 确实是高阻" |
+
+**数字侧已实现的编程接口参数：**
+
+| 参数 | 值 | 来源 |
+|------|---|------|
+| 编程脉冲宽度寄存器 | `PROG_PULSE_WIDTH`（0x90）[17:16] RW 选择写入档位，低 16 位读回 resolved cycles，default=50（1us@50MHz） | `reg_bank.sv` |
+| 擦除脉冲宽度寄存器 | `PROG_ERASE_WIDTH`（0x94）[15:0] RO，固定 50000（1ms@50MHz），写入忽略 | `reg_bank.sv` |
+| 全阵列擦除使能 | `PROG_CTRL.FULL_ARRAY`（0x38 bit[2]） | `reg_bank.sv` |
+| 编程使能信号 | `prog_en` / `erase_en` / `verify_en`（经 `cim_macro_arbiter` 仲裁后输出） | `cim_program_ctrl.sv` |
+| 脉冲计时模式 | 数字侧自计时（`ST_PULSE_HOLD` 倒计时），不依赖 `cim_done` | `cim_program_ctrl.sv` |
 
 ---
 
@@ -207,7 +234,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 - `A5`：每阶段延迟（ns/cycles）+ 最坏 PVT 数值。
 - `A4`：Vref 高低点、TIA 增益标称/容差、是否可调、温漂。
 - `A6`：噪声（LSB RMS / pp）、最小可检电流、ENOB、温漂影响。
-- `P0`：两颗芯片的最终 pin list（48 pad 全表，其中 45 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估。
+- `P0`：两颗芯片的最终 pin list（数字芯片 72 pad 全表、模拟芯片 48 pad 全表）、pad 排列、PCB 走线长度预估。
 - `P1`：AVDD/DVDD 约束、偏置来源、PCB 电源方案、是否新增外部引脚。
 - `P2`：RRAM 上电状态、retention/read-disturb、模拟芯片权重写入方案。
 
@@ -332,7 +359,9 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | 参数 | 值 | 来源 |
 |---|---|---|
 | WL 数（输入维度） | 64 | snn_soc_pkg::NUM_INPUTS |
-| BL 通道数（Scheme B） | 20（10正+10负） | snn_soc_pkg::ADC_CHANNELS |
+| BL 通道数（Scheme B，V1 baseline） | 20（10正+10负） | snn_soc_pkg::ADC_CHANNELS |
+| BL 通道数上限（V2 可配，2026-04 新增） | 128（64正+64负，`bl_scan_count` 运行时配） | snn_soc_pkg::MAX_BL_SCAN |
+| bl_sel 位宽 | 7-bit（`$clog2(128)`，兼容 V1 只用低 5 位） | $clog2(MAX_BL_SCAN) |
 | ADC 精度 | 8-bit | snn_soc_pkg::ADC_BITS |
 | 每次推理总 bit-plane 数 | 80（T=10 × PIXEL_BITS=8） | TIMESTEPS_DEFAULT × PIXEL_BITS |
 | 数字侧 LIF 阈值（上电默认） | 2550 | THRESHOLD_DEFAULT = 1×255×10 |

@@ -82,7 +82,15 @@ module cim_array_ctrl (
   output logic done_pulse,          // 单拍，推理完成脉冲
   // timestep_counter 统计帧数（bit-plane 子时间步在内部处理）
   output logic [7:0] timestep_counter,                                         // 当前已完成的时间步数（0-based）
-  output logic [$clog2(snn_soc_pkg::PIXEL_BITS)-1:0] bitplane_shift           // 当前 bit-plane 权重（7 down to 0）
+  output logic [$clog2(snn_soc_pkg::PIXEL_BITS)-1:0] bitplane_shift,          // 当前 bit-plane 权重（7 down to 0）
+
+  // ── V2 多层扩展端口（ENABLE_MULTI_LAYER=0 时由顶层绑默认值）──────────
+  input  logic       binary_mode,       // 1=跳过 bitplane 循环，只跑 1 sub-step（shift=0）
+  input  logic [7:0] layer_timesteps,   // 当前层 timestep 数（覆盖 timesteps 端口）
+  input  logic       use_layer_cfg,     // 1=使用 layer_timesteps/binary_mode，0=使用原始 timesteps
+  // spike feedback 输入（多层时层间 spike 直接注入 WL，不经 FIFO）
+  input  logic [snn_soc_pkg::MAX_WL_COUNT-1:0] feedback_wl_data,
+  input  logic       use_feedback       // 1=本层从 feedback 取 WL 数据，0=从 FIFO 取
 );
   import snn_soc_pkg::*;
 
@@ -92,6 +100,11 @@ module cim_array_ctrl (
   // BITPLANE_MAX: 最大 bit-plane 索引 = PIXEL_BITS-1 = 7（MSB 优先，权重最大）
   // 使用 BITPLANE_W'() 做位宽匹配，3'(7) = 3'b111，无截断。
   localparam logic [BITPLANE_W-1:0] BITPLANE_MAX = BITPLANE_W'(PIXEL_BITS-1);
+
+  // 有效 timestep 数：多层模式使用 layer_timesteps，V1 使用原始 timesteps
+  wire [7:0] eff_timesteps = use_layer_cfg ? layer_timesteps : timesteps;
+  // 有效 bitplane 起始值：binary_mode 时只执行 1 个 sub-step（shift=0）
+  wire [BITPLANE_W-1:0] eff_bitplane_init = binary_mode ? '0 : BITPLANE_MAX;
 
   // -----------------------------------------------------------------------
   // FSM 状态编码（7 个状态，3 位 one-hot 兼容 Gray 编码）
@@ -234,16 +247,13 @@ module cim_array_ctrl (
       done_pulse      <= 1'b0;
 
       if (soft_reset_pulse) begin
-        // 软复位优先级高于 FSM 正常逻辑。
-        // 用于错误恢复或 SW 主动中止推理，无需拉低 rst_n。
         state             <= ST_IDLE;
         busy              <= 1'b0;
         timestep_counter <= 8'h0;
-        bitplane_shift   <= BITPLANE_MAX;
+        bitplane_shift   <= eff_bitplane_init;
         dac_sent          <= 1'b0;
         cim_sent          <= 1'b0;
         adc_sent          <= 1'b0;
-        // 注意：wl_reg 不清零，保留上次数据（不影响正确性，只影响诊断）
       end else begin
         case (state)
           // -----------------------------------------------------------------
@@ -257,18 +267,16 @@ module cim_array_ctrl (
           ST_IDLE: begin
             busy <= 1'b0;
             if (start_pulse) begin
-              if (timesteps == 0) begin
-                // timesteps=0：立即完成，不进入推理流程
-                // 特殊情况处理：software 写了 0 个时间步，返回空结果。
+              if (eff_timesteps == 0) begin
                 busy              <= 1'b0;
                 timestep_counter <= 8'h0;
-                bitplane_shift    <= BITPLANE_MAX;
-                done_pulse        <= 1'b1;          // 立即产生 done 脉冲
+                bitplane_shift    <= eff_bitplane_init;
+                done_pulse        <= 1'b1;
                 state             <= ST_IDLE;
               end else begin
                 busy              <= 1'b1;
-                timestep_counter <= 8'h0;           // 从第 0 帧开始
-                bitplane_shift    <= BITPLANE_MAX;   // 从 MSB（bit 7）开始
+                timestep_counter <= 8'h0;
+                bitplane_shift    <= eff_bitplane_init;
                 state             <= ST_FETCH;
               end
             end
@@ -283,15 +291,16 @@ module cim_array_ctrl (
           // 进入 ST_DAC 时清零 dac_sent，准备发 wl_valid_pulse。
           // -----------------------------------------------------------------
           ST_FETCH: begin
-            // 每个 FIFO 条目是一幅输入帧的一个 bit-plane（MSB->LSB）
-            // 若 FIFO 为空，本步使用全 0 wl_bitmap
-            if (!in_fifo_empty) begin
-              wl_reg      <= in_fifo_rdata;   // 加载 bit-plane 数据
-              in_fifo_pop <= 1'b1;            // 弹出请求（单拍），FIFO 在下一拍更新读指针
+            if (use_feedback) begin
+              // 多层模式：从 spike feedback 取 WL 数据（binary spike → WL bitmap）
+              wl_reg <= feedback_wl_data[NUM_INPUTS-1:0];
+            end else if (!in_fifo_empty) begin
+              wl_reg      <= in_fifo_rdata;
+              in_fifo_pop <= 1'b1;
             end else begin
-              wl_reg <= '0;                   // FIFO 空时安全降级：全 0 WL
+              wl_reg <= '0;
             end
-            dac_sent <= 1'b0;   // 清除 sent 标志，允许 ST_DAC 发出 wl_valid_pulse
+            dac_sent <= 1'b0;
             state    <= ST_DAC;
           end
 
@@ -365,20 +374,15 @@ module cim_array_ctrl (
           //       先自增再比较导致的时序问题（先判断后更新计数器）。
           // -----------------------------------------------------------------
           ST_INC: begin
-            // bit-plane 子时间步：先 MSB 后 LSB（bit 7 -> bit 0）
             if (bitplane_shift == 0) begin
-              // 当前帧的所有 PIXEL_BITS 个 bit-plane 已全部处理完
-              if (timestep_counter + 1 >= timesteps) begin
-                // 所有时间步完成，推理结束
+              if (timestep_counter + 1 >= eff_timesteps) begin
                 state <= ST_DONE;
               end else begin
-                // 还有未完成的时间步，重置 bit-plane 为 MSB，读取下一帧
                 timestep_counter <= timestep_counter + 1'b1;
-                bitplane_shift   <= BITPLANE_MAX;   // 下一帧从 MSB=7 开始
+                bitplane_shift   <= eff_bitplane_init;
                 state            <= ST_FETCH;
               end
             end else begin
-              // 还有更低权重的 bit-plane，递减 shift 权重后继续
               bitplane_shift <= bitplane_shift - 1'b1;
               state <= ST_FETCH;
             end

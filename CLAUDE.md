@@ -36,10 +36,27 @@
 - **绝不**对现有逻辑做假设——不确定就先读代码确认
 - **绝不**删除或禁用已有的仿真检查来掩盖问题
 - **绝不**在参数、文档、RTL、TB 之间做不一致的修改
+- **绝不**用 `N'(PARAM)` 位宽截断 cast 来比较"值可能 ≥ 2^N 的 parameter"（如 `6'(PROG_ROWS)` 当 PROG_ROWS=64）——会被截断为 0，guard 反向触发。**必须用 `int'()` 或更宽的 cast**。参见 bug 记录 D3-FIX（2026-04-18）
+- **绝不**依赖隐式 vvp 缓存做修改验证——每次编译必须用 `iverilog -o /explicit/path.vvp`，确保跑的是最新版本；如果看到 "unexpectedly PASS"，先怀疑 stale binary 再调试
 
 ### 查阅库文档
 
 需要查 API 用法、配置步骤或库文档时，优先使用 Context7 MCP 工具自动获取，不要依赖训练数据里的过时信息。
+
+### Bug 修复记录（强制）
+
+**每当解决一个 bug（无论大小），必须追加写入主目录下的 `已修复的bug原因及其解决办法.md` 文档**，格式如下：
+
+```
+## [YYYY-MM-DD] <简短标题>
+- **现象**：外部观察到的错误表现（测试失败、波形异常、编译错误等）
+- **根因**：定位到的具体文件:行号 + 为什么会发生
+- **修复**：改了什么（diff 摘要）+ 修复提交/改动位置
+- **影响范围**：哪些 TB/模块被影响、回归结果
+- **如何避免再犯**：是否需要加断言 / 加注释 / 更新 CLAUDE.md 误报 KB
+```
+
+目的：把 debug 经验沉淀成可检索的知识库，避免下次遇到相同 bug 再花时间排查。格式用 markdown (`.md`) 而非 docx，便于 AI 读取、grep 和 diff。
 
 ---
 
@@ -100,6 +117,24 @@
 - **实际情况**：`fifo_sync.sv` 是同步 FIFO，整个 SoC 数字部分为单时钟域（`clk`），不存在 CDC 问题；JTAG 的 `jtag_tck` 跨域已有专门的 toggle + 2-FF sync 处理
 - **识别规则**：报告 CDC 问题前，**必须先确认该模块是否真的存在多个时钟域**；对于 `fifo_sync` 这类名称中含 `sync` 的模块，默认假设为单时钟
 
+#### FP-006：ICB bridge timeout 误判（2026-04 确认）
+- **误判描述**：AI 报告 `icb2simple_bridge` 缺少超时保护，认为总线挂死后无法恢复
+- **实际情况**：超时由 JTAG 上游 `CLK_TIMEOUT_MAX=1023` 处理，bridge 本身无需重复实现超时逻辑
+- **根本原因**：AI 未考察上游模块已有的超时机制，仅看到 bridge 内部无 timeout 就下结论
+- **识别规则**：报告超时/看门狗缺失前，**必须先确认上下游模块是否已有等效保护机制**，不可仅凭单模块局部代码判断
+
+#### FP-007：DMA FIFO stall 误判（2026-04 确认）
+- **误判描述**：AI 报告 DMA 写 FIFO 时可能因 FIFO 满导致 stall，造成死锁
+- **实际情况**：DMA 的 `ST_WR` 状态写目标是 SRAM（非 FIFO），不存在 FIFO 满反压；`ST_PUSH` 状态写 input FIFO 前会检查 `in_fifo_full`，满时等待而非死锁
+- **根本原因**：AI 混淆了 DMA 的 SRAM 写通路和 FIFO push 通路
+- **识别规则**：分析 DMA 数据通路时，**必须区分不同 DST_SEL 对应的写目标（SRAM vs FIFO）**，不可笼统假设所有写操作都走 FIFO
+
+#### FP-008：OUTPUT_FIFO 深度不足误判（2026-04 确认）
+- **误判描述**：AI 报告 output FIFO 深度 4096 不足以容纳所有 spike 输出，可能溢出丢数据
+- **实际情况**：最坏情况下（所有神经元每个 timestep 都 spike）约产生 ~500 个 spike（10 输出 × 10 timestep × 几层），远小于 FIFO 深度 4096
+- **根本原因**：AI 未计算实际最坏 spike 数量，仅凭直觉认为深度不够
+- **识别规则**：报告 FIFO/buffer 深度不足前，**必须先根据 NUM_OUTPUTS、TIMESTEPS、层数等参数计算最坏情况下的实际数据量**，与 FIFO 深度对比后再下结论
+
 ---
 
 ## 项目核心参数（绝不可改动，除非用户明确要求）
@@ -125,9 +160,30 @@
 |------|------|------|------|
 | 0x4000_0000 | 0x00 | REG_THRESHOLD | LIF 阈值（default 2550） |
 | 0x4000_0014 | 0x14 | CIM_CTRL | [0]=START(W1P), [1]=SOFT_RESET(W1P), [7]=DONE(W1C) |
-| 0x4000_0018 | 0x18 | STATUS | [0]=BUSY, [4:1]=FIFO 标志, [15:8]=TIMESTEP_CNT |
+| 0x4000_0018 | 0x18 | STATUS | [0]=BUSY, [4:1]=FIFO 标志, [6]=SPIKE_Q_OVF, [15:8]=TIMESTEP_CNT |
 | 0x4000_0024 | 0x24 | REG_THRESHOLD_RATIO | 8-bit ratio_code（default 1，shadow） |
 | 0x4000_002C | 0x2C | REG_CIM_TEST | [0]=test_mode, [15:8]=test_data_pos, [23:16]=test_data_neg |
+
+### V2 CIM 编程（基地址 `0x4000_0000`，v2 分支）
+
+| 绝对地址 | offset | 名称 | 说明 |
+|------|------|------|------|
+| 0x4000_0038 | 0x38 | PROG_CTRL | [0]=START(W1P), [1]=ERASE(RW), [2]=FULL_ARRAY(RW), [7:4]=LEVEL(RW), [10:8]=RETRY_LIMIT(RW) |
+| 0x4000_003C | 0x3C | PROG_ROW | [5:0]=目标行（0~63） |
+| 0x4000_0040 | 0x40 | PROG_COL | [4:0]=目标列（0~19） |
+| 0x4000_0044 | 0x44 | PROG_STATUS | [0]=BUSY(RO), [1]=PASS(RO), [2]=FAIL(RO), [5:3]=RETRY_COUNT(RO), [7]=DONE(W1C) |
+| 0x4000_0090 | 0x90 | PROG_PULSE_WIDTH | [17:16]=写入脉冲档位 RW（0=1us/1=10us/2=100us/3=保留按100us），[15:0]=resolved cycles RO（default=50=1us@50MHz） |
+| 0x4000_0094 | 0x94 | PROG_ERASE_WIDTH | [15:0]=擦除脉冲宽度 RO（固定 50000=1ms@50MHz，逐 cell 与全阵列擦除共用，写入忽略） |
+
+### V2 多层控制（基地址 `0x4000_0000`，v2 分支）
+
+| 绝对地址 | offset | 名称 | 说明 |
+|------|------|------|------|
+| 0x4000_0048 | 0x48 | ML_CTRL | [1:0]=num_layers(层数-1，0~3), [8]=enable |
+| 0x4000_0050+N×0x10 | 0x50+N×0x10 | LAYER_CFG(N) | {bl_count, bl_offset, wl_count, wl_offset} |
+| 0x4000_0054+N×0x10 | 0x54+N×0x10 | LAYER_TIMING(N) | {use_bitplane, timesteps} |
+| 0x4000_0058+N×0x10 | 0x58+N×0x10 | LAYER_THRESHOLD(N) | 本层 LIF 阈值 |
+| 0x4000_005C+N×0x10 | 0x5C+N×0x10 | LAYER_NEURON_CFG(N) | 活跃神经元数量 |
 
 ### DMA（基地址 `0x4000_0100`）
 

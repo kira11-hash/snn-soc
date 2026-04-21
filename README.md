@@ -9,6 +9,7 @@
 | **MVP** |  ✅ 完成  | 基础功能可仿真跑通                       |
 | **V1 RTL** | ✅ 功能冻结 | E203 + UART + SPI + DMA多目标 + AXI-Lite bridge + JTAG rescue 全部接入，仿真全量通过 |
 | **V1 TO** | 🚧 进行中 | 综合 / PPA / 后端 P&R / DFT / STA 签核 / pad cell 集成 |
+| **V2 RTL** | ✅ 功能完成 | CIM 编程接口 + 多层 SNN 推理（v2 分支，Iter 10-11 已通过） |
 
 **流片目标**：2026年6月30日，数字 SoC 单独流片 + 片外混合集成验证（数字 SoC + 模拟 CIM Macro）
 **时钟频率**：50MHz（目标）
@@ -61,6 +62,7 @@
 - `cd sim && bash run_jtag_pyhost_selftest.sh`：Python 主机侧无硬件自测，期望 `JTAG_PYHOST_SELFTEST_PASS`
 - `cd sim && bash run_jtag_rescue_top_icarus.sh`：JTAG rescue 顶层回归，期望 `JTAG_RESCUE_TOP_PASS`
 - `cd sim && bash run_e203_icarus.sh`：E203 最小启动链回归，期望 `E203_SMOKETEST_PASS`
+- `cd sim && bash run_multilayer.sh`：V2 多层推理 smoke（需 `+define+SIM_MULTI_LAYER`），期望 `MULTILAYER_SMOKE_PASS`
 - `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
 - `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
 - `python scripts/check_markdown_links.py`：检查所有 Git 跟踪 `.md` 文件的本地相对链接是否存在
@@ -77,7 +79,7 @@ rtl/   RTL 实现
   mem/      SRAM + FIFO
   reg/      reg bank + fifo 状态窗
   dma/      DMA 引擎
-  snn/      CIM 控制器 + DAC/ADC + LIF + Macro 行为模型
+  snn/      CIM 控制器 + DAC/ADC + LIF + Macro 行为模型 + V2: cim_program_ctrl / cim_macro_arbiter / layer_sequencer / lif_neuron_alu / spike_feedback
   periph/   UART/SPI 外设 + Rescue JTAG loader
 
 tb/    Testbench
@@ -138,8 +140,8 @@ doc/   中文说明文档
 | `doc/11_analog_handoff_execution_plan.md` | 数字→模拟接口对接文档（参数已冻结，供模拟团队参考） |
 | `doc/12_fpga_validation_guide.md` | FPGA 系统验证指南 |
 | `doc/13_fpga_paper_plan.md` | FPGA 验证平台方案 |
-| `doc/14_gemm_accelerator_plan.md` | 双模态 AI SoC（GEMM+SNN）扩展规划（V2/V3 远景） |
-| `doc/15_asic_pad_map.md` | **ASIC Pad Map（48 pad 冻结真源）** |
+| `doc/14_gemm_accelerator_plan.md` | ~~GEMM+SNN 扩展规划~~ **已取消**（2026-04，#5 CPU-ANN 取消决定） |
+| `doc/15_asic_pad_map.md` | **ASIC Pad Map（数字芯片 72 pad，模拟芯片 48 pad，分开流片）** |
 | `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
 | `eassy-prompt/17_ic_paper_prompt_shared.md` | IC 论文总控 prompt 共享模块（共性流程、真实性与门控） |
 | `eassy-prompt/18_ic_paper_prompt_A_fpga.md` | 模式 A：系统架构 / FPGA 原型验证论文 prompt 模块 |

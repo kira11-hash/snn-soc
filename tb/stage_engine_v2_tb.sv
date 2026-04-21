@@ -217,13 +217,16 @@ module stage_engine_v2_tb;
     mac_w_load_en <= 1'b0;
 
     // Load input_stream_sram: 4 timesteps, wl[0..3] = 4'b1101 (popcount=3)
-    for (int t = 0; t < 4; t++) begin
-      logic [N_IN-1:0] wl = '0;
+    begin
+      logic [N_IN-1:0] wl;
+      for (int t = 0; t < 4; t++) begin
+        wl = '0;
       wl[0] = 1'b1;
       wl[1] = 1'b0;
       wl[2] = 1'b1;
       wl[3] = 1'b1;
       load_isr(t[T_AW-1:0], wl);
+      end
     end
 
     // Configure stage: in_dim=4, out_dim=2, sum_max=60, threshold=40
@@ -247,7 +250,8 @@ module stage_engine_v2_tb;
 
     // Wait for done (with timeout)
     begin : wait_done
-      int cycles = 0;
+      int cycles;
+      cycles = 0;
       while (!done_pulse && cycles < 500) begin
         @(posedge clk);
         cycles++;

@@ -45,7 +45,7 @@
 // 【spike 队列机制】
 // 同一 bit-plane 处理期间可能产生多个 neuron 的 spike，
 // 内部环形队列（深度 32）缓存 spike（神经元 index 0~9），
-// 每拍最多 pop 一个写入 output_fifo（4-bit 宽：存神经元编号 0~9）。
+// 每拍最多 pop 一个写入 output_fifo（本模块输出 4-bit，snn_soc_top 零扩展至 SPIKE_IDX_W）。
 // pop 优先于 push：先 pop，再 push，临时变量保证同拍一致性。
 //
 // 【soft/hard reset】
@@ -53,7 +53,7 @@
 // reset_mode=1（hard）：V = 0（彻底清零，每次 spike 后从零开始）
 //
 // 【输出格式】
-// out_fifo_wdata[3:0] = 神经元编号（0~9，表示哪个输出神经元发出了 spike）
+// out_fifo_wdata[3:0] = 神经元编号（0~9，V1 固定 NUM_OUTPUTS=10；V2 多层由 lif_neuron_alu 替代）
 // 固件读取所有 spike 后统计各编号出现次数，取最多的作为分类结果。
 //======================================================================
 module lif_neurons (
@@ -123,7 +123,7 @@ module lif_neurons (
   // 膜电位阵列：10 个有符号 32-bit 值，下标对应神经元编号 0~9
   logic signed [MEM_W-1:0] membrane [0:NUM_OUTPUTS-1];
 
-  // spike 环形队列（存储神经元编号，4-bit 足够 0~9）
+  // spike 环形队列（存储神经元编号，4-bit 覆盖 V1 的 0~9）
   logic [3:0]  spike_q [0:QDEPTH-1];
   logic [QADDR_BITS-1:0] rd_ptr;          // 队列读指针（下一个待 pop 的位置）
   logic [QADDR_BITS-1:0] wr_ptr;          // 队列写指针（下一个待 push 的位置）
@@ -187,7 +187,7 @@ module lif_neurons (
 
         // ── Step 1: 尝试 pop 一个 spike 到 output FIFO ─────────────────
         // 条件：队列非空 且 output FIFO 未满（背压处理）
-        // 每拍最多 pop 一个（串行化 spike 输出到 4-bit FIFO）
+        // 每拍最多 pop 一个（串行化 spike 输出）
         if ((temp_count > 0) && !out_fifo_full) begin
           out_fifo_push  <= 1'b1;                     // 本拍 push 到 output FIFO
           out_fifo_wdata <= spike_q[temp_rd_ptr];     // 输出神经元编号（0~9）

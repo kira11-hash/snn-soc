@@ -121,6 +121,25 @@ main                    # 主分支：始终保持可流片状态
 - 再上**复杂创新点**（比如事件驱动、自动校准、智能搬运等）
 - 数字部分和模拟部分分别再流一次验证-----V2
 - 最后做数模片上混合集成----V3
+
+> **V2 分支进展（2026-04-18 更新）**：以下功能已在 `v2` 分支完成并通过仿真验证：
+>
+> **Iter 10 — CIM 编程通路**（已完成）：
+> - `cim_program_ctrl`：硬件 Program-and-Verify FSM，支持 SET/RESET/VERIFY 三阶段自动重试
+> - `cim_macro_arbiter`：推理与编程仲裁，保证两条通路互斥访问 CIM macro
+> - 寄存器 0x38~0x44（PROG_CTRL / PROG_ROW / PROG_COL / PROG_STATUS）
+>
+> **Iter 11 — 多层 SNN 推理**（已完成，MULTILAYER_SMOKE_PASS）：
+> - `layer_sequencer`：最多 4 层调度，按寄存器配置依次驱动各层推理
+> - `spike_feedback`：层间 spike 回注，将上一层输出映射为下一层输入
+> - `lif_neuron_alu`：独立 LIF 计算单元，支持多层复用
+> - 寄存器 0x48~0x8F（ML_CTRL / LAYER_CFG / LAYER_TIMING / LAYER_THRESHOLD / LAYER_NEURON_CFG）
+>
+> **Iter 15 — 深度审查与风险修复**（已完成）：
+> - RTL 风险修复 5 项（详见 `doc/16_iteration_log.md`）
+> - 文档全面 refine，寄存器表 / 接口协议 / 仿真指南同步更新
+>
+> 详细寄存器定义见 `doc/02_reg_map.md`，多层仿真入口见 `sim/run_multilayer.sh`
 ---
 ## 二、创新点规划
 ### ✅ 基于 Excel 统计“共性痛点”的总体判断
@@ -279,7 +298,7 @@ main                    # 主分支：始终保持可流片状态
 - RRAM 误码与漂移是多个论文的系统级问题
 - 你的 FSM 直接对应“可靠性控制路径”
 
-✅ **建议下次做**
+✅ **已在 V2 分支实现（cim_program_ctrl + cim_macro_arbiter，Iter 10 完成）**
 
 ---
 ### 2) Reference Column + 动态校准
@@ -1504,7 +1523,7 @@ spike 是事件型输出，CPU 不能每拍读，必须用 FIFO 暂存。
   - 编程模式（复用推理引脚）：row_addr + col_addr + write_data + 控制 → 可复用上述引脚
   - 加电源/地/参考/偏置 → 总计可能 **100-120 pin**
   - 需要评估封装/PCB 可行性（QFP-128 or BGA）
-- 口径说明：**86 pin** 是“无复用裸接口”的连线规模估算；**45 个可用 pad** 是 V1 定版采用时分复用/引脚复用后的实现口径，两者不冲突。
+- 口径说明：**86 pin** 是“无复用裸接口”的连线规模估算；当前数字芯片预算已修正为 **1mm x 2mm = 72 pad**，其中 V1 baseline 复用接口只占用 48 个 pad，剩余 pad 可用于 V2 编程接口和后续扩展。
 - 若 pin 过多：评估 pin reduction（串行化 WL 驱动、分时复用）
 
 #### 5a) chip_top / pad-wrapper 落地（后端前必做）
@@ -1716,10 +1735,10 @@ bus_write(REG_CIM_TEST, 32'h0000_6401);  // neg=0x00, pos=0x64, mode=1
 - 器件组的 Python 模型是重大利好——之前担心 SPICE 不能直接用于系统建模，现在有 Python 模型可以直接集成到端到端仿真中。
 
 ---
-### IO Pad 方案（已确认：48 pad 总视图，45 个可用 pad + 3 个 ESD/保留 pad）
+### IO Pad 方案（已确认：数字芯片 72 pad，总表以 doc/15 为准）
 
 > ASIC pad/pin 的正式真源见 [`doc/15_asic_pad_map.md`](doc/15_asic_pad_map.md)。
-> 当前口径为：48 pad 总计，其中 45 个可用 pad = 39 个功能信号 pad + 6 个电源/地 pad；另有 3 个 ESD/保留 pad。
+> 当前修正口径为：数字芯片 1mm x 2mm，约 72 pad；模拟芯片 1mm x 1mm，约 48 pad，二者分开流片。下表保留的是 V1 baseline 已实现的 48-pad 子集，不再代表数字芯片 pad 上限。
 
 #### 器件模型关键参数（来自 memristor_plugin.py）
 
@@ -1751,17 +1770,17 @@ bus_write(REG_CIM_TEST, 32'h0000_6401);  // neg=0x00, pos=0x64, mode=1
 |  | cim_done | in | 1 |
 | BL 读出 | bl_data[7:0] | in | 8 |
 |  | bl_sel[4:0] | out | 5 |
-| **合计** | | | **45** |
-| **剩余** | 无（Scheme B 用完全部 45 个可用 pad） | | **0** |
+| **V1 baseline 已用** | | | **45 signal/power + 3 reserved = 48 pads** |
+| **数字芯片预算剩余** | 72 - 48，可用于 V2 编程接口和后续扩展 | | **24** |
 
 > **为什么能放下**：关键节省——
 > 1. **ADC 8-bit 而非 12-bit**（A2 确认），节省 4 pin
 > 2. **方案B 数字侧差分**（A1 确认），bl_sel 需 5-bit（$clog2(20)=5）
 >
 > 8-bit ADC 节省 4 pin，方案B 比方案A 多用 1 pin（bl_sel 4→5），净节省 3 pin。
-> 加回 JTAG(4 pin) 后正好用完全部 45 个可用 pad（无 spare）。
+> 加回 JTAG(4 pin) 后，V1 baseline 使用 48/72 pad，数字芯片仍有约 24 pad 余量。
 
-> **备选方案**（如果后续建模证明需要 12-bit ADC）：砍掉 JTAG 后仍需重新分配 45 个可用 pad，不能再按“spare”口径理解。
+> **备选方案**（如果后续建模证明需要 12-bit ADC）：优先使用数字芯片 72-pad 预算中的剩余 pad，不再把 JTAG 当作必须牺牲的唯一 spare 来源。
 > 但从器件模型的 4-bit 权重 + 5000:1 开关比来看，8-bit ADC 的动态范围完全足够。
 
 #### 简化握手协议（省掉 dac_valid/adc_start/adc_done，共省 3 pin）
@@ -1801,12 +1820,12 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 
 ### 更新后的执行计划（融合 IO pad 方案 + 器件数据）
 
-> 以下为确认 IO pad = 45 可用、获得器件 Python 模型后的更新版。已完成的打 ✅。
+> 以下为确认数字芯片 72 pad 预算、获得器件 Python 模型后的更新版。已完成的打 ✅。
 
 #### ✅ 已完成
 1. ✅ RTL 全面 code review（17 个文件，全部正确）
-2. ✅ 确认 foundry pad 数（48 pad，45 可用）
-3. ✅ 确定 IO 方案：WL 8组×8 时分复用 + 8-bit ADC + 方案B 差分 + 保留 JTAG = 45 个可用 pad（会议后更新）
+2. ✅ 确认 foundry pad 预算修正：数字芯片 1mm x 2mm 约 72 pad，模拟芯片 1mm x 1mm 约 48 pad，分开流片
+3. ✅ 确定 V1 baseline IO 方案：WL 8组×8 时分复用 + 8-bit ADC + 方案B 差分 + 保留 JTAG = 48/72 pad 子集（会议后更新）
 4. ✅ 获取器件 Python 模型（memristor_plugin.py + I-V.xlsx）
 5. ✅ 分析器件参数：4-bit 权重、5000:1 开关比、8-bit ADC、pA~nA 级电流
 6. ✅ Python 全量建模完成（初版 T=1, ratio=0.40, test=91.24%）；当前工程口径已收口为 T=10 / ratio_code=1 / reset_mode=soft
@@ -1827,7 +1846,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 |  | 2d. sneak path 影响评估（用模型的 variation + noise 参数） | | |
 | **3** | **器件会议 follow-up** — ✅ 确认方案B（数字侧差分）；确认 8-bit ADC 方案 | 建模初步结论 | 1次会议 |
 |  | 3a. ✅ 向器件组确认：ADC 通道数=20（方案B）| 已确认 | |
-|  | 3b. 向器件组确认：48 pad 全表与 45 个可用 pad 分配表（无 spare，另有 3 个 ESD/保留 pad） | | |
+|  | 3b. 向器件组确认：数字芯片 72 pad 全表、模拟芯片 48 pad 全表，以及两颗芯片 PCB 互联 pin 对齐 | | |
 |  | 3c. 向器件组确认：WL 时分复用的时序是否可接受 | | |
 | **4** | ✅ **RTL 参数更新**（已完成 2026-02-06） | 2 + 3 | ✅ |
 |  | ✅ 4a. `snn_soc_pkg.sv`: NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 | | ✅ |
@@ -2025,7 +2044,7 @@ S_DRIVE_WL → S_WL_MUX (内部计数 g=0..7)
 |**7. 差分运算**|`diff[i] = raw_data[i] - raw_data[i+10]`，i=0..9|**signed 9-bit** × 10|Scheme B 核心：正列减负列|
 |**8. LIF 累加**|`membrane[i] += sign_ext(diff[i]) <<< bitplane_shift`|signed 32-bit|bit-plane 7 权重最大（×128），bit 0 权重最小（×1）|
 |**9. 阈值判断**|`if membrane[i] >= threshold → spike`|1-bit × 10|spike 后 soft/hard reset membrane|
-|**10. 输出**|spike_id (0~9) 入 output_fifo → CPU 读取|4-bit|哪个神经元 fire = 分类结果|
+|**10. 输出**|spike_id (0~9) 入 output_fifo → CPU 读取|SPIKE_IDX_W-bit（V2: 7-bit）|哪个神经元 fire = 分类结果|
 
 ### 关键时序：一次完整推理循环
 

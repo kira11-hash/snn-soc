@@ -49,7 +49,7 @@ module stream_buffer_v2
   input  logic                    clear_all
 );
 
-  (* ram_style = "block" *)
+  (* ram_style = "distributed" *)
   logic [P_WIDTH-1:0] mem [0:P_DEPTH-1];
 
 `ifdef SYNTHESIS

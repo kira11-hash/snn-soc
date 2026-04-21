@@ -2,7 +2,7 @@
 
 **适用对象**: 研一新生，首次接触系统级数字 IC 设计
 **前置知识**: Verilog/SystemVerilog 基础语法，数字电路基础
-**学习目标**: 完全理解 MVP 主链路与当前 V1 主线扩展，能独立修改、排查并为 tapeout 前收口做准备
+**学习目标**: 完全理解 MVP 主链路、V1 外设集成与 V2 SNN 扩展（CIM 编程 + 多层推理），能独立修改、排查并为 tapeout 前收口做准备
 
 **参数口径**：本文涉及的默认参数与时序数值以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 
@@ -317,13 +317,15 @@ ST_IDLE ──start_pulse──> ST_SETUP
 
 > **注**：以下描述 `adc_ctrl.sv` 内部仿真行为（`snn_soc_top` ↔ `cim_macro_blackbox` 并行接口）。外部简化协议使用 `cim_start`/`cim_done`，详见 `doc/08` §1.3。
 
+#### V1 路径（默认 20 通道 Scheme B）
+
 ```
 20 个通道输出（Scheme B: 10 正 + 10 负），只用 1 个 8-bit ADC：
 
 bl_sel: 0 → 1 → 2 → ... → 19（前 10 正列，后 10 负列）
 
 每个通道的采样流程:
-1. 设置 bl_sel (5-bit)
+1. 设置 bl_sel（V1 只用低 5 位，高 2 位恒 0）
 2. 等待 settle（稳定）
 3. adc_start 脉冲
 4. 等待 adc_done 脉冲
@@ -335,6 +337,24 @@ bl_sel: 0 → 1 → 2 → ... → 19（前 10 正列，后 10 负列）
 - neuron_in_valid 拉高一拍
 - neuron_in_data = 10 路 signed 9-bit 差分结果
 ```
+
+#### V2 路径（可配扫描偶数 2~128 通道）
+
+V2 把 `bl_sel` 从 5-bit 扩宽到 **7-bit**（`$clog2(MAX_BL_SCAN)=$clog2(128)=7`），
+支持多层网络每层不同的 `bl_count`（例如 64→32→16→10 网络每层分别扫 64/32/20/20 路）：
+
+```
+扫描通道数 = bl_scan_count（来自 layer_sequencer，偶数 2~128 范围）
+差分切分点 = bl_scan_count / 2（前半正列，后半负列）
+
+bl_sel: 0 → 1 → ... → (bl_scan_count-1)
+diff[i] = raw_data[i] - raw_data[i + bl_scan_count/2]，i = 0..(bl_scan_count/2 - 1)
+
+输出到 neuron_in_data_wide（128 宽数组），未使用位补 0
+```
+
+切换开关：`use_scan_cfg` 信号。0 走 V1（固定 20 路），1 走 V2。
+默认 V1 完全向后兼容，不影响原有 100/100 SAMPLE_ALIGN 回归。
 
 ### LIF 神经元算法（核心！）
 
@@ -895,9 +915,13 @@ pop = popcount(wl_latched)  // 0-64（在 dac_valid 单拍触发后锁存）
 
 ---
 
-# Part B: V1 进阶学习
+# Part B: V1 进阶学习（外设集成）
 
-完成 Part A 后，你已经掌握了 MVP。接下来学习 V1 版本需要的新知识。
+完成 Part A 后，你已经掌握了 MVP。接下来可以选择：
+- **Part B**（本章）：学习 V1 外设集成（UART / SPI / AXI / E203 / JTAG）
+- **Part C**：学习 V2 SNN 扩展（CIM 编程 + 多层推理）
+
+**Part B 和 Part C 没有前置依赖**，可以根据需要先学任意一个。如果你的工作重心在 SNN 核心链路（如准备跑多层仿真或和器件老师对接编程方案），建议先跳到 Part C。
 
 **前置条件**: Part A 检验清单全部通过
 
@@ -1275,6 +1299,579 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 
 ---
 
-*最后更新：2026-03-31*
+---
 
-**学习建议**：Part A 必须完全掌握后再开始 Part B。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。
+# Part C: V2 进阶学习
+
+完成 Part A 后即可开始 Part C。**Part C 不依赖 Part B**——V2 的两大功能（CIM 编程、多层推理）都是 SNN 核心链路的扩展，和 Part B 的外设（UART/SPI/AXI/E203/JTAG）没有前置依赖关系。
+
+**前置条件**: Part A 检验清单全部通过（尤其是阶段 C 的 SNN 核心流水线理解）
+
+> **V1 vs V2 的区别**：
+> - **V1**：单层推理（`ENABLE_MULTI_LAYER=0`），使用 `lif_neurons.sv`（10 个神经元并行计算），推理链路为 `input_fifo → cim_array_ctrl → adc_ctrl → lif_neurons → output_fifo`，ADC 扫描固定 20 路
+> - **V2**：三大扩展
+>   1. **多层推理**（`ENABLE_MULTI_LAYER=1`）：使用 `layer_sequencer` + `spike_feedback` + `lif_neuron_alu`（128 个神经元时分复用），支持最多 4 层级联推理
+>   2. **CIM 编程通路**（`ENABLE_PROGRAM_MODE=1`）：`cim_program_ctrl` + `cim_macro_arbiter`，固件可以通过 MMIO 寄存器给 RRAM 写入/擦除/验证权重
+>   3. **ADC 扫描参数化**（2026-04 新增）：`bl_sel` 从 5-bit 扩到 7-bit，扫描通道数 `bl_scan_count` 可配偶数 2~128，支持多层不同 bl_count
+> - 两者是 `generate if/else` 分支，**只有一个会被综合**，不会同时占面积
+> - V2 的 `cim_array_ctrl` / `adc_ctrl` 等核心模块与 V1 共享，只是增加了层间调度、编程仲裁、可配扫描
+>
+> **流片配置**：
+> - `chip_top.sv` 实例化时设 `ENABLE_E203=1, ENABLE_EXT_CIM_IF=1, ENABLE_PROGRAM_MODE=1`
+> - `ENABLE_MULTI_LAYER` 是 package 参数（默认 0），**流片版不带硬件 layer_sequencer**
+> - V2 时间多层由 **CPU 固件逐层调度**，硬件只提供原子的"单层推理" + "编程"能力
+
+---
+
+## 阶段 15：CIM 编程通路（Day 15-18）
+
+**目标**: 理解 RRAM cell 编程的完整流程（写入/擦除/验证），理解编程与推理的互斥仲裁
+
+### 15.1 为什么需要编程通路
+
+```
+流片后 RRAM 阵列是空白的（高阻态 HRS），必须通过编程写入权重。
+编程 = 向 RRAM cell 施加特定电压脉冲改变电阻：
+- SET（写入）：正向电压 → 导电丝形成 → 电阻降低（HRS → LRS）
+- RESET（擦除）：反向电压 → 导电丝断裂 → 电阻升高（LRS → HRS）
+- Verify（验证）：小幅读取电压 → ADC 读回电阻值 → 判断是否达到目标
+```
+
+### 15.2 新增模块一览
+
+| 模块 | 文件 | 作用 |
+|------|------|------|
+| `cim_program_ctrl` | [rtl/snn/cim_program_ctrl.sv](../rtl/snn/cim_program_ctrl.sv) | 编程 FSM：SET/RESET/Verify 全流程 |
+| `cim_macro_arbiter` | [rtl/snn/cim_macro_arbiter.sv](../rtl/snn/cim_macro_arbiter.sv) | 推理/编程互斥 MUX |
+
+### 15.3 编程寄存器
+
+| 地址（绝对） | offset | 名称 | 说明 |
+|------------|--------|------|------|
+| 0x4000_0038 | 0x38 | REG_PROG_CTRL | [0]=START(W1P), [1]=ERASE, [2]=FULL_ARRAY, [7:4]=LEVEL(0~15), [10:8]=RETRY_LIMIT |
+| 0x4000_003C | 0x3C | REG_PROG_ROW | [5:0]=目标行(0~63) |
+| 0x4000_0040 | 0x40 | REG_PROG_COL | [4:0]=目标列(0~19) |
+| 0x4000_0044 | 0x44 | REG_PROG_STATUS | [0]=BUSY, [1]=PASS, [2]=FAIL, [5:3]=RETRY_COUNT, [7]=DONE(W1C) |
+| 0x4000_0090 | 0x90 | REG_PROG_PULSE_WIDTH | [17:16]=写入脉冲档位（0=1us, 1=10us, 2=100us），[15:0]=resolved cycles 读回 |
+| 0x4000_0094 | 0x94 | REG_PROG_ERASE_WIDTH | [15:0]=擦除脉冲宽度（固定 50000=1ms@50MHz，写入忽略） |
+
+### 15.4 编程控制信号（数字→模拟）
+
+| 信号 | 含义 |
+|------|------|
+| `prog_en` | =1 时模拟侧施加正向编程电压（SET） |
+| `erase_en` | =1 时模拟侧施加反向擦除电压（RESET） |
+| `verify_en` | =1 时模拟侧施加小幅读取电压（Verify） |
+
+**同一时刻最多只有一个为高**，由 FSM 保证互斥。
+
+### 15.5 cim_program_ctrl 状态机（11 状态，必须手画！）
+
+```
+                  prog_start
+                      │
+                      ▼
+                ┌─ ST_IDLE ◄──────────────────── ST_DONE
+                │     │                              ↑
+                │     ├─ full_array+erase? ──┐       │
+                │     ├─ level==0? ──► ST_PASS ──────┘
+                │     │                              │
+                │     ▼                              │
+                │  ST_SETUP ──► prog_en/erase_en=1  │
+                │     │                              │
+                │     ▼                              │
+                ├► ST_PULSE ──► cim_start ↑         │
+                │     │    加载 pulse_width_cnt      │
+                │     ▼    (full_array?erase_width   │
+                │     │     :pulse_width)            │
+                │  ST_PULSE_HOLD ──► 自计时倒计时    │
+                │     │  (dac_valid持续拉高)          │
+                │     ├─ 全阵列擦除 → ST_PASS ───────┘
+                │     ├─ 擦除 → ST_READBACK          │
+                │     ├─ 脉冲够了 → ST_READBACK      │
+                │     └─ 脉冲不够 → 回ST_PULSE       │
+                │     │                              │
+                │     ▼                              │
+                │  ST_READBACK ──► verify_en=1      │
+                │     │            adc_start ↑       │
+                │     ▼                              │
+                │  ST_RB_WAIT ──► adc_done?         │
+                │     │                              │
+                │     ▼                              │
+                │  ST_VERIFY ──► 比较readback        │
+                │     ├─ PASS → ST_PASS ─────────────┘
+                │     └─ FAIL → ST_RETRY
+                │                 ├─ 次数用尽 → ST_FAIL ──► ST_DONE
+                │                 └─ 重试 → ST_SETUP ◄──┘
+                │
+```
+
+**关键变化（相对于早期版本）**：
+- `ST_PULSE_WAIT` 已被替换为 `ST_PULSE_HOLD`（自计时模式，不等 `cim_done`）
+- 脉冲宽度由 `pulse_width_cnt` 倒计时控制：写入来自 `PROG_PULSE_WIDTH.write_pulse_sel`（1us/10us/100us），擦除来自固定 `PROG_ERASE_WIDTH`（1ms）
+- 全阵列擦除路径：`ST_PULSE_HOLD` → `ST_PASS`（跳过 verify）
+- `dac_valid` 在 `ST_SETUP` → `ST_PULSE` → `ST_PULSE_HOLD` 期间持续拉高（不是单拍脉冲）
+
+### 15.6 写入流程详解（SET，16 档自计时脉冲编程）
+
+```
+目标：将 cell[row][col] 编程到第 N 档（N = 0~15）
+
+1. 软件配置：
+   写 REG_PROG_ROW  = row
+   写 REG_PROG_COL  = col
+   写 REG_PROG_PULSE_WIDTH[17:16] = 写入脉冲档位（0=1us, 1=10us, 2=100us）
+   写 REG_PROG_CTRL = {retry_limit[10:8], level[7:4], erase=0, start=1}
+
+2. 硬件执行：
+   a) 锁定目标 cell：wl_spike = one-hot(row), bl_sel = col
+   b) prog_en = 1, dac_valid = 1（告知模拟侧施加正向编程电压）
+   c) 逐个发送 N 个编程脉冲（自计时模式）：
+      每个脉冲：cim_start ↑ → pulse_width_cnt 倒计时到 0 → pulse_count++
+      （不等 cim_done！数字控制器是计时主控）
+   d) N 个脉冲全部发完后，进入验证：
+      prog_en = 0, dac_valid = 0, verify_en = 1 → adc_start ↑ → 读 bl_data
+   e) 比较：期望值 = N × (256/16) = N × 16，允许 ±2 LSB
+      PASS → 完成
+      FAIL → 回到步骤 b 再补脉冲（最多重试 prog_retry_limit 次）
+```
+
+**写入 3 档的时序示意（自计时模式）**：
+```
+          ┌──────────────────────────────────────────────┐
+ prog_en  │██████████████████████████████████████████████│
+          └──────────────────────────────────────────────┘
+          ┌──────────────────────────────────────────────┐
+dac_valid │██████████████████████████████████████████████│  (SETUP~PULSE_HOLD 持续)
+          └──────────────────────────────────────────────┘
+          ┌──┐         ┌──┐         ┌──┐
+cim_start │  │         │  │         │  │                    (3 个脉冲)
+          └──┘         └──┘         └──┘
+          ├───pw_cnt───┤───pw_cnt───┤───pw_cnt───┤
+          (PULSE_HOLD   (PULSE_HOLD   (PULSE_HOLD
+           倒计时)       倒计时)       倒计时)
+
+pulse_cnt   0→1          1→2          2→3
+                                               ┌──────────┐
+verify_en                                      │██████████│
+                                               └──────────┘
+                                               ┌──┐
+adc_start                                      │  │
+                                               └──┘
+                                                ┌──┐
+ adc_done                                       │  │ → 读 bl_data，比对
+                                                └──┘
+```
+
+### 15.7 擦除流程（RESET）
+
+#### 逐 cell 擦除
+
+```
+- 软件配置：写 REG_PROG_CTRL = {retry_limit, level=0, erase=1, full_array=0, start=1}
+- 硬件执行：
+  1. 锁定 cell：wl_spike = one-hot(row), bl_sel = col
+  2. erase_en = 1, dac_valid = 1 → cim_start ↑ → 自计时 pulse_width_cnt 个周期
+  3. erase_en = 0, verify_en = 1 → adc_start → 读 bl_data
+  4. 期望 readback ≤ 1（接近全擦除）
+  5. 不合格则重试（再发一个擦除脉冲），最多 retry_limit 次
+```
+
+#### 全阵列擦除（层间大擦除）
+
+```
+- 软件配置：
+  REG_PROG_ERASE_WIDTH 固定读回 50000（1ms @ 50MHz），无需写入
+  写 REG_PROG_CTRL = {retry_limit=0, level=0, erase=1, full_array=1, start=1}
+- 硬件执行：
+  1. 所有 64 WL 同时拉高：wl_spike = {NUM_INPUTS{1'b1}}
+  2. erase_en = 1, dac_valid = 1 → cim_start ↑ → 自计时 erase_width 个周期
+  3. 跳过 verify → 直接 PASS → DONE
+- 用途：时间多层推理的层切换（推理完一层 → 全阵列擦除 → 写入下一层权重）
+```
+
+### 15.8 cim_macro_arbiter（推理/编程互斥）
+
+```
+这是一个纯组合逻辑 MUX：
+
+当 prog_busy = 1（编程中）：
+  → CIM macro 的输入信号全部来自 cim_program_ctrl
+  → 推理侧收到的 cim_done / adc_done 全部为 0（被屏蔽）
+
+当 prog_busy = 0（空闲）：
+  → CIM macro 的输入信号全部来自推理链路（cim_array_ctrl / adc_ctrl）
+  → 编程侧收到的 cim_done / adc_done 全部为 0
+```
+
+这意味着**编程和推理不会同时访问 CIM macro**，硬件保证互斥。
+
+### 15.9 关键参数
+
+| 参数 | 值 | 说明 |
+|------|------|------|
+| PROG_LEVELS | 16 | 16 档电阻级别（0~15） |
+| PROG_PULSE_WIDTH | 档位可配（默认 1us） | 写入脉冲档位：1us / 10us / 100us @ 50MHz |
+| PROG_ERASE_WIDTH | 固定 50000 | 逐 cell / 全阵列擦除脉冲宽度固定 1ms @ 50MHz |
+| Verify 容差 | ±2 LSB | readback ∈ [N×16-2, N×16+2] 为 PASS |
+| 最大重试 | 由软件配置 | prog_retry_limit（0~7） |
+
+### 15.10 时间多层推理（固件驱动，非硬件自动化）
+
+```
+固件编排的多层推理循环：
+
+for (layer = 0; layer < num_layers; layer++) {
+    // 1. 逐 cell 写入本层权重
+    for (row, col) program_cell(row, col, weight[layer][row][col]);
+
+    // 2. 分 tile 推理（若图像 > 128 则多 tile）
+    for (tile = 0; tile < num_tiles; tile++) {
+        dma_load_tile(tile);
+        start_inference();  // 膜电位跨 tile 累加
+        wait_done();
+    }
+    read_spike_output();
+
+    // 3. 全阵列擦除（最后一层不擦）
+    if (layer < num_layers - 1)
+        full_array_erase();  // PROG_CTRL.FULL_ARRAY=1, ERASE=1
+}
+```
+
+**为什么不硬件自动化**：编程 1280 个 cell 需要 O(毫秒)，CPU 空闲可以驱动；固件灵活性高（跳过零权重、自适应重试）；调试容易。
+
+### 检验标准
+
+- [ ] 能画出 `cim_program_ctrl` 的完整状态转移图（11 个状态）
+- [ ] 能解释 SET 和 RESET 在电压极性上有什么区别
+- [ ] 能说出写入第 N 档需要多少个脉冲
+- [ ] 能解释 `ST_PULSE_HOLD` 自计时模式为什么不等 `cim_done`
+- [ ] 能解释逐 cell 擦除和全阵列擦除的区别（WL 驱动、脉冲宽度来源、是否 verify）
+- [ ] 能解释 verify 阶段为什么要关闭 prog_en/erase_en 再拉 verify_en
+- [ ] 能解释 `cim_macro_arbiter` 如何保证编程和推理互斥
+- [ ] 能写出软件操作序列：编程 cell[5][3] 到第 10 档
+- [ ] 能写出全阵列擦除的软件操作序列
+
+---
+
+## 阶段 16：多层推理（Day 19-24）
+
+**目标**: 理解多层 SNN 推理的调度机制、层间 spike 传递和时分复用神经元计算
+
+### 16.1 为什么需要多层
+
+```
+V1 单层：64 输入 → 10 输出（一次矩阵乘 + LIF）
+  → 只能做最简单的线性分类，网络表达能力有限
+
+V2 多层：Layer0 (64→10) → Layer1 (10→10) → ... → Layer3
+  → 可以构建更复杂的网络结构（隐藏层 + 输出层）
+  → 上一层的 spike 输出作为下一层的 WL 输入
+  → 支持最多 4 层级联
+```
+
+### 16.2 新增模块一览
+
+| 模块 | 文件 | 作用 |
+|------|------|------|
+| `layer_sequencer` | [rtl/snn/layer_sequencer.sv](../rtl/snn/layer_sequencer.sv) | 层调度 FSM：按顺序驱动每层推理 |
+| `spike_feedback` | [rtl/snn/spike_feedback.sv](../rtl/snn/spike_feedback.sv) | 层间 spike 路由：上层输出 → 下层输入 |
+| `lif_neuron_alu` | [rtl/snn/lif_neuron_alu.sv](../rtl/snn/lif_neuron_alu.sv) | 时分复用 ALU：128 神经元共享 1 个计算单元 |
+
+### 16.3 V1 vs V2 的神经元模块对比
+
+| | V1: `lif_neurons` | V2: `lif_neuron_alu` |
+|---|---|---|
+| 神经元数 | 10（NUM_OUTPUTS，固定） | 最多 128（MAX_NEURONS，可配） |
+| 计算方式 | 10 路并行 generate | 时分复用，2 级流水 |
+| 膜电位存储 | `membrane[0:9]` 寄存器 | `mem_array[0:127]` SRAM/寄存器 |
+| spike 输出 | 直接写 output FIFO | spike_queue（32 深）→ output FIFO |
+| 层间清零 | 不需要（只有一层） | `clearing_busy` 逐个清零膜电位 |
+| output_fifo 控制 | 每层都写 | `output_fifo_en` 只有最后一层写 |
+
+### 16.4 多层寄存器
+
+| 地址范围 | 名称 | 说明 |
+|---------|------|------|
+| 0x4000_0048 | REG_ML_CTRL | [1:0]=num_layers(0=1层,1=2层,...), [8]=enable |
+| 0x4000_0050 ~ 0x4000_005F | Layer 0 描述符 | cfg / timing / threshold / neuron_cfg（各 32-bit） |
+| 0x4000_0060 ~ 0x4000_006F | Layer 1 描述符 | 同上 |
+| 0x4000_0070 ~ 0x4000_007F | Layer 2 描述符 | 同上 |
+| 0x4000_0080 ~ 0x4000_008F | Layer 3 描述符 | 同上 |
+
+**每层描述符格式（4 个 32-bit 寄存器）**：
+
+```
+layer_cfg (offset +0x00):
+  [7:0]   wl_offset   — WL 起始行偏移
+  [15:8]  wl_count    — WL 行数（该层输入维度）
+  [23:16] bl_offset   — BL 起始列偏移
+  [31:24] bl_count    — BL 列数（ADC 扫描通道数）
+
+layer_timing (offset +0x04):
+  [7:0]   timesteps   — 该层时间步数
+  [8]     use_bitplane — =1 使用 bit-plane 编码, =0 二值直通
+
+layer_threshold (offset +0x08):
+  [31:0]  threshold   — 该层 LIF 阈值
+
+layer_neuron_cfg (offset +0x0C):
+  [7:0]   neuron_count — 该层活跃神经元数量
+```
+
+### 16.5 layer_sequencer 状态机（必须手画！）
+
+```
+              start_pulse
+                  │
+                  ▼
+            ┌─ ST_IDLE
+            │     │
+            │     ▼
+            │  ST_LOAD_DESC ──► 加载当前层描述符
+            │     │
+            │     ▼
+            │  ST_RUN_LAYER ──► 配置参数 + ctrl_start_pulse ↑
+            │     │
+            │     ▼
+            │  ST_WAIT_DONE ──► 等 ctrl_done_pulse
+            │     │
+            │     ├─ 最后一层? ──► ST_ALL_DONE ──► done_pulse + 回 IDLE
+            │     │
+            │     ▼
+            │  ST_WAIT_ALU ──► 等 alu_busy=0（神经元计算完毕）
+            │     │
+            │     ▼
+            │  ST_FEEDBACK ──► feedback_en=1，等 feedback_valid
+            │     │
+            │     ▼
+            │  ST_CLEAR_MEM ──► alu_clear_pulse，等 clearing 完成
+            │     │
+            │     ▼
+            └── 回到 ST_LOAD_DESC（下一层）
+```
+
+### 16.6 2 层推理完整数据流
+
+以 TB 中的配置为例：Layer0 (64→10) → Layer1 (10→10)
+
+```
+=== Layer 0（第一层）===
+
+1. layer_sequencer 加载 Layer0 描述符：
+   wl_count=64, bl_count=20, timesteps=10, use_bitplane=1, threshold=2550
+
+2. ctrl_start_pulse → cim_array_ctrl 开始推理
+   - input_fifo 中的 bit-plane 数据 → WL 驱动 CIM
+   - ADC 20 路扫描 → 差分 → neuron_in_valid
+   - lif_neuron_alu 对 10 个神经元做膜电位累加（active_neuron_count=10）
+   - 10 帧 × 8 子步 = 80 个子时间步
+
+3. cim_array_ctrl 完成 → ctrl_done_pulse
+
+4. layer_sequencer 等 alu_busy=0（最后一个神经元计算完毕）
+
+5. feedback_en = 1 → spike_feedback 将 spike_mask 裁剪为下一层的 WL 输入
+   （spike_mask[9:0] → feedback_wl_data[9:0]，其余填 0）
+
+6. alu_clear_pulse → lif_neuron_alu 逐个清零 128 个膜电位
+
+=== Layer 1（第二层）===
+
+7. 加载 Layer1 描述符：
+   wl_count=10, bl_count=20, timesteps=1, use_bitplane=0(binary), threshold=100
+
+8. ctrl_use_feedback = 1 → cim_array_ctrl 使用 feedback_wl_data 而非 input_fifo
+   （上一层的 spike 直接作为 WL 输入，不经过 bit-plane 编码）
+
+9. 1 帧 × 1 子步 = 1 个子时间步完成推理
+
+10. ctrl_is_last_layer = 1 → output_fifo_en = 1 → spike 写入 output FIFO
+
+11. layer_sequencer → ST_ALL_DONE → done_pulse
+```
+
+### 16.7 spike_feedback 详解
+
+```
+作用：把上一层的 spike 输出组装成下一层的 WL 输入
+
+接口：
+  输入：spike_mask[127:0]     — lif_neuron_alu 每轮计算完毕后输出的 spike 掩码
+        spike_mask_valid      — 单拍有效脉冲
+        feedback_en           — 由 layer_sequencer 在层间过渡时拉高
+        next_wl_count[7:0]    — 下一层的 WL 行数
+
+  输出：feedback_wl_data[127:0] — 裁剪后的 WL 输入向量
+        feedback_valid          — 单拍有效
+
+工作原理（两步）：
+  1. 锁存：spike_mask_valid ↑ 时把 spike_mask 存到 spike_latched
+  2. 输出：feedback_en ↑ 时，只取 spike_latched[0:next_wl_count-1]，高位填 0
+```
+
+### 16.8 lif_neuron_alu 详解
+
+```
+和 V1 的 lif_neurons 最大的区别：128 个神经元时分复用 1 个 ALU
+
+流水线结构（2 级）：
+  Stage 0: 从 mem_array 读出 membrane[neuron_idx]，同时取对应的 neuron_in_data
+  Stage 1: 计算 addend = input <<< bitplane_shift，new_mem = old + addend，
+           比较阈值 → spike → 写回 mem_array
+
+关键控制信号：
+  active_neuron_count  — 当前层实际使用的神经元数（由 layer_sequencer 配置）
+  output_fifo_en       — 只有最后一层 =1，中间层不写 output FIFO
+  clearing_busy        — 层间清零时为 1，逐个将 mem_array[0:127] 清零
+
+内部 spike queue（32 深）：
+  spike 产生后先入 spike_queue，每时钟弹出一个写入 output FIFO
+  解决了"时分复用可能在很短时间内产生多个 spike"和"FIFO 只接受单拍 push"之间的速率匹配
+  如果 queue 满了，拉高 spike_q_overflow（不丢数据，但标记异常）
+```
+
+### 16.9 重点理解
+
+```
+Q: 为什么 V2 用时分复用而不是 128 路并行？
+A: 128 路并行需要 128 份膜电位寄存器 + 128 个比较器，面积太大。
+   时分复用只需要 1 个 ALU + 1 块 SRAM/寄存器阵列，面积和 V1 的 10 路并行差不多。
+
+Q: 层间为什么要清零膜电位？
+A: 每层有独立的阈值和参数。如果不清零，上一层残留的膜电位会干扰下一层计算。
+   清零需要 128 拍（逐个写 0），由 clearing_busy 信号告知 layer_sequencer 何时完成。
+
+Q: 第一层和后续层的数据来源有什么不同？
+A: 第一层：从 input_fifo 读 bit-plane 数据（和 V1 完全相同）
+   后续层：从 spike_feedback 读上一层的 spike 掩码（ctrl_use_feedback=1）
+
+Q: use_bitplane=0（binary 模式）是什么意思？
+A: 不做 bit-plane 展开，spike 直接作为 WL 输入。
+   适用于后续层——上一层输出的已经是二值 spike，不需要再做 MSB-first 编码。
+   此时只需要 1 个子时间步（不是 8 个）。
+
+Q: output_fifo_en 怎么保证只有最后一层的 spike 写入 FIFO？
+A: layer_sequencer 输出 ctrl_is_last_layer = (layer_idx == layer_max)，
+   snn_soc_top 中将它连到 lif_neuron_alu 的 output_fifo_en 端口。
+   中间层产生的 spike 只用于 spike_mask（反馈给下一层），不进 FIFO。
+```
+
+### 检验标准
+
+- [ ] 能画出 `layer_sequencer` 的 8 个状态及转换条件
+- [ ] 能解释 V1 `lif_neurons` 和 V2 `lif_neuron_alu` 的区别（并行 vs 时分复用）
+- [ ] 能说出 2 层推理的完整数据流（从 input_fifo 到 output_fifo）
+- [ ] 能解释 `spike_feedback` 的"锁存 + 裁剪"两步工作原理
+- [ ] 能解释为什么 Layer1 的 timesteps=1 且 use_bitplane=0
+- [ ] 能说出 `clearing_busy` 信号的作用和持续时长（128 拍）
+- [ ] 能解释 spike_queue 解决什么问题
+- [ ] 能写出完整的软件操作序列：配置 2 层推理并启动
+
+---
+
+## 阶段 17：V2 仿真实战（Day 25-27）
+
+**目标**: 跑通 V2 仿真，理解 V2 的验证方法
+
+### 17.1 多层推理仿真
+
+**运行命令**：
+```bash
+cd sim
+bash run_multilayer.sh
+```
+
+**编译参数**: `-DSIM_MULTI_LAYER`（使得 `snn_soc_pkg.sv` 中 `ENABLE_MULTI_LAYER=1`）
+
+**PASS 标准**: 输出 `MULTILAYER_SMOKE_PASS`
+
+**TB 流程分解**（[tb/multilayer_tb.sv](../tb/multilayer_tb.sv)）：
+
+```
+Step 1: 使能 CIM test mode（pos=100, neg=0 → diff=100）
+        bus_write(REG_CIM_TEST, 32'h0000_6401)
+
+Step 2: 配置多层控制
+        bus_write(REG_ML_CTRL, 32'h0000_0101)  // num_layers=1(即2层), enable=1
+
+Step 3: 配置 Layer 0 描述符
+        cfg:         {bl_count=20, bl_off=0, wl_count=64, wl_off=0}
+        timing:      {use_bitplane=1, timesteps=10}
+        threshold:   2550
+        neuron_cfg:  10
+
+Step 4: 配置 Layer 1 描述符
+        cfg:         {bl_count=20, bl_off=0, wl_count=10, wl_off=0}
+        timing:      {use_bitplane=0, timesteps=1}
+        threshold:   100
+        neuron_cfg:  10
+
+Step 5: DMA 搬运 80 个 word 到 input_fifo（全 1 测试模式）
+
+Step 6: 启动推理 → 等 CIM_CTRL.DONE
+
+Step 7: 检查 OUT_FIFO_COUNT > 0 → PASS
+```
+
+### 17.2 波形观察要点（V2 特有）
+
+```
+Verdi/VCD 重点信号：
+
+1. layer_sequencer.state          — 观察层调度 FSM 流转
+2. layer_sequencer.layer_idx      — 当前执行到第几层
+3. lif_neuron_alu.running         — ALU 是否在遍历神经元
+4. lif_neuron_alu.neuron_idx      — 当前处理到第几个神经元
+5. lif_neuron_alu.clearing_busy   — 层间清零进行中
+6. spike_feedback.feedback_valid  — 层间 spike 反馈完成
+7. spike_feedback.spike_latched   — 上一层锁存的 spike 掩码
+8. ctrl_is_last_layer             — 最后一层标志
+```
+
+### 17.3 参数修改实验（推荐）
+
+**实验 1**: 改为 3 层推理
+```
+在 multilayer_tb.sv 中添加 Layer 2 描述符，修改 REG_ML_CTRL 为 num_layers=2
+观察 layer_sequencer.layer_idx 从 0→1→2
+```
+
+**实验 2**: 修改中间层阈值
+```
+降低 Layer 0 的 threshold（如改为 500）
+预期：Layer 0 产生更多 spike → Layer 1 收到更多 WL 输入 → 最终输出更多
+```
+
+**实验 3**: 故意把 Layer 1 的 use_bitplane 改成 1
+```
+预期：由于 spike 是二值的，bit-plane 展开 8 步但每步内容相同，
+      浪费 8 倍时间但结果与 use_bitplane=0 不同（权重不同）
+```
+
+### 检验标准
+
+- [ ] 能独立跑通 `run_multilayer.sh` 并看到 `MULTILAYER_SMOKE_PASS`
+- [ ] 能在波形中定位 Layer 0 → Layer 1 的切换时刻
+- [ ] 能观察到 `clearing_busy` 在两层之间持续 128 拍
+- [ ] 能修改 TB 添加第 3 层并跑通
+- [ ] 能解释 TB 中为什么 DMA 搬 80 个 word（= 10帧 × 8子步 × 每子步 1 个 64-bit = 80 个 32-bit word，每两个拼成 64-bit）
+
+---
+
+## Part C 时间规划
+
+| 天数 | 内容 | 时长 | 关键交付物 |
+|------|------|------|------------|
+| Day 15-18 | 阶段 15：CIM 编程通路 | 8-10h | 手画 cim_program_ctrl 状态图、编程操作序列 |
+| Day 19-24 | 阶段 16：多层推理 | 12-16h | 手画 layer_sequencer 状态图、2层数据流图 |
+| Day 25-27 | 阶段 17：V2 仿真实战 | 6-8h | 波形截图、参数修改实验记录 |
+
+**Part C 总计约 2 周**，每天投入 3-4 小时。
+
+---
+
+*最后更新：2026-04-18*
+
+**学习建议**：Part A 必须完全掌握后再开始 Part B 或 Part C。Part B（外设）和 Part C（V2 SNN 扩展）之间没有前置依赖，可以根据兴趣或工作需要选择先学哪个。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。

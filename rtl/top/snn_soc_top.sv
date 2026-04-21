@@ -67,8 +67,9 @@
 // ============================================================
 
 module snn_soc_top #(
-  parameter bit ENABLE_E203      = 1'b0,
-  parameter bit ENABLE_EXT_CIM_IF = 1'b0
+  parameter bit ENABLE_E203         = 1'b0,
+  parameter bit ENABLE_EXT_CIM_IF   = 1'b0,
+  parameter bit ENABLE_PROGRAM_MODE = 1'b0
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -106,8 +107,12 @@ module snn_soc_top #(
   output logic        wl_latch_ext,
   output logic        cim_start_ext,
   input  logic        cim_done_ext,
-  output logic [4:0]  bl_sel_ext,
-  input  logic [7:0]  bl_data_ext
+  output logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_ext,
+  input  logic [7:0]  bl_data_ext,
+  // V2 编程/擦除/验证使能（ENABLE_PROGRAM_MODE=1 时有效，否则恒 0）
+  output logic        prog_en_ext,
+  output logic        erase_en_ext,
+  output logic        verify_en_ext
 );
   // 导入 snn_soc_pkg 中的全局参数与地址常量
   // 例如：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 等
@@ -282,12 +287,13 @@ module snn_soc_top #(
 
   // ----------------------------------------------------------
   // 输出 FIFO 连接信号
-  // 宽度 = 4 位 = $clog2(NUM_OUTPUTS=10) 上取整，存放输出类别编号（0~9）。
+  // 宽度 = SPIKE_IDX_W 位 = $clog2(MAX_NEURONS)，V2 多层时存放神经元编号（0~127）。
   // 生产者是 lif_neurons，消费者是 reg_bank / 软件读寄存器动作。
   // ----------------------------------------------------------
   logic        out_fifo_push, out_fifo_pop;
-  logic [3:0]  out_fifo_wdata; // LIF 写入的 4-bit 类别标签
-  logic [3:0]  out_fifo_rdata; // reg_bank/SW 读出的 spike_id 事件（0~9）
+  localparam int SPIKE_IDX_W = $clog2(snn_soc_pkg::MAX_NEURONS);
+  logic [SPIKE_IDX_W-1:0] out_fifo_wdata;
+  logic [SPIKE_IDX_W-1:0] out_fifo_rdata;
   logic        out_fifo_empty, out_fifo_full;
   logic        out_fifo_overflow, out_fifo_underflow; // 错误标志（接 _unused 以抑制 lint）
   logic [$clog2(OUTPUT_FIFO_DEPTH+1)-1:0] out_fifo_count;
@@ -375,12 +381,12 @@ module snn_soc_top #(
   // adc_kick_pulse : cim_array_ctrl 发给 adc_ctrl 的采样触发脉冲（单拍）
   // adc_start      : adc_ctrl 发给 cim_macro_blackbox 的 BL 列选通启动信号
   // adc_done       : cim_macro_blackbox 通知 adc_ctrl 本列采样完成（MUX 后信号）
-  // bl_sel         : 当前选中的 BL 列编号（5-bit，0-19，对应 20 个差分通道）
+  // bl_sel         : 当前选中的 BL 列编号（位宽 = $clog2(MAX_BL_SCAN)，V2 多层支持可变扫描数）
   // bl_data        : 当前 BL 列的 ADC 采样结果（8-bit，MUX 后信号）
   logic                  adc_kick_pulse;
   logic                  adc_start;
   logic                  adc_done;
-  logic [$clog2(ADC_CHANNELS)-1:0] bl_sel;
+  logic [$clog2(MAX_BL_SCAN)-1:0] bl_sel;
   logic [ADC_BITS-1:0]   bl_data;
 
   // LIF 神经元输入
@@ -390,6 +396,7 @@ module snn_soc_top #(
   //   注意：NUM_OUTPUTS=10（分类数），NEURON_DATA_WIDTH=9（含符号位）
   logic                  neuron_in_valid;
   logic [NUM_OUTPUTS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data;
+  logic [snn_soc_pkg::MAX_NEURONS-1:0][NEURON_DATA_WIDTH-1:0] neuron_in_data_wide;
 
   // 来自 reg_bank 的控制寄存器 / 状态信号
   // 这些信号是“软件可见寄存器”和“SNN 主链路”之间的桥。
@@ -465,6 +472,50 @@ module snn_soc_top #(
   logic                test_cim_busy;
   logic [3:0]          test_adc_cnt;
   logic                test_adc_busy;
+
+  // V2 CIM Programming signals
+  logic        prog_start_pulse, prog_erase, prog_full_array;
+  logic [5:0]  prog_row;
+  logic [4:0]  prog_col;
+  logic [3:0]  prog_level;
+  logic [2:0]  prog_retry_limit;
+  logic [15:0] prog_pulse_width, prog_erase_width;
+  logic        prog_busy, prog_done_pulse_sig, prog_pass, prog_fail;
+  logic [2:0]  prog_retry_count;
+
+  // V2 Multi-layer signals (from reg_bank)
+  logic [1:0]  ml_num_layers;
+  logic        ml_enable;
+  logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_cfg;
+  logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_timing;
+  logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_threshold;
+  logic [snn_soc_pkg::MAX_LAYERS-1:0][31:0] ml_layer_neuron_cfg;
+
+  // Arbiter signals (between inference and programming to macro)
+  logic [NUM_INPUTS-1:0] arb_wl_spike;
+  logic        arb_dac_valid, arb_cim_start, arb_adc_start;
+  logic [$clog2(MAX_BL_SCAN)-1:0] arb_bl_sel;
+  logic        arb_cim_done, arb_adc_done;
+  logic [ADC_BITS-1:0] arb_bl_data;
+
+  // V2 多层条件信号（cim_array_ctrl 端口由 generate 条件驱动）
+  logic        ctrl_busy_wire, ctrl_done_wire;
+  logic        ctrl_start_wire;
+  logic        ml_binary_mode_wire, ml_use_layer_cfg_wire, ml_use_feedback_wire;
+  logic [7:0]  ml_layer_ts_wire;
+  logic [snn_soc_pkg::MAX_WL_COUNT-1:0] ml_feedback_wl_wire;
+  // ml_feedback_valid_wire removed (cim_array_ctrl no longer has feedback_valid port)
+  logic [7:0]  ml_bl_scan_cnt_wire;
+  logic        ml_use_scan_wire;
+  logic        spike_q_overflow_wire;
+
+  // Programming-specific macro signals
+  logic [NUM_INPUTS-1:0] prog_wl_spike;
+  logic        prog_dac_valid_sig, prog_cim_start_sig, prog_adc_start_sig;
+  logic [$clog2(MAX_BL_SCAN)-1:0] prog_bl_sel_sig;
+  logic        prog_cim_done_sig, prog_adc_done_sig;
+  logic [ADC_BITS-1:0] prog_bl_data_sig;
+  logic        prog_en_sig, erase_en_sig, verify_en_sig;
 
   generate
     if (!ENABLE_EXT_CIM_IF) begin : gen_unused_external_cim_if
@@ -782,16 +833,16 @@ module snn_soc_top #(
     .underflow (in_fifo_underflow)  // pop 时已空（接 _unused，TB 可加 assertion）
   );
 
-  // 输出 FIFO：WIDTH=4（spike_id 0-9，4-bit 足够），DEPTH=OUTPUT_FIFO_DEPTH
-  // 生产者：lif_neurons（每次神经元发放 spike 时 push 对应神经元编号）
+  // 输出 FIFO：WIDTH=SPIKE_IDX_W，DEPTH=OUTPUT_FIFO_DEPTH
+  // 生产者：lif_neurons/lif_neuron_alu（每次神经元发放 spike 时 push 对应神经元编号）
   // 消费者：reg_bank（SW 读取 spike 事件流时 pop，并在软件侧统计直方图）
-  fifo_sync #(.WIDTH(4), .DEPTH(OUTPUT_FIFO_DEPTH)) u_output_fifo (
+  fifo_sync #(.WIDTH(SPIKE_IDX_W), .DEPTH(OUTPUT_FIFO_DEPTH)) u_output_fifo (
     .clk       (clk),
     .rst_n     (rst_n),
     .push      (out_fifo_push),
     .push_data (out_fifo_wdata),
     .pop       (out_fifo_pop),       // reg_bank 被 SW 读取事件时产生 pop 脉冲
-    .rd_data   (out_fifo_rdata),     // SW 读到的 4-bit spike_id
+    .rd_data   (out_fifo_rdata),     // SW 读到的 SPIKE_IDX_W-bit spike_id
     .empty     (out_fifo_empty),
     .full      (out_fifo_full),
     .count     (out_fifo_count),
@@ -852,7 +903,31 @@ module snn_soc_top #(
     .cim_test_mode    (cim_test_mode),      // CIM 测试模式使能（电平）
     .cim_test_data_pos(cim_test_data_pos), // 正通道合成值（ch 0~9）
     .cim_test_data_neg(cim_test_data_neg), // 负通道合成值（ch 10~19）
-    .out_fifo_pop   (out_fifo_pop)        // SW 读输出结果时触发 pop（脉冲）
+    .out_fifo_pop   (out_fifo_pop),       // SW 读输出结果时触发 pop（脉冲）
+    // V2 programming
+    .prog_start_pulse(prog_start_pulse),
+    .prog_erase      (prog_erase),
+    .prog_full_array (prog_full_array),
+    .prog_row        (prog_row),
+    .prog_col        (prog_col),
+    .prog_level      (prog_level),
+    .prog_retry_limit(prog_retry_limit),
+    .prog_pulse_width(prog_pulse_width),
+    .prog_erase_width(prog_erase_width),
+    .prog_busy       (prog_busy),
+    .prog_done_pulse (prog_done_pulse_sig),
+    .prog_pass       (prog_pass),
+    .prog_fail       (prog_fail),
+    .prog_retry_count(prog_retry_count),
+    // V2 multi-layer descriptor outputs
+    .ml_num_layers      (ml_num_layers),
+    .ml_enable          (ml_enable),
+    .ml_layer_cfg       (ml_layer_cfg),
+    .ml_layer_timing    (ml_layer_timing),
+    .ml_layer_threshold (ml_layer_threshold),
+    .ml_layer_neuron_cfg(ml_layer_neuron_cfg),
+    // V2 spike 队列溢出标志（lif_neuron_alu → STATUS[6]）
+    .spike_q_overflow   (spike_q_overflow_wire)
   );
 
   // FIFO 只读状态寄存器（供 SW 轮询 FIFO 占用情况）
@@ -905,7 +980,7 @@ module snn_soc_top #(
     .clk             (clk),
     .rst_n           (rst_n),
     .soft_reset_pulse(snn_soft_reset_pulse), // SW 软复位：FSM 回到 IDLE，不清 debug 计数器
-    .start_pulse     (snn_start_pulse),      // SW 启动推理（单拍触发）
+    .start_pulse     (ctrl_start_wire),       // V1: snn_start_pulse, V2: layer_seq 驱动
     .timesteps       (timesteps),            // 时间步总数（当前工程默认 10，可寄存器配置）
     .in_fifo_rdata   (in_fifo_rdata),        // 从 input FIFO 读出的 64-bit bitmap
     .in_fifo_empty   (in_fifo_empty),        // FIFO 空则无法启动
@@ -917,10 +992,16 @@ module snn_soc_top #(
     .cim_done        (cim_done),             // 等待 cim_macro 完成（MUX 后信号）
     .adc_kick_pulse  (adc_kick_pulse),       // 触发 adc_ctrl 开始扫描
     .neuron_in_valid (neuron_in_valid),      // adc_ctrl 完成后产生（透传）
-    .busy            (snn_busy),             // 推理进行中标志
-    .done_pulse      (snn_done_pulse),       // 当前图片推理完成脉冲
+    .busy            (ctrl_busy_wire),        // cim_array_ctrl 内部忙标志
+    .done_pulse      (ctrl_done_wire),       // cim_array_ctrl 内部完成脉冲
     .timestep_counter(timestep_counter),     // 当前时间步计数（供 SW 监控）
-    .bitplane_shift  (bitplane_shift)        // 当前比特平面偏移（每帧从 7→0 循环，用于 LIF 加权累加）
+    .bitplane_shift  (bitplane_shift),       // 当前比特平面偏移（每帧从 7→0 循环，用于 LIF 加权累加）
+    // V2 多层扩展端口（V1 绑默认值，V2 由 layer_sequencer 驱动）
+    .binary_mode     (ml_binary_mode_wire),
+    .layer_timesteps (ml_layer_ts_wire),
+    .use_layer_cfg   (ml_use_layer_cfg_wire),
+    .feedback_wl_data(ml_feedback_wl_wire),
+    .use_feedback    (ml_use_feedback_wire)
   );
 
   // wl_mux_wrapper：WL 字线时分复用包装器
@@ -944,8 +1025,12 @@ module snn_soc_top #(
   assign wl_data_ext      = wl_data;
   assign wl_group_sel_ext = wl_group_sel;
   assign wl_latch_ext     = wl_latch;
-  assign cim_start_ext    = cim_start_pulse;
-  assign bl_sel_ext       = bl_sel;
+  assign cim_start_ext    = arb_cim_start;
+  assign bl_sel_ext       = arb_bl_sel;
+  // D1-006：编程使能信号直连外部 pad，让模拟芯片识别当前操作类型
+  assign prog_en_ext      = prog_en_sig;
+  assign erase_en_ext     = erase_en_sig;
+  assign verify_en_ext    = verify_en_sig;
 
   // dac_ctrl：DAC 控制器（数字 → 模拟 WL 脉冲驱动）
   // 它把“数字位图何时有效”翻译成“模拟侧何时应认为 WL 已经建立完毕”。
@@ -970,23 +1055,146 @@ module snn_soc_top #(
   // 注意：这里先接的是 _hw 后缀信号，后面 test mode 会再决定最终使用真实模型还是假响应。
   generate
     if (!ENABLE_EXT_CIM_IF) begin : gen_internal_cim_macro
-      cim_macro_blackbox u_macro (
+      // D3-002 修复：P_USE_BRAM_WEIGHTS 从"仅跟 ENABLE_PROGRAM_MODE"改为 OR 两个开关：
+      //   - ENABLE_PROGRAM_MODE=1 → 编程控制器需要真实权重（保持原行为）
+      //   - ENABLE_BRAM_WEIGHT_MODEL=1 → 即使不带编程控制器，也用 BRAM 权重
+      //                                  （V2 多层 sample_align TB 用此开关）
+      cim_macro_blackbox #(
+        .P_USE_BRAM_WEIGHTS (ENABLE_PROGRAM_MODE | ENABLE_BRAM_WEIGHT_MODEL)
+      ) u_macro (
         .clk       (clk),
         .rst_n     (rst_n),
-        .wl_spike  (wl_spike),
-        .dac_valid (dac_valid),
-        .cim_start (cim_start_pulse),
+        .wl_spike  (arb_wl_spike),
+        .dac_valid (arb_dac_valid),
+        .cim_start (arb_cim_start),
         .cim_done  (cim_done_hw),
-        .adc_start (adc_start),
+        .adc_start (arb_adc_start),
         .adc_done  (adc_done_hw),
-        .bl_sel    (bl_sel),
-        .bl_data   (bl_data_hw)
+        .bl_sel    (arb_bl_sel),
+        .bl_data   (bl_data_hw),
+        .prog_en   (prog_en_sig),
+        .erase_en  (erase_en_sig),
+        .verify_en (verify_en_sig)
       );
     end else begin : gen_external_cim_if
       wire _unused_internal_cim_macro = ^wl_spike ^ dac_valid;
-      assign cim_done_hw = cim_done_ext;
-      assign bl_data_hw  = bl_data_ext;
-      assign adc_done_hw = ext_adc_done;
+
+      // 外部 CIM 异步输入 → 2-FF 同步器
+      // cim_done_ext 和 bl_data_ext 来自外部模拟芯片（PCB 互联，异步于 clk），
+      // 需经 2 级触发器同步后才能安全供内部组合/时序逻辑使用。
+      // bl_data 逐位同步安全：bl_sel 切换后模拟芯片保持数据稳定，不会异步跳变。
+      // ext_adc_done 为本地同步生成的信号，无需额外同步。
+      (* async_reg = "TRUE" *) logic        cim_done_meta, cim_done_sync;
+      (* async_reg = "TRUE" *) logic [7:0]  bl_data_meta,  bl_data_sync;
+
+      always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+          {cim_done_meta, cim_done_sync} <= '0;
+          {bl_data_meta,  bl_data_sync}  <= '0;
+        end else begin
+          cim_done_meta <= cim_done_ext;
+          cim_done_sync <= cim_done_meta;
+          bl_data_meta  <= bl_data_ext;
+          bl_data_sync  <= bl_data_meta;
+        end
+      end
+
+      assign cim_done_hw = cim_done_sync;
+      assign bl_data_hw  = bl_data_sync;
+      assign adc_done_hw = ext_adc_done;  // 已为同步信号（本地生成）
+    end
+  endgenerate
+
+  // V2 CIM Programming Controller
+  generate
+    if (ENABLE_PROGRAM_MODE) begin : gen_prog_ctrl
+      cim_program_ctrl u_prog_ctrl (
+        .clk              (clk),
+        .rst_n            (rst_n),
+        .prog_start       (prog_start_pulse),
+        .prog_erase       (prog_erase),
+        .prog_full_array  (prog_full_array),
+        .prog_row         (prog_row),
+        .prog_col         (prog_col),
+        .prog_level       (prog_level),
+        .prog_retry_limit (prog_retry_limit),
+        .prog_pulse_width (prog_pulse_width),
+        .prog_erase_width (prog_erase_width),
+        .prog_busy        (prog_busy),
+        .prog_done_pulse  (prog_done_pulse_sig),
+        .prog_pass        (prog_pass),
+        .prog_fail        (prog_fail),
+        .prog_retry_count (prog_retry_count),
+        .prog_wl_spike    (prog_wl_spike),
+        .prog_dac_valid   (prog_dac_valid_sig),
+        .prog_cim_start   (prog_cim_start_sig),
+        .prog_cim_done    (prog_cim_done_sig),
+        .prog_adc_start   (prog_adc_start_sig),
+        .prog_adc_done    (prog_adc_done_sig),
+        .prog_bl_sel      (prog_bl_sel_sig),
+        .prog_bl_data     (prog_bl_data_sig),
+        .prog_en          (prog_en_sig),
+        .erase_en         (erase_en_sig),
+        .verify_en        (verify_en_sig)
+      );
+
+      cim_macro_arbiter u_arb (
+        .clk              (clk),
+        .rst_n            (rst_n),
+        .prog_busy        (prog_busy),
+        .infer_wl_spike   (wl_spike),
+        .infer_dac_valid  (dac_valid),
+        .infer_cim_start  (cim_start_pulse),
+        .infer_adc_start  (adc_start),
+        .infer_bl_sel     (bl_sel),
+        .infer_cim_done   (arb_cim_done),
+        .infer_adc_done   (arb_adc_done),
+        .infer_bl_data    (arb_bl_data),
+        .prog_wl_spike    (prog_wl_spike),
+        .prog_dac_valid   (prog_dac_valid_sig),
+        .prog_cim_start   (prog_cim_start_sig),
+        .prog_adc_start   (prog_adc_start_sig),
+        .prog_bl_sel      (prog_bl_sel_sig),
+        .prog_cim_done    (prog_cim_done_sig),
+        .prog_adc_done    (prog_adc_done_sig),
+        .prog_bl_data     (prog_bl_data_sig),
+        .macro_wl_spike   (arb_wl_spike),
+        .macro_dac_valid  (arb_dac_valid),
+        .macro_cim_start  (arb_cim_start),
+        .macro_adc_start  (arb_adc_start),
+        .macro_bl_sel     (arb_bl_sel),
+        .macro_cim_done   (cim_done_hw),
+        .macro_adc_done   (adc_done_hw),
+        .macro_bl_data    (bl_data_hw)
+      );
+    end else begin : gen_no_prog
+      assign prog_busy           = 1'b0;
+      assign prog_done_pulse_sig = 1'b0;
+      assign prog_pass           = 1'b0;
+      assign prog_fail           = 1'b0;
+      assign prog_retry_count    = 3'd0;
+      assign arb_wl_spike        = wl_spike;
+      assign arb_dac_valid       = dac_valid;
+      assign arb_cim_start       = cim_start_pulse;
+      assign arb_adc_start       = adc_start;
+      assign arb_bl_sel          = bl_sel;
+      assign arb_cim_done        = cim_done_hw;
+      assign arb_adc_done        = adc_done_hw;
+      assign arb_bl_data         = bl_data_hw;
+      assign prog_en_sig         = 1'b0;
+      assign erase_en_sig        = 1'b0;
+      assign verify_en_sig       = 1'b0;
+      assign prog_wl_spike       = '0;
+      assign prog_dac_valid_sig  = 1'b0;
+      assign prog_cim_start_sig  = 1'b0;
+      assign prog_adc_start_sig  = 1'b0;
+      assign prog_bl_sel_sig     = '0;
+      assign prog_cim_done_sig   = 1'b0;
+      assign prog_adc_done_sig   = 1'b0;
+      assign prog_bl_data_sig    = '0;
+      wire _unused_prog = &{1'b0, prog_start_pulse, prog_erase, prog_full_array,
+                            ^prog_row, ^prog_col, ^prog_level, ^prog_retry_limit,
+                            ^prog_pulse_width, ^prog_erase_width};
     end
   endgenerate
 
@@ -1010,32 +1218,167 @@ module snn_soc_top #(
     .neuron_in_valid(neuron_in_valid),  // 输出：所有列扫描完成，数据就绪
     .neuron_in_data (neuron_in_data),   // 输出：10 个 9-bit 有符号差分结果
     .adc_sat_high   (adc_sat_high),     // 输出：高饱和计数 → reg_bank
-    .adc_sat_low    (adc_sat_low)       // 输出：低饱和计数 → reg_bank
+    .adc_sat_low    (adc_sat_low),      // 输出：低饱和计数 → reg_bank
+    // V2 多层扩展（V1 绑默认值）
+    .bl_scan_count  (ml_bl_scan_cnt_wire),
+    .use_scan_cfg   (ml_use_scan_wire),
+    .neuron_in_data_wide(neuron_in_data_wide)
   );
 
-  // lif_neurons：LIF 神经元阵列（10 个输出神经元，对应 MNIST 10 类）
-  // 功能：
-  //   收到 neuron_in_valid 时，将 neuron_in_data（10x9-bit，已完成 Scheme B 差分）累加到 10 个神经元膜电位
-  //   每个子时间步结束后，比较膜电位与 threshold：
-  //     若超过阈值 → 产生 spike，根据 reset_mode 复位膜电位（减法或归零）
-  //   每次 spike 事件都会把神经元编号 push 到 output FIFO（事件流输出）
-  // 关键信号：
-  //   bitplane_shift : 比特平面偏移（0~7，对应 8-bit 输入位平面）
-  //   threshold      : 来自 reg_bank（32-bit 绝对阈值，默认 2550）
-  //   reset_mode     : 0=减法复位（membrane -= threshold），1=归零（membrane=0）
-  lif_neurons u_lif (
-    .clk            (clk),
-    .rst_n          (rst_n),
-    .soft_reset_pulse(snn_soft_reset_pulse), // 软复位：清空所有膜电位，回到初始状态
-    .neuron_in_valid(neuron_in_valid),       // adc_ctrl 产生：输入数据就绪
-    .neuron_in_data (neuron_in_data),        // 10 个 9-bit 有符号差分结果（输入电流）
-    .bitplane_shift (bitplane_shift),        // 比特平面偏移（来自 cim_array_ctrl）
-    .threshold      (neuron_threshold),      // LIF 阈值（来自 reg_bank）
-    .reset_mode     (reset_mode),            // 复位模式（来自 reg_bank）
-    .out_fifo_push  (out_fifo_push),         // 每次产生 spike 时 push 神经元编号
-    .out_fifo_wdata (out_fifo_wdata),        // 4-bit 类别编号（0-9）
-    .out_fifo_full  (out_fifo_full)          // FIFO 满时不 push（防 overflow）
-  );
+  // ── V2 多层条件信号路由 ──
+  // cim_array_ctrl 的 start/busy/done 在 V1 直连 reg_bank，
+  // V2 多层时由 layer_sequencer 接管外部 busy/done
+  generate if (ENABLE_MULTI_LAYER) begin : gen_multilayer
+    logic       ml_mode_active;
+    logic       ml_seq_busy, ml_seq_done;
+    logic       ml_ctrl_start;
+    logic [7:0] ml_ctrl_ts;
+    logic       ml_ctrl_bin, ml_ctrl_use_cfg, ml_ctrl_use_fb;
+    logic [7:0] ml_bl_scan_cnt;
+    logic       ml_use_scan;
+    logic [31:0] ml_threshold;
+    logic [7:0]  ml_neuron_cnt;
+    logic        ml_fb_en;
+    logic [7:0]  ml_fb_next_wl;
+    logic        ml_fb_valid;
+    logic [snn_soc_pkg::MAX_NEURONS-1:0] ml_spike_mask;
+    logic        ml_spike_mask_valid;
+    logic [snn_soc_pkg::MAX_NEURONS-1:0] ml_fb_wl_data;
+    logic        ml_alu_busy;
+    logic        ml_alu_clear;
+    logic        ml_alu_clearing;
+    logic        ml_is_last_layer;
+    logic        ml_out_fifo_push;
+    logic [SPIKE_IDX_W-1:0] ml_out_fifo_wdata;
+    logic        v1_out_fifo_push;
+    logic [3:0]  v1_out_fifo_wdata;
+
+    assign ml_mode_active = ml_enable;
+
+    // 运行时 gate：SIM_MULTI_LAYER 编译打开后，只有 ml_enable=1 才接管主链路。
+    // ml_enable=0 时保持 V1 单层行为，避免 REG_ML_CTRL[8] 成为死寄存器。
+    assign snn_busy              = ml_mode_active ? ml_seq_busy : ctrl_busy_wire;
+    assign snn_done_pulse        = ml_mode_active ? ml_seq_done : ctrl_done_wire;
+    assign ctrl_start_wire       = ml_mode_active ? ml_ctrl_start : snn_start_pulse;
+    assign ml_binary_mode_wire   = ml_mode_active ? ml_ctrl_bin : 1'b0;
+    assign ml_layer_ts_wire      = ml_mode_active ? ml_ctrl_ts : 8'd0;
+    assign ml_use_layer_cfg_wire = ml_mode_active ? ml_ctrl_use_cfg : 1'b0;
+    assign ml_use_feedback_wire  = ml_mode_active ? ml_ctrl_use_fb : 1'b0;
+    assign ml_feedback_wl_wire   = ml_mode_active ? ml_fb_wl_data : '0;
+    assign ml_bl_scan_cnt_wire   = ml_mode_active ? ml_bl_scan_cnt : 8'(snn_soc_pkg::ADC_CHANNELS);
+    assign ml_use_scan_wire      = ml_mode_active ? ml_use_scan : 1'b0;
+    assign out_fifo_push         = ml_mode_active ? ml_out_fifo_push : v1_out_fifo_push;
+    assign out_fifo_wdata        = ml_mode_active
+                                 ? ml_out_fifo_wdata
+                                 : {{(SPIKE_IDX_W-4){1'b0}}, v1_out_fifo_wdata};
+
+    layer_sequencer u_layer_seq (
+      .clk                     (clk),
+      .rst_n                   (rst_n),
+      .soft_reset_pulse        (snn_soft_reset_pulse & ml_mode_active),
+      .start_pulse             (snn_start_pulse & ml_mode_active),
+      .num_layers              (ml_num_layers),
+      .busy                    (ml_seq_busy),
+      .done_pulse              (ml_seq_done),
+      .layer_cfg               (ml_layer_cfg),
+      .layer_timing            (ml_layer_timing),
+      .layer_threshold         (ml_layer_threshold),
+      .layer_neuron_cfg        (ml_layer_neuron_cfg),
+      .ctrl_start_pulse        (ml_ctrl_start),
+      .ctrl_done_pulse         (ctrl_done_wire),
+      .ctrl_timesteps          (ml_ctrl_ts),
+      .ctrl_binary_mode        (ml_ctrl_bin),
+      .ctrl_use_layer_cfg      (ml_ctrl_use_cfg),
+      .ctrl_use_feedback       (ml_ctrl_use_fb),
+      .ctrl_bl_scan_count      (ml_bl_scan_cnt),
+      .ctrl_use_scan_cfg       (ml_use_scan),
+      .ctrl_threshold          (ml_threshold),
+      .ctrl_active_neuron_count(ml_neuron_cnt),
+      .feedback_en             (ml_fb_en),
+      .feedback_next_wl_count  (ml_fb_next_wl),
+      .feedback_valid          (ml_fb_valid),
+      .alu_busy                (ml_alu_busy),
+      .alu_clear_pulse         (ml_alu_clear),
+      .alu_clearing            (ml_alu_clearing),
+      .ctrl_is_last_layer      (ml_is_last_layer)
+    );
+
+    spike_feedback u_spike_fb (
+      .clk              (clk),
+      .rst_n            (rst_n),
+      .spike_mask       (ml_spike_mask),
+      .spike_mask_valid (ml_spike_mask_valid),
+      .feedback_en      (ml_fb_en),
+      .next_wl_count    (ml_fb_next_wl),
+      .feedback_wl_data (ml_fb_wl_data),
+      .feedback_valid   (ml_fb_valid)
+    );
+
+    lif_neuron_alu u_lif_alu (
+      .clk              (clk),
+      .rst_n            (rst_n),
+      .soft_reset_pulse (snn_soft_reset_pulse | (ml_mode_active & ml_alu_clear)),
+      .neuron_in_valid  (neuron_in_valid & ml_mode_active),
+      .neuron_in_data   (neuron_in_data_wide),
+      .bitplane_shift   (bitplane_shift),
+      .threshold        (ml_threshold),
+      .reset_mode       (reset_mode),
+      .active_neuron_count(ml_neuron_cnt),
+      .out_fifo_push    (ml_out_fifo_push),
+      .out_fifo_wdata   (ml_out_fifo_wdata),
+      .out_fifo_full    (out_fifo_full),
+      .spike_mask       (ml_spike_mask),
+      .spike_mask_valid (ml_spike_mask_valid),
+      .alu_busy         (ml_alu_busy),
+      .spike_q_overflow (spike_q_overflow_wire),
+      .clearing_busy    (ml_alu_clearing),
+      .output_fifo_en   (ml_is_last_layer)
+    );
+
+    lif_neurons u_lif_v1_compat (
+      .clk            (clk),
+      .rst_n          (rst_n),
+      .soft_reset_pulse(snn_soft_reset_pulse),
+      .neuron_in_valid(neuron_in_valid & ~ml_mode_active),
+      .neuron_in_data (neuron_in_data),
+      .bitplane_shift (bitplane_shift),
+      .threshold      (neuron_threshold),
+      .reset_mode     (reset_mode),
+      .out_fifo_push  (v1_out_fifo_push),
+      .out_fifo_wdata (v1_out_fifo_wdata),
+      .out_fifo_full  (out_fifo_full)
+    );
+
+  end else begin : gen_v1_single
+    // V1: 直连
+    assign snn_busy       = ctrl_busy_wire;
+    assign snn_done_pulse = ctrl_done_wire;
+    assign ctrl_start_wire       = snn_start_pulse;
+    assign ml_binary_mode_wire   = 1'b0;
+    assign ml_layer_ts_wire      = 8'd0;
+    assign ml_use_layer_cfg_wire = 1'b0;
+    assign ml_use_feedback_wire  = 1'b0;
+    assign ml_feedback_wl_wire   = '0;
+    assign ml_bl_scan_cnt_wire   = 8'(snn_soc_pkg::ADC_CHANNELS);
+    assign ml_use_scan_wire      = 1'b0;
+    assign spike_q_overflow_wire = 1'b0;
+
+    logic [3:0] v1_out_fifo_wdata;
+    lif_neurons u_lif (
+      .clk            (clk),
+      .rst_n          (rst_n),
+      .soft_reset_pulse(snn_soft_reset_pulse),
+      .neuron_in_valid(neuron_in_valid),
+      .neuron_in_data (neuron_in_data),
+      .bitplane_shift (bitplane_shift),
+      .threshold      (neuron_threshold),
+      .reset_mode     (reset_mode),
+      .out_fifo_push  (out_fifo_push),
+      .out_fifo_wdata (v1_out_fifo_wdata),
+      .out_fifo_full  (out_fifo_full)
+    );
+    assign out_fifo_wdata = {{(SPIKE_IDX_W-4){1'b0}}, v1_out_fifo_wdata};
+  end endgenerate
 
   //======================
   // CIM Test Mode MUX + 响应生成器
@@ -1056,15 +1399,11 @@ module snn_soc_top #(
   //======================
 
   // 根据 cim_test_mode 选择信号来源
-  assign cim_done  = cim_test_mode ? cim_done_test  : cim_done_hw;  // MUX: CIM 完成
-  assign adc_done  = cim_test_mode ? adc_done_test  : adc_done_hw;  // MUX: ADC 完成
-  // BL 数据 MUX：test mode 下按通道号分发 pos/neg 合成值
-  //   bl_sel < NUM_OUTPUTS(10) → 正通道（ch 0~9）  → 返回 cim_test_data_pos
-  //   bl_sel >= NUM_OUTPUTS    → 负通道（ch 10~19） → 返回 cim_test_data_neg
-  // 令 pos≠neg（如 pos=100, neg=0）时，Scheme B 差分 = 100，LIF 膜电位可积累 spike
+  assign cim_done  = cim_test_mode ? cim_done_test  : arb_cim_done;
+  assign adc_done  = cim_test_mode ? adc_done_test  : arb_adc_done;
   assign bl_data   = cim_test_mode ?
       (bl_sel < $bits(bl_sel)'(NUM_OUTPUTS) ? cim_test_data_pos : cim_test_data_neg) :
-      bl_data_hw;
+      arb_bl_data;
 
   // CIM / ADC 假响应延迟生成器（寄存器逻辑）
   always_ff @(posedge clk or negedge rst_n) begin

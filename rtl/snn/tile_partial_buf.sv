@@ -13,8 +13,8 @@
 // 之前 2D unpacked array `mem[0:D-1][0:W-1]` 让 Vivado 识别为 "3D RAM with
 // 458752 registers" 并卡在 elaboration。改成：
 //   1. 1D 扁平地址 mem[0:D*W-1]，addr = t*W + j
-//   2. (* ram_style = "block" *) 强制 Vivado 尝试 BRAM（不行会 fallback）
-//   3. reset 不清内存（BRAM 没有 content-reset 线，保留初值）
+//   2. (* ram_style = "distributed" *) 明确使用 LUTRAM，匹配 1-cycle RMW
+//   3. reset 不清内存（RAM 没有 content-reset 线，保留初值）
 //   4. clear_all 改 counter-driven 多周期 walker，每 cycle 清 1 cell
 //
 // 【行为语义不变】
@@ -60,6 +60,7 @@ module tile_partial_buf
   localparam int P_TOTAL   = P_DEPTH * P_WIDTH;
   localparam int P_ADDR_W  = $clog2(P_TOTAL);
   localparam int P_W_BITS  = $clog2(P_WIDTH);
+  localparam logic [P_ADDR_W-1:0] P_TOTAL_LAST = P_ADDR_W'(P_TOTAL - 1);
 
   // ── Flat 1D storage — let Vivado pick BRAM/LUTRAM ──────────────────
   // ram_style=distributed is a better fit for 1-cycle RMW; with "block"
@@ -95,7 +96,7 @@ module tile_partial_buf
           clr_ctr  <= '0;
         end
       end else begin
-        if (clr_ctr == (P_TOTAL - 1)[P_ADDR_W-1:0]) begin
+        if (clr_ctr == P_TOTAL_LAST) begin
           clr_busy <= 1'b0;
         end
         clr_ctr <= clr_ctr + 1;
@@ -103,15 +104,14 @@ module tile_partial_buf
     end
   end
 
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      // Memory contents NOT reset (BRAM/LUTRAM has no content-reset line).
-    end else begin
-      if (clr_busy) begin
-        mem[clr_ctr] <= '0;
-      end else if (acc_en) begin
-        mem[flat_addr(wr_t, wr_j)] <= mem[flat_addr(wr_t, wr_j)] + wr_diff;
-      end
+  always_ff @(posedge clk) begin
+    // Memory contents are intentionally not reset.  Keep reset out of this
+    // process so Vivado can infer RAM/LUTRAM instead of a huge resettable FF
+    // array.  clear_all is implemented by the counter walker above.
+    if (clr_busy) begin
+      mem[clr_ctr] <= '0;
+    end else if (acc_en) begin
+      mem[flat_addr(wr_t, wr_j)] <= mem[flat_addr(wr_t, wr_j)] + wr_diff;
     end
   end
 

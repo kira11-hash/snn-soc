@@ -280,7 +280,7 @@ ASIC 主线                               FPGA 论文兜底线
 | DATA_SRAM | 16KB，32-bit宽，4K深 | 512×36 × 8 | 8 |
 | WEIGHT_SRAM | 16KB，32-bit宽，4K深 | 512×36 × 8 | 8 |
 | INPUT_FIFO | 64-bit宽，256深 | 256×36 × 2（宽度级联） | 2 |
-| OUTPUT_FIFO | 4-bit宽，256深 | 最小分配 | 1 |
+| OUTPUT_FIFO | 7-bit宽（$clog2(MAX_NEURONS)），256深 | 最小分配 | 1 |
 | 合计 | - | - | ~27 |
 
 > 注：3 个 16KB SRAM 就需要约 24 个 RAMB18；加上 FIFO/权重存储后总量约 27。

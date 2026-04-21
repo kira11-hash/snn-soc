@@ -1,6 +1,6 @@
 # Smoke Test 完整操作手册
 
-最后更新：2026-03-31
+最后更新：2026-04-18
 
 ---
 
@@ -53,6 +53,8 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | JTAG loader 单测 | `cd sim && bash run_jtag_loader_icarus.sh` | `JTAG_MEM_LOADER_PASS` |
 | JTAG rescue 顶层回归 | `cd sim && bash run_jtag_rescue_top_icarus.sh` | `JTAG_RESCUE_TOP_PASS` |
 | E203 最小启动链 | `cd sim && bash run_e203_icarus.sh` | `E203_SMOKETEST_PASS` |
+| V2 多层 smoke | `cd sim && bash run_multilayer.sh` | `MULTILAYER_SMOKE_PASS` |
+| V2 CIM 编程控制器 | `cd sim && iverilog -g2012 -gno-assertions -I ../rtl/top -f sim_icarus_light.f ../tb/cim_program_ctrl_tb.sv -s cim_program_ctrl_tb -o prog_ctrl.out && vvp prog_ctrl.out` | `CIM_PROGRAM_CTRL_PASS`（7 项全过） |
 | `chip_top` Icarus 编译门禁 | `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out` | 通过 |
 | `chip_top` Verilator lint | `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f` | 通过 |
 | 旧 `top_tb` 入口 | `cd sim && iverilog -g2012 -gno-assertions -f sim.f -s top_tb -o top_tb_check.out && vvp top_tb_check.out` | 跑通 |
@@ -71,6 +73,7 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | SAMPLE_ALIGN | T=10, ratio=1, 100 样本 | 固定配置，不做变参 |
 | ADC_SAT_COUNTER | T=2+1, test_data_pos=0xFF | 固定配置 |
 | E203_SMOKETEST | T=10, ratio=1 | 固定配置 |
+| MULTILAYER_SMOKE | T 由层描述符配置，test_mode | 固定配置（V2 分支） |
 
 补充说明：
 - `run_jtag_rescue_top_icarus.sh` 和 `run_e203_icarus.sh` 依赖 WSL 内可用的 `riscv64-unknown-elf-gcc / objcopy`。
@@ -180,7 +183,7 @@ gtkwave waves/icarus_light.vcd
 | cim_ctrl state | `dut.u_cim_ctrl.*` | FSM 应从 IDLE → 逐帧逐 bit-plane 处理 → DONE |
 | wl_spike | `dut.u_wl_mux_wrapper.*` | 每个 bit-plane 一次 WL 脉冲，8 组 × 8 行 |
 | adc state | `dut.u_adc.state` | ADC 状态机：IDLE → 逐 channel 采样 → 差分计算 → DONE |
-| bl_sel | `dut.u_adc.bl_sel` | 从 0 扫到 19（20 个 ADC 通道） |
+| bl_sel | `dut.u_adc.bl_sel` | V1 从 0 扫到 19（20 通道）；V2 可配 0..bl_scan_count-1（最大 127） |
 | neuron_in_valid | `dut.u_adc.neuron_in_valid` | 每轮 ADC 完成后出 10 个 valid 脉冲 |
 | neuron_in_data | `dut.u_adc.neuron_in_data` | 有符号 9-bit 差分值（Scheme B） |
 
@@ -540,9 +543,9 @@ bash run_verdi_weighted.sh
 
 | 信号                                           | 预期                                                              |
 | -------------------------------------------- | --------------------------------------------------------------- |
-| `dut.u_adc.state` [2-bit]                    | kick 后循环 20 次 `SEL→WAIT`（或直接 WAIT），最后 `DONE→IDLE`               |
-| `dut.u_adc.sel_idx` [5-bit]                  | 从 0 递增到 19，共 20 个通道                                             |
-| `dut.u_adc.bl_sel` [5-bit]                   | 跟随 sel_idx：0,1,2,...,19                                         |
+| `dut.u_adc.state` [2-bit]                    | kick 后循环 N 次 `SEL→WAIT`（V1 N=20 / V2 N=bl_scan_count），最后 `DONE→IDLE` |
+| `dut.u_adc.sel_idx` [7-bit]                  | 从 0 递增到 `eff_scan_max`（V1=19，V2 可配，如 63/127）                    |
+| `dut.u_adc.bl_sel` [7-bit]                   | 跟随 sel_idx；V1 高 2 位恒 0，V2 多层时可达 127                             |
 | `dut.u_adc.adc_start` [1-bit]                | 每个通道拉高 1 拍，共 20 次                                               |
 | `dut.u_adc.adc_done` [1-bit]                 | 每次 adc_start 后收到 1 拍回应                                          |
 | `dut.u_adc.bl_data` [8-bit]                  | 时分复用单路输出，随 bl_sel 0→19 依次给出每个通道的 ADC 值。波形为一串连续变化的数值，不应全为 0x00（权重无效）或全为 0xFF（ADC 饱和） |
@@ -564,7 +567,7 @@ bash run_verdi_weighted.sh
 | `dut.u_lif.threshold` [32-bit] | 整个仿真保持 `32'd2550` 不变 |
 | `dut.u_lif.reset_mode` [1-bit] | 整个仿真保持 `0`（soft） |
 | `dut.u_lif.out_fifo_push` [1-bit] | spike 发生后拉高 1 拍（内部队列每拍最多 pop 1 个到 FIFO） |
-| `dut.u_lif.out_fifo_wdata` [4-bit] | spike 的 neuron id，范围 0~9 |
+| `dut.u_lif.out_fifo_wdata` [SPIKE_IDX_W-bit] | spike 的 neuron id，V1 范围 0~9，V2 多层可达 0~127 |
 | `dut.u_lif.q_count` [内部] | 瞬时 spike 缓存深度，正常应很快清空 |
 | `dut.u_lif.queue_overflow` [1-bit] | 必须始终为 0（队列深度 32，单拍最多 10 个 spike） |
 
@@ -577,10 +580,10 @@ bash run_verdi_weighted.sh
 | 信号                                    | 预期                                                |
 | ------------------------------------- | ------------------------------------------------- |
 | `dut.u_output_fifo.push` [1-bit]      | 推理期间每个 spike 拉高 1 拍                               |
-| `dut.u_output_fifo.push_data` [4-bit] | 范围 0~9，不应出现 >9 的值                                 |
+| `dut.u_output_fifo.push_data` [SPIKE_IDX_W-bit] | V1 范围 0~9；V2 多层范围 0~MAX_NEURONS-1                 |
 | `dut.u_output_fifo.count` [深度位宽]      | 推理期间从 0 逐渐增长（spike 不断 push）；推理完成后 TB 逐个 pop 读取，count 降回 0。峰值 = 终端打印的 `OUT_FIFO_COUNT` |
 | `dut.u_output_fifo.pop` [1-bit]       | 推理完成后 TB 逐个读取时拉高                                  |
-| `dut.u_output_fifo.rd_data` [4-bit]   | FIFO 空时为不定态（X）；有数据后显示队头 neuron id；TB pop 时依次读出的序列 = 终端打印的 `spike_id[0], spike_id[1], ...`；pop 完后回到不定态 |
+| `dut.u_output_fifo.rd_data` [SPIKE_IDX_W-bit]   | FIFO 空时为不定态（X）；有数据后显示队头 neuron id；TB pop 时依次读出的序列 = 终端打印的 `spike_id[0], spike_id[1], ...`；pop 完后回到不定态 |
 | `dut.u_output_fifo.empty` [1-bit]     | 仿真开始时为 1（空）；第一个 spike push 后变 0；TB pop 完所有结果后回到 1 |
 | `dut.u_output_fifo.full` [1-bit]      | 整个仿真保持 0（深度 4096）                                 |
 | `dut.u_output_fifo.overflow` [1-bit]  | 整个仿真保持 0                                          |

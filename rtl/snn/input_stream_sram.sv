@@ -51,9 +51,10 @@ module input_stream_sram
   input  logic                    clear_all    // 单拍脉冲；优先级高于 wr_en
 );
 
-  // BRAM-inferrable 1D array. Vivado infers BRAM for wide words
-  // (P_WIDTH=256 split across multiple BRAMs).
-  (* ram_style = "block" *)
+  // LUTRAM-friendly 1D array. The async read interface is intentional for
+  // the current stage-engine timing model, so mark this as distributed RAM
+  // instead of asking Vivado to infer infeasible BRAM.
+  (* ram_style = "distributed" *)
   logic [P_WIDTH-1:0] mem [0:P_DEPTH-1];
 
 `ifdef SYNTHESIS

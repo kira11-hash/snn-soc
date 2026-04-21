@@ -159,10 +159,21 @@ module stage_engine_v2
   assign write_to_A = (cfg_output_dst == V2B_BUF_SEL_STREAM_A);
 
   // ── Comparators (avoid Icarus "constant select" issues) ──────────────
+  localparam int OUT_DIM_W = $clog2(P_N_OUT + 1);
+  localparam int T_DIM_W   = $clog2(P_T_MAX + 1);
   logic [$clog2(P_N_OUT)-1:0] out_dim_minus1;
   logic [$clog2(P_T_MAX)-1:0] t_count_minus1;
-  assign out_dim_minus1 = cfg_out_dim[$clog2(P_N_OUT)-1:0] - 1;
-  assign t_count_minus1 = cfg_t_count[$clog2(P_T_MAX)-1:0] - 1;
+  logic [OUT_DIM_W-1:0] out_dim_eff;
+  logic [T_DIM_W-1:0]   t_count_eff;
+
+  assign out_dim_eff =
+      (cfg_out_dim > 16'(P_N_OUT)) ? OUT_DIM_W'(P_N_OUT)
+                                   : cfg_out_dim[OUT_DIM_W-1:0];
+  assign t_count_eff =
+      (cfg_t_count > 16'(P_T_MAX)) ? T_DIM_W'(P_T_MAX)
+                                   : cfg_t_count[T_DIM_W-1:0];
+  assign out_dim_minus1 = out_dim_eff - OUT_DIM_W'(1);
+  assign t_count_minus1 = t_count_eff - T_DIM_W'(1);
   logic last_j, last_t;
   assign last_j = (j_idx == out_dim_minus1);
   assign last_t = (t_idx == t_count_minus1);
@@ -248,12 +259,13 @@ module stage_engine_v2
 
       state <= next_state;
 
-      unique case (state)
+      case (state)
         S_IDLE: begin
           if (start_pulse) begin
             // validate config
             if (cfg_in_dim == 0 || cfg_in_dim > 16'(P_N_IN) ||
-                cfg_out_dim == 0 || cfg_out_dim > 16'(P_N_OUT)) begin
+                cfg_out_dim == 0 || cfg_out_dim > 16'(P_N_OUT) ||
+                cfg_t_count == 0 || cfg_t_count > 16'(P_T_MAX)) begin
               err_code <= V2B_STAGE_ERR_DIM_OUT_OF_RANGE;
               done_pulse <= 1'b1;  // reject, stay IDLE via default transition
             end else if (cfg_input_src == cfg_output_dst &&

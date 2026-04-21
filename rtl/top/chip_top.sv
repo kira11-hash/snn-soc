@@ -13,49 +13,76 @@
 // 文件名: chip_top.sv
 // 描述: 芯片 pad 级顶层包装层（tapeout-intent 逻辑版）
 //
-// 设计意图:
-//   1) 以 snn_soc_top 为内核，提供 pad-facing 端口映射，不改变内部协议语义。
-//   2) 冻结外部 45 个信号 pad 相关端口，后续在此层完成 pad cell 与物理约束收口。
-//   3) 避免把 pad 级改动直接耦合到 snn_soc_top 内核逻辑。
+// 【这个文件的作用】
+//   在 snn_soc_top 外面再包一层"pad-facing wrapper"，负责：
+//     1. 把 snn_soc_top 的 _ext 端口连到对应 pad
+//     2. 为后续插入 pad cell（IO 驱动/ESD 保护）预留位置
+//     3. 保证任何 pad 级改动不往 snn_soc_top 内核渗漏
 //
-// 注意:
-//   - 当前外部复用端口已与 snn_soc_top 的 _ext 端口直连，用于冻结 pad-facing 口径。
-//   - 全部 48 pad 的正式编号/名称/方向/类型/复位行为以 doc/15_asic_pad_map.md 为准。
-//   - 后续 tapeout 前需在本模块内完成:
-//       a) pad cell 实例化
-//       b) ESD/drive strength/电平配置收敛
-//       c) package/pad-ring/IO 约束收敛
+// 【当前状态】
+//   - pad 端口已冻结（端口名/方向/位宽与 doc/15_asic_pad_map.md 一致）
+//   - 还没实例化工艺相关的 pad cell（这是流片前的最后一步）
+//
+// 【pad 预算】
+//   数字芯片 1mm × 2mm，72 pad（50um pitch）
+//   当前 V2 baseline：53 pad 已用（44 signal + 6 power + 3 ESD），19 pad 富余
+//   权威来源：doc/15_asic_pad_map.md
+//
+// 【流片前待完成】
+//   a) pad cell 实例化（替换裸 port）
+//   b) ESD 保护 / drive strength / 电平配置收敛
+//   c) package / pad-ring / IO 约束收敛
 //======================================================================
 module chip_top (
-  // 基础时钟复位（pad）
-  input  logic clk_pad,
-  input  logic rst_n_pad,
+  // ── 基础时钟复位（Pad 01-02）────────────────────────────────────────
+  input  logic clk_pad,       // 系统参考时钟（外部晶振，目标 50MHz）
+  input  logic rst_n_pad,     // 全局复位（低有效，上电后释放）
 
-  // 常规外设（pad）
-  input  logic uart_rx_pad,
-  output logic uart_tx_pad,
-  output logic spi_cs_n_pad,
-  output logic spi_sck_pad,
-  output logic spi_mosi_pad,
-  input  logic spi_miso_pad,
-  input  logic jtag_tck_pad,
-  input  logic jtag_tms_pad,
-  input  logic jtag_tdi_pad,
-  output logic jtag_tdo_pad,
+  // ── 常规外设（Pad 03-12）───────────────────────────────────────────
+  input  logic uart_rx_pad,   // UART 接收（V1 保留，未实现 RX 逻辑）
+  output logic uart_tx_pad,   // UART 发送（8N1 帧格式，空闲高电平）
+  output logic spi_cs_n_pad,  // SPI 片选（低有效，软件控制）
+  output logic spi_sck_pad,   // SPI 时钟（Mode 0，空闲低）
+  output logic spi_mosi_pad,  // SPI 主出从入
+  input  logic spi_miso_pad,  // SPI 主入从出
+  input  logic jtag_tck_pad,  // JTAG 测试时钟（与 sys_clk 异步）
+  input  logic jtag_tms_pad,  // JTAG 模式选择
+  input  logic jtag_tdi_pad,  // JTAG 数据输入
+  output logic jtag_tdo_pad,  // JTAG 数据输出
 
-  // 45 个信号 pad 中与模拟芯片互联相关的复用信号（pad-facing RTL 端口）
-  output logic [7:0] wl_data_pad,
-  output logic [2:0] wl_group_sel_pad,
-  output logic       wl_latch_pad,
-  output logic       cim_start_pad,
-  input  logic       cim_done_pad,
-  output logic [4:0] bl_sel_pad,
-  input  logic [7:0] bl_data_pad
+  // ── 模拟芯片互联（Pad 19-50）——通过 PCB 连接外部 CIM 模拟芯片 ────
+  //   V1 baseline: Pad 19-45（25 signal）
+  //   V2 新增:     Pad 46-47 (bl_sel[5:6]) + Pad 48-50 (prog_en/erase_en/verify_en)
+  //   Pad 51-53:   ESD reserved
+  //   权威真源：doc/15_asic_pad_map.md
+  output logic [7:0] wl_data_pad,       // WL 时分复用数据（8 位，接模拟 WL 锁存器）
+  output logic [2:0] wl_group_sel_pad,  // WL 组选择（3 位，选择 8 组之一）
+  output logic       wl_latch_pad,      // WL 锁存脉冲（上升沿锁存当前 wl_data）
+  output logic       cim_start_pad,     // CIM 计算启动脉冲（触发模拟侧 MAC + ADC）
+  input  logic       cim_done_pad,      // CIM 计算完成（模拟侧返回，表示 ADC 数据就绪）
+  output logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel_pad, // BL 读回通道选择（V2 扩宽至 7-bit 支持多层扫描）
+  input  logic [7:0] bl_data_pad,       // BL 读回数据（8-bit ADC 结果）
+  // V2 编程/擦除/验证使能（告知模拟侧当前操作模式）
+  output logic       prog_en_pad,       // 编程使能（SET 操作时高）
+  output logic       erase_en_pad,      // 擦除使能（RESET 操作时高）
+  output logic       verify_en_pad      // 验证使能（读回时高）
 );
-  // 核心 SoC（TO 目标路径：默认带 E203 + 外部 CIM pad 接口）
+  // ── 核心 SoC 实例化（流片目标配置） ─────────────────────────────────
+  // ENABLE_E203=1          : 带 RISC-V CPU（固件执行层）
+  // ENABLE_EXT_CIM_IF=1    : 数字芯片通过 pad 连接外部模拟 CIM 芯片（不是同 die）
+  // ENABLE_PROGRAM_MODE=1  : 带 V2 编程控制器（CPU 可通过固件给 RRAM 编程）
+  //
+  // 【为什么没有 ENABLE_MULTI_LAYER？】
+  //   它是 `snn_soc_pkg.sv` 里的 package 参数，不能通过 module 实例化传入。
+  //   流片版默认 = 0，不带硬件 layer_sequencer。
+  //   V2 时间多层由 CPU 固件逐层调 CIM_CTRL.START 实现（固件驱动），
+  //   不依赖硬件自动化。layer_sequencer 路径仅在仿真回归里用
+  //   `+define+SIM_MULTI_LAYER` 开关启用。
+  // ────────────────────────────────────────────────────────────────────
   snn_soc_top #(
     .ENABLE_E203(1'b1),
-    .ENABLE_EXT_CIM_IF(1'b1)
+    .ENABLE_EXT_CIM_IF(1'b1),
+    .ENABLE_PROGRAM_MODE(1'b1)
   ) u_soc_core (
     .clk      (clk_pad),
     .rst_n    (rst_n_pad),
@@ -75,7 +102,10 @@ module chip_top (
     .cim_start_ext    (cim_start_pad),
     .cim_done_ext     (cim_done_pad),
     .bl_sel_ext       (bl_sel_pad),
-    .bl_data_ext      (bl_data_pad)
+    .bl_data_ext      (bl_data_pad),
+    .prog_en_ext      (prog_en_pad),
+    .erase_en_ext     (erase_en_pad),
+    .verify_en_ext    (verify_en_pad)
   );
 endmodule
 

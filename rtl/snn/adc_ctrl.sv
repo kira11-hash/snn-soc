@@ -12,34 +12,62 @@
 `timescale 1ns/1ps
 //======================================================================
 // 文件名: adc_ctrl.sv
-// 描述: ADC 控制器（时分复用 1 个 ADC + 20:1 MUX，Scheme B）。
-//       - adc_kick_pulse 触发一次完整 20 路采样流程
-//       - bl_sel 在 0..ADC_CHANNELS-1 循环，等待 MUX 建立后采样
-//       - 20 路原始数据齐全后执行数字差分减法：
-//         diff[i] = raw_pos[i] - raw_neg[i]（i = 0..NUM_OUTPUTS-1）
-//       - 输出 neuron_in_valid 单拍 + 有符号差分数据
+// 描述: ADC 控制器 —— 时分复用 1 个 ADC 读取多个 BL 通道的 Scheme B 差分输出
 //======================================================================
+//
+// 【这个模块做什么？】
+//   CIM 阵列推理完一次后，每一列 BL 上都有一个模拟电流值，需要 ADC 量化。
+//   我们只有 1 个 ADC（省面积），所以用时分复用：ADC 依次切到不同的 BL 列做转换。
+//
+//   具体流程：
+//     1. cim_array_ctrl 发 adc_kick_pulse → 本模块进入采样序列
+//     2. 设置 bl_sel=0 → 等 MUX 建立（ADC_MUX_SETTLE_CYCLES 拍）
+//     3. 发 adc_start → 等 adc_done → 把 bl_data 存进 raw_data[0]
+//     4. bl_sel 递增到下一通道，重复 2-3
+//     5. 所有通道采集完，做数字差分减法，输出 neuron_in_data
+//
+// 【V1 vs V2 扫描模式】
+//   V1 固定：扫 20 路（ADC_CHANNELS=20），前 10 路是正列、后 10 路是负列
+//            差分：diff[i] = raw[i] - raw[i+10]（i=0..9）
+//
+//   V2 可配（本次新增）：扫 2~128 路（最多 MAX_BL_SCAN=128）
+//            前半是正列、后半是负列
+//            差分：diff[i] = raw[i] - raw[i + bl_scan_count/2]
+//            用于 4 层网络 64→32→16→10，每层 bl_count 不同
+//
+//   V1/V2 切换：use_scan_cfg 信号控制。默认 0 走 V1，上层拉 1 走 V2。
+//
+// 【为什么要 Scheme B 差分？】
+//   模拟 CIM 的权重永远是正值（电阻不能为负）。但神经网络需要负权重。
+//   解决方案：用两列 RRAM 实现一个有符号权重 —— 一列存正部分、一列存负部分。
+//   数字侧减法得到带符号的"等效权重 × 输入"结果。
+//
+//   "Scheme B" 指这种"数字侧做减法"的方案。
+//   替代方案 "Scheme A"（模拟侧做减法）面积更小但精度差，已经被本项目否决。
 //
 // -----------------------------------------------------------------------
 // 信号说明
 // -----------------------------------------------------------------------
-// sat_count_clear_pulse : 单拍脉冲，在新推理开始时清零 adc_sat_high/low，
-//                        使寄存器语义保持为“单次推理累计值”。
-// adc_kick_pulse       : 单拍脉冲，由 cim_array_ctrl 在 ST_ADC 状态发出，
-//                        启动本模块的一轮完整 20 路采样序列。
-// adc_start       : 单拍脉冲，送往 cim_macro_blackbox，触发单通道 ADC 转换。
-// adc_done        : 来自 cim_macro_blackbox，当前通道转换完成指示（单拍高）。
-// bl_data         : 来自 CIM 宏，当前 bl_sel 选中通道的无符号 ADC 结果
-//                   位宽 = ADC_BITS = 8，范围 0..255。
-// bl_sel          : 通道选择，驱动外部 20:1 MUX，决定哪一 BL 列连到 ADC 输入。
-//                   位宽 = $clog2(ADC_CHANNELS) = 5 位（可寻址 0..31，实际用 0..19）。
-// neuron_in_valid : 单拍脉冲，ST_DONE 状态产生，通知 lif_neurons 本次差分数据有效。
-// neuron_in_data  : 有符号差分数据，位宽 NEURON_DATA_WIDTH=9 位，
-//                   每个元素对应 diff[i] = raw[i] - raw[i+NUM_OUTPUTS]。
-// adc_sat_high    : 单次推理内饱和高（bl_data==0xFF）计数，诊断用，正常推理中应接近 0。
-// adc_sat_low     : 单次推理内饱和低（bl_data==0x00）计数，诊断用。
+// sat_count_clear_pulse : 新推理开始时清零饱和计数器的单拍脉冲。
+//                         adc_sat_high/low 语义是"单次推理内的累计值"，所以每次推理
+//                         开始前必须清零，否则数值会跨推理累加。
+// adc_kick_pulse       : cim_array_ctrl 发来的"开始扫描"信号（单拍高）。
+// adc_start            : 本模块发给 cim_macro 的"开始单次转换"信号（单拍高）。
+// adc_done             : cim_macro 返回的"单次转换完成"信号（单拍高）。
+// bl_data              : cim_macro 返回的 8-bit 无符号 ADC 原始值（0~255）。
+// bl_sel               : 通道选择，送给外部 BL MUX。
+//                        V1：位宽 5、范围 0-19；V2：位宽 7、范围 0-127（实际用 0..bl_scan_count-1）。
+// neuron_in_valid      : 全部差分计算完成的通知脉冲（ST_DONE 状态单拍）。
+// neuron_in_data       : V1 10 路差分结果（固定 NUM_OUTPUTS=10 宽）。
+// neuron_in_data_wide  : V2 可变宽度差分结果（MAX_NEURONS=128 宽，未用位填 0）。
+// bl_scan_count        : V2 运行时扫描通道数（来自 layer_sequencer）。
+// use_scan_cfg         : 0=V1 固定 20 路，1=V2 使用 bl_scan_count。
+// adc_sat_high/low     : 诊断计数器（bl_data=0xFF / 0x00 的次数），正常推理应接近 0。
+//                        如果长时间非 0 → ADC 量程设定有问题 / CIM 电流超标。
 // -----------------------------------------------------------------------
-module adc_ctrl (
+module adc_ctrl #(
+  parameter int P_MAX_NEURONS = snn_soc_pkg::MAX_NEURONS
+) (
   input  logic clk,
   input  logic rst_n,
 
@@ -49,24 +77,53 @@ module adc_ctrl (
   input  logic adc_done,
   input  logic [snn_soc_pkg::ADC_BITS-1:0] bl_data,
 
-  output logic [$clog2(snn_soc_pkg::ADC_CHANNELS)-1:0] bl_sel,
+  output logic [$clog2(snn_soc_pkg::MAX_BL_SCAN)-1:0] bl_sel,
   output logic        neuron_in_valid,
   output logic [snn_soc_pkg::NUM_OUTPUTS-1:0][snn_soc_pkg::NEURON_DATA_WIDTH-1:0] neuron_in_data,
 
   // ADC 饱和监控（诊断用）
-  output logic [15:0] adc_sat_high,  // 单次推理内 bl_data == MAX 的累计次数
-  output logic [15:0] adc_sat_low    // 单次推理内 bl_data == 0   的累计次数
+  output logic [15:0] adc_sat_high,
+  output logic [15:0] adc_sat_low,
+
+  // V2 多层扩展（ENABLE_MULTI_LAYER=0 时绑默认值）
+  input  logic [7:0]  bl_scan_count,   // 本层扫描通道数（默认 ADC_CHANNELS=20）
+  input  logic        use_scan_cfg,    // 1=使用 bl_scan_count，0=固定 ADC_CHANNELS
+  output logic [P_MAX_NEURONS-1:0][snn_soc_pkg::NEURON_DATA_WIDTH-1:0] neuron_in_data_wide
 );
   import snn_soc_pkg::*;
 
-  // BL_SEL_WIDTH: bl_sel 所需位宽，= $clog2(ADC_CHANNELS) = $clog2(20) = 5
-  // 5 位可表示 0..31，足以容纳 0..19，无截断风险。
-  localparam int BL_SEL_WIDTH = $clog2(ADC_CHANNELS);
+  // ═══════════════════════════════════════════════════════════════════════
+  // bl_sel 位宽推导
+  // ═══════════════════════════════════════════════════════════════════════
+  // V1 需要 $clog2(20) = 5 位；V2 最多扫 128 路，需要 $clog2(128) = 7 位。
+  // 统一按 V2 的 7 位来声明，V1 路径只用低 5 位，高 2 位恒为 0（安全向后兼容）。
+  localparam int BL_SEL_WIDTH = $clog2(MAX_BL_SCAN);
 
-  // BL_SEL_MAX: 最后一个有效通道索引 = ADC_CHANNELS - 1 = 19
-  // 使用 BL_SEL_WIDTH'() 做位宽截断转型，防止 lint 警告。
-  // 5'(19) = 5'b10011，不存在截断，值仍为 19。
+  // V1 兼容默认：bl_scan_count 当前使用索引范围的上限 = ADC_CHANNELS-1 = 19
   localparam logic [BL_SEL_WIDTH-1:0] BL_SEL_MAX = BL_SEL_WIDTH'(ADC_CHANNELS-1);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // V2 可配扫描数的安全钳位
+  // ═══════════════════════════════════════════════════════════════════════
+  // 上层可能写错 bl_scan_count（比如配成 0 或 999），这里做一层防御：
+  //   - 太小（< 2）：差分需要至少一对 pos/neg 列，所以下限是 2
+  //   - 太大（> MAX_BL_SCAN=128）：硬件只设计支持到 128
+  //   - 超出范围时安全降级回 V1 默认值（ADC_CHANNELS=20），避免硬件进入未定义状态
+  wire [7:0] clamped_scan = (bl_scan_count > 8'(MAX_BL_SCAN) || bl_scan_count < 8'd2)
+                            ? 8'(ADC_CHANNELS) : bl_scan_count;
+
+  // eff_scan_max：实际使用的 bl_sel 最大索引（扫描范围 0..eff_scan_max）
+  //   - V1 路径（use_scan_cfg=0）：固定 = BL_SEL_MAX = 19
+  //   - V2 路径（use_scan_cfg=1）：= clamped_scan - 1（比如 bl_scan_count=64 → 63）
+  wire [BL_SEL_WIDTH-1:0] eff_scan_max = use_scan_cfg
+      ? BL_SEL_WIDTH'(clamped_scan - 8'd1)
+      : BL_SEL_MAX;
+
+  // eff_half_count：差分切分点，前 half_count 路是正列、后 half_count 路是负列
+  //   - V1 路径：固定 = NUM_OUTPUTS = 10（10 正 + 10 负 = 20 路）
+  //   - V2 路径：= clamped_scan / 2（比如 bl_scan_count=64 → 32 正 + 32 负）
+  //   这个变量驱动 ST_DONE 状态的差分减法循环
+  wire [7:0] eff_half_count = use_scan_cfg ? (clamped_scan >> 1) : 8'(NUM_OUTPUTS);
 
   // -----------------------------------------------------------------------
   // FSM 状态定义（3 个有效状态，共 2 位编码，留有 ST_DONE=3 备用）
@@ -100,11 +157,9 @@ module adc_ctrl (
   // 如果 SETTLE_CYCLES==0，此计数器从不被真正使用（编译时 if 绕过）。
   logic [SETTLE_CNT_W-1:0] settle_cnt;
 
-  // raw_data: 20 路无符号 ADC 采样结果暂存数组。
-  // raw_data[0..9]  = 正列（positive BL columns）
-  // raw_data[10..19]= 负列（negative BL columns）
-  // Scheme B: diff[i] = raw_data[i] - raw_data[i+NUM_OUTPUTS]，i=0..9
-  logic [ADC_CHANNELS-1:0][ADC_BITS-1:0] raw_data;
+  // raw_data: ADC 采样结果暂存数组（最大 MAX_BL_SCAN 路）。
+  // Scheme B: 前半为正列、后半为负列，diff[i] = raw[i] - raw[i + half]
+  logic [MAX_BL_SCAN-1:0][ADC_BITS-1:0] raw_data;
 
   // 说明: 每个通道一次 adc_start -> 等待 adc_done -> 存数
   // Scheme B: 通道 0..9 为正列, 10..19 为负列
@@ -118,10 +173,11 @@ module adc_ctrl (
       settle_cnt      <= '0;
       raw_data        <= '0;
       neuron_in_data  <= '0;
-      neuron_in_valid <= 1'b0;
-      adc_start       <= 1'b0;
-      adc_sat_high    <= 16'h0;
-      adc_sat_low     <= 16'h0;
+      neuron_in_valid     <= 1'b0;
+      adc_start           <= 1'b0;
+      adc_sat_high        <= 16'h0;
+      adc_sat_low         <= 16'h0;
+      neuron_in_data_wide <= '0;
     end else begin
       // 每周期默认清除单拍脉冲输出，避免多拍误触发。
       // adc_start 和 neuron_in_valid 均为单拍脉冲，只在特定状态下置 1。
@@ -182,8 +238,10 @@ module adc_ctrl (
         // 收到 adc_done：
         //   1. 将 bl_data 存入 raw_data[sel_idx]（索引即通道号）
         //   2. 饱和检测：0xFF=满量程高，0x00=零量程低
-        //   3. 判断是否已完成所有 20 路（sel_idx == BL_SEL_MAX=19）
-        //      - 是：进入 ST_DONE 执行差分
+        //   3. 判断是否已完成所有通道（sel_idx == eff_scan_max）
+        //      V1 路径：eff_scan_max = 19（扫完 20 路）
+        //      V2 路径：eff_scan_max = bl_scan_count-1（如 63 或 127）
+        //      - 是：进入 ST_DONE 执行差分减法
         //      - 否：sel_idx 自增，重新进入 ST_SEL（或直接 ST_WAIT 若 SETTLE==0）
         // -------------------------------------------------------------------
         ST_WAIT: begin
@@ -197,8 +255,7 @@ module adc_ctrl (
             if ((bl_data == {ADC_BITS{1'b0}}) && (adc_sat_low != 16'hFFFF)) begin
               adc_sat_low <= adc_sat_low + 16'h1;
             end
-            if (sel_idx == BL_SEL_MAX) begin
-              // 最后一路（通道 19）采样完毕，进入 Scheme B 差分计算
+            if (sel_idx == eff_scan_max) begin
               state <= ST_DONE;
             end else begin
               // 切换到下一通道
@@ -228,18 +285,24 @@ module adc_ctrl (
         // 完成后拉高 neuron_in_valid 单拍，通知 lif_neurons 新数据到达。
         // -------------------------------------------------------------------
         ST_DONE: begin
-          // Scheme B 数字差分减法: diff[i] = pos[i] - neg[i+NUM_OUTPUTS]
+          // Scheme B 差分：V1 固定 10 路
           for (int i = 0; i < NUM_OUTPUTS; i = i + 1) begin
             neuron_in_data[i] <= NEURON_DATA_WIDTH'(
               $signed({1'b0, raw_data[i]}) - $signed({1'b0, raw_data[i + NUM_OUTPUTS]})
             );
-            // 解释：
-            //   {1'b0, raw_data[i]}            → 9 位无符号正数（MSB=0 保证为正）
-            //   $signed(...)                   → 当作有符号数做减法
-            //   NEURON_DATA_WIDTH'(...)        → 保留低 9 位，丢弃溢出的高位符号扩展
           end
-          neuron_in_valid <= 1'b1;    // 单拍有效脉冲，lif_neurons 在此拍采样 neuron_in_data
-          state           <= ST_IDLE; // 返回空闲，等待下一帧的 adc_kick_pulse
+          // V2 多层：可变通道数差分，输出到 neuron_in_data_wide
+          for (int i = 0; i < P_MAX_NEURONS; i = i + 1) begin
+            if (i < int'(eff_half_count)) begin
+              neuron_in_data_wide[i] <= NEURON_DATA_WIDTH'(
+                $signed({1'b0, raw_data[i]}) - $signed({1'b0, raw_data[i + int'(eff_half_count)]})
+              );
+            end else begin
+              neuron_in_data_wide[i] <= '0;
+            end
+          end
+          neuron_in_valid <= 1'b1;
+          state           <= ST_IDLE;
         end
         default: state <= ST_IDLE;    // 防止综合器推断不可达锁存态
       endcase
@@ -259,18 +322,16 @@ module adc_ctrl (
   // synthesis translate_off
   always @(posedge clk) begin
     begin
-      // Check that sel_idx never exceeds ADC_CHANNELS-1
-      // sel_idx 越界表示循环计数器逻辑错误，会导致 raw_data 数组越界写。
+      // Check that sel_idx never exceeds effective scan max
       if (!$isunknown(sel_idx)) begin
-        assert (sel_idx <= BL_SEL_MAX)
-          else $error("[adc_ctrl] sel_idx overflow! sel_idx=%0d, ADC_CHANNELS=%0d", sel_idx, ADC_CHANNELS);
+        assert (sel_idx <= eff_scan_max)
+          else $error("[adc_ctrl] sel_idx overflow! sel_idx=%0d, eff_scan_max=%0d", sel_idx, eff_scan_max);
       end
 
-      // Check that bl_sel never exceeds ADC_CHANNELS-1
-      // bl_sel 越界会导致外部 MUX 选择无效通道，ADC 采样结果无意义。
+      // Check that bl_sel never exceeds effective scan max
       if (!$isunknown(bl_sel)) begin
-        assert (bl_sel <= BL_SEL_MAX)
-          else $error("[adc_ctrl] bl_sel overflow! bl_sel=%0d, ADC_CHANNELS=%0d", bl_sel, ADC_CHANNELS);
+        assert (bl_sel <= eff_scan_max)
+          else $error("[adc_ctrl] bl_sel overflow! bl_sel=%0d, eff_scan_max=%0d", bl_sel, eff_scan_max);
       end
 
       // Check that neuron_in_valid and neuron_in_data are aligned
