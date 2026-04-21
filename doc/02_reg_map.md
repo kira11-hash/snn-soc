@@ -45,6 +45,36 @@
 - DBG_CNT_0/1：16-bit 饱和计数器，仅 rst_n 清零。用于运行时诊断 DMA 搬运量、推理耗时、spike 输出量、WL mux 协议违规。
 - OUT_FIFO_DATA 的 pop 机制（2026-03-15 修复）：采用**边沿检测**——`reg_bank.sv` 内部用 `out_data_read_seen` 标志确保一次总线读请求只触发一次 FIFO 弹出。此修复解决了原电平检测方案下 `bus_read()` task 的 `m_valid` 保持 2 拍导致多次 pop 的问题（Step 3.4 根因）。
 
+### CIM 编程寄存器（2026-04-22 从 v2 分支移植）
+
+仅在 `snn_soc_top.ENABLE_PROGRAM_MODE=1` 时由 `cim_program_ctrl` + `cim_macro_arbiter` 真正消费；默认参数下寄存器依然存在但不会触发任何硬件副作用（arbiter 和编程控制器都被 gen 块跳过）。
+
+| OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
+|---:|---|---|---|---|---|---|
+| 0x38 | PROG_CTRL | START | [0] | W1P | 0 | 启动一次编程/擦除序列（推理进行中被硬件 interlock 屏蔽） |
+| 0x38 | PROG_CTRL | ERASE | [1] | RW | 0 | 0=写入(SET)，1=擦除(RESET) |
+| 0x38 | PROG_CTRL | FULL_ARRAY | [2] | RW | 0 | 仅 ERASE=1 生效：1=所有 WL 同时拉高并跳过 verify |
+| 0x38 | PROG_CTRL | LEVEL | [7:4] | RW | 0 | 目标电导等级（0~15，对应 4-bit 权重量化） |
+| 0x38 | PROG_CTRL | RETRY_LIMIT | [10:8] | RW | 4 | verify 失败最大重试次数（0~7） |
+| 0x3C | PROG_ROW | row | [5:0] | RW | 0 | 目标行（0~63，= WL/NUM_INPUTS 索引） |
+| 0x40 | PROG_COL | col | [4:0] | RW | 0 | 目标列（0~19，= ADC 通道索引） |
+| 0x44 | PROG_STATUS | BUSY | [0] | RO | 0 | 编程控制器忙（FSM 非 IDLE） |
+| 0x44 | PROG_STATUS | PASS | [1] | RO | 0 | 上次序列验证通过 |
+| 0x44 | PROG_STATUS | FAIL | [2] | RO | 0 | 上次序列重试耗尽失败 |
+| 0x44 | PROG_STATUS | RETRY_COUNT | [5:3] | RO | 0 | 上次序列实际重试次数 |
+| 0x44 | PROG_STATUS | DONE | [7] | W1C | 0 | 编程完成 sticky（软件写 1 清零） |
+| 0x90 | PROG_PULSE_WIDTH | pulse_width | [15:0] | RO | 50 | 当前写入脉冲 resolved cycles（档位解码后的值） |
+| 0x90 | PROG_PULSE_WIDTH | write_pulse_sel | [17:16] | RW | 0 | 写入脉冲档位：0=1us(50), 1=10us(500), 2=100us(5000), 3=保留（按 100us 处理，防止误写 1ms SET 脉冲） |
+| 0x94 | PROG_ERASE_WIDTH | erase_width | [15:0] | RO | 50000 | 擦除脉冲宽度固定 1ms @ 50MHz（逐 cell 与全阵列擦除共用，写入此寄存器被忽略） |
+
+**为什么写入是档位而不是自由脉宽？** RRAM 器件编程窗口未标定，留三档供实验标定；擦除固定 1ms 防止误写短脉冲烧伤器件。
+
+**两条路径互锁（reg_bank 实现）**：
+- 写 `CIM_CTRL.START=1` 时若 `prog_busy=1`，start_pulse 被屏蔽
+- 写 `PROG_CTRL.START=1` 时若 `snn_busy=1`，prog_start_pulse 被屏蔽
+
+配合 `cim_macro_arbiter` 确保 CIM 宏任一时刻仅由一条路径驱动。
+
 ## dma_regs（base = 0x4000_0100）
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|

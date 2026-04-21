@@ -77,7 +77,10 @@
 // =====================================================================
 module cim_macro_blackbox #(
   parameter int P_NUM_INPUTS   = snn_soc_pkg::NUM_INPUTS,
-  parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS
+  parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS,
+  // P_USE_BRAM_WEIGHTS 参数仅用于仿真行为模型；综合版黑盒不包含内存，
+  // 忽略此参数。保留在端口化定义中是为了和仿真版签名一致。
+  parameter bit P_USE_BRAM_WEIGHTS = 1'b0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -91,18 +94,38 @@ module cim_macro_blackbox #(
   input  logic adc_start,
   output logic adc_done,
   input  logic [$clog2(P_ADC_CHANNELS)-1:0] bl_sel,
-  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data
+  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data,
+  // CIM 编程端口（真实宏需要这些信号用于 SET/RESET 控制）
+  // ENABLE_PROGRAM_MODE=0 时上游绑死为 0；LVS 时端口仍必须存在
+  input  logic prog_en,
+  input  logic erase_en,
+  input  logic verify_en
 );
   // 黑盒：综合时此处为空，模拟宏在集成时填充实际电路网表
+  // 消除未用参数/端口的 lint 告警
+  wire _unused_prog_synth = &{1'b0, prog_en, erase_en, verify_en, P_USE_BRAM_WEIGHTS};
 endmodule
 
 `else
 // =====================================================================
 // 仿真版本：行为模型（非综合，含功能逻辑和断言）
 // =====================================================================
+// 【两种行为模型】
+//   P_USE_BRAM_WEIGHTS=0（默认，V1 推理回归兼容）：
+//     popcount-based ADC 输出（正/负列公式见下方），不受编程影响；
+//     任何 prog_en/erase_en 脉冲都会被忽略，不改变 ADC 输出。
+//     ✅ V1 LIGHT/WEIGHTED/SAMPLE_ALIGN/E203 回归期望此模式。
+//
+//   P_USE_BRAM_WEIGHTS=1（编程回归使用）：
+//     weight_mem 存储每 cell 的 ADC 级别（0~255，4-bit 级别 × 16 = 0/16/32/...）；
+//     prog_en 脉冲给目标 cell 的 prog_pulse_acc 加 1（最多 15）；
+//     erase_en 脉冲把目标 cell（逐 cell 或全阵列）清零；
+//     ADC 读回 = Σ(wl_latched[r] * weight_mem[r][col])，再裁到 ADC_BITS。
+//     ⚠️ 仅 cim_program_ctrl_tb / 带 ENABLE_PROGRAM_MODE 的回归启用此模式。
 module cim_macro_blackbox #(
   parameter int P_NUM_INPUTS   = snn_soc_pkg::NUM_INPUTS,
-  parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS
+  parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS,
+  parameter bit P_USE_BRAM_WEIGHTS = 1'b0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -127,7 +150,15 @@ module cim_macro_blackbox #(
   input  logic adc_start,
   output logic adc_done,
   input  logic [$clog2(P_ADC_CHANNELS)-1:0] bl_sel,
-  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data
+  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data,
+
+  // CIM 编程控制（来自 cim_program_ctrl，经 cim_macro_arbiter 选路）
+  // prog_en  : SET（写入）使能；cim_start+prog_en 期间累加 prog_pulse_acc
+  // erase_en : RESET（擦除）使能；cim_start+erase_en 期间清目标 cell
+  // verify_en: 验证读回期间拉高（本模型不使用，仅为接口完整性保留）
+  input  logic prog_en,
+  input  logic erase_en,
+  input  logic verify_en
 );
   import snn_soc_pkg::*;
 
@@ -161,6 +192,20 @@ module cim_macro_blackbox #(
   // 忙标志（防止重复触发）
   logic                  cim_busy;   // 1 = CIM 计算进行中
   logic                  adc_busy;   // 1 = ADC 采样进行中
+
+  // -----------------------------------------------------------------------
+  // BRAM 权重存储（仅当 P_USE_BRAM_WEIGHTS=1 时起作用）
+  // weight_mem[r][c] = 第 r 行第 c 列 RRAM cell 的 8-bit ADC 级别
+  //   复位值：popcount-compatible（正列 2，负列 1），确保 V1 popcount 模式
+  //           未使能时即使代码路径走 weighted-sum 也不会零输出。
+  // prog_pulse_acc[r][c] = 该 cell 累计写入脉冲数（0~15，4-bit 量化级别）
+  //   每个 SET 脉冲让 acc+1；weight_mem 随即更新为 (acc+1) * (256/PROG_LEVELS)
+  // -----------------------------------------------------------------------
+  logic [ADC_BITS-1:0] weight_mem     [0:P_NUM_INPUTS-1][0:P_ADC_CHANNELS-1];
+  logic [3:0]          prog_pulse_acc [0:P_NUM_INPUTS-1][0:P_ADC_CHANNELS-1];
+
+  // verify_en 目前不影响行为（验证通过 adc_start 的正常读回完成）
+  wire _unused_verify = &{1'b0, verify_en};
 
   // -----------------------------------------------------------------------
   // popcount 函数：计算向量中置 1 的位数
@@ -202,6 +247,26 @@ module cim_macro_blackbox #(
       bl_data = {ADC_BITS{1'b0}};            // 越界保护：输出全 0
     end
   end
+
+  // -----------------------------------------------------------------------
+  // Weighted-sum（仅当 P_USE_BRAM_WEIGHTS=1 时生效）
+  // bram_weighted_sum(col) = Σ over rows r where wl_latched[r]=1 of weight_mem[r][col]
+  //   结果裁到 ADC_BITS（超出即饱和到 max）。
+  // -----------------------------------------------------------------------
+  function automatic [ADC_BITS-1:0] bram_weighted_sum(input int col);
+    logic [15:0] wsum;
+    begin
+      wsum = 16'd0;
+      for (int r = 0; r < P_NUM_INPUTS; r = r + 1) begin
+        if (wl_latched[r])
+          wsum = wsum + {8'd0, weight_mem[r][col]};
+      end
+      if (wsum > ((1 << ADC_BITS) - 1))
+        bram_weighted_sum = {ADC_BITS{1'b1}};
+      else
+        bram_weighted_sum = ADC_BITS'(wsum);
+    end
+  endfunction
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -282,27 +347,91 @@ module cim_macro_blackbox #(
         if (adc_cnt == 0) begin
           adc_done <= 1'b1;    // 单拍完成脉冲，adc_ctrl.ST_WAIT 在此拍读 bl_data
           adc_busy <= 1'b0;
-          // 行为模型：为 Scheme B 20 列生成可重复数据
-          // 正列 (0..9)：较高基数, 负列 (10..19)：较低基数
-          // 这样差分 diff[i] = pos[i] - neg[i] > 0，确保膜电位可正向积累
-          for (int j = 0; j < P_ADC_CHANNELS; j = j + 1) begin
-            if (j < NUM_OUTPUTS) begin
-              // 正列（j=0..NUM_OUTPUTS-1 = 0..9）：
-              // 值 = pop_count * 2 + j，随激活数增大而增大，+j 提供通道间差异。
-              // pop_count 最大 64，2*64+9=137 < 255，不会溢出 8 位。
-              bl_data_internal[j] <= ADC_BITS'(pop_count * 2 + j);
-            end else begin
-              // 负列（j=NUM_OUTPUTS..P_ADC_CHANNELS-1 = 10..19）：
-              // 值 = pop_count / 2 + (j - NUM_OUTPUTS)，显著小于正列。
-              // pop_count/2 最大 32，32+9=41 < 255，不会溢出。
-              // 显式扩展 pop_count 到 32-bit，避免 lint 对移位位宽告警
-              bl_data_internal[j] <= ADC_BITS'(({24'b0, pop_count} >> 1) + (j - NUM_OUTPUTS));
-              // 注意：{24'b0, pop_count} 将 8 位 pop_count 扩展到 32 位，
-              // 再右移 1 位（相当于除以 2），避免窄位宽移位的 lint 警告。
+          if (P_USE_BRAM_WEIGHTS) begin
+            // Weighted-sum 模式：从 weight_mem 累加，保留编程结果
+            for (int j = 0; j < P_ADC_CHANNELS; j = j + 1) begin
+              bl_data_internal[j] <= bram_weighted_sum(j);
+            end
+          end else begin
+            // V1 popcount 模式：Scheme B 20 列合成数据（与原 main 行为完全一致）
+            // 正列 (0..9)：较高基数, 负列 (10..19)：较低基数
+            // 这样差分 diff[i] = pos[i] - neg[i] > 0，确保膜电位可正向积累
+            for (int j = 0; j < P_ADC_CHANNELS; j = j + 1) begin
+              if (j < NUM_OUTPUTS) begin
+                // 正列（j=0..NUM_OUTPUTS-1 = 0..9）：
+                // 值 = pop_count * 2 + j，随激活数增大而增大，+j 提供通道间差异。
+                // pop_count 最大 64，2*64+9=137 < 255，不会溢出 8 位。
+                bl_data_internal[j] <= ADC_BITS'(pop_count * 2 + j);
+              end else begin
+                // 负列（j=NUM_OUTPUTS..P_ADC_CHANNELS-1 = 10..19）：
+                // 值 = pop_count / 2 + (j - NUM_OUTPUTS)，显著小于正列。
+                // pop_count/2 最大 32，32+9=41 < 255，不会溢出。
+                // 显式扩展 pop_count 到 32-bit，避免 lint 对移位位宽告警
+                bl_data_internal[j] <= ADC_BITS'(({24'b0, pop_count} >> 1) + (j - NUM_OUTPUTS));
+                // 注意：{24'b0, pop_count} 将 8 位 pop_count 扩展到 32 位，
+                // 再右移 1 位（相当于除以 2），避免窄位宽移位的 lint 警告。
+              end
             end
           end
         end else begin
           adc_cnt <= adc_cnt - 1'b1;
+        end
+      end
+    end
+  end
+
+  // =========================================================================
+  // 编程 / 擦除 always_ff（仅当 P_USE_BRAM_WEIGHTS=1 时更新 weight_mem）
+  // =========================================================================
+  //   写入（prog_en && cim_start && !cim_busy）：
+  //     对 wl_latched[r]=1 的行，在 bl_sel 列累加一个脉冲：
+  //       prog_pulse_acc[r][bl_sel]++（饱和到 15）
+  //       weight_mem[r][bl_sel] = (prog_pulse_acc+1) * (256 / PROG_LEVELS) = +16
+  //
+  //   擦除（erase_en && cim_start && !cim_busy）：
+  //     - 全阵列擦除（wl_latched 全 1）：清零所有 cell 的 weight/pulse_acc
+  //     - 逐 cell 擦除（wl_latched 非全 1）：仅清零激活行的 bl_sel 列
+  // =========================================================================
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      // 复位默认：popcount-compatible 初值，便于 V1 回归切换到 BRAM 模式也能积累 spike
+      for (int r = 0; r < P_NUM_INPUTS; r++) begin
+        for (int c = 0; c < P_ADC_CHANNELS; c++) begin
+          if (c < NUM_OUTPUTS)
+            weight_mem[r][c] <= ADC_BITS'(2);   // 正列：小正值
+          else
+            weight_mem[r][c] <= ADC_BITS'(1);   // 负列：更小，保证 diff>0
+          prog_pulse_acc[r][c] <= 4'd0;
+        end
+      end
+    end else if (P_USE_BRAM_WEIGHTS) begin
+      if (erase_en && cim_start && !cim_busy) begin
+        if (&wl_latched) begin
+          // 全阵列擦除：所有行同时拉高 → 擦除所有 cell
+          for (int r = 0; r < P_NUM_INPUTS; r++) begin
+            for (int c = 0; c < P_ADC_CHANNELS; c++) begin
+              weight_mem[r][c]     <= '0;
+              prog_pulse_acc[r][c] <= 4'd0;
+            end
+          end
+        end else begin
+          // 逐 cell 擦除：仅清激活行的 bl_sel 列
+          for (int r = 0; r < P_NUM_INPUTS; r++) begin
+            if (wl_latched[r]) begin
+              weight_mem[r][bl_sel]     <= '0;
+              prog_pulse_acc[r][bl_sel] <= 4'd0;
+            end
+          end
+        end
+      end else if (prog_en && cim_start && !cim_busy) begin
+        // 写入：激活行 bl_sel 列累加一个脉冲
+        for (int r = 0; r < P_NUM_INPUTS; r++) begin
+          if (wl_latched[r]) begin
+            if (prog_pulse_acc[r][bl_sel] < 4'd15) begin
+              prog_pulse_acc[r][bl_sel] <= prog_pulse_acc[r][bl_sel] + 4'd1;
+              weight_mem[r][bl_sel]     <= ADC_BITS'((int'(prog_pulse_acc[r][bl_sel]) + 1) * (256 / PROG_LEVELS));
+            end
+          end
         end
       end
     end

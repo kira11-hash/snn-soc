@@ -67,8 +67,13 @@
 // ============================================================
 
 module snn_soc_top #(
-  parameter bit ENABLE_E203      = 1'b0,
-  parameter bit ENABLE_EXT_CIM_IF = 1'b0
+  parameter bit ENABLE_E203         = 1'b0,
+  parameter bit ENABLE_EXT_CIM_IF   = 1'b0,
+  // ENABLE_PROGRAM_MODE: 启用 CIM 编程/擦除/验证通路（2026-04-22 从 v2 移植）。
+  // 默认 0：和原 main tapeout 行为完全一致（无编程控制器，推理直连 macro）。
+  // =1：实例化 cim_program_ctrl + cim_macro_arbiter + behavioral weight_mem 模型，
+  //     并把 REG_PROG_* 寄存器路径接入，用于写入/擦除/验证回归。
+  parameter bit ENABLE_PROGRAM_MODE = 1'b0
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -445,6 +450,43 @@ module snn_soc_top #(
   logic                cim_test_mode;
   logic [ADC_BITS-1:0] cim_test_data_pos;
   logic [ADC_BITS-1:0] cim_test_data_neg;
+
+  // ----------------------------------------------------------
+  // CIM 编程 / 仲裁相关信号（2026-04-22 从 v2 移植）
+  //
+  // prog_*  : reg_bank ↔ cim_program_ctrl 的寄存器控制/状态通道
+  // arb_*   : cim_macro_arbiter 输出到 CIM 宏（推理+编程二选一后的 WL/DAC/CIM/ADC）
+  // *_sig   : cim_program_ctrl 的 WL/DAC/CIM/ADC 输出（送 arbiter 编程侧）
+  // *_en_sig: prog/erase/verify 使能信号（cim_program_ctrl → cim_macro_blackbox）
+  //
+  // ENABLE_PROGRAM_MODE=0 时：arb_* 直接透传推理信号，prog_* 全部绑 0（下面的 gen_no_prog）。
+  // ----------------------------------------------------------
+  // 寄存器 → 控制
+  logic        prog_start_pulse, prog_erase, prog_full_array;
+  logic [5:0]  prog_row;
+  logic [4:0]  prog_col;
+  logic [3:0]  prog_level;
+  logic [2:0]  prog_retry_limit;
+  logic [15:0] prog_pulse_width, prog_erase_width;
+  // 控制 → 寄存器（状态回读）
+  logic        prog_busy, prog_done_pulse_sig, prog_pass, prog_fail;
+  logic [2:0]  prog_retry_count;
+
+  // cim_program_ctrl 的 CIM 侧输出 → arbiter 编程端
+  logic [NUM_INPUTS-1:0] prog_wl_spike;
+  logic                  prog_dac_valid_sig, prog_cim_start_sig, prog_adc_start_sig;
+  logic [$clog2(MAX_BL_SCAN)-1:0] prog_bl_sel_sig;
+  logic                  prog_cim_done_sig, prog_adc_done_sig;
+  logic [ADC_BITS-1:0]   prog_bl_data_sig;
+  logic                  prog_en_sig, erase_en_sig, verify_en_sig;
+
+  // arbiter → 宏（推理/编程二选一后的线）
+  logic [NUM_INPUTS-1:0] arb_wl_spike;
+  logic                  arb_dac_valid, arb_cim_start, arb_adc_start;
+  logic [$clog2(MAX_BL_SCAN)-1:0] arb_bl_sel;
+  logic                  arb_cim_done, arb_adc_done;
+  logic [ADC_BITS-1:0]   arb_bl_data;
+
   // 硬件侧（cim_macro_blackbox 原始输出，test mode MUX 前）
   logic                cim_done_hw;
   logic                adc_done_hw;
@@ -852,7 +894,22 @@ module snn_soc_top #(
     .cim_test_mode    (cim_test_mode),      // CIM 测试模式使能（电平）
     .cim_test_data_pos(cim_test_data_pos), // 正通道合成值（ch 0~9）
     .cim_test_data_neg(cim_test_data_neg), // 负通道合成值（ch 10~19）
-    .out_fifo_pop   (out_fifo_pop)        // SW 读输出结果时触发 pop（脉冲）
+    .out_fifo_pop   (out_fifo_pop),       // SW 读输出结果时触发 pop（脉冲）
+    // CIM 编程寄存器（2026-04-22 移植）
+    .prog_start_pulse (prog_start_pulse),
+    .prog_erase       (prog_erase),
+    .prog_full_array  (prog_full_array),
+    .prog_row         (prog_row),
+    .prog_col         (prog_col),
+    .prog_level       (prog_level),
+    .prog_retry_limit (prog_retry_limit),
+    .prog_pulse_width (prog_pulse_width),
+    .prog_erase_width (prog_erase_width),
+    .prog_busy        (prog_busy),
+    .prog_done_pulse  (prog_done_pulse_sig),
+    .prog_pass        (prog_pass),
+    .prog_fail        (prog_fail),
+    .prog_retry_count (prog_retry_count)
   );
 
   // FIFO 只读状态寄存器（供 SW 轮询 FIFO 占用情况）
@@ -970,23 +1027,142 @@ module snn_soc_top #(
   // 注意：这里先接的是 _hw 后缀信号，后面 test mode 会再决定最终使用真实模型还是假响应。
   generate
     if (!ENABLE_EXT_CIM_IF) begin : gen_internal_cim_macro
-      cim_macro_blackbox u_macro (
+      // P_USE_BRAM_WEIGHTS 仅在 ENABLE_PROGRAM_MODE=1 时启用 weighted-sum
+      // 行为模型。ENABLE_PROGRAM_MODE=0 时保持 V1 popcount 模式，所有
+      // LIGHT / WEIGHTED / SAMPLE_ALIGN 回归行为不变。
+      cim_macro_blackbox #(
+        .P_USE_BRAM_WEIGHTS (ENABLE_PROGRAM_MODE)
+      ) u_macro (
         .clk       (clk),
         .rst_n     (rst_n),
-        .wl_spike  (wl_spike),
-        .dac_valid (dac_valid),
-        .cim_start (cim_start_pulse),
+        .wl_spike  (arb_wl_spike),
+        .dac_valid (arb_dac_valid),
+        .cim_start (arb_cim_start),
         .cim_done  (cim_done_hw),
-        .adc_start (adc_start),
+        .adc_start (arb_adc_start),
         .adc_done  (adc_done_hw),
-        .bl_sel    (bl_sel),
-        .bl_data   (bl_data_hw)
+        .bl_sel    (arb_bl_sel),
+        .bl_data   (bl_data_hw),
+        .prog_en   (prog_en_sig),
+        .erase_en  (erase_en_sig),
+        .verify_en (verify_en_sig)
       );
     end else begin : gen_external_cim_if
       wire _unused_internal_cim_macro = ^wl_spike ^ dac_valid;
       assign cim_done_hw = cim_done_ext;
       assign bl_data_hw  = bl_data_ext;
       assign adc_done_hw = ext_adc_done;
+    end
+  endgenerate
+
+  // ==================================================================
+  // CIM 编程控制器 + 仲裁器（gated by ENABLE_PROGRAM_MODE）
+  //   =1 : 实例化 cim_program_ctrl + cim_macro_arbiter；
+  //        推理侧 (wl_spike/dac_valid/cim_start_pulse/adc_start/bl_sel) 进 arbiter 的 infer 端口，
+  //        编程侧 (prog_*_sig) 进 arbiter 的 prog 端口，
+  //        arbiter 输出 (arb_*) 去 cim_macro_blackbox。
+  //        arbiter.infer_cim_done/adc_done/bl_data 反向返回推理链路。
+  //   =0 : 保持原 main 直连：arb_* <= 推理信号（旁路 arbiter），
+  //        prog_* 全部 tie 0。cim_macro_blackbox.prog_en/erase_en/verify_en 也都绑 0，
+  //        因此 V1 回归行为完全不变。
+  // ==================================================================
+  generate
+    if (ENABLE_PROGRAM_MODE) begin : gen_prog_ctrl
+      cim_program_ctrl u_prog_ctrl (
+        .clk              (clk),
+        .rst_n            (rst_n),
+        .prog_start       (prog_start_pulse),
+        .prog_erase       (prog_erase),
+        .prog_full_array  (prog_full_array),
+        .prog_row         (prog_row),
+        .prog_col         (prog_col),
+        .prog_level       (prog_level),
+        .prog_retry_limit (prog_retry_limit),
+        .prog_pulse_width (prog_pulse_width),
+        .prog_erase_width (prog_erase_width),
+        .prog_busy        (prog_busy),
+        .prog_done_pulse  (prog_done_pulse_sig),
+        .prog_pass        (prog_pass),
+        .prog_fail        (prog_fail),
+        .prog_retry_count (prog_retry_count),
+        .prog_wl_spike    (prog_wl_spike),
+        .prog_dac_valid   (prog_dac_valid_sig),
+        .prog_cim_start   (prog_cim_start_sig),
+        .prog_cim_done    (prog_cim_done_sig),
+        .prog_adc_start   (prog_adc_start_sig),
+        .prog_adc_done    (prog_adc_done_sig),
+        .prog_bl_sel      (prog_bl_sel_sig),
+        .prog_bl_data     (prog_bl_data_sig),
+        .prog_en          (prog_en_sig),
+        .erase_en         (erase_en_sig),
+        .verify_en        (verify_en_sig)
+      );
+
+      cim_macro_arbiter u_arb (
+        .clk              (clk),
+        .rst_n            (rst_n),
+        .prog_busy        (prog_busy),
+        // 推理侧输入（从 dac_ctrl/cim_array_ctrl/adc_ctrl 拿推理通路）
+        .infer_wl_spike   (wl_spike),
+        .infer_dac_valid  (dac_valid),
+        .infer_cim_start  (cim_start_pulse),
+        .infer_adc_start  (adc_start),
+        .infer_bl_sel     (bl_sel),
+        .infer_cim_done   (arb_cim_done),
+        .infer_adc_done   (arb_adc_done),
+        .infer_bl_data    (arb_bl_data),
+        // 编程侧输入（cim_program_ctrl 输出）
+        .prog_wl_spike    (prog_wl_spike),
+        .prog_dac_valid   (prog_dac_valid_sig),
+        .prog_cim_start   (prog_cim_start_sig),
+        .prog_adc_start   (prog_adc_start_sig),
+        .prog_bl_sel      (prog_bl_sel_sig),
+        .prog_cim_done    (prog_cim_done_sig),
+        .prog_adc_done    (prog_adc_done_sig),
+        .prog_bl_data     (prog_bl_data_sig),
+        // 宏侧输出
+        .macro_wl_spike   (arb_wl_spike),
+        .macro_dac_valid  (arb_dac_valid),
+        .macro_cim_start  (arb_cim_start),
+        .macro_adc_start  (arb_adc_start),
+        .macro_bl_sel     (arb_bl_sel),
+        .macro_cim_done   (cim_done_hw),
+        .macro_adc_done   (adc_done_hw),
+        .macro_bl_data    (bl_data_hw)
+      );
+    end else begin : gen_no_prog
+      // 推理直连（no arbiter）
+      assign arb_wl_spike  = wl_spike;
+      assign arb_dac_valid = dac_valid;
+      assign arb_cim_start = cim_start_pulse;
+      assign arb_adc_start = adc_start;
+      assign arb_bl_sel    = bl_sel;
+      assign arb_cim_done  = cim_done_hw;
+      assign arb_adc_done  = adc_done_hw;
+      assign arb_bl_data   = bl_data_hw;
+      // 编程状态 tie-off
+      assign prog_busy           = 1'b0;
+      assign prog_done_pulse_sig = 1'b0;
+      assign prog_pass           = 1'b0;
+      assign prog_fail           = 1'b0;
+      assign prog_retry_count    = 3'd0;
+      // 编程使能信号 tie-off（cim_macro_blackbox 端口还在，但永不触发写/擦除）
+      assign prog_en_sig         = 1'b0;
+      assign erase_en_sig        = 1'b0;
+      assign verify_en_sig       = 1'b0;
+      // 编程 macro 侧信号不使用，tie off 避免 lint
+      assign prog_wl_spike       = '0;
+      assign prog_dac_valid_sig  = 1'b0;
+      assign prog_cim_start_sig  = 1'b0;
+      assign prog_adc_start_sig  = 1'b0;
+      assign prog_bl_sel_sig     = '0;
+      assign prog_cim_done_sig   = 1'b0;
+      assign prog_adc_done_sig   = 1'b0;
+      assign prog_bl_data_sig    = '0;
+      // 消除未用输入 lint 告警
+      wire _unused_prog_inputs = &{1'b0, prog_start_pulse, prog_erase, prog_full_array,
+                                   ^prog_row, ^prog_col, ^prog_level, ^prog_retry_limit,
+                                   ^prog_pulse_width, ^prog_erase_width};
     end
   endgenerate
 

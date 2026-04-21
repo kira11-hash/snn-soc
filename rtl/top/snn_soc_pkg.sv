@@ -184,5 +184,33 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_FIFO_BASE   = 32'h4000_0400;
   localparam logic [31:0] ADDR_FIFO_END    = 32'h4000_04FF;
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // V1 单层 CIM 编程参数（2026-04-22 从 v2 分支移植到 main）
+  //
+  // 功能：支持写入（SET）、逐 cell 擦除（RESET）、全阵列擦除、读回验证。
+  // 只保留 V1 单层 64 WL × 20 BL 架构所需的常量；不引入 V2.B 多层 / 256×256
+  // 相关的 MAX_LAYERS / V2B_* 等参数。
+  // ──────────────────────────────────────────────────────────────────────────
+
+  parameter int PROG_LEVELS  = 16;           // 4-bit 权重量化等级（16 档，0=HRS，15=LRS）
+  parameter int PROG_ROWS    = NUM_INPUTS;   // = 64，可编程行（= WL 数）
+  parameter int PROG_COLS    = ADC_CHANNELS; // = 20，可编程列（= ADC 通道/BL）
+
+  // 写入脉冲宽度三档（1us / 10us / 100us @ 50MHz 系统时钟）。
+  // 器件实际编程窗口待实验标定，因此给三档灵活选择；擦除固定 1ms。
+  parameter int PROG_WRITE_PULSE_1US_CYC   = 50;    // 1  us * 50 MHz =   50 cycles
+  parameter int PROG_WRITE_PULSE_10US_CYC  = 500;   // 10 us * 50 MHz =  500 cycles
+  parameter int PROG_WRITE_PULSE_100US_CYC = 5000;  // 100us * 50 MHz = 5000 cycles
+  parameter int PROG_ERASE_WIDTH_CYC       = 50000; // 1ms @ 50 MHz  = 50000 cycles
+  // 默认复位值 = 1us（最短，安全默认）
+  parameter int PROG_PULSE_WIDTH_CYC       = PROG_WRITE_PULSE_1US_CYC;
+
+  parameter int PROG_VERIFY_RETRY_MAX = 4;   // verify 失败后最大重试次数
+
+  // bl_sel 位宽上界：V1 单层只需 ADC_CHANNELS=20 通道，$clog2(20)=5。
+  // 为保持 cim_program_ctrl / cim_macro_arbiter 接口 V1↔V2 同构，这里统一
+  // 命名为 MAX_BL_SCAN（等价于 ADC_CHANNELS），方便未来复用代码。
+  parameter int MAX_BL_SCAN = ADC_CHANNELS;
+
 endpackage
 /* verilator lint_on UNUSEDPARAM */

@@ -52,6 +52,17 @@ sim/jtag_loader_test
 sim/jtag_rescue_top_test
 fpga/sim/*.vvp
 fpga/sim/*_manual
+sim/*.vvp
+
+# Vivado FPGA build artifacts (only fpga_synth/reports/*.rpt is worth tracking,
+# keep the timestamped project dirs + logs out of git)
+fpga_synth/v2b_synth_*/
+fpga_synth/*.jou
+fpga_synth/*.log
+fpga_synth/.Xil/
+fpga_synth/hs_err_pid*.log
+fpga_synth/replay_pid*.log
+fpga_synth/vivado_*.backup.*
 
 # tracked simulation build artifacts (cleanup)
 sim/csrc/

@@ -8,7 +8,10 @@
 module cim_macro_blackbox #(
   parameter int P_NUM_INPUTS   = snn_soc_pkg::NUM_INPUTS,
   parameter int P_ADC_CHANNELS = snn_soc_pkg::ADC_CHANNELS,
-  parameter int P_WEIGHT_BITS  = 4
+  parameter int P_WEIGHT_BITS  = 4,
+  // 2026-04-22 从 v2 移植编程接口后添加。weighted_icarus 模型专跑权重推理，
+  // 不走 program/erase 流程；该 param 仅用于端口签名兼容 snn_soc_top 的实例化。
+  parameter bit P_USE_BRAM_WEIGHTS = 1'b0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -19,9 +22,16 @@ module cim_macro_blackbox #(
   input  logic adc_start,
   output logic adc_done,
   input  logic [$clog2(P_ADC_CHANNELS)-1:0] bl_sel,
-  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data
+  output logic [snn_soc_pkg::ADC_BITS-1:0] bl_data,
+  // 编程接口（weighted_icarus 不使用；保留以匹配 snn_soc_top 实例化签名）
+  input  logic prog_en,
+  input  logic erase_en,
+  input  logic verify_en
 );
   import snn_soc_pkg::*;
+
+  // 未使用的编程端口，避免 lint
+  wire _unused_prog_weighted = &{1'b0, prog_en, erase_en, verify_en, P_USE_BRAM_WEIGHTS};
 
   localparam int P_NUM_OUTPUTS = NUM_OUTPUTS;
   localparam int BL_SEL_W      = $clog2(P_ADC_CHANNELS);

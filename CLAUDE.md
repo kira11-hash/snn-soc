@@ -129,6 +129,20 @@
 | 0x4000_0024 | 0x24 | REG_THRESHOLD_RATIO | 8-bit ratio_code（default 1，shadow） |
 | 0x4000_002C | 0x2C | REG_CIM_TEST | [0]=test_mode, [15:8]=test_data_pos, [23:16]=test_data_neg |
 
+### CIM 编程寄存器（基地址 `0x4000_0000`，2026-04-22 从 v2 移植）
+
+> 仅在 `snn_soc_top.ENABLE_PROGRAM_MODE=1` 时真正连接到 cim_program_ctrl；
+> 默认参数下（=0）寄存器存在但写入无任何硬件副作用。
+
+| 绝对地址 | offset | 名称 | 说明 |
+|------|------|------|------|
+| 0x4000_0038 | 0x38 | PROG_CTRL | [0]=START(W1P), [1]=ERASE(RW), [2]=FULL_ARRAY(RW), [7:4]=LEVEL(RW), [10:8]=RETRY_LIMIT(RW) |
+| 0x4000_003C | 0x3C | PROG_ROW | [5:0]=目标行（0~63） |
+| 0x4000_0040 | 0x40 | PROG_COL | [4:0]=目标列（0~19） |
+| 0x4000_0044 | 0x44 | PROG_STATUS | [0]=BUSY(RO), [1]=PASS(RO), [2]=FAIL(RO), [5:3]=RETRY_COUNT(RO), [7]=DONE(W1C) |
+| 0x4000_0090 | 0x90 | PROG_PULSE_WIDTH | [17:16]=写入脉冲档位 RW（0=1us/1=10us/2=100us/3=保留按100us），[15:0]=resolved cycles RO（default=50=1us@50MHz） |
+| 0x4000_0094 | 0x94 | PROG_ERASE_WIDTH | [15:0]=擦除脉冲宽度 RO（固定 50000=1ms@50MHz，逐 cell 与全阵列擦除共用，写入忽略） |
+
 ### DMA（基地址 `0x4000_0100`）
 
 | 绝对地址 | offset | 名称 | 说明 |
@@ -156,6 +170,8 @@
 - **黑盒 Icarus**（test mode，无权重）：`cd sim && bash run_icarus_light.sh`，通过标准：`LIGHT_SMOKETEST_PASS`
 - **带权重 Icarus**（真实权重 hex）：`cd sim && bash run_icarus_weighted.sh`，通过标准：`WEIGHTED_SIM_PASS` + `OUT_FIFO_COUNT > 0`
 - **VCS + Verdi**（SVA 断言 + 波形）：Linux，`+define+VCS`，通过标准：`WEIGHTED_SIM_PASS` + 零 assertion failure
+- **CIM 编程 FSM**：`bash run_cim_program_ctrl.sh` → `CIM_PROGRAM_CTRL_PASS`（8 个子测试）
+- **编程脉宽寄存器**：`bash run_prog_pulse_cfg.sh` → `PROG_PULSE_CFG_TB_PASS`（4 档 preset + erase fixed）
 - SVA 断言在 `` `ifdef VCS `` 内，Icarus 用 `-gno-assertions` 跳过
 
 ## 文件编码注意

@@ -148,7 +148,26 @@ module reg_bank (
 
   // 输出 FIFO 弹出控制（在 rvalid 那拍）
   // 由 pop_pending 2-cycle pipeline 驱动，确保读出后下一拍才 pop
-  output logic        out_fifo_pop
+  output logic        out_fifo_pop,
+
+  // ── CIM 编程寄存器（2026-04-22 从 v2 移植）──────────────────────────
+  // 输出：送给 cim_program_ctrl
+  output logic        prog_start_pulse, // W1P 启动编程序列
+  output logic        prog_erase,       // 0=SET 写入，1=RESET 擦除
+  output logic        prog_full_array,  // 全阵列擦除（仅 erase=1 时生效）
+  output logic [5:0]  prog_row,         // 目标行（0~63）
+  output logic [4:0]  prog_col,         // 目标列（0~19）
+  output logic [3:0]  prog_level,       // 目标等级（0~15）
+  output logic [2:0]  prog_retry_limit, // verify 失败最大重试次数
+  output logic [15:0] prog_pulse_width, // 写入脉冲宽度（cycles，由 preset 解出）
+  output logic [15:0] prog_erase_width, // 擦除脉冲宽度（cycles，固定 50000）
+
+  // 输入：来自 cim_program_ctrl（状态读回）
+  input  logic        prog_busy,
+  input  logic        prog_done_pulse,
+  input  logic        prog_pass,
+  input  logic        prog_fail,
+  input  logic [2:0]  prog_retry_count
 );
   import snn_soc_pkg::*;
 
@@ -180,16 +199,40 @@ module reg_bank (
   localparam logic [7:0] REG_DBG_CNT_0       = 8'h30; // [15:0]=dma_frame, [31:16]=cim_cycle
   localparam logic [7:0] REG_DBG_CNT_1       = 8'h34; // [15:0]=spike, [31:16]=wl_stall
 
+  // CIM 编程寄存器（2026-04-22 从 v2 移植）
+  localparam logic [7:0] REG_PROG_CTRL        = 8'h38; // [0]=START W1P, [1]=ERASE RW, [2]=FULL_ARRAY RW, [7:4]=LEVEL RW, [10:8]=RETRY_LIMIT RW
+  localparam logic [7:0] REG_PROG_ROW         = 8'h3C; // [5:0]=row (0~63)
+  localparam logic [7:0] REG_PROG_COL         = 8'h40; // [4:0]=col (0~19)
+  localparam logic [7:0] REG_PROG_STATUS      = 8'h44; // [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [7]=DONE W1C
+  localparam logic [7:0] REG_PROG_PULSE_WIDTH = 8'h90; // [17:16]=sel RW (0=1us/1=10us/2=100us/3=reserved->100us); [15:0]=resolved cycles RO
+  localparam logic [7:0] REG_PROG_ERASE_WIDTH = 8'h94; // [15:0]=erase cycles RO (fixed 50000=1ms, writes ignored)
+
   // -----------------------------------------------------------------------
   // 内部寄存器说明
   // threshold_ratio : Scheme B 阈值比例 shadow（不驱动硬件，仅 SW 可见）
   // done_sticky     : SNN 完成 sticky 标志（snn_done_pulse 置位，W1C 清零）
   // pop_pending     : OUT_FIFO pop 流水线第一级（读 REG_OUT_DATA 的下一拍触发 pop）
+  // prog_*          : CIM 编程寄存器状态 + sticky DONE（V1 单层编程能力）
   // -----------------------------------------------------------------------
   logic [7:0] threshold_ratio;
   logic done_sticky;
   logic pop_pending;
   logic out_data_read_seen;
+
+  // CIM programming internal state
+  logic prog_done_sticky;         // prog_done_pulse sticky, W1C via REG_PROG_STATUS[7]
+  logic [1:0] prog_write_pulse_sel; // 写入脉冲档位选择（0=1us, 1=10us, 2=100us, 3=保留）
+
+  // 将 sel 解码为 resolved cycles；档位 3 被视为保留，回退到最长的 100us（安全默认）。
+  function automatic logic [15:0] decode_write_pulse_width(input logic [1:0] sel);
+    case (sel)
+      2'd0: decode_write_pulse_width = PROG_WRITE_PULSE_1US_CYC[15:0];
+      2'd1: decode_write_pulse_width = PROG_WRITE_PULSE_10US_CYC[15:0];
+      2'd2: decode_write_pulse_width = PROG_WRITE_PULSE_100US_CYC[15:0];
+      // 2'd3 reserved：防止误写"1ms SET 脉冲"烧毁器件，钳到 100us
+      default: decode_write_pulse_width = PROG_WRITE_PULSE_100US_CYC[15:0];
+    endcase
+  endfunction
 
   // addr_offset 只取低 8 位用于寄存器解码
   wire [7:0] addr_offset = req_addr[7:0];
@@ -235,15 +278,32 @@ module reg_bank (
       cim_test_mode     <= 1'b0;
       cim_test_data_pos <= '0;
       cim_test_data_neg <= '0;
+      // CIM 编程寄存器复位（来自 snn_soc_pkg 常量）
+      prog_start_pulse  <= 1'b0;
+      prog_erase        <= 1'b0;
+      prog_full_array   <= 1'b0;
+      prog_row          <= 6'd0;
+      prog_col          <= 5'd0;
+      prog_level        <= 4'd0;
+      prog_retry_limit  <= PROG_VERIFY_RETRY_MAX[2:0];
+      prog_write_pulse_sel <= 2'd0;
+      prog_pulse_width  <= PROG_PULSE_WIDTH_CYC[15:0];
+      prog_erase_width  <= PROG_ERASE_WIDTH_CYC[15:0];
+      prog_done_sticky  <= 1'b0;
     end else begin
       // W1P 默认每拍清零（确保脉冲只有 1 拍宽度）
       // 这两行必须在 case 之前，以便 case 中的赋值可以覆盖它们
       start_pulse      <= 1'b0;
       soft_reset_pulse <= 1'b0;
+      prog_start_pulse <= 1'b0;
 
       // sticky DONE：SNN 推理完成脉冲将 done_sticky 置 1（直到 W1C 清零）
       if (snn_done_pulse) begin
         done_sticky <= 1'b1;
+      end
+      // CIM 编程完成脉冲 → sticky
+      if (prog_done_pulse) begin
+        prog_done_sticky <= 1'b1;
       end
 
       if (write_en) begin
@@ -283,12 +343,42 @@ module reg_bank (
             // W1P: START / RESET
             // 这三个控制位都位于 byte0，需同时满足 wstrb[0]=1 才生效
             // 写 bit[0]=1 → start_pulse 被置 1，覆盖本拍开头的默认清零
-            if (req_wstrb[0] && req_wdata[0]) start_pulse <= 1'b1;
+            // 编程进行中屏蔽推理启动，防止 arbiter 切换时 CIM 宏被两条路径同时驱动
+            if (req_wstrb[0] && req_wdata[0] && !prog_busy) start_pulse <= 1'b1;
             // 写 bit[1]=1 → soft_reset_pulse 被置 1，同上
             if (req_wstrb[0] && req_wdata[1]) soft_reset_pulse <= 1'b1;
             // W1C: DONE
             // 写 bit[7]=1 → done_sticky 清零（SW 确认完成）
             if (req_wstrb[0] && req_wdata[7]) done_sticky <= 1'b0;
+          end
+          REG_PROG_CTRL: begin
+            // 推理进行中屏蔽编程启动：两路径互锁，配合 arbiter 避免竞争
+            if (req_wstrb[0] && req_wdata[0] && !snn_busy) prog_start_pulse <= 1'b1;
+            if (req_wstrb[0]) prog_erase      <= req_wdata[1];
+            if (req_wstrb[0]) prog_full_array <= req_wdata[2];
+            if (req_wstrb[0]) prog_level      <= req_wdata[7:4];
+            if (req_wstrb[1]) prog_retry_limit<= req_wdata[10:8];
+          end
+          REG_PROG_ROW: begin
+            if (req_wstrb[0]) prog_row <= req_wdata[5:0];
+          end
+          REG_PROG_COL: begin
+            if (req_wstrb[0]) prog_col <= req_wdata[4:0];
+          end
+          REG_PROG_STATUS: begin
+            // W1C: DONE（bit[7]）— 软件确认编程完成
+            if (req_wstrb[0] && req_wdata[7]) prog_done_sticky <= 1'b0;
+          end
+          REG_PROG_PULSE_WIDTH: begin
+            // 档位在 byte2（bits[17:16]），需 wstrb[2]=1
+            if (req_wstrb[2]) begin
+              prog_write_pulse_sel <= req_wdata[17:16];
+              prog_pulse_width     <= decode_write_pulse_width(req_wdata[17:16]);
+            end
+          end
+          REG_PROG_ERASE_WIDTH: begin
+            // 擦除脉宽故意硬编码为 1ms，忽略写入（防止误写短脉宽烧伤器件）
+            prog_erase_width <= PROG_ERASE_WIDTH_CYC[15:0];
           end
           default: begin
             // 其他地址忽略（包括只读寄存器：写入无效）
@@ -398,6 +488,14 @@ module reg_bank (
       REG_DBG_CNT_0:       rdata = {dbg_cim_cycle_cnt, dbg_dma_frame_cnt};
       // Debug 计数器 1：高 16=wl_stall，低 16=spike
       REG_DBG_CNT_1:       rdata = {dbg_wl_stall_cnt, dbg_spike_cnt};
+      // CIM 编程寄存器
+      // REG_PROG_CTRL readback: 重组 {21'h0, retry_limit[2:0], level[3:0], 1'b0, full_array, erase, 1'b0(START=W1P 读 0)}
+      REG_PROG_CTRL:       rdata = {21'h0, prog_retry_limit, prog_level, 1'b0, prog_full_array, prog_erase, 1'b0};
+      REG_PROG_ROW:        rdata = {26'h0, prog_row};
+      REG_PROG_COL:        rdata = {27'h0, prog_col};
+      REG_PROG_STATUS:     rdata = {24'h0, prog_done_sticky, 1'b0, prog_retry_count, prog_fail, prog_pass, prog_busy};
+      REG_PROG_PULSE_WIDTH: rdata = {14'h0, prog_write_pulse_sel, prog_pulse_width};
+      REG_PROG_ERASE_WIDTH: rdata = {16'h0, prog_erase_width};
       default:        rdata = 32'h0; // 未映射地址读回 0
     endcase
   end
