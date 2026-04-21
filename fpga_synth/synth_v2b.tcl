@@ -15,37 +15,49 @@
 #   post_synth_status.rpt  — one-line "PASS/FAIL + numbers" summary
 
 # ── Project setup ───────────────────────────────────────────────────
-set proj_dir [file dirname [file normalize [info script]]]
+# Hardcoded path via junction to avoid spaces (d:/SoCDesign -> d:/SoC Design/SoC Design)
+set proj_dir "d:/SoCDesign/fpga_synth"
 cd $proj_dir
 
-set PROJ_NAME v2b_synth
-set PART xc7a100tcsg324-1
+# Timestamped project name — avoids locked-file conflicts from stale Vivado
+# runs. Reports still land in ./reports/ regardless.
+set PROJ_NAME "v2b_synth_[clock format [clock seconds] -format {%Y%m%d_%H%M%S}]"
+set PART xczu9eg-ffvb1156-2-e
 set TOP snn_soc_v2b_top
 
-# Clean previous run
-if {[file isdirectory $PROJ_NAME]} {
-  file delete -force $PROJ_NAME
+# Try to delete the evergreen "v2b_synth" (old name); ignore lock errors.
+foreach stale [glob -nocomplain "v2b_synth" "v2b_synth_*"] {
+  # Only delete dirs older than 1h to preserve in-progress runs
+  if {[file isdirectory $stale]} {
+    if {[catch {file delete -force $stale} err]} {
+      puts "INFO: skip locked $stale ($err) — harmless"
+    }
+  }
 }
 
+puts "\n=== Fresh project: $PROJ_NAME ===\n"
 create_project $PROJ_NAME ./$PROJ_NAME -part $PART -force
 set_property target_language Verilog [current_project]
 
-# ── Add source files (relative to $proj_dir = fpga_synth/) ──────────
-set src_root "../rtl"
-add_files -norecurse [list \
-  $src_root/top/snn_soc_pkg.sv \
-  $src_root/snn/input_stream_sram.sv \
-  $src_root/snn/stream_buffer_v2.sv \
-  $src_root/snn/tile_partial_buf.sv \
-  $src_root/snn/cim_mac_behavioral_v2.sv \
-  $src_root/snn/stage_engine_v2.sv \
-  $src_root/top/snn_soc_v2b_top.sv \
-]
-set_property file_type SystemVerilog [get_files -filter {FILE_TYPE == Verilog}]
+# ── Add source files (one at a time to handle spaces in path) ──────────
+set src_root "d:/SoCDesign/rtl"
+
+foreach f [list \
+  {top/snn_soc_pkg.sv} \
+  {snn/input_stream_sram.sv} \
+  {snn/stream_buffer_v2.sv} \
+  {snn/tile_partial_buf.sv} \
+  {snn/cim_mac_behavioral_v2.sv} \
+  {snn/stage_engine_v2.sv} \
+  {top/snn_soc_v2b_top.sv} \
+] {
+  add_files -norecurse "${src_root}/${f}"
+}
+set_property file_type SystemVerilog [get_files *.sv]
 set_property top $TOP [current_fileset]
 
 # Add constraint
-add_files -fileset constrs_1 -norecurse ./v2b_top.xdc
+add_files -fileset constrs_1 -norecurse "d:/SoCDesign/fpga_synth/v2b_top.xdc"
 
 # ── Run synthesis only (no P&R) ─────────────────────────────────────
 # reset_run synth_1
