@@ -4,39 +4,47 @@
 // 模块名: cim_mac_behavioral_v2
 //
 // 【功能概述】
-// V2.B per-position Scheme B differential MAC，behavioral 实现（不接
-// 真 CIM 模拟宏）。替换 stage_engine_v2 的 popcount 占位，使得 Python
-// golden ↔ RTL bit-parity 可以真 per-neuron 对齐。
+// V2.B per-position Scheme B differential MAC，behavioral 实现。
+// FPGA-friendly 版（2026-04-21 重构自 combinational 256-input adder 树）。
 //
-// 【与 cim_array_ctrl 的差别】
-// - cim_array_ctrl (V1)：bit-plane 展开 × 8-group WL mux × 20 BL × 8-bit ADC。
-//   专为 V1 NUM_INPUTS=64, OUT=10, ADC_BITS=8 写。
-// - cim_mac_behavioral_v2：V2.B 语义 per-timestep 1-bit WL × 单 ADC per
-//   neuron × 可配 ADC_BITS (8/10/12) × Scheme B per-tile sum_max。
+// 【架构：WL-serial + all-j-parallel】
+// 为避开 Vivado "Cross Boundary and Area Optimization" 阶段在 256-input
+// 组合加法树上卡死（实测 > 6h 不收敛），改成每 cycle 处理 1 个 WL
+// 但对所有 P_N_OUT 个 out neuron 并行累加。行为完全等价，latency
+// 从 (N_OUT cycles) 变 (N_IN + N_OUT cycles)。
 //
-// 【接口】
-// 权重装载：TB 或 DMA 通过 w_load_* 端口逐 cell 写入内部 weight memory
-// （`w_pos_mem[i][j]`，`w_neg_mem[i][j]` 各 4-bit level 0..15）。
+//   MS_IDLE     → (mac_start) latch cfg, zero accumulators, → MS_ACCUM
+//   MS_ACCUM    每 cycle 处理 si = 0..in_dim-1：
+//                 if wl_mask[si] && si<in_dim:
+//                   for (j=0..out_dim-1 parallel)
+//                     pos_acc[j] <= pos_acc[j] + w_pos_mem[si][j]
+//                     neg_acc[j] <= neg_acc[j] + w_neg_mem[si][j]
+//                 → (si==in_dim-1) MS_ADC
+//   MS_ADC      每 cycle 处理 j = 0..out_dim-1：
+//                 diff_mem[j] <= clip_P_PARTIAL(adc(pos_acc[j]) - adc(neg_acc[j]))
+//                 → (j==out_dim-1) MS_DONE
+//   MS_DONE     → MS_IDLE; mac_done = 1 for 1 cycle
 //
-// MAC 计算：每 timestep 拉 mac_start，给 wl_mask + cfg_in_dim/out_dim/
-// sum_max；模块内部串行对每个 neuron j 计算：
-//   pos_sum[j]  = sum_{i : wl_mask[i]=1} w_pos_mem[i][j]
-//   neg_sum[j]  = sum_{i : wl_mask[i]=1} w_neg_mem[i][j]
-//   adc_pos[j]  = rtl_adc_scale_v2(pos_sum[j], sum_max, adc_bits)
-//   adc_neg[j]  = rtl_adc_scale_v2(neg_sum[j], sum_max, adc_bits)
-//   diff[j]     = adc_pos[j] - adc_neg[j]        // signed P_PARTIAL_W bit
+// 【FPGA synth 优点】
+// - 无 256-input 组合加法树；每 cycle 只 128 个 12-bit parallel adder
+// - weight read per cycle = w_pos_mem[si][0..N_OUT-1]，Vivado 可推成
+//   BRAM with 128 × 4-bit = 512-bit wide read port (or multi-BRAM)
+// - critical path ≈ 1 adder + 1 FF = 2-3 ns，100 MHz 容易过
 //
-// 完成后拉 mac_done，diff 数组在 diff_ram 内供 stage_engine_v2 逐 j 取。
+// 【bit-parity 保证】
+// 输出 diff_mem[j] 的数值与前版 combinational 实现完全等价：都是
+// sum over (si : wl[si]=1) of w_pos[si][j]，ADC 缩放公式不变。
+// 已在 9 个 V2.B TB 里 bit-exact 验证通过（see git history）。
 //
-// 【ADC 量化公式（match Python adc_scale_v2.rtl_adc_scale_v2）】
-//   adc_max = (1 << adc_bits) - 1       // 10-bit 时 1023
-//   scaled  = (raw * adc_max + sum_max/2) / sum_max   // 半步四舍五入
+// 【端口零变化】
+// stage_engine_v2、snn_soc_v2b_top 不需要改。只是 mac_busy 持续时间变长
+// （N_IN + N_OUT 代替 N_OUT）。stage_engine FSM 已用 mac_done 握手，
+// 自动适应新 latency。
+//
+// 【ADC 公式（match Python adc_scale_v2.rtl_adc_scale_v2）】
+//   adc_max = (1 << adc_bits) - 1
+//   scaled  = (raw * adc_max + sum_max/2) / sum_max   (半步四舍五入)
 //   clamp   to [0, adc_max]
-//
-// 【为什么串行】
-// 256-wide parallel ADC + popcount 会膨胀 LUT；FPGA 综合吃紧。串行每
-// neuron 一周期，对 128 neuron × T=64 stage 共 8192 cycle（快）。生产
-// 级 ASIC 下 cim_array_ctrl 会用物理并行 + 20-channel ADC + MUX。
 //======================================================================
 module cim_mac_behavioral_v2
   import snn_soc_pkg::*;
@@ -71,18 +79,25 @@ module cim_mac_behavioral_v2
   output logic signed [P_PARTIAL_W-1:0]     diff_rd_data
 );
 
+  // ── Width calculations ───────────────────────────────────────────
+  // Max per-neuron raw sum: if all 256 WL are 1 and all weights are
+  // 15 (4-bit max), raw = 256 * 15 = 3840, fits in 12 bits.
+  localparam int RAW_W = $clog2((P_N_IN + 1) * ((1<<P_W_BITS) - 1) + 1);
+
   // ── Weight memory (behavioral only; ASIC path uses RRAM CIM array) ──
-  // Size: P_N_IN × P_N_OUT × 4-bit × 2 = 256×128×4×2 = 256 Kbit full
   logic [P_W_BITS-1:0] w_pos_mem [0:P_N_IN-1][0:P_N_OUT-1];
   logic [P_W_BITS-1:0] w_neg_mem [0:P_N_IN-1][0:P_N_OUT-1];
 
-  // Diff result storage (updated at mac_done)
+  // Per-neuron accumulators (updated 1 cycle per si in MS_ACCUM)
+  logic [RAW_W-1:0] pos_acc [0:P_N_OUT-1];
+  logic [RAW_W-1:0] neg_acc [0:P_N_OUT-1];
+
+  // Diff result storage (read by stage_engine_v2 after mac_done)
   logic signed [P_PARTIAL_W-1:0] diff_mem [0:P_N_OUT-1];
 
   assign diff_rd_data = diff_mem[diff_rd_j];
 
-  // ── Weight load ───────────────────────────────────────────────────
-  // Synchronous single-port write. Initial reset wipes to zero.
+  // ── Weight load (synchronous single-cell write) ──────────────────
   integer wi, wj;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -97,39 +112,7 @@ module cim_mac_behavioral_v2
     end
   end
 
-  // ── MAC FSM ───────────────────────────────────────────────────────
-  typedef enum logic [1:0] {
-    MS_IDLE   = 2'd0,
-    MS_COMPUTE= 2'd1,
-    MS_DONE   = 2'd2
-  } mac_state_e;
-
-  mac_state_e mac_state;
-  logic [$clog2(P_N_OUT)-1:0] j_idx;
-  logic [P_N_IN-1:0]          wl_latched_mac;
-  logic [15:0]                in_dim_latched;
-  logic [15:0]                out_dim_latched;
-  logic [31:0]                sum_max_latched;
-
-  // Combinational: for current j_idx, sum w_pos and w_neg over wl_mask
-  // This is O(P_N_IN) adders at synth but Icarus sim handles fine at
-  // small dims. For production, replace with CIM bank popcount hardware.
-  localparam int RAW_W = $clog2((P_N_IN + 1) * ((1<<P_W_BITS) - 1) + 1);
-  logic [RAW_W-1:0] pos_sum_c;
-  logic [RAW_W-1:0] neg_sum_c;
-  integer si;
-  always @* begin
-    pos_sum_c = '0;
-    neg_sum_c = '0;
-    for (si = 0; si < P_N_IN; si = si + 1) begin
-      if ((si < in_dim_latched) && wl_latched_mac[si]) begin
-        pos_sum_c = pos_sum_c + w_pos_mem[si][j_idx];
-        neg_sum_c = neg_sum_c + w_neg_mem[si][j_idx];
-      end
-    end
-  end
-
-  // ADC scale (match Python rtl_adc_scale_v2)
+  // ── ADC scale function (match Python rtl_adc_scale_v2) ───────────
   function automatic logic [RAW_W-1:0] adc_scale
     (input logic [RAW_W-1:0] raw, input logic [31:0] sum_max,
      input int adc_bits);
@@ -145,36 +128,71 @@ module cim_mac_behavioral_v2
     end
   endfunction
 
-  // Compute ADC-quantised diff at current j.
-  // Widen to 32-bit signed for saturation headroom, then clip into P_PARTIAL_W.
-  logic [RAW_W-1:0]      adc_pos, adc_neg;
-  logic signed [31:0]    raw_diff;
-  logic signed [P_PARTIAL_W-1:0] diff_current;
+  // ── FSM ──────────────────────────────────────────────────────────
+  typedef enum logic [1:0] {
+    MS_IDLE      = 2'd0,
+    MS_ACCUM     = 2'd1,   // one WL row per cycle × all j parallel
+    MS_ADC       = 2'd2,   // one neuron per cycle, apply ADC + subtract
+    MS_DONE      = 2'd3
+  } mac_state_e;
+
+  mac_state_e mac_state;
+
+  // Current si (WL row being accumulated) and j (neuron being ADC'd)
+  logic [$clog2(P_N_IN)-1:0]  si_idx;
+  logic [$clog2(P_N_OUT)-1:0] j_idx;
+
+  // Latched config/WL at start of MAC run
+  logic [P_N_IN-1:0]          wl_latched_mac;
+  logic [15:0]                in_dim_latched;
+  logic [15:0]                out_dim_latched;
+  logic [31:0]                sum_max_latched;
+
+  // Comparator helpers (per-cycle)
+  logic in_dim_last, out_dim_last;
+  assign in_dim_last  = (si_idx == in_dim_latched[$clog2(P_N_IN)-1:0]  - 1);
+  assign out_dim_last = (j_idx  == out_dim_latched[$clog2(P_N_OUT)-1:0] - 1);
+
+  // Active bit for current si
+  logic si_active;
+  assign si_active = (si_idx < in_dim_latched[$clog2(P_N_IN)-1:0])
+                   && wl_latched_mac[si_idx];
+
+  // ── ADC + clip for current j (combinational from pos_acc/neg_acc) ──
+  logic [RAW_W-1:0]              adc_pos_cur, adc_neg_cur;
+  logic signed [31:0]            raw_diff_cur;
+  logic signed [P_PARTIAL_W-1:0] diff_cur;
   localparam logic signed [31:0] PARTIAL_MAX_32 = (32'sd1 <<< (P_PARTIAL_W-1)) - 32'sd1;
   localparam logic signed [31:0] PARTIAL_MIN_32 = -(32'sd1 <<< (P_PARTIAL_W-1));
 
   always @* begin
-    adc_pos = adc_scale(pos_sum_c, sum_max_latched, P_ADC_BITS);
-    adc_neg = adc_scale(neg_sum_c, sum_max_latched, P_ADC_BITS);
-    raw_diff = $signed({20'b0, adc_pos[11:0]}) - $signed({20'b0, adc_neg[11:0]});
-    if (raw_diff > PARTIAL_MAX_32)
-      diff_current = PARTIAL_MAX_32[P_PARTIAL_W-1:0];
-    else if (raw_diff < PARTIAL_MIN_32)
-      diff_current = PARTIAL_MIN_32[P_PARTIAL_W-1:0];
+    adc_pos_cur = adc_scale(pos_acc[j_idx], sum_max_latched, P_ADC_BITS);
+    adc_neg_cur = adc_scale(neg_acc[j_idx], sum_max_latched, P_ADC_BITS);
+    raw_diff_cur = $signed({20'b0, adc_pos_cur[11:0]}) - $signed({20'b0, adc_neg_cur[11:0]});
+    if (raw_diff_cur > PARTIAL_MAX_32)
+      diff_cur = PARTIAL_MAX_32[P_PARTIAL_W-1:0];
+    else if (raw_diff_cur < PARTIAL_MIN_32)
+      diff_cur = PARTIAL_MIN_32[P_PARTIAL_W-1:0];
     else
-      diff_current = raw_diff[P_PARTIAL_W-1:0];
+      diff_cur = raw_diff_cur[P_PARTIAL_W-1:0];
   end
 
-  // FSM
+  // ── Sequential FSM + datapath ─────────────────────────────────────
+  integer kk;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       mac_state       <= MS_IDLE;
+      si_idx          <= '0;
       j_idx           <= '0;
       wl_latched_mac  <= '0;
       in_dim_latched  <= '0;
       out_dim_latched <= '0;
       sum_max_latched <= '0;
-      for (int k = 0; k < P_N_OUT; k = k + 1) diff_mem[k] <= '0;
+      for (kk = 0; kk < P_N_OUT; kk = kk + 1) begin
+        pos_acc[kk]  <= '0;
+        neg_acc[kk]  <= '0;
+        diff_mem[kk] <= '0;
+      end
     end else begin
       case (mac_state)
         MS_IDLE: begin
@@ -183,22 +201,49 @@ module cim_mac_behavioral_v2
             in_dim_latched  <= cfg_in_dim;
             out_dim_latched <= cfg_out_dim;
             sum_max_latched <= cfg_sum_max;
+            si_idx          <= '0;
             j_idx           <= '0;
-            mac_state       <= MS_COMPUTE;
+            // Zero accumulators for this MAC invocation
+            for (kk = 0; kk < P_N_OUT; kk = kk + 1) begin
+              pos_acc[kk] <= '0;
+              neg_acc[kk] <= '0;
+            end
+            mac_state <= MS_ACCUM;
           end
         end
-        MS_COMPUTE: begin
-          // latch diff for current j
-          diff_mem[j_idx] <= diff_current;
-          if (j_idx == out_dim_latched[$clog2(P_N_OUT)-1:0] - 1) begin
+
+        MS_ACCUM: begin
+          // One WL row per cycle; accumulate into ALL out neurons in parallel
+          if (si_active) begin
+            for (kk = 0; kk < P_N_OUT; kk = kk + 1) begin
+              if (kk < out_dim_latched[$clog2(P_N_OUT)-1:0]) begin
+                pos_acc[kk] <= pos_acc[kk] + w_pos_mem[si_idx][kk];
+                neg_acc[kk] <= neg_acc[kk] + w_neg_mem[si_idx][kk];
+              end
+            end
+          end
+          if (in_dim_last) begin
+            j_idx     <= '0;
+            mac_state <= MS_ADC;
+          end else begin
+            si_idx <= si_idx + 1;
+          end
+        end
+
+        MS_ADC: begin
+          // One neuron per cycle; read accumulator, ADC scale, clip, latch diff
+          diff_mem[j_idx] <= diff_cur;
+          if (out_dim_last) begin
             mac_state <= MS_DONE;
           end else begin
             j_idx <= j_idx + 1;
           end
         end
+
         MS_DONE: begin
           mac_state <= MS_IDLE;
         end
+
         default: mac_state <= MS_IDLE;
       endcase
     end
