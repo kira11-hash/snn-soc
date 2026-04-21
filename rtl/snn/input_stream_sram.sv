@@ -51,10 +51,38 @@ module input_stream_sram
   input  logic                    clear_all    // 单拍脉冲；优先级高于 wr_en
 );
 
-  // BRAM-inferrable array. Xilinx Vivado / Icarus 均可综合/仿真。
+  // BRAM-inferrable 1D array. Vivado infers BRAM for wide words
+  // (P_WIDTH=256 split across multiple BRAMs).
+  (* ram_style = "block" *)
   logic [P_WIDTH-1:0] mem [0:P_DEPTH-1];
 
-  // 同步写 + 清零
+`ifdef SYNTHESIS
+  // ── Synth path: counter-walker for clear, NO reset-broadcast ──────
+  // Rationale: P_DEPTH-cell reset fan-out is a Vivado synth hazard
+  // (clear_all wipes 65536 bits in one cycle → reset fan-out on BRAM).
+  // By contract firmware waits P_DEPTH cycles after clear pulse.
+  logic [$clog2(P_DEPTH)-1:0] clr_ctr_isr;
+  logic                        clr_busy_isr;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      clr_busy_isr <= 1'b0;
+      clr_ctr_isr  <= '0;
+    end else if (clear_all && !clr_busy_isr) begin
+      clr_busy_isr <= 1'b1;
+      clr_ctr_isr  <= '0;
+    end else if (clr_busy_isr) begin
+      clr_ctr_isr <= clr_ctr_isr + 1;
+      if (clr_ctr_isr == ($clog2(P_DEPTH))'(P_DEPTH-1)) clr_busy_isr <= 1'b0;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (clr_busy_isr)   mem[clr_ctr_isr] <= '0;
+    else if (wr_en)     mem[wr_addr]     <= wr_data;
+  end
+
+`else
+  // ── Sim path: single-cycle broadcast clear (Icarus / bit-exact) ──
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       for (int i = 0; i < P_DEPTH; i++) mem[i] <= '0;
@@ -64,6 +92,7 @@ module input_stream_sram
       mem[wr_addr] <= wr_data;
     end
   end
+`endif
 
   // 同步读（1 cycle latency；和 Xilinx BRAM read-first 一致）
   always_ff @(posedge clk or negedge rst_n) begin

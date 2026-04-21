@@ -84,33 +84,56 @@ module cim_mac_behavioral_v2
   // 15 (4-bit max), raw = 256 * 15 = 3840, fits in 12 bits.
   localparam int RAW_W = $clog2((P_N_IN + 1) * ((1<<P_W_BITS) - 1) + 1);
 
-  // ── Weight memory (behavioral only; ASIC path uses RRAM CIM array) ──
-  logic [P_W_BITS-1:0] w_pos_mem [0:P_N_IN-1][0:P_N_OUT-1];
-  logic [P_W_BITS-1:0] w_neg_mem [0:P_N_IN-1][0:P_N_OUT-1];
+  // ── Weight memory: 1D packed word per si row ────────────────────
+  // Before (Vivado 3D-RAM killer):
+  //   logic [3:0] w_pos_mem [0:P_N_IN-1][0:P_N_OUT-1];  // 3D unpacked
+  // After (1D BRAM-friendly):
+  //   Each row = P_N_OUT × P_W_BITS = 512-bit packed word; per-cycle
+  //   read delivers all neurons' weights for the current si in parallel.
+  //   Vivado partitions across multiple BRAMs (72-bit port max → 8 BRAMs).
+  localparam int P_ROW_BITS = P_N_OUT * P_W_BITS;  // 128 × 4 = 512
+  (* ram_style = "block" *)
+  logic [P_ROW_BITS-1:0] w_pos_mem [0:P_N_IN-1];
+  (* ram_style = "block" *)
+  logic [P_ROW_BITS-1:0] w_neg_mem [0:P_N_IN-1];
 
-  // Per-neuron accumulators (updated 1 cycle per si in MS_ACCUM)
+  // Per-neuron accumulators (128 FF × 12-bit = 1536 FF — small, OK)
   logic [RAW_W-1:0] pos_acc [0:P_N_OUT-1];
   logic [RAW_W-1:0] neg_acc [0:P_N_OUT-1];
 
-  // Diff result storage (read by stage_engine_v2 after mac_done)
+  // Diff result storage (128 × 14-bit = 1792 FF, distributed RAM)
+  (* ram_style = "distributed" *)
   logic signed [P_PARTIAL_W-1:0] diff_mem [0:P_N_OUT-1];
 
   assign diff_rd_data = diff_mem[diff_rd_j];
 
-  // ── Weight load (synchronous single-cell write) ──────────────────
-  integer wi, wj;
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      for (wi = 0; wi < P_N_IN; wi = wi + 1)
-        for (wj = 0; wj < P_N_OUT; wj = wj + 1) begin
-          w_pos_mem[wi][wj] <= '0;
-          w_neg_mem[wi][wj] <= '0;
-        end
-    end else if (w_load_en) begin
-      w_pos_mem[w_load_i][w_load_j] <= w_load_pos_data;
-      w_neg_mem[w_load_i][w_load_j] <= w_load_neg_data;
+  // ── Weight load: subset write within 512-bit packed row ──────────
+  // Vivado synthesises `mem[addr][slice] <= data` as BRAM write-enable
+  // on the byte/nibble lane corresponding to the slice.
+`ifdef SYNTHESIS
+  // Synth: no reset-broadcast. Initial contents are don't-care until
+  // firmware loads. Real HW deployment will overwrite before first MAC.
+  always_ff @(posedge clk) begin
+    if (w_load_en) begin
+      w_pos_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_pos_data;
+      w_neg_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_neg_data;
     end
   end
+`else
+  // Sim: reset all cells to 0 for deterministic TB behaviour.
+  integer wi;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      for (wi = 0; wi < P_N_IN; wi = wi + 1) begin
+        w_pos_mem[wi] <= '0;
+        w_neg_mem[wi] <= '0;
+      end
+    end else if (w_load_en) begin
+      w_pos_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_pos_data;
+      w_neg_mem[w_load_i][w_load_j*P_W_BITS +: P_W_BITS] <= w_load_neg_data;
+    end
+  end
+`endif
 
   // ── ADC scale function (match Python rtl_adc_scale_v2) ───────────
   function automatic logic [RAW_W-1:0] adc_scale
@@ -213,12 +236,18 @@ module cim_mac_behavioral_v2
         end
 
         MS_ACCUM: begin
-          // One WL row per cycle; accumulate into ALL out neurons in parallel
+          // One WL row per cycle; accumulate into ALL out neurons in parallel.
+          // Read the 512-bit packed row once, then bit-slice per neuron j.
+          // Vivado will pipeline the BRAM read through [kk*P_W_BITS +: P_W_BITS].
           if (si_active) begin
             for (kk = 0; kk < P_N_OUT; kk = kk + 1) begin
               if (kk < out_dim_latched[$clog2(P_N_OUT)-1:0]) begin
-                pos_acc[kk] <= pos_acc[kk] + w_pos_mem[si_idx][kk];
-                neg_acc[kk] <= neg_acc[kk] + w_neg_mem[si_idx][kk];
+                pos_acc[kk] <= pos_acc[kk]
+                              + {{(RAW_W-P_W_BITS){1'b0}},
+                                 w_pos_mem[si_idx][kk*P_W_BITS +: P_W_BITS]};
+                neg_acc[kk] <= neg_acc[kk]
+                              + {{(RAW_W-P_W_BITS){1'b0}},
+                                 w_neg_mem[si_idx][kk*P_W_BITS +: P_W_BITS]};
               end
             end
           end

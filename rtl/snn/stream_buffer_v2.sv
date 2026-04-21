@@ -49,8 +49,32 @@ module stream_buffer_v2
   input  logic                    clear_all
 );
 
+  (* ram_style = "block" *)
   logic [P_WIDTH-1:0] mem [0:P_DEPTH-1];
 
+`ifdef SYNTHESIS
+  // Synth: counter-walker clear to avoid P_DEPTH-wide reset fan-out.
+  // Firmware must wait P_DEPTH cycles after clear pulse.
+  logic [$clog2(P_DEPTH)-1:0] clr_ctr_sb;
+  logic                        clr_busy_sb;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      clr_busy_sb <= 1'b0;
+      clr_ctr_sb  <= '0;
+    end else if (clear_all && !clr_busy_sb) begin
+      clr_busy_sb <= 1'b1;
+      clr_ctr_sb  <= '0;
+    end else if (clr_busy_sb) begin
+      clr_ctr_sb <= clr_ctr_sb + 1;
+      if (clr_ctr_sb == ($clog2(P_DEPTH))'(P_DEPTH-1)) clr_busy_sb <= 1'b0;
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (clr_busy_sb) mem[clr_ctr_sb] <= '0;
+    else if (wr_en)  mem[wr_addr]    <= wr_data;
+  end
+`else
+  // Sim: single-cycle broadcast clear (bit-exact to existing TBs).
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       for (int i = 0; i < P_DEPTH; i++) mem[i] <= '0;
@@ -60,6 +84,7 @@ module stream_buffer_v2
       mem[wr_addr] <= wr_data;
     end
   end
+`endif
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
