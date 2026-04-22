@@ -55,8 +55,11 @@ Base `0x4000_0000`。保留 V1 寄存器 0x00~0x44（不变）。V2.B 新增在 
 | 0x64 | STAGE_CFG3 | TILE_MODE | [16] | RW | 0 | 1=partial-sum 累加到 tile_partial_buf，不做 LIF |
 | 0x64 | STAGE_CFG3 | IS_TILE_FINAL | [17] | RW | 1 | 1=最后 tile，触发 LIF + 写 output_stream_dst |
 | 0x64 | STAGE_CFG3 | PRESERVE_MEMBRANE | [18] | RW | 0 | 1=stage 起始不清 membrane（特殊用途；默认清零） |
-| 0x68 | STAGE_CFG4 | WEIGHT_POS_ADDR | [31:0] | RW | 0 | 本 stage 正权重 SRAM 基址（resident 时指 CIM 阵列 row） |
-| 0x6C | STAGE_CFG5 | WEIGHT_NEG_ADDR | [31:0] | RW | 0 | 本 stage 负权重 SRAM 基址 |
+| 0x68 | STAGE_CFG4 | RESERVED | [31:0] | RW | 0 | 保留。未来 descriptor-DMA weight load 会占用此 slot（Phase C2） |
+| 0x6C | STAGE_CFG5 | T_COUNT | [15:0] | RW | 0 | 本次 run 的 timestep 数（1..MAX_TIMESTEPS；0 非法会返回 DIM_OUT_OF_RANGE）|
+| 0x6C | STAGE_CFG5 | RESERVED | [31:16] | RW | 0 | 保留 |
+
+> **[BLOCK-V2-02 对齐说明，2026-04-22]** 早期草稿把 CFG4/CFG5 记为 weight 基址，但标准 standalone V2.B top (`rtl/top/snn_soc_v2b_top.sv`) 实际用 CFG5[15:0]=T_COUNT，CFG4 保留。权重加载走独立的 `MAC_W_LOAD_{ADDR,DATA,CTRL}` 寄存器（`v2b_soc_regs.h:50-52`）或 Phase C2 的 descriptor-DMA 路径，而不是 CFG4/CFG5。固件/RTL/doc 三方现已一致。
 
 ### STREAM_BUF（swap_stream_buffers primitive）
 
@@ -285,7 +288,7 @@ reprogram latency 决定 28×28 scalability demo 不进 accuracy 主表。
 | 28×28 tile (784_*) | **tile reprogram** | 784 > 256 WL，必须 4 tile 切分 | P12 scalability |
 | 8+ 层 chunk deep | **chunk reprogram** | 层数 > MAX_LAYERS，分 chunk 重编权重 | P10 scalability |
 
-**B0.6 gate**：14×14 主 demo 必须 resident，不 reprogram。否则 accelerator 叙事弱。14×14 resident 搭 `STAGE_CTRL.START` 时只切 `WEIGHT_POS_ADDR / WEIGHT_NEG_ADDR` 寄存器（权重指针指向 CIM 阵列不同 row range），不调 `cim_program_ctrl`。
+**B0.6 gate**：14×14 主 demo 必须 resident，不 reprogram。否则 accelerator 叙事弱。14×14 resident 启动 `STAGE_CTRL.START` 时权重已通过 boot 阶段的 `MAC_W_LOAD_{ADDR,DATA,CTRL}`（标准 V2.B top）或 Phase C2 descriptor-DMA 路径提前写好，stage-run 期间不切权重，也不调 `cim_program_ctrl`。（早期草稿用过 "切 WEIGHT_POS_ADDR/WEIGHT_NEG_ADDR 寄存器" 的说法；那套 CFG4/CFG5=weight-addr 方案已在 BLOCK-V2-02 对齐中废弃，详见 B0.1 末尾的对齐说明。）
 
 ---
 

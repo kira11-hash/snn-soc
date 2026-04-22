@@ -68,7 +68,36 @@ static inline void v2b_load_input_stream(const void *src,
     for (uint32_t i = 0; i < length_bytes; i++) dst[i] = s[i];
 }
 
-/* ── Primitive (3): run_streamed_stage with a fully configured stage_desc ── */
+/* ── Primitive (3): run_streamed_stage with a fully configured stage_desc ──
+ *
+ * BLOCK-V2-02 fix (2026-04-22 GPT dual-line audit):
+ *   Previous implementation stashed `weight_pos_addr` into CFG4 and
+ *   `weight_neg_addr` into CFG5, and commented "t_count is sneakily stashed
+ *   into CFG0 upper 16 bits" — but CFG0 upper 16 is out_dim, and the actual
+ *   standalone RTL uses CFG5[15:0] = t_count (see
+ *   rtl/top/snn_soc_v2b_top.sv:45 and fw/include/v2b_soc_regs.h:35).
+ *
+ *   Under the old layout, firmware running the descriptor path would write
+ *   weight_neg_addr (often > 256) into CFG5[15:0], making `cfg_t_count`
+ *   out of range → stage_engine returns DIM_OUT_OF_RANGE → bit-parity path
+ *   silently diverges from the resident hardcoded path that works.
+ *
+ * Fixed register contract (aligned to RTL standalone V2.B top):
+ *   CFG0[15:0]   = in_dim
+ *   CFG0[31:16]  = out_dim
+ *   CFG1         = threshold
+ *   CFG2         = sum_max (override if non-zero, else descriptor value)
+ *   CFG3         = packed {input_src, output_dst, tile_mode, is_tile_final, preserve}
+ *   CFG4         = reserved (future: descriptor-DMA weight base address)
+ *   CFG5[15:0]   = t_count
+ *
+ * Weight loading in standalone V2.B does NOT go through CFG4/CFG5. It uses
+ * the MAC_W_LOAD_{ADDR,DATA,CTRL} path (see v2b_soc_regs.h:50-52). The
+ * `weight_pos_addr`/`weight_neg_addr` fields stay in v2b_stage_desc_t so
+ * the exporter's binary descriptor is stable, but this primitive ignores
+ * them until the full reg_bank integration re-introduces descriptor-DMA
+ * weight loading in Phase C2.
+ */
 static inline uint8_t v2b_run_streamed_stage(const v2b_stage_desc_t *s,
                                              uint8_t  input_src,
                                              uint8_t  output_dst,
@@ -81,11 +110,12 @@ static inline uint8_t v2b_run_streamed_stage(const v2b_stage_desc_t *s,
     V2B_REG_STAGE_CFG2 = (sum_max_override != 0u) ? sum_max_override : s->sum_max;
     V2B_REG_STAGE_CFG3 = v2b_pack_cfg3(input_src, output_dst,
                                        s->tile_mode, s->is_tile_final, 0);
-    V2B_REG_STAGE_CFG4 = s->weight_pos_addr;
-    V2B_REG_STAGE_CFG5 = s->weight_neg_addr;
-    /* t_count is sneakily stashed into CFG0 upper 16 bits for now — reg_bank
-     * B1 expansion will provide a dedicated t_count field. */
-    (void)t_count;
+    V2B_REG_STAGE_CFG4 = 0u;                       /* reserved */
+    V2B_REG_STAGE_CFG5 = (uint32_t)t_count;        /* CFG5[15:0] = t_count */
+    /* weight_pos_addr / weight_neg_addr unused by the current HW contract;
+     * kept in descriptor for stable exporter schema, silenced with (void). */
+    (void)s->weight_pos_addr;
+    (void)s->weight_neg_addr;
 
     /* Kick off. */
     V2B_REG_STAGE_CTRL = V2B_STAGE_CTRL_START;

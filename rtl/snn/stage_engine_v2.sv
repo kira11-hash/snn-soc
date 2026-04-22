@@ -178,11 +178,40 @@ module stage_engine_v2
   assign last_j = (j_idx == out_dim_minus1);
   assign last_t = (t_idx == t_count_minus1);
 
+  // ── Config validity (BLOCK-V2-01 fix, 2026-04-22 GPT audit) ─────────
+  //
+  // 【修复背景】
+  // 旧版 next-state 只看 start_pulse 就无条件跳 S_SETUP。对应的 sequential
+  // 验证块（S_IDLE 分支）会在非法配置时设 err_code + done_pulse 但让 state
+  // 仍进 S_SETUP → FSM 继续执行，MAC 以 cfg_in_dim=0/cfg_out_dim=0/
+  // cfg_t_count=0 跑，卡死在 MS_ACCUM；外部看到 busy=0/done_sticky=1 的
+  // "表面空闲" 但内部 mac_busy=1 且无法重入。
+  //
+  // 【修复】
+  // 把 start_pulse → S_SETUP 跳转额外门控一个 `config_ok` 组合信号。
+  // 非法配置时 `config_ok=0`，next_state 维持 S_IDLE；sequential 块仍
+  // 照常设 err_code + done_pulse（"reject with error"）。CPU 读 ERR
+  // 就能立刻知道这一轮被拒，不会误认为 stage 完成了。
+  //
+  // 【条件来源】
+  // 和 sequential 块 line 266-274 的验证条件完全镜像，两者任何时候
+  // 都必须保持一致（同一组组合输入 → 同一个 reject 决策）。
+  logic config_ok;
+  assign config_ok =
+      (cfg_in_dim  != 16'd0) && (cfg_in_dim  <= 16'(P_N_IN))  &&
+      (cfg_out_dim != 16'd0) && (cfg_out_dim <= 16'(P_N_OUT)) &&
+      (cfg_t_count != 16'd0) && (cfg_t_count <= 16'(P_T_MAX)) &&
+      !(cfg_input_src == cfg_output_dst &&
+        cfg_output_dst != V2B_BUF_SEL_OUTPUT_FIFO);
+
   // ── Next-state logic ───────────────────────────────────────────────
   always_comb begin
     next_state = state;
     case (state)
-      S_IDLE:         if (start_pulse) next_state = S_SETUP;
+      // BLOCK-V2-01 fix: invalid config keeps FSM in S_IDLE; the sequential
+      // block still emits err_code + done_pulse for CPU visibility, but
+      // downstream states (S_SETUP..S_MAC_RUN) never see invalid dims.
+      S_IDLE:         if (start_pulse && config_ok) next_state = S_SETUP;
       S_SETUP: begin
                       // tile_mode no longer auto-clears tile_partial_buf:
                       // firmware must issue STREAM_BUF_CTRL.CLEAR_TILE_BUF
@@ -262,16 +291,19 @@ module stage_engine_v2
       case (state)
         S_IDLE: begin
           if (start_pulse) begin
-            // validate config
+            // Validate config. This block mirrors `config_ok` in the
+            // combinational next-state logic — if those two ever disagree
+            // we have a design bug (FSM might advance on inputs that we
+            // also flag as invalid here, or vice versa). Keep in sync.
             if (cfg_in_dim == 0 || cfg_in_dim > 16'(P_N_IN) ||
                 cfg_out_dim == 0 || cfg_out_dim > 16'(P_N_OUT) ||
                 cfg_t_count == 0 || cfg_t_count > 16'(P_T_MAX)) begin
               err_code <= V2B_STAGE_ERR_DIM_OUT_OF_RANGE;
-              done_pulse <= 1'b1;  // reject, stay IDLE via default transition
+              done_pulse <= 1'b1;  // reject; config_ok=0 keeps next_state=S_IDLE
             end else if (cfg_input_src == cfg_output_dst &&
                          cfg_output_dst != V2B_BUF_SEL_OUTPUT_FIFO) begin
               err_code <= V2B_STAGE_ERR_SRC_DST_CONFLICT;
-              done_pulse <= 1'b1;
+              done_pulse <= 1'b1;  // reject; config_ok=0 keeps next_state=S_IDLE
             end else begin
               err_code <= V2B_STAGE_ERR_OK;
               busy <= 1'b1;
