@@ -50,8 +50,8 @@ Base `0x4000_0000`。保留 V1 寄存器 0x00~0x44（不变）。V2.B 新增在 
 | 0x58 | STAGE_CFG0 | OUT_DIM | [31:16] | RW | 0 | 本次 run 的 out_dim（1..128） |
 | 0x5C | STAGE_CFG1 | THRESHOLD | [31:0] | RW | 0 | LIF 阈值（unsigned） |
 | 0x60 | STAGE_CFG2 | SUM_MAX | [31:0] | RW | 0 | 当前 tile 的 ADC full-scale |
-| 0x64 | STAGE_CFG3 | INPUT_SRC | [1:0] | RW | 0 | 0=input_stream_sram, 1=stream_buf_A, 2=stream_buf_B |
-| 0x64 | STAGE_CFG3 | OUTPUT_DST | [9:8] | RW | 0 | 0=stream_buf_A, 1=stream_buf_B, 2=output_fifo |
+| 0x64 | STAGE_CFG3 | INPUT_SRC | [1:0] | RW | 0 | 0=input_stream_sram, 1=stream_buf_A, 2=stream_buf_B, 3=保留（RTL 未使用） |
+| 0x64 | STAGE_CFG3 | OUTPUT_DST | [9:8] | RW | 0 | 0=保留（实际写 0 会触发 src==dst 冲突错误）, 1=stream_buf_A, 2=stream_buf_B, 3=output_fifo |
 | 0x64 | STAGE_CFG3 | TILE_MODE | [16] | RW | 0 | 1=partial-sum 累加到 tile_partial_buf，不做 LIF |
 | 0x64 | STAGE_CFG3 | IS_TILE_FINAL | [17] | RW | 1 | 1=最后 tile，触发 LIF + 写 output_stream_dst |
 | 0x64 | STAGE_CFG3 | PRESERVE_MEMBRANE | [18] | RW | 0 | 1=stage 起始不清 membrane（特殊用途；默认清零） |
@@ -120,9 +120,9 @@ DMA 目标寄存器 `DMA_DST_SEL` (0x010C) 增加选项：
                               │  lif_neuron_alu (membrane + LIF)│
                               └──────────┬──────────────────────┘
                                          │ spike_stream[T][out_dim]
-                         OUTPUT_DST=0 ───┤──► stream_buf_A
-                         OUTPUT_DST=1 ───┤──► stream_buf_B
-                         OUTPUT_DST=2 ───┘──► output_fifo (final stage)
+                         OUTPUT_DST=1 ───┤──► stream_buf_A
+                         OUTPUT_DST=2 ───┤──► stream_buf_B
+                         OUTPUT_DST=3 ───┘──► output_fifo (final stage)
 ```
 
 **严格规则**（编码在 `STREAM_BUF_STATUS`）：

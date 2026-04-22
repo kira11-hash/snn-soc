@@ -2,6 +2,28 @@
 
 > 注：文档内 `feature/axi-lite` / `feature/spi` 相关条目是历史分支快照；当前 `main` 检出默认不包含这些独立 TB、filelist 和运行脚本。
 
+---
+
+## ⚠️ 分支 scope 声明（2026-04-22 GPT round-3 audit 后明确）
+
+**本仓库有两条独立产品线，看文件前先对清路线**：
+
+| 分支 | 角色 | 流片？ | 主要内容 |
+|---|---|---|---|
+| **`main`** | **V1 流片 ready 单层 64→10 SoC** | **是**，tapeout 权威分支 | NUM_INPUTS=64 / ADC=8 / Scheme B 20 通道 / CIM 写入擦除验证 |
+| **`v2`** | **V2.B streamed-rate multilayer FPGA prototype / paper line** | **否**，paper + FPGA bring-up | 14×14 MNIST/Fashion / 256×256 阵列预研 / stage_engine_v2 / ZCU102 prototype |
+
+**V1 流片的任何事情（RTL / TB / 文档 / artifact），以 `main` 分支为权威**。v2 分支上的 V1 代码（`rtl/reg/reg_bank.sv` 的 CIM 编程部分等）可能**落后于 main**——2026-04-22 GPT round-3 已确认 v2 上的 V1 programming path 没有 main 的 Q1/Q2/MAIN-01/02 修复，不应作为流片版本使用。
+
+**V2.B FPGA/paper 的任何事情，以 `v2` 分支为权威**。main 分支**不含** V2.B primitives (stage_engine_v2 / stream_buffer_v2 / tile_partial_buf / snn_soc_v2b_top / fw/include/v2b_* / python_multilayer/ 等)。
+
+**读一个文件前先想**：
+- 这是流片相关？→ 看 main
+- 这是 paper / FPGA prototype 相关？→ 看 v2
+- 两个分支都有同名文件？→ 取权威分支版本，另一个可能是旧拷贝
+
+---
+
 ## ⚠️ 必读规则（每次发言前强制执行）
 
 **每次发言之前，必须先说"嘿嘿"，无一例外。**

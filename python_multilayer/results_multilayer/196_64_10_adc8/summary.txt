@@ -21,9 +21,21 @@ model_file:        model.pt  (PyTorch state_dict; 4-bit weight QAT + integer RTL
 manifest:          ../../topologies.yaml[196_64_10_adc8]
 
 # How to reproduce
-# 1. python run_streamed_rate_train.py --topology 196_64_10_adc8
+# 1. python run_streamed_rate_train.py --topology 196_64_10_adc8 --seed 42
 #    (uses topologies.yaml[196_64_10_adc8] for hparams; stream_timesteps=64, adc_bits=8)
-# 2. Reported test_accuracy is the best-epoch value recorded in the training
-#    log; exact epoch index and random seed are in the original log session
-#    (not fully captured in git — run produces identical number under
-#    deterministic seed 0, spot-verified across 2 runs).
+#
+# Reproducibility caveats (GPT round-3 audit, 2026-04-22):
+#  - RNG surface currently seeded in run_streamed_rate_train.py:
+#      * torch.manual_seed(args.seed)
+#      * np.random.seed(args.seed)
+#      * DataLoader generator: torch.Generator().manual_seed(args.seed)
+#  - NOT seeded (may introduce non-determinism):
+#      * python `random` module (not used heavily but imported by deps)
+#      * CUDA:  torch.cuda.manual_seed / manual_seed_all
+#      * cuDNN: torch.backends.cudnn.deterministic / benchmark
+#  - Default --seed is 42. Rerunning on CPU with the same seed
+#    reproduces test_accuracy within +/- 0.1 pp in spot checks, but
+#    exact bit-for-bit match is not guaranteed until the above extras
+#    are pinned.
+#  - Best-effort reproducibility only; strict paper-grade determinism
+#    requires adding the missing seeds (see Phase C artifact cleanup).

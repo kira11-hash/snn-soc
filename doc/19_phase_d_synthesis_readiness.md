@@ -30,24 +30,32 @@ verilator --lint-only --top-module snn_soc_v2b_top -Irtl/top \
 
 ---
 
-## 2. 内存资源估算（BRAM-inferrable 分析）
+## 2. 内存资源实测（post-synth on ZCU102 / xczu9eg, 2026-04-22 更新）
 
-| 存储 | 规模 | bit | 预估 Xilinx 7-series |
-|---|---|---|---|
-| `input_stream_sram` | T_MAX × NUM_INPUTS = 256 × 256 | 65 536 bit | **2 × BRAM18** |
-| `stream_buffer_v2 A` | 256 × MAX_OUT_NEURONS = 256 × 128 | 32 768 bit | 1 × BRAM18 |
-| `stream_buffer_v2 B` | 256 × 128 | 32 768 bit | 1 × BRAM18 |
-| `tile_partial_buf` (P_ENABLE_TILE_BUF=1) | 256 × 128 × signed 14-bit | 458 752 bit | **~13 × BRAM18** |
-| `cim_mac_behavioral_v2.w_pos_mem` | 256 × 128 × 4-bit | 131 072 bit | ~4 × BRAM18 |
-| `cim_mac_behavioral_v2.w_neg_mem` | 256 × 128 × 4-bit | 131 072 bit | ~4 × BRAM18 |
-| `cim_mac_behavioral_v2.diff_mem` | 128 × 14-bit | 1 792 bit | **LUTRAM** (tiny) |
+以下表同时列早期**预估**（BRAM 假设）和 Vivado 实测**实际映射**。早期预估保留用于对比，但不应再作为资源规划依据——请以"实际"列为准。
 
-**合计内存**：～851 Kbit = **~104 KB**。本项目实际 prototype 目标 **Xilinx ZCU102（`xczu9eg-ffvb1156-2-e`，Zynq UltraScale+）** 有 912 BRAM18 (~33 Mbit) + 32 UltraRAM，绰绰有余。Artix-7 XC7A100T (540 BRAM18) / Zynq-7000 XC7Z020 (280 BRAM18) 也足够放下，留作通用参考（非实测目标）。
+| 存储 | 规模 | bit | 早期预估 | Vivado 2022.2 实际映射 |
+|---|---|---|---|---|
+| `input_stream_sram.mem_reg` | T_MAX × NUM_INPUTS = 256 × 256 | 65 536 bit | 2 × BRAM18 | **RAM64M8 × 296（distributed LUTRAM）** |
+| `stream_buffer_v2 A.mem_reg` | 256 × MAX_OUT_NEURONS = 256 × 128 | 32 768 bit | 1 × BRAM18 | **RAM64M8 × 152（distributed LUTRAM）** |
+| `stream_buffer_v2 B.mem_reg` | 256 × 128 | 32 768 bit | 1 × BRAM18 | **RAM64M8 × 152（distributed LUTRAM）** |
+| `tile_partial_buf.mem_reg` (P_ENABLE_TILE_BUF=1) | 256 × 128 × signed 14-bit | 458 752 bit | ~13 × BRAM18 | **RAM64M8 × 2048（distributed LUTRAM）** |
+| `cim_mac_behavioral_v2.u_mac.g_wcol[*].u_wcol.mem_reg` | 256 × 128 × 4-bit per column | 131 072 bit (pos+neg 合计 262 144 bit) | ~8 × BRAM18 | **168 × RAMB18 + 84 × RAMB36 = 252 BRAM 总计（post-synth initial mapping）** |
+| `cim_mac_behavioral_v2.diff_mem` | 128 × 14-bit | 1 792 bit | LUTRAM (tiny) | FF array（综合掉到 ~128 × 14 register） |
 
-**注意事项（Vivado 综合时检查）**：
-1. `w_pos_mem / w_neg_mem` 是 2D unpacked array `[0:N_IN-1][0:N_OUT-1]` 4-bit。Vivado 对这种 2D 形式通常能推成 BRAM（1D 扁平化更保险）。如果综合报告显示 LUTRAM / 分布式 RAM（不是 BRAM18），需要改 packed 1D：`logic [3:0] w_pos_mem_flat [0:N_IN*N_OUT-1]`。
-2. `diff_mem [0:N_OUT-1]` 是 signed 14-bit × 128 = 1792 bit，很小，综合会用 128 × 14 FF（不会进 BRAM），不是风险。
-3. `tile_partial_buf` 累加 `mem[t][j] <= mem[t][j] + diff` 模式 — **async read + sync write** 会被综合成 LUTRAM 不是 BRAM。若要省资源，需改成 sync read with 1-cycle latency（但目前 FSM 设计已假设 sync read，应该已经是 BRAM-friendly；查综合报告确认）。
+（证据：`fpga_synth/reports/synth_log.txt` 的 Distributed RAM Final Mapping Report 和 `Implemented Non-Cascaded Block Ram` 日志行。）
+
+**关键观察**：
+1. 权重存储（`g_wcol[*].mem_reg`）成功推 BRAM——这是 WL-serial + all-j-parallel 重构后权重分 16/8 组 column 的直接收益。
+2. stream/tile/input SRAM 全部走 **distributed LUTRAM（RAM64M8）**，不是 BRAM。根本原因是它们的读接口有 async 语义（`ram_style = "distributed"` 属性 + 1-cycle RMW），Vivado 不敢推 BRAM。预算：`2048 + 296 + 152 + 152 = 2648 RAM64M8 ≈ ~2648 LUT` （每个 RAM64M8 占 1 LUT-pair），在 ZCU9EG 的 274080 CLB LUT 里可忽略。
+3. 合计 BRAM：~252 tiles 于 912 预算，utilization ≈ 27.6%。合计 distributed LUT 影响 < 1%，无压力。
+
+**如果未来要硬推 stream/tile buffer 进 BRAM**（减少 distributed LUT），需要：
+- 去掉 `(* ram_style = "distributed" *)` 属性
+- 把 RMW 改成 2-cycle pipeline（sync read → hold → sync write）
+- stage_engine 对应改 FSM，和 MAC handshake 重跑 parity
+
+非当前优先项；doc/19 §3 说的"weight MAC 组合加法树"才是 timing 关键路径，已用 WL-serial 改掉。
 
 ---
 
