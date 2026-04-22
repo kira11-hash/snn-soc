@@ -216,13 +216,28 @@ def test_v2_bitplane_matches_v1_rtl_inference():
     assert int(np.argmax(v2_counts)) == v1_pred
 
 
-def test_bitplane_feedback_mask_is_last_event_not_any_spike():
-    """RTL feedback uses the final spike_mask event, not cumulative spike_counts.
+def test_bitplane_feedback_mask_is_layer_or_accumulation():
+    """RTL feedback is OR-accumulated across all sub-step spike_mask pulses
+    within a single layer, NOT just the last event.
 
-    `lif_neuron_alu` clears `spike_mask` at every `neuron_in_valid`; therefore
-    `spike_feedback` latches the last ADC/bit-plane event's mask. This test
-    constructs a sample that spikes on bit7 but not on bit0, so cumulative
-    spike_counts is non-zero while the feedback mask must be zero.
+    【2026-04-22 audit note — corrected from previous last-event assumption】
+    Verified in rtl/snn/spike_feedback.sv:62-63 (v2 HEAD):
+        if (spike_mask_valid) spike_latched <= spike_latched | spike_mask;
+    This OR accumulates across every `spike_mask_valid` pulse (one per
+    bit-plane × timestep event). `spike_latched` clears on `feedback_en`
+    at layer boundaries.
+
+    lif_neuron_alu.sv does clear `spike_mask` on every `neuron_in_valid`
+    (line 183), so its per-round spike_mask is "last-event only" — but the
+    downstream accumulator `spike_feedback.spike_latched` merges them into
+    a layer-level OR. Python `_run_stage_bitplane` returns the latter,
+    matching what stage N+1 actually reads as WL input.
+
+    Previous test expected `feedback_mask == [0]` based on the
+    "last-event-only" misreading of the RTL; that contradicted both the
+    current Python implementation AND the post-FP-009 RTL behavior. This
+    test now locks in the OR-accumulation invariant so future Python/RTL
+    changes cannot silently regress to last-event semantics.
     """
     import numpy as np
 
@@ -246,5 +261,11 @@ def test_bitplane_feedback_mask_is_last_event_not_any_spike():
         stage, pixel_vec, w_pos, w_neg
     )
 
+    # bit7 event fires → spike_counts=1 AND feedback_mask=1 (OR of all events)
+    # bit0 event does not fire → lif_neuron_alu.spike_mask for that round is 0,
+    # but spike_feedback.spike_latched has already OR'd in the bit7 fire.
     assert counts.tolist() == [1]
-    assert feedback_mask.tolist() == [0]
+    assert feedback_mask.tolist() == [1], (
+        "feedback_mask must OR-accumulate across events within a layer; "
+        f"got {feedback_mask.tolist()}"
+    )

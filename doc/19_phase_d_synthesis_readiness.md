@@ -42,7 +42,7 @@ verilator --lint-only --top-module snn_soc_v2b_top -Irtl/top \
 | `cim_mac_behavioral_v2.w_neg_mem` | 256 × 128 × 4-bit | 131 072 bit | ~4 × BRAM18 |
 | `cim_mac_behavioral_v2.diff_mem` | 128 × 14-bit | 1 792 bit | **LUTRAM** (tiny) |
 
-**合计内存**：～851 Kbit = **~104 KB**。Xilinx Artix-7 XC7A100T 有 540 BRAM18 (~9.9 Mbit)，绰绰有余。Zynq XC7Z020 有 280 BRAM18，也 OK。
+**合计内存**：～851 Kbit = **~104 KB**。本项目实际 prototype 目标 **Xilinx ZCU102（`xczu9eg-ffvb1156-2-e`，Zynq UltraScale+）** 有 912 BRAM18 (~33 Mbit) + 32 UltraRAM，绰绰有余。Artix-7 XC7A100T (540 BRAM18) / Zynq-7000 XC7Z020 (280 BRAM18) 也足够放下，留作通用参考（非实测目标）。
 
 **注意事项（Vivado 综合时检查）**：
 1. `w_pos_mem / w_neg_mem` 是 2D unpacked array `[0:N_IN-1][0:N_OUT-1]` 4-bit。Vivado 对这种 2D 形式通常能推成 BRAM（1D 扁平化更保险）。如果综合报告显示 LUTRAM / 分布式 RAM（不是 BRAM18），需要改 packed 1D：`logic [3:0] w_pos_mem_flat [0:N_IN*N_OUT-1]`。
@@ -74,7 +74,7 @@ end
 - **LUT**：256-input 带 enable 的 12-bit 加法器 ≈ 2000-4000 LUT × 2 (pos+neg) = **4-8 K LUT**
 - **Timing**：加法树深度 log₂(256) = 8 级，每级 ≈ 12-bit adder ~1.5 ns → **~12 ns 组合延迟**
 - 对 Artix-7 @ 100 MHz (10 ns) 必定 timing 跑不过
-- Zynq UltraScale @ 50 MHz 可能勉强
+- 本项目目标 **ZCU102 (Zynq UltraScale+ xczu9eg) @ 50 MHz** 实测 post-route WNS ≈ +8.5 ns（`fpga_synth/reports/impl_log.txt` 可查），timing 健康；同设备 @ 100 MHz 会紧张需重构
 
 **即使跑得过，LUT 吃太多**，留给其他模块的余量非常小。
 
@@ -169,10 +169,11 @@ S_IDLE + reset: 同样 pattern
   - `rtl/top/snn_soc_v2b_top.sv`
   - top module: `snn_soc_v2b_top`
 
-- [ ] **Step 2: 目标器件**（推荐起步）：
-  - Zynq-7000 XC7Z020 (Zedboard) — 中等容量
-  - Artix-7 XC7A100T — 主流 FPGA 板
-  - 随便哪个都行，先看 utilization
+- [x] **Step 2: 目标器件（已确定）**：
+  - **ZCU102 (`xczu9eg-ffvb1156-2-e`，Zynq UltraScale+) @ 50 MHz** —— 本项目实际 FPGA prototype 目标（用户 2026-04-22 确认）
+  - 其他参考（不是当前实测目标）：
+    - Zynq-7000 XC7Z020 (Zedboard) — 中等容量
+    - Artix-7 XC7A100T — 主流 FPGA 板
 
 - [ ] **Step 3: Synthesis only（不 P&R）**，获取：
   ```

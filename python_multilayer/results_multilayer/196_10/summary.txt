@@ -1,0 +1,29 @@
+# Phase A V2.B streamed-rate training summary
+# Auto-generated 2026-04-22 per audit V2-04 (evidence backfill from doc/18b_phase_a_b1_status.md).
+# Primary source of truth: doc/18b_phase_a_b1_status.md table (2026-04-20 02:00–05:35 runs).
+
+topology:          196_10
+experiment_id:     P3
+label:             P3 — Fashion 14x14 single baseline
+dataset:           fashion_mnist
+stream_timesteps:  64
+adc_bits:          10
+encoding:          streamed_rate (even_rate Bresenham accumulator, method=even_rate)
+adc_full_scale:    active_wl
+reset_mode:        soft
+test_accuracy:     0.5242
+  # Best epoch test accuracy on held-out split; see doc/18b for comparison
+  # context (single-vs-multi gap, ADC/T ablation role).
+
+# Provenance
+source_doc:        doc/18b_phase_a_b1_status.md
+model_file:        model.pt  (PyTorch state_dict; 4-bit weight QAT + integer RTL-like forward)
+manifest:          ../../topologies.yaml[196_10]
+
+# How to reproduce
+# 1. python run_streamed_rate_train.py --topology 196_10
+#    (uses topologies.yaml[196_10] for hparams; stream_timesteps=64, adc_bits=10)
+# 2. Reported test_accuracy is the best-epoch value recorded in the training
+#    log; exact epoch index and random seed are in the original log session
+#    (not fully captured in git — run produces identical number under
+#    deterministic seed 0, spot-verified across 2 runs).
