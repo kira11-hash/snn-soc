@@ -8,9 +8,9 @@
  * Build override: define V2B_SOC_BASE at the command line
  *   (e.g., -DV2B_SOC_BASE=0xB0000000u) to swap without code edits.
  *
- * UART_BASE defaults to ZCU102 PS UART0 (0xFF000000). UART1 at 0xFF010000
- * is the alternate; pick the one pinned to the USB-JTAG MicroUSB cable
- * (on ZCU102 boards shipped post-2018 that's typically UART0).
+ * ZCU102 board preset maps PS UART0 to MIO18/19 and PS UART1 to MIO20/21.
+ * The CP2108 USB-UART exposes multiple COM ports; early board smoke mirrors
+ * banners to both UARTs so a COM-port mapping mistake does not hide progress.
  */
 #ifndef V2B_ARM_PLATFORM_H
 #define V2B_ARM_PLATFORM_H
@@ -21,8 +21,20 @@
 #define V2B_SOC_BASE 0xA0000000u   /* proposed; Vivado BD final wins */
 #endif
 
+#ifndef UART0_BASE
+#define UART0_BASE   0xFF000000u
+#endif
+
+#ifndef UART1_BASE
+#define UART1_BASE   0xFF010000u
+#endif
+
 #ifndef UART_BASE
-#define UART_BASE    0xFF000000u   /* Zynq Ultrascale+ PS UART0 */
+#define UART_BASE    UART1_BASE    /* primary: PS UART1 (ZCU102 board preset MIO20/21) */
+#endif
+
+#ifndef UART_MIRROR_BASE
+#define UART_MIRROR_BASE UART0_BASE /* secondary bring-up banner mirror */
 #endif
 
 /* PS UART input reference clock (LPD peripheral) used for BRGR divisor.

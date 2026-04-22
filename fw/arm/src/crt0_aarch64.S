@@ -46,9 +46,6 @@ _start:
 	b       1b
 2:
 
-	/* Unmask IRQ/FIQ (app may choose not to use them) */
-	msr     DAIFClr, #0x3
-
 	/* Branch to C entry */
 	bl      arm_main
 

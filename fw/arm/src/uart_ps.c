@@ -19,13 +19,13 @@
 #include <stdint.h>
 #include "platform.h"
 
-#define UART_REG(off) (*(volatile uint32_t *)(UART_BASE + (off)))
-#define UART_CR   UART_REG(0x00u)
-#define UART_MR   UART_REG(0x04u)
-#define UART_BRGR UART_REG(0x18u)
-#define UART_CSR  UART_REG(0x2Cu)
-#define UART_FIFO UART_REG(0x30u)
-#define UART_BDIV UART_REG(0x34u)
+#define UART_REG(base, off) (*(volatile uint32_t *)((uintptr_t)(base) + (uintptr_t)(off)))
+#define UART_CR(base)       UART_REG((base), 0x00u)
+#define UART_MR(base)       UART_REG((base), 0x04u)
+#define UART_BRGR(base)     UART_REG((base), 0x18u)
+#define UART_CSR(base)      UART_REG((base), 0x2Cu)
+#define UART_FIFO(base)     UART_REG((base), 0x30u)
+#define UART_BDIV(base)     UART_REG((base), 0x34u)
 
 #define CR_STOPBRK (1u << 8)
 #define CR_STARTBRK (1u << 7)
@@ -39,31 +39,54 @@
 #define CSR_TEMPTY (1u << 3)  /* 1 = TxFIFO empty */
 #define CSR_TFULL  (1u << 4)  /* 1 = TxFIFO full */
 
-void uart_init(void)
+#define UART_TX_TIMEOUT 1000000u
+
+static void uart_init_one(uintptr_t base)
 {
     /* Disable + reset Tx/Rx */
-    UART_CR = CR_TXDIS | CR_RXDIS | CR_TXRST | CR_RXRST;
+    UART_CR(base) = CR_TXDIS | CR_RXDIS | CR_TXRST | CR_RXRST;
 
     /* 8-bit, 1 stop, no parity, normal mode; clock_sel=0 (uart_ref_clk/1).
      * MR layout: [8] stop-bits=0 (1 stop), [5:3] parity=100 (no parity),
      * [2:1] chrl=00 (8-bit), [0] clk_sel=0 (no /8 prescale). */
-    UART_MR = 0x00000020u;  /* par=no, 8-bit, 1 stop */
+    UART_MR(base) = 0x00000020u;  /* par=no, 8-bit, 1 stop */
 
     /* Compute BAUD: baud = ref_clk / (BRGR * (BAUDDIV + 1))
      * With ref_clk=100 MHz and baud=115200, pick BAUDDIV=6 → BRGR=124.
      * (100e6 / (124 * 7) ≈ 115207 → 0.006% error). */
-    UART_BRGR = 124u;
-    UART_BDIV = 6u;
+    UART_BRGR(base) = 124u;
+    UART_BDIV(base) = 6u;
 
     /* Enable Tx/Rx */
-    UART_CR = CR_TXEN | CR_RXEN;
+    UART_CR(base) = CR_TXEN | CR_RXEN;
+}
+
+void uart_init(void)
+{
+    uart_init_one(UART_BASE);
+#if UART_MIRROR_BASE != UART_BASE
+    uart_init_one(UART_MIRROR_BASE);
+#endif
+}
+
+static void uart_putc_one(uintptr_t base, char c)
+{
+    /* Spin until Tx FIFO has room */
+    uint32_t guard = 0u;
+    while ((UART_CSR(base) & CSR_TFULL) && (guard < UART_TX_TIMEOUT)) {
+        guard++;
+    }
+    if (guard < UART_TX_TIMEOUT) {
+        UART_FIFO(base) = (uint32_t)(uint8_t)c;
+    }
 }
 
 void uart_putc(char c)
 {
-    /* Spin until Tx FIFO has room */
-    while (UART_CSR & CSR_TFULL) { /* spin */ }
-    UART_FIFO = (uint32_t)(uint8_t)c;
+    uart_putc_one(UART_BASE, c);
+#if UART_MIRROR_BASE != UART_BASE
+    uart_putc_one(UART_MIRROR_BASE, c);
+#endif
 }
 
 void uart_puts(const char *s)
