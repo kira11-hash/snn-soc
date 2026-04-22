@@ -269,3 +269,120 @@ PROG_START_INTERLOCK_TB_PASS (6/6, including T3/T4 race coverage) ← NEW
 如上修复妥当，请回 `✅ APPROVE_FIXUP` 或提出新问题。拟 commit message：
 `main: fixup CIM programming port — Q2 back-to-back START interlock + Q5 zero-replicate`
 
+---
+
+## UPDATE 2 — 2026-04-22 Q1/Q4/Q6 cleanup commit（GPT 前述 3 条 non-blocking 建议全修）
+
+用户要求把剩下 3 条 acceptable_with_comment 也全部修掉。
+
+### Q1 修复：readback sel clamp 语义自洽
+
+`rtl/reg/reg_bank.sv` — REG_PROG_PULSE_WIDTH 写入路径加 sel 硬件钳位：
+
+```verilog
+REG_PROG_PULSE_WIDTH: begin
+  if (req_wstrb[2]) begin
+    // Q1: 写 sel=3（保留）时把 readback sel 钳到 2'd2，
+    //     避免 (sel=3, width=5000) 这种字段前后不自洽的 readback。
+    //     decode_write_pulse_width 已经把 width 钳到 100us 了。
+    prog_write_pulse_sel <= (req_wdata[17:16] == 2'd3) ? 2'd2 : req_wdata[17:16];
+    prog_pulse_width     <= decode_write_pulse_width(req_wdata[17:16]);
+  end
+end
+```
+
+`tb/prog_pulse_cfg_tb.sv` — task 签名从 `expect_width(sel, width)` 扩成
+`expect_width(write_sel, readback_sel, expected_width)`，支持 sel=3→2 这种不对称情形：
+
+```verilog
+expect_width(2'd0, 2'd0, PROG_WRITE_PULSE_1US_CYC[15:0]);
+expect_width(2'd1, 2'd1, PROG_WRITE_PULSE_10US_CYC[15:0]);
+expect_width(2'd2, 2'd2, PROG_WRITE_PULSE_100US_CYC[15:0]);
+expect_width(2'd3, 2'd2, PROG_WRITE_PULSE_100US_CYC[15:0]);  // Q1 clamp
+```
+
+### Q4 修复：拆出 ENABLE_PROGRAM_WEIGHT_MODEL 参数
+
+`rtl/top/snn_soc_top.sv`：
+
+```verilog
+parameter bit ENABLE_PROGRAM_MODE = 1'b0,
+parameter bit ENABLE_PROGRAM_WEIGHT_MODEL = ENABLE_PROGRAM_MODE  // 默认跟 MODE 走
+
+...
+
+cim_macro_blackbox #(
+  .P_USE_BRAM_WEIGHTS (ENABLE_PROGRAM_WEIGHT_MODEL)  // 原来写的是 ENABLE_PROGRAM_MODE
+) u_macro (...);
+```
+
+用法三种：
+- `MODE=0, WEIGHT_MODEL=0`（默认）：V1 tapeout 路径，popcount ADC，0 行为改动
+- `MODE=1, WEIGHT_MODEL=1`（默认联动）：完整编程回归，cim_program_ctrl + weight_mem
+- `MODE=1, WEIGHT_MODEL=0`（ablation）：只测互锁 / arbiter 路径，ADC 仍用 popcount
+- `MODE=0, WEIGHT_MODEL=1`（偶尔用）：sample-align-on-BRAM 之类的对齐实验
+
+### Q6 修复：weight_mem reset 改 0（物理未编程态）
+
+`rtl/snn/cim_macro_blackbox.sv`：
+
+```verilog
+if (!rst_n) begin
+  for (int r = 0; r < P_NUM_INPUTS; r++)
+    for (int c = 0; c < P_ADC_CHANNELS; c++) begin
+      weight_mem[r][c]     <= '0;   // Q6: 物理未编程态 = HRS ≈ 0
+      prog_pulse_acc[r][c] <= 4'd0;
+    end
+end
+```
+
+旧版 `(正列=2, 负列=1)` 是"怕 BRAM 模式没编程时 smoke 出 0"的保险值；Q6 改成 0
+后，任何回归如果想让 BRAM 模式出 spike，就必须显式通过 cim_program_ctrl 发脉冲或
+`$readmemh` 加载权重 —— 这样忘了写权重的 bug 不会被 reset 默认值遮盖。
+
+**影响范围**：仅 `P_USE_BRAM_WEIGHTS=1` 路径；当前 main 所有回归都是 WEIGHT_MODEL=0
+（popcount 模式），不读 weight_mem，行为 100% 不变。
+
+### 全回归（main 再次 14/14 PASS）
+
+```
+LIGHT_SMOKETEST_PASS
+WEIGHTED_SIM_PASS
+SAMPLE_ALIGN_PASS (100/100)
+E203_SMOKETEST_PASS
+JTAG_MEM_LOADER_PASS
+JTAG_RESCUE_TOP_PASS
+UART_SMOKETEST_PASS
+SPI_SMOKETEST_PASS
+DMA_SMOKETEST_PASS
+AXI_BRIDGE_SMOKETEST_PASS
+ADC_SAT_COUNTER_PASS
+CIM_PROGRAM_CTRL_PASS (8/8)
+PROG_PULSE_CFG_TB_PASS (4 preset + Q1 clamp)
+PROG_START_INTERLOCK_TB_PASS (6/6, T3/T4 race 覆盖)
+```
+
+### main 分支提交链
+
+```
+<next>     main: fixup CIM programming port — Q1/Q4/Q6 cleanup   ← this fixup
+75f9b1ff   main: fixup CIM programming port — Q2 interlock + Q5 zero-replicate
+4540f788   main: port CIM write/erase/verify from v2 (single-layer 64->10)
+bf079a5f   (pre-port baseline)
+```
+
+### 再次请求审查
+
+所有 Q1-Q7 都已处理：Q2/Q5 是真修（must_fix），Q1/Q4/Q6 是 GPT 建议的干净化，
+Q3/Q7 是 ✅ OK 不需要改。请你再做一轮 review：
+
+1. Q1 写 sel=3 clamp 到 2（hardware-side），read 回来 sel=2 width=100us——**字段自洽 OK？**
+2. Q4 新增 `ENABLE_PROGRAM_WEIGHT_MODEL` 默认 = `ENABLE_PROGRAM_MODE`，**向后兼容 OK？**
+3. Q6 weight_mem reset=0，对所有现有 P_USE_BRAM_WEIGHTS=0 回归无影响，**没有新风险？**
+4. 有没有我漏掉的 side-effect（例如 Q1 clamp 影响某个在 main 上不存在但计划引入的固件路径）？
+
+请最终给一个 `✅ APPROVE` 或 `❌ BLOCK + 新问题` 的 verdict。
+
+拟 commit message：
+`main: fixup CIM programming port — Q1 sel clamp + Q4 split weight-model param + Q6 weight_mem reset 0`
+

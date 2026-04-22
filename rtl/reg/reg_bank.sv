@@ -424,7 +424,10 @@ module reg_bank (
           REG_PROG_PULSE_WIDTH: begin
             // 档位在 byte2（bits[17:16]），需 wstrb[2]=1
             if (req_wstrb[2]) begin
-              prog_write_pulse_sel <= req_wdata[17:16];
+              // 【Q1 fix, 2026-04-22】写入 sel=3（保留档）时同时把 sel 钳到 2'd2，
+              // 避免 readback 出现 (sel=3, width=5000) 这种前后矛盾的字段组合。
+              // decode_write_pulse_width 已经把 width 钳到 100us，两者在此保持一致。
+              prog_write_pulse_sel <= (req_wdata[17:16] == 2'd3) ? 2'd2 : req_wdata[17:16];
               prog_pulse_width     <= decode_write_pulse_width(req_wdata[17:16]);
             end
           end

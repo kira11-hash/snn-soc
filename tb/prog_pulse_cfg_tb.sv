@@ -134,19 +134,23 @@ module prog_pulse_cfg_tb;
     end
   endtask
 
-  task expect_width(input [1:0] sel, input [15:0] expected);
+  // expect_width(write_sel, readback_sel, expected_width)
+  // Q1 fix: write_sel=2'd3（保留档）时 RTL 硬件钳 readback_sel 到 2'd2，
+  //         此 task 支持两者不等的情形，用于 sel=3 -> clamp 测试。
+  task expect_width(input [1:0] write_sel, input [1:0] readback_sel,
+                    input [15:0] expected);
     logic [31:0] rd;
     begin
-      bus_write(8'h90, {14'h0, sel, 16'h0});
+      bus_write(8'h90, {14'h0, write_sel, 16'h0});
       if (prog_pulse_width !== expected) begin
-        $display("[FAIL] sel=%0d pulse_width=%0d expected=%0d",
-                 sel, prog_pulse_width, expected);
+        $display("[FAIL] write_sel=%0d pulse_width=%0d expected=%0d",
+                 write_sel, prog_pulse_width, expected);
         $finish;
       end
       bus_read(8'h90, rd);
-      if (rd[15:0] !== expected || rd[17:16] !== sel) begin
-        $display("[FAIL] readback sel=%0d rd=0x%08x expected width=%0d",
-                 sel, rd, expected);
+      if (rd[15:0] !== expected || rd[17:16] !== readback_sel) begin
+        $display("[FAIL] readback: write_sel=%0d rd=0x%08x expected readback_sel=%0d width=%0d",
+                 write_sel, rd, readback_sel, expected);
         $finish;
       end
     end
@@ -174,10 +178,12 @@ module prog_pulse_cfg_tb;
       $finish;
     end
 
-    expect_width(2'd0, PROG_WRITE_PULSE_1US_CYC[15:0]);
-    expect_width(2'd1, PROG_WRITE_PULSE_10US_CYC[15:0]);
-    expect_width(2'd2, PROG_WRITE_PULSE_100US_CYC[15:0]);
-    expect_width(2'd3, PROG_WRITE_PULSE_100US_CYC[15:0]);
+    // write_sel / readback_sel / expected_width
+    expect_width(2'd0, 2'd0, PROG_WRITE_PULSE_1US_CYC[15:0]);
+    expect_width(2'd1, 2'd1, PROG_WRITE_PULSE_10US_CYC[15:0]);
+    expect_width(2'd2, 2'd2, PROG_WRITE_PULSE_100US_CYC[15:0]);
+    // Q1: write sel=3 (保留) -> 硬件钳位 readback sel=2，避免字段不自洽
+    expect_width(2'd3, 2'd2, PROG_WRITE_PULSE_100US_CYC[15:0]);
 
     bus_write(8'h94, 32'd123);
     if (prog_erase_width !== PROG_ERASE_WIDTH_CYC[15:0]) begin

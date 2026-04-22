@@ -394,13 +394,17 @@ module cim_macro_blackbox #(
   // =========================================================================
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      // 复位默认：popcount-compatible 初值，便于 V1 回归切换到 BRAM 模式也能积累 spike
+      // 【Q6 fix, 2026-04-22】复位成 0（未编程 HRS 态）。
+      //   旧版用 (正列=2, 负列=1) 做"popcount-compatible 初值"是为了让启用
+      //   P_USE_BRAM_WEIGHTS=1 但没编程的 smoke 还能出 spike；但这会掩盖
+      //   "忘了写权重"的测试错误。物理未编程态 = 高阻 = 0 更符合实际语义。
+      //
+      //   行为影响：仅影响 P_USE_BRAM_WEIGHTS=1 的路径；当前 main 所有回归
+      //   (P_USE_BRAM_WEIGHTS=0, popcount 模式) 都不读 weight_mem，行为不变。
+      //   编程回归需要通过 cim_program_ctrl 真正发脉冲后，weight_mem 才非零。
       for (int r = 0; r < P_NUM_INPUTS; r++) begin
         for (int c = 0; c < P_ADC_CHANNELS; c++) begin
-          if (c < NUM_OUTPUTS)
-            weight_mem[r][c] <= ADC_BITS'(2);   // 正列：小正值
-          else
-            weight_mem[r][c] <= ADC_BITS'(1);   // 负列：更小，保证 diff>0
+          weight_mem[r][c]     <= '0;
           prog_pulse_acc[r][c] <= 4'd0;
         end
       end

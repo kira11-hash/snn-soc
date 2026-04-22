@@ -71,9 +71,13 @@ module snn_soc_top #(
   parameter bit ENABLE_EXT_CIM_IF   = 1'b0,
   // ENABLE_PROGRAM_MODE: 启用 CIM 编程/擦除/验证通路（2026-04-22 从 v2 移植）。
   // 默认 0：和原 main tapeout 行为完全一致（无编程控制器，推理直连 macro）。
-  // =1：实例化 cim_program_ctrl + cim_macro_arbiter + behavioral weight_mem 模型，
-  //     并把 REG_PROG_* 寄存器路径接入，用于写入/擦除/验证回归。
-  parameter bit ENABLE_PROGRAM_MODE = 1'b0
+  // =1：实例化 cim_program_ctrl + cim_macro_arbiter，并把 REG_PROG_* 寄存器路径接入。
+  parameter bit ENABLE_PROGRAM_MODE = 1'b0,
+  // ENABLE_PROGRAM_WEIGHT_MODEL（Q4 fix, 2026-04-22）：选择 cim_macro_blackbox
+  // 行为模型——0 用 V1 popcount ADC 公式（与原 main 行为完全一致）；
+  //            1 用 BRAM weight_mem + bram_weighted_sum()（编程会真正更新权重）。
+  // 默认跟 ENABLE_PROGRAM_MODE 走，但显式拆开便于"只测互锁不测权重"等 ablation 场景。
+  parameter bit ENABLE_PROGRAM_WEIGHT_MODEL = ENABLE_PROGRAM_MODE
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -1027,11 +1031,12 @@ module snn_soc_top #(
   // 注意：这里先接的是 _hw 后缀信号，后面 test mode 会再决定最终使用真实模型还是假响应。
   generate
     if (!ENABLE_EXT_CIM_IF) begin : gen_internal_cim_macro
-      // P_USE_BRAM_WEIGHTS 仅在 ENABLE_PROGRAM_MODE=1 时启用 weighted-sum
-      // 行为模型。ENABLE_PROGRAM_MODE=0 时保持 V1 popcount 模式，所有
-      // LIGHT / WEIGHTED / SAMPLE_ALIGN 回归行为不变。
+      // Q4 fix (2026-04-22)：P_USE_BRAM_WEIGHTS 由独立参数
+      // ENABLE_PROGRAM_WEIGHT_MODEL 控制，默认跟 ENABLE_PROGRAM_MODE 走。
+      // 这样可以独立测试"互锁路径"（ENABLE_PROGRAM_MODE=1, WEIGHT_MODEL=0）
+      // 或 "不开编程但用 BRAM 权重做 sample align"（MODE=0, WEIGHT_MODEL=1）。
       cim_macro_blackbox #(
-        .P_USE_BRAM_WEIGHTS (ENABLE_PROGRAM_MODE)
+        .P_USE_BRAM_WEIGHTS (ENABLE_PROGRAM_WEIGHT_MODEL)
       ) u_macro (
         .clk       (clk),
         .rst_n     (rst_n),
