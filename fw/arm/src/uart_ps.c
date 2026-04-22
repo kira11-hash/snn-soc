@@ -1,0 +1,97 @@
+/*
+ * fw/arm/src/uart_ps.c — minimal polling PS-UART Tx driver for ZCU102.
+ *
+ * Zynq UltraScale+ PS UART Cadence IP register map (excerpt; see UG1085 Ch 21):
+ *   0x00 Control Register       — bit 2 TX enable, bit 4 RX enable
+ *   0x04 Mode Register          — 8-bit, 1 stop, no parity encoded as 0x00000020
+ *   0x18 Baud Rate Generator    — BRGR (divisor)
+ *   0x2C Channel Status         — bit 3 TX empty, bit 4 TX full
+ *   0x30 Transmit and Receive   — write = TX data
+ *   0x34 Baud Rate Divider      — BAUDDIV (CD + BDIV)
+ *
+ * Strategy: re-init the UART with a known baud (platform.h gives
+ * UART_REF_CLK_HZ and UART_BAUD) so we don't depend on bootloader state.
+ *
+ * Simplification: this Phase B driver only does Tx polling (no RX, no
+ * interrupts, no FIFO threshold management). Real production code would
+ * use Vitis BSP's Xuartps driver.
+ */
+#include <stdint.h>
+#include "platform.h"
+
+#define UART_REG(off) (*(volatile uint32_t *)(UART_BASE + (off)))
+#define UART_CR   UART_REG(0x00u)
+#define UART_MR   UART_REG(0x04u)
+#define UART_BRGR UART_REG(0x18u)
+#define UART_CSR  UART_REG(0x2Cu)
+#define UART_FIFO UART_REG(0x30u)
+#define UART_BDIV UART_REG(0x34u)
+
+#define CR_STOPBRK (1u << 8)
+#define CR_STARTBRK (1u << 7)
+#define CR_TXDIS   (1u << 5)
+#define CR_TXEN    (1u << 4)
+#define CR_RXDIS   (1u << 3)
+#define CR_RXEN    (1u << 2)
+#define CR_TXRST   (1u << 1)
+#define CR_RXRST   (1u << 0)
+
+#define CSR_TEMPTY (1u << 3)  /* 1 = TxFIFO empty */
+#define CSR_TFULL  (1u << 4)  /* 1 = TxFIFO full */
+
+void uart_init(void)
+{
+    /* Disable + reset Tx/Rx */
+    UART_CR = CR_TXDIS | CR_RXDIS | CR_TXRST | CR_RXRST;
+
+    /* 8-bit, 1 stop, no parity, normal mode; clock_sel=0 (uart_ref_clk/1).
+     * MR layout: [8] stop-bits=0 (1 stop), [5:3] parity=100 (no parity),
+     * [2:1] chrl=00 (8-bit), [0] clk_sel=0 (no /8 prescale). */
+    UART_MR = 0x00000020u;  /* par=no, 8-bit, 1 stop */
+
+    /* Compute BAUD: baud = ref_clk / (BRGR * (BAUDDIV + 1))
+     * With ref_clk=100 MHz and baud=115200, pick BAUDDIV=6 → BRGR=124.
+     * (100e6 / (124 * 7) ≈ 115207 → 0.006% error). */
+    UART_BRGR = 124u;
+    UART_BDIV = 6u;
+
+    /* Enable Tx/Rx */
+    UART_CR = CR_TXEN | CR_RXEN;
+}
+
+void uart_putc(char c)
+{
+    /* Spin until Tx FIFO has room */
+    while (UART_CSR & CSR_TFULL) { /* spin */ }
+    UART_FIFO = (uint32_t)(uint8_t)c;
+}
+
+void uart_puts(const char *s)
+{
+    while (*s) {
+        if (*s == '\n') uart_putc('\r');
+        uart_putc(*s++);
+    }
+}
+
+/* tiny hex-print helper for debug (no printf dependency) */
+void uart_put_hex32(uint32_t v)
+{
+    static const char hex[] = "0123456789abcdef";
+    uart_putc('0'); uart_putc('x');
+    for (int i = 7; i >= 0; i--) {
+        uart_putc(hex[(v >> (i * 4)) & 0xFu]);
+    }
+}
+
+void uart_put_dec(int32_t v)
+{
+    char buf[12];
+    int i = 0;
+    uint32_t uv;
+    if (v < 0) { uart_putc('-'); uv = (uint32_t)(-v); }
+    else       { uv = (uint32_t)v; }
+    if (uv == 0) { uart_putc('0'); return; }
+    while (uv && i < (int)sizeof(buf)) { buf[i++] = (char)('0' + (uv % 10u)); uv /= 10u; }
+    while (i-- > 0) uart_putc(buf[i]);
+}

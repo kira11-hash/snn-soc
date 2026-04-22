@@ -56,6 +56,11 @@ sim/*.vvp
 
 # Vivado FPGA build artifacts (large timestamped project dirs, keep reports/)
 fpga_synth/v2b_synth_*/
+fpga_synth/v2b_arm_demo_ooc_*/
+fpga_synth/zcu102_bd_sanity_*/
+fpga_synth/zcu102_arm_demo/
+fpga_synth/v2b_arm_demo_ooc.xdc
+fpga_synth/reports_ooc_arm_demo/
 fpga_synth/*.jou
 fpga_synth/*.log
 fpga_synth/.Xil/
@@ -63,6 +68,10 @@ fpga_synth/vivado.log
 fpga_synth/vivado_*.backup.log
 fpga_synth/webtalk*
 fpga_synth/xrun_*
+fpga_synth/*.xsa
+
+# Phase B ARM firmware build artifacts
+fw/arm/out/
 
 # tracked simulation build artifacts (cleanup)
 sim/csrc/

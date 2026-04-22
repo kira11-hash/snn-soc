@@ -22,7 +22,10 @@
 #define V2B_SOC_BASE 0x50000000u
 #endif
 
-#define V2B_SOC_REG(off)  (*(volatile uint32_t *)((V2B_SOC_BASE) + (off)))
+/* Cast through uintptr_t so this header is portable between 32-bit (E203)
+ * and 64-bit (Cortex-A53 ARM) hosts without triggering -Wint-to-pointer-cast. */
+#define V2B_SOC_REG(off) \
+    (*(volatile uint32_t *)(uintptr_t)((V2B_SOC_BASE) + (off)))
 
 /* ── STAGE_CTRL / STATUS / CFG ─────────────────────────────────── */
 #define V2B_SOC_STAGE_CTRL    V2B_SOC_REG(0x000u)
