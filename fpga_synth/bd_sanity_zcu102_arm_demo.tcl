@@ -67,7 +67,7 @@ set_property -dict [list \
   CONFIG.PSU__USE__M_AXI_GP2        "0" \
   CONFIG.PSU__MAXIGP0__DATA_WIDTH   "32" \
   CONFIG.PSU__FPGA_PL0_ENABLE       "1" \
-  CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ "100" \
+  CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ "50" \
 ] $ps
 
 set wrapper [create_bd_cell -type module -reference v2b_axi_wrapper_bd u_v2b_wrapper]

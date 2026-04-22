@@ -242,7 +242,7 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 
 | 检查 | 脚本 | 结果 |
 |---|---|---|
-| OOC synth `v2b_arm_demo_top` | `vivado -mode batch -source ooc_v2b_arm_demo.tcl` | ✅ WNS 2.518 ns @ 100 MHz（`TIMING_STATUS : PASS`） |
+| OOC synth `v2b_arm_demo_top` | `vivado -mode batch -source ooc_v2b_arm_demo.tcl` | ✅ `TIMING_STATUS : PASS` @ 50 MHz（pseudo-constraint 20 ns period，匹配项目 baseline） |
 | BD 创建 + validate + save | `vivado -mode batch -source bd_sanity_zcu102_arm_demo.tcl` | ✅ `ZCU102_BD_SANITY_PASS`；`u_v2b_wrapper/s_axi` 接口正确推断；地址段挂在 `<0xA000_0000 [ 4K ]>` |
 | Full bitgen + XSA | `scripts/build_zcu102_arm_demo.sh` | ⏳ 待在有 Vivado + 时间预算的机器上跑（~35 min） |
 | 上板 C0 smoke | `xsct scripts/program_zcu102_c0.tcl` | ⏳ 待有板子后执行 |
@@ -251,7 +251,7 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 
 | # | 风险 | 严重度 | 缓解 |
 |---|---|---|---|
-| C0-R1 | PL clock mismatch 警告（pl_clk0 = 99.99 MHz，非 100.00 MHz） | 低 | 已从 `v2b_axi_wrapper_bd.v` 的 `X_INTERFACE_PARAMETER` 移除 `FREQ_HZ` 硬编码，让 Vivado 自动传播 |
+| C0-R1 | PS PLL 对 50 MHz 目标产出的 pl_clk0 可能有小数偏差（如 49.99 MHz） | 低 | 已从 `v2b_axi_wrapper_bd.v` 的 `X_INTERFACE_PARAMETER` 移除 `FREQ_HZ` 硬编码，让 Vivado 自动传播 BD 真实频率，避免 validate mismatch |
 | C0-R2 | xsct 走 JTAG 直接 `dow ELF` 不经过 FSBL → DDR 未训练？ | 中 | 脚本 source `psu_init.tcl` 先初始化 DDR + PS，再 load ELF |
 | C0-R3 | SmartConnect 在 Low-area mode 不支持 WRAP burst | 低 | 我们只做 AXI-Lite（无 burst），纯 SINGLE transactions。警告可忽略 |
 | C0-R4 | 没 MMU，指令和 rodata 读都 uncached，性能差 | 低 | 10 sample 总 inference 应 < 30s，能 PASS tag 即可 |

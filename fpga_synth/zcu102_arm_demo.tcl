@@ -12,7 +12,7 @@
 #   │ (A53, DDR,   │─LPD────►│  (1 master →    │─────►│  (AXI-Lite slave)│
 #   │  PS UART0)   │  (32b)  │   1 slave)      │      │                  │
 #   └──┬───────────┘         └─────────────────┘      └──────────────────┘
-#      │ pl_clk0 (100 MHz)
+#      │ pl_clk0 (50 MHz — project baseline; matches fpga_synth/synth_v2b.tcl)
 #      │ pl_resetn0
 #      ▼
 #   ┌─────────────────────────┐
@@ -27,7 +27,8 @@
 # ARM firmware invariants this script guarantees:
 #   - PS UART0 is enabled and usable via Xuartps or direct MMIO
 #   - PS DDR is available for .text/.rodata (app loads to 0x100000 by default)
-#   - PL fabric clock `clk` @ 100 MHz
+#   - PL fabric clock `clk` @ 50 MHz (project baseline; pulse widths in
+#     cim_program_ctrl / uart_ctrl / etc. are calibrated for 50 MHz)
 #
 # Invocation:
 #   cd d:/SoC Design/audit-v2/fpga_synth
@@ -109,7 +110,7 @@ set_property -dict [list \
   CONFIG.PSU__USE__M_AXI_GP2        "0" \
   CONFIG.PSU__MAXIGP0__DATA_WIDTH   "32" \
   CONFIG.PSU__FPGA_PL0_ENABLE       "1" \
-  CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ "100" \
+  CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ "50" \
 ] $ps
 
 # --- Our AXI-Lite slave wrapper (Verilog shim → SV core) ---

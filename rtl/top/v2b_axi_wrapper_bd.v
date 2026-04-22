@@ -28,10 +28,12 @@ module v2b_axi_wrapper_bd #(
     parameter P_ENABLE_TILE_BUF = 1'b1,
     parameter P_ADC_BITS        = 10
 ) (
-    // Omit FREQ_HZ: the PS pl_clk0 emits ~99.99 MHz (not exactly 100M) due to
-    // PLL granularity; forcing FREQ_HZ=100000000 triggers a BD validate
-    // mismatch. Letting Vivado auto-propagate from pl_clk0 is the standard
-    // Xilinx pattern.
+    // Omit FREQ_HZ: let Vivado auto-propagate from PS pl_clk0. The project
+    // baseline targets 50 MHz PL fabric clock (pulse widths in cim_program_ctrl
+    // etc. are calibrated for 50 MHz — see CLAUDE.md / doc/02_reg_map.md).
+    // Hard-coding FREQ_HZ here triggers a BD validate mismatch whenever PS
+    // PLL granularity produces something slightly off (e.g., 49.99 MHz vs
+    // exact 50.000 MHz); auto-propagation avoids that class of error.
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK" *)
     (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi, ASSOCIATED_RESET rst_n" *)
     input  wire        clk,

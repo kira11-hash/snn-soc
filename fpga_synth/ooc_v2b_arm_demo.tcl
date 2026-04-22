@@ -72,12 +72,13 @@ foreach f [list \
 set_property file_type SystemVerilog [get_files *.sv]
 set_property top $TOP [current_fileset]
 
-# Make the OOC unit's clock a 100 MHz pseudo-constraint so timing_report
-# has something to anchor on. Real constraints live in the BD wrapper .xdc.
+# Make the OOC unit's clock a 50 MHz pseudo-constraint (project baseline;
+# matches fpga_synth/synth_v2b.tcl). Real constraints live in the BD
+# wrapper .xdc when going through the full Vivado flow.
 set xdc_body {
-create_clock -name clk -period 10.000 [get_ports clk]
-set_input_delay  -clock clk 2.000 [all_inputs]
-set_output_delay -clock clk 2.000 [all_outputs]
+create_clock -name clk -period 20.000 [get_ports clk]
+set_input_delay  -clock clk 4.000 [all_inputs]
+set_output_delay -clock clk 4.000 [all_outputs]
 }
 set xdc_path "${proj_dir}/v2b_arm_demo_ooc.xdc"
 set fd [open $xdc_path w]
@@ -118,7 +119,7 @@ set fd [open $report_dir/post_synth_status.rpt w]
 puts $fd "=============================================="
 puts $fd "v2b_arm_demo_top - OOC post-synthesis summary"
 puts $fd "Target: $PART  Top: $TOP"
-puts $fd "Clock: 100 MHz (10.000 ns) pseudo-constraint"
+puts $fd "Clock: 50 MHz (20.000 ns) pseudo-constraint"
 puts $fd "=============================================="
 puts $fd "WNS (ns)  : $wns"
 if {$wns eq "NA"} {
