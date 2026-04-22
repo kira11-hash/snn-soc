@@ -9,7 +9,7 @@
 #
 #   ┌──────────────┐         ┌─────────────────┐      ┌──────────────────┐
 #   │ Zynq US+ PS  │ HPM0_   │ AXI SmartConnect│      │ v2b_axi_wrapper  │
-#   │ (A53, DDR,   │─LPD────►│  (1 master →    │─────►│  (AXI-Lite slave)│
+#   │ (A53, DDR,   │─FPD────►│  (1 master →    │─────►│  (AXI-Lite slave)│
 #   │  PS UART0)   │  (32b)  │   1 slave)      │      │                  │
 #   └──┬───────────┘         └─────────────────┘      └──────────────────┘
 #      │ pl_clk0 (50 MHz — project baseline; matches fpga_synth/synth_v2b.tcl)

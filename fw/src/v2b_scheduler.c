@@ -36,6 +36,12 @@
 #define T_COUNT       64u
 #define WORDS_PER_ROW  8u     /* 256 bits / 32 */
 
+#ifndef V2B_STAGE_POLL_TIMEOUT
+#define V2B_STAGE_POLL_TIMEOUT 2000000u
+#endif
+
+#define V2B_STAGE_ERR_TIMEOUT 0xFEu
+
 /* ── even_rate Bresenham encoder — MUST match Python
  *    snn_engine_multilayer.encode_pixel_to_spike_stream ── */
 void v2b_encode_pixel_even_rate(const uint8_t *pixels, uint32_t in_dim,
@@ -110,8 +116,12 @@ uint8_t v2b_run_stage(uint32_t in_dim, uint32_t out_dim,
 
     V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_START;
 
-    /* Poll STATUS.BUSY */
-    while (V2B_SOC_STAGE_BUSY(V2B_SOC_STAGE_STATUS)) { /* spin */ }
+    /* Poll STATUS.BUSY. On board, a missing clock/reset/address-map issue
+     * should report a firmware-visible timeout instead of hanging silently. */
+    uint32_t guard = 0u;
+    while (V2B_SOC_STAGE_BUSY(V2B_SOC_STAGE_STATUS)) {
+        if (++guard >= V2B_STAGE_POLL_TIMEOUT) return V2B_STAGE_ERR_TIMEOUT;
+    }
     uint8_t err = (uint8_t)V2B_SOC_STAGE_ERR(V2B_SOC_STAGE_STATUS);
 
     /* Clear DONE sticky (W1C) */

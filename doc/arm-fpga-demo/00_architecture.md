@@ -17,7 +17,7 @@
 | 维度 | 说明 |
 |---|---|
 | **目标** | 把 `snn_soc_v2b_top` 包装成 AXI4-Lite slave，使 ZCU102 Cortex-A53 PS 可通过 MMIO 直接驱动 V2.B accelerator。 |
-| **不做** | E203-in-PL、Vivado BD、Vitis BSP（后续 Phase B/C），不碰 V2.B core datapath。 |
+| **不做** | E203-in-PL、production Vitis BSP app、Linux/PetaLinux、DMA/DDR streaming，仍不碰 V2.B core datapath。 |
 | **可改** | 仅本分支内 additive 的 `snn_soc_pkg.sv`（+2 个 localparam）和 `axi2simple_bridge.sv`（+1 行 `addr_mapped`）。 |
 | **Merge policy** | Phase A/B/C 全过之后**保留 branch**，tag `v2-arm-fpga-demo-passed`，不 merge 回 v2；paper/doc 只引用 tag + commit + board log。 |
 
@@ -62,11 +62,11 @@
 
 | Plan 决策 | Phase A 产出的落地 |
 |---|---|
-| **D1** Vitis BSP first | Phase B 再落地；Phase A 不依赖任何 firmware 工具链。 |
+| **D1** ARM runtime | 实现偏离原计划的 Vitis-BSP-first：当前 Phase B/C0 采用最小 `aarch64-none-elf-gcc` 裸机 ELF + `psu_init.tcl` JTAG bring-up；Vitis BSP 保留为后续性能/工程化路线。 |
 | **D2** axi2simple_bridge + 新 adapter + 新 wrapper | `rtl/bus/simple2v2btop_adapter.sv` + `rtl/top/v2b_axi_wrapper.sv` 完成。 |
 | **D3** `addr_mapped()` additive | 见第 4 节。 |
-| **D4** V2B_SOC_BASE = proposed `0xA000_0000` | 见第 4 节；final 以 Vivado Address Editor 生成的 `xparameters.h` 为准（Phase C0 时确认）。 |
-| **D5** Golden in C header | Phase B 再落地。本分支 Phase A 的 AXI cosim TB 直接 `$readmemh` 读 Python golden。 |
+| **D4** V2B_SOC_BASE = proposed `0xA000_0000` | BD sanity 已确认 `u_v2b_wrapper/s_axi` 被强制分配到 `<0xA000_0000 [4K]>`，走 HPM0_FPD。 |
+| **D5** Golden in C header | Phase B 已落地：`golden_fashion10.[hc]` 内嵌 10 samples + 全局权重；Phase A AXI cosim 仍直接 `$readmemh` 同一批 Python golden。 |
 | **D6** 不改现有 V2.B parity 合约 | 已确认：`v2b_soc_top_parity_tb.sv` / `fw_cosim_resident_14x14_tb.sv` 仍 PASS（见第 6 节）。 |
 
 ---
@@ -149,7 +149,7 @@ read_mux 的 case 依赖 `cmd_addr`。如果 adapter 把 cmd_addr 清零，read_
 
 | 项 | REV 2 原意 | Phase A 实现 | 原因 |
 |---|---|---|---|
-| **Weight load semantics** | "Boot once, per-sample 只 reload stream" | 本 AXI cosim TB 和 parity TB 一样 **per-sample 重载权重** | Parity TB（`fw_cosim_resident_14x14_tb.sv::sw_infer_from_golden_wl`）也是 per-sample reload；若强行 resident 会脱离 parity 合约，本分支不改 V2.B datapath。真正 boot-once 语义交给 Phase B firmware 验证。 |
+| **Weight load semantics** | "Boot once, per-sample 只 reload stream" | 本 AXI cosim TB 和 parity TB 一样 **per-sample 重载权重** | Parity TB（`fw_cosim_resident_14x14_tb.sv::sw_infer_from_golden_wl`）也是 per-sample reload；若强行 resident 会脱离 parity 合约，本分支不改 V2.B datapath。真正 boot-once / per-stage resident 语义留给未来单独验证。 |
 | **Adapter 读延迟** | "3-cycle 读（N+3 采样）" | **2-cycle 读（N+2 采样）** | v2b_top 的 `cmd_read_sb*_q` 在 cmd_valid=0 后会在 N+2 active 之后 fall 回 0，N+3 的 rsp_rdata 已被覆写为 0。正确采样点是 N+2 active-before-NBA。 |
 
 两处差异都已在对应文件的 header 注释中记录。
@@ -165,7 +165,7 @@ read_mux 的 case 依赖 `cmd_addr`。如果 adapter 把 cmd_addr 清零，read_
 | `fw/arm/include/platform.h` | `V2B_SOC_BASE` / `UART_BASE` / `UART_REF_CLK_HZ` macros；可被 `-D` 覆盖 |
 | `fw/arm/include/uart_ps.h` | UART driver 头 |
 | `fw/arm/include/golden_fashion10.h` | Golden 数据结构声明（由 Python 生成） |
-| `fw/arm/src/golden_fashion10.c` | Golden 数据 C 内嵌（~320 KB，10 samples × pixel_196 + encoded_stream + counts + class；**含全局权重数组**） |
+| `fw/arm/src/golden_fashion10.c` | Golden 数据 C 内嵌（生成源 ~3.3k 行；ELF `.text/.rodata` 合计约 67 KB；10 samples + 全局权重数组） |
 | `fw/arm/src/uart_ps.c` | Zynq Ultrascale+ PS UART0 最小 Tx poll 驱动（115200 8N1） |
 | `fw/arm/src/crt0_aarch64.S` | 最小 AArch64 启动：设栈、清 bss、跳 arm_main |
 | `fw/arm/src/v2b_scheduler_arm.c` | 2 行薄包装：define `V2B_SOC_BASE` + include 原始 `fw/src/v2b_scheduler.c` |
@@ -197,15 +197,16 @@ text    data    bss    dec     hex    filename
 
 ### 8.5 **Cache / MMU 策略（板上注意事项）**
 
-本 Phase B 的 `crt0_aarch64.S` **不做 MMU 初始化**。Cortex-A53 reset 默认：`SCTLR_EL1.M=0, I=0, C=0` → 所有 memory 按 strongly-ordered (Device-nGnRnE) 处理。这意味着：
-- MMIO writes/reads 到 `0xA000_0000..0xA000_0FFF` 会**正确**地穿过 AXI SmartConnect（因为没有 cache coherence 问题）
-- Instruction fetches 和 .rodata 读取**不 cache** → 整体执行很慢，但正确
+本 Phase B/C0 的 `crt0_aarch64.S` **不做 MMU/cache 初始化**；JTAG 脚本依赖 `psu_init.tcl` 完成 PS/DDR/PL isolation bring-up。对这个 first-smoke 路线的实际含义是：
+- `0xA000_0000..0xA000_0FFF` 的 MMIO volatile load/store 不会被本 firmware 自己打开的 D-cache 缓住；地址映射错误时仍可能直接 data abort 或无响应；
+- DDR 中的 instruction fetch 和 `.rodata` 读取不走本地启用的 cache 路径 → 整体执行很慢，但足够做 10-sample PASS tag；
+- 具体复位 EL / debug state 由 XSCT + `psu_init.tcl` 决定，所以 board log 里要记录实际启动脚本和 Vivado/Vitis 版本。
 
 对于 Phase C0/C1 smoke 的 10 sample × 14×14 推理，预估总运行时间 < 30 秒（uncached）。Production 部署时会切换到 Vitis BSP 路线，BSP 的 `MMUTable.c` 会把 PL MMIO window 标为 Device-nGnRnE，把 DDR 代码/数据标为 Normal cacheable，吞吐提升 50-100 倍。
 
 ### 8.6 Weight-load 策略（和 Phase A 一致）
 
-`v2b_infer_resident_14x14` 和 C0 loop 都 **per-sample reload** weights，完全匹配 `fw_cosim_resident_14x14_tb.sv::sw_infer_from_golden_wl` 的行为。plan REV 2 §D5 原想做 boot-once resident，但 parity TB 自身就不是 boot-once，所以本分支 Phase A/B 都跟随 parity 合约。真正 boot-once 验证留给未来（可能需要 V2.B RTL 调整来确保 weight memory 跨 stage 保持）。
+`v2b_infer_resident_14x14` 和 C0 loop 都 **per-sample reload** weights，完全匹配 `fw_cosim_resident_14x14_tb.sv::sw_infer_from_golden_wl` 的行为。plan REV 2 §D5 原想做 boot-once resident，但 standalone V2.B 当前只有一套 MAC weight store，stage0 和 stage1 不能同时常驻两套权重；本分支因此跟随已验证 parity 合约。真正 boot-once / per-stage resident 需要未来加权重 bank、stage-local weight memory，或接受明确的 stage reload schedule。
 
 ---
 
@@ -235,7 +236,7 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
   - HPM0_FPD：aperture `<0xA000_0000 [ 256M ]>` + 其他 big apertures，128-bit 原生
   - HPM1_FPD：同 HPM0_FPD 的其他 aperture
 - plan REV 2 D4 提议 V2B_SOC_BASE=`0xA000_0000` → 必须走 HPM0_FPD（LPD 的 aperture 不覆盖）
-- SmartConnect 做 width convert：128-bit PS master → 32-bit AXI-Lite slave
+- 本 TCL 把 HPM0_FPD 数据宽度配置为 32-bit（`PSU__MAXIGP0__DATA_WIDTH=32`），SmartConnect 主要承担 AXI-Lite 连接/时钟复位/地址 decode；不是依赖 128→32 数据宽转换。
 - TCL 用 `assign_bd_address -offset 0xA0000000 -range 4K` 强制到 HPM0_FPD 的 `0xA000_0000 [ 256M ]` aperture
 
 ### 9.4 Phase C0 sanity 结果（本地静态）

@@ -1,10 +1,11 @@
 /*
  * fw/arm/src/crt0_aarch64.S — minimal AArch64 startup for ZCU102 standalone.
  *
- * Called by Xilinx FSBL / Vitis BSP init chain AFTER:
- *   - PS DDR is trained and mapped
- *   - MMU + caches are enabled (Vitis BSP MMUTable.c does this)
- *   - Cortex-A53 core 0 is unparked
+ * In the Phase C0 xsct/JTAG flow this runs after scripts/program_zcu102_c*.tcl
+ * sources Vivado's psu_init.tcl:
+ *   - PS DDR is trained and mapped by psu_init
+ *   - PL isolation/reset is released by psu_post_config helpers
+ *   - MMU/cache setup is intentionally NOT done here
  *
  * This crt0 does the bare minimum that Vitis BSP's own _start doesn't
  * already cover:
@@ -12,12 +13,10 @@
  *   - Zero .bss
  *   - Branch to arm_main
  *
- * For Phase B Gate verification (ELF link check only, no BSP yet), this
- * standalone crt0 is sufficient. On the actual board (Phase C0+), Vitis
- * would normally provide its own startup; if we replace Vitis's crt0
- * with this one we'd need to also do MMU + GIC + UART initialization
- * which this file skips. A future iteration may point Vitis at this file
- * via the linker script override.
+ * For Phase B Gate verification (ELF link check only) and Phase C0 direct
+ * board smoke, this standalone crt0 is sufficient. A future Vitis BSP app can
+ * replace it with BSP startup/MMU/cache/UART initialization once performance
+ * matters more than first-light simplicity.
  *
  * Memory model: the LDR= pseudo-instr resolves via the linker's literal
  * pool. The `adrp` + `add` sequence is the standard AArch64 way to load

@@ -188,7 +188,7 @@ package snn_soc_pkg;
   // [feature/v2-arm-fpga-demo 2026-04-22] V2.B AXI-Lite window — proposed
   //
   // 仅在 `feature/v2-arm-fpga-demo` evidence branch 使用。放在 Zynq UltraScale+
-  // PS-PL AXI-Lite 干净窗口的 proposed 起点 0xA000_0000（HPM0_LPD），4 KB 够放
+  // PS-PL AXI-Lite 干净窗口的 proposed 起点 0xA000_0000（HPM0_FPD），4 KB 够放
   // snn_soc_v2b_top 的 register + indirect SBA/SBB 读。Final 基址以 Vivado
   // BD Address Editor 生成的 xparameters.h 为准 —— 此处只是 default。
   //

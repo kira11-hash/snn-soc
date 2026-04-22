@@ -26,10 +26,9 @@
 #   TOOLCHAIN_BIN=/path       — override cross-gcc dir. Default:
 #                               /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
 #
-# On a real board deployment we'd regenerate with a Vitis-proper workspace
-# so the BSP provides PS init / MMU / xil_printf / Xuartps. Phase B Gate
-# does not require any of that — it only needs to prove the C code
-# compiles and links. Phase C0 switches to Vitis-based build.
+# Phase C0 currently reuses this minimal ELF for direct xsct/JTAG bring-up.
+# A future Vitis-proper workspace can replace the startup/UART pieces with
+# BSP-generated PS init, MMU tables, xil_printf, and Xuartps support.
 
 set -euo pipefail
 

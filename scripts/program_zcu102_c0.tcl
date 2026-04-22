@@ -14,7 +14,7 @@
 #   UART_OK
 #   [TB] v2b_arm_demo start — 10 Fashion 14x14 samples via AXI-Lite
 #   [TB] V2B_SOC_BASE=0xa0000000
-#   [OK] MMIO round-trip CFG4
+#   [OK] MMIO round-trip CFG1
 #   [TB] C0 loop (bypass encoder)
 #   [PASS] sample 0 class=0 counts=[63 0 0 34 0 0 0 0 0 0]
 #   ... (9 more [PASS] lines)
@@ -68,24 +68,27 @@ fpga -file $BIT
 
 # FSBL is normally needed to bring PS DDR up. Without a Vitis-generated
 # FSBL project, we fall back to the ZCU102 "PSU init" script that Vivado
-# exports alongside the XSA (psu_init.tcl). Assumption: xsct has already
-# sourced it once per board session. If not, source it now:
+# exports alongside the XSA (psu_init.tcl). Treat a missing psu_init.tcl as
+# fatal; downloading the ELF to uninitialized DDR would only fail later.
 set psu_init_glob [glob -nocomplain \
   "$root_dir/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.srcs/sources_1/bd/v2b_arm_demo_bd/hw_handoff/psu_init.tcl"]
-if {[llength $psu_init_glob] > 0} {
-  set psu_init [lindex $psu_init_glob 0]
-  puts "[program_zcu102_c0] sourcing psu_init.tcl for DDR/PS bring-up"
-  source $psu_init
-  targets -set -filter {name =~ "Cortex-A53 #0"}
-  psu_init
-  after 500
-  psu_post_config
-  after 500
-  psu_ps_pl_isolation_removal
-  after 500
-  psu_ps_pl_reset_config
-  after 500
+if {[llength $psu_init_glob] == 0} {
+  puts "[FATAL] psu_init.tcl not found under Vivado BD hw_handoff path."
+  puts "        Re-run scripts/build_zcu102_arm_demo.sh and check the XSA/BD export."
+  exit 2
 }
+set psu_init [lindex $psu_init_glob 0]
+puts "[program_zcu102_c0] sourcing psu_init.tcl for DDR/PS bring-up"
+source $psu_init
+targets -set -filter {name =~ "Cortex-A53 #0"}
+psu_init
+after 500
+psu_post_config
+after 500
+psu_ps_pl_isolation_removal
+after 500
+psu_ps_pl_reset_config
+after 500
 
 # Download ELF to core 0 and run
 targets -set -filter {name =~ "Cortex-A53 #0"}

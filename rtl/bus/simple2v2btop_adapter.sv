@@ -35,7 +35,7 @@
 //   拍 latch 成 `q_*` 寄存器，随后几个等待拍都用 `q_*` 驱动 cmd_*，保持
 //   cmd_addr 稳定。
 //
-// 【Adapter 3-state FSM】
+// 【Adapter 4-state FSM】
 //   ADP_IDLE (N):     m_valid=1 → cmd_valid=1 用 live m_* 信号；
 //                     同拍 latch q_*；→ ADP_WR_ACK 或 ADP_RD_WAIT
 //   ADP_WR_ACK (N+1): m_ready=1，完成写握手；→ ADP_IDLE

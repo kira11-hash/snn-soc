@@ -3,7 +3,7 @@
  *
  * Flow (matches plan REV 2 §D1 / §4):
  *   1. uart_init() + self-test banner "UART_OK"
- *   2. AXI-Lite MMIO round-trip self-test (write+read CFG4 reserved register)
+ *   2. AXI-Lite MMIO round-trip self-test (write+read CFG1 threshold register)
  *   3. C0 loop: 10 samples × bypass-encoder path
  *      - per sample: load pre-encoded stream, load stage weights, run stages,
  *        count spikes, compare to expected_counts

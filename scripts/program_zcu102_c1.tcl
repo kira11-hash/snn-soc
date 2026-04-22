@@ -43,18 +43,21 @@ fpga -file $BIT
 
 set psu_init_glob [glob -nocomplain \
   "$root_dir/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.srcs/sources_1/bd/v2b_arm_demo_bd/hw_handoff/psu_init.tcl"]
-if {[llength $psu_init_glob] > 0} {
-  source [lindex $psu_init_glob 0]
-  targets -set -filter {name =~ "Cortex-A53 #0"}
-  psu_init
-  after 500
-  psu_post_config
-  after 500
-  psu_ps_pl_isolation_removal
-  after 500
-  psu_ps_pl_reset_config
-  after 500
+if {[llength $psu_init_glob] == 0} {
+  puts "[FATAL] psu_init.tcl not found under Vivado BD hw_handoff path."
+  puts "        Re-run scripts/build_zcu102_arm_demo.sh and check the XSA/BD export."
+  exit 2
 }
+source [lindex $psu_init_glob 0]
+targets -set -filter {name =~ "Cortex-A53 #0"}
+psu_init
+after 500
+psu_post_config
+after 500
+psu_ps_pl_isolation_removal
+after 500
+psu_ps_pl_reset_config
+after 500
 
 targets -set -filter {name =~ "Cortex-A53 #0"}
 stop

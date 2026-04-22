@@ -9,12 +9,12 @@
 //
 // 【功能概述】
 // 把 `snn_soc_v2b_top`（自定义 cmd/rsp 简易总线）包装成 **AXI4-Lite slave**，
-// 供 ZCU102 Cortex-A53 PS 经 Zynq UltraScale+ HPM0_LPD 窗口直接 MMIO 访问。
+// 供 ZCU102 Cortex-A53 PS 经 Zynq UltraScale+ HPM0_FPD 窗口直接 MMIO 访问。
 // 内部三段：
 //   (1) axi2simple_bridge.sv  — AXI4-Lite slave → bus_simple_if master
 //                               （既有模块，回归已覆盖；本分支零改动）
 //   (2) simple2v2btop_adapter.sv — bus_simple_if master → v2b_top cmd/rsp slave
-//                               （新增，2-state FSM，支持 SBA/SBB +2-cycle read）
+//                               （新增，4-state FSM，支持 SBA/SBB +2-cycle read）
 //   (3) snn_soc_v2b_top       — V2.B accelerator（零改动）
 //
 // 【address space contract】
