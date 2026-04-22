@@ -223,6 +223,32 @@ module reg_bank (
   logic prog_done_sticky;         // prog_done_pulse sticky, W1C via REG_PROG_STATUS[7]
   logic [1:0] prog_write_pulse_sel; // 写入脉冲档位选择（0=1us, 1=10us, 2=100us, 3=保留）
 
+  // -----------------------------------------------------------------------
+  // START pending guards（2026-04-22 GPT review Q2 修复：back-to-back race）
+  //
+  // 【问题】 仅用 `!snn_busy` / `!prog_busy` 屏蔽 START 无法防御 back-to-back 写：
+  //   Cycle N  : 写 CIM_CTRL.START=1 → start_pulse <= 1（prog_busy=0 通过互锁）
+  //   Cycle N+1: start_pulse 此拍 visible，但 snn_busy 还要下一拍（N+2）才拉高
+  //              若 CPU 此拍写 PROG_CTRL.START=1，!snn_busy 仍然为真，
+  //              prog_start_pulse 也会被置 → 两条 FSM 同时启动。
+  //
+  // 【修复】 额外加两个 pending 位：
+  //   - snn_start_pending : start_pulse 发出后置 1，直到 snn_busy 升起才清零
+  //   - prog_start_pending: 同理
+  //
+  // 【互锁条件加强为】：
+  //   start_pulse 允许  = !prog_busy && !prog_start_pending && !prog_start_pulse
+  //   prog_start 允许  = !snn_busy  && !snn_start_pending  && !start_pulse
+  //
+  // 三重守卫：busy（下游已在忙）+ pending（已发出 START 但下游还没到 busy）+
+  //           start_pulse（本拍正在发 START，最激进的 back-to-back 情形）。
+  //
+  // downstream FSM 延迟容忍：不管 snn_busy 落后几拍，pending 一定在第 1 个 edge
+  // 后就为 1，至少提供 1 拍 race-free 窗口。
+  // -----------------------------------------------------------------------
+  logic snn_start_pending;
+  logic prog_start_pending;
+
   // 将 sel 解码为 resolved cycles；档位 3 被视为保留，回退到最长的 100us（安全默认）。
   function automatic logic [15:0] decode_write_pulse_width(input logic [1:0] sel);
     case (sel)
@@ -290,6 +316,8 @@ module reg_bank (
       prog_pulse_width  <= PROG_PULSE_WIDTH_CYC[15:0];
       prog_erase_width  <= PROG_ERASE_WIDTH_CYC[15:0];
       prog_done_sticky  <= 1'b0;
+      snn_start_pending  <= 1'b0;
+      prog_start_pending <= 1'b0;
     end else begin
       // W1P 默认每拍清零（确保脉冲只有 1 拍宽度）
       // 这两行必须在 case 之前，以便 case 中的赋值可以覆盖它们
@@ -304,6 +332,21 @@ module reg_bank (
       // CIM 编程完成脉冲 → sticky
       if (prog_done_pulse) begin
         prog_done_sticky <= 1'b1;
+      end
+
+      // ─── START pending 跟踪（GPT review Q2 修复）────────────────────
+      // start_pulse 此拍=1 说明本拍 reg_bank 正在把 START 交给下游 FSM。
+      // 从下一拍开始，snn_start_pending 置 1，直到 snn_busy 升起才清零。
+      // snn_busy 清零时（推理结束）pending 已在更早 clear，不会再次阻塞。
+      if (start_pulse) begin
+        snn_start_pending <= 1'b1;
+      end else if (snn_busy) begin
+        snn_start_pending <= 1'b0;
+      end
+      if (prog_start_pulse) begin
+        prog_start_pending <= 1'b1;
+      end else if (prog_busy) begin
+        prog_start_pending <= 1'b0;
       end
 
       if (write_en) begin
@@ -343,8 +386,14 @@ module reg_bank (
             // W1P: START / RESET
             // 这三个控制位都位于 byte0，需同时满足 wstrb[0]=1 才生效
             // 写 bit[0]=1 → start_pulse 被置 1，覆盖本拍开头的默认清零
-            // 编程进行中屏蔽推理启动，防止 arbiter 切换时 CIM 宏被两条路径同时驱动
-            if (req_wstrb[0] && req_wdata[0] && !prog_busy) start_pulse <= 1'b1;
+            // 三重互锁（GPT review Q2 修复）：
+            //   - !prog_busy         : 编程控制器 FSM 当前不忙
+            //   - !prog_start_pending: 近期没发过 prog_start_pulse 但 prog_busy 还没升起
+            //   - !prog_start_pulse  : 本拍 reg_bank 没有同时接受另一个 PROG_CTRL.START
+            if (req_wstrb[0] && req_wdata[0]
+                && !prog_busy && !prog_start_pending && !prog_start_pulse) begin
+              start_pulse <= 1'b1;
+            end
             // 写 bit[1]=1 → soft_reset_pulse 被置 1，同上
             if (req_wstrb[0] && req_wdata[1]) soft_reset_pulse <= 1'b1;
             // W1C: DONE
@@ -352,8 +401,11 @@ module reg_bank (
             if (req_wstrb[0] && req_wdata[7]) done_sticky <= 1'b0;
           end
           REG_PROG_CTRL: begin
-            // 推理进行中屏蔽编程启动：两路径互锁，配合 arbiter 避免竞争
-            if (req_wstrb[0] && req_wdata[0] && !snn_busy) prog_start_pulse <= 1'b1;
+            // 推理进行中屏蔽编程启动（三重互锁，参考 REG_CIM_CTRL 注释）
+            if (req_wstrb[0] && req_wdata[0]
+                && !snn_busy && !snn_start_pending && !start_pulse) begin
+              prog_start_pulse <= 1'b1;
+            end
             if (req_wstrb[0]) prog_erase      <= req_wdata[1];
             if (req_wstrb[0]) prog_full_array <= req_wdata[2];
             if (req_wstrb[0]) prog_level      <= req_wdata[7:4];

@@ -175,9 +175,14 @@ module cim_program_ctrl (
               // （IEEE 1800 §10.4.2：同 rank NBA 的最后一次赋值生效）。
               prog_wl_spike <= '0;
               prog_wl_spike[prog_row] <= 1'b1;
-              // prog_col 是 5-bit（来自寄存器，范围 0-19），prog_bl_sel 是 7-bit（扩宽后），
-              // 用零扩展把窄的接到宽的，高位补 0。
-              prog_bl_sel   <= {{($clog2(MAX_BL_SCAN)-5){1'b0}}, prog_col};
+              // 【2026-04-22 GPT review Q5 修复】
+              //   原先写 `{{($clog2(MAX_BL_SCAN)-5){1'b0}}, prog_col}` 是为了兼容
+              //   MAX_BL_SCAN 变大（v2 分支 =128 时 $clog2=7）时做高位零扩展。
+              //   但 main 的 MAX_BL_SCAN=20 → $clog2=5，replicate count=0，
+              //   zero-width replication 在部分综合/lint 工具（Vivado / DC / Spyglass）
+              //   会告警或拒绝。改为直接赋值；SV 语言规范定义窄→宽赋值自动零扩展
+              //   （IEEE 1800 §10.7），同时覆盖 MAX_BL_SCAN >= 32 的未来扩展场景。
+              prog_bl_sel   <= prog_col;
             end
 
             // ─── 地址合法性检查（D1-004 + D2-001 + D2-006 + D3-FIX）────
