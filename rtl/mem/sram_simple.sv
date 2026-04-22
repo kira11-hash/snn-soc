@@ -56,7 +56,10 @@
 module sram_simple #(
   // 存储容量（字节数），必须是 4 的倍数（按 32-bit word 组织）
   // 默认 16KB = 4096 words
-  parameter int MEM_BYTES = 16384
+  parameter int    MEM_BYTES  = 16384,
+  // INIT_FILE: 非空时在仿真或 Vivado FPGA 综合时用 $readmemh 预加载内容。
+  // 仅用于 FPGA BRAM init（feature/main-fpga-e203）；留空时行为与原版完全一致。
+  parameter        INIT_FILE  = ""
 ) (
   input  logic        clk,       // 系统时钟（写操作在上升沿执行）
   input  logic        rst_n,     // 复位（当前未使用，保留端口；见"注意：无复位"）
@@ -94,6 +97,13 @@ module sram_simple #(
   // lint 友好：rst_n 当前无逻辑，req/dma 高/低位多余部分通过哑线消除告警
   wire _unused = &{1'b0, rst_n, req_addr, req_wdata, req_wstrb,
                    dma_wr_addr, dma_wr_data, dma_wr_strb};
+
+  // BRAM pre-init (FPGA only): Vivado recognises $readmemh in initial blocks
+  // and uses the file to set BRAM INIT_xx attributes at synthesis time.
+  // Simulation: same effect — useful for E203 FPGA smoke firmware pre-load.
+  initial begin
+    if (INIT_FILE != "") $readmemh(INIT_FILE, mem);
+  end
 
   // ── 组合读（零延迟）──────────────────────────────────────────────────────
   assign rdata = mem[word_addr];

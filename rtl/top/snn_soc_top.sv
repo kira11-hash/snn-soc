@@ -77,7 +77,11 @@ module snn_soc_top #(
   // 行为模型——0 用 V1 popcount ADC 公式（与原 main 行为完全一致）；
   //            1 用 BRAM weight_mem + bram_weighted_sum()（编程会真正更新权重）。
   // 默认跟 ENABLE_PROGRAM_MODE 走，但显式拆开便于"只测互锁不测权重"等 ablation 场景。
-  parameter bit ENABLE_PROGRAM_WEIGHT_MODEL = ENABLE_PROGRAM_MODE
+  parameter bit    ENABLE_PROGRAM_WEIGHT_MODEL = ENABLE_PROGRAM_MODE,
+  // INSTR_INIT_FILE: 非空时 u_instr_sram 在上电前从该路径 $readmemh 预加载。
+  // 用于 feature/main-fpga-e203 FPGA flow（E203 firmware pre-init）。
+  // 留空时行为与原版完全一致（现有所有回归不受影响）。
+  parameter        INSTR_INIT_FILE = ""
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -712,7 +716,7 @@ module snn_soc_top #(
 
   // 指令 SRAM：MEM_BYTES = INSTR_SRAM_BYTES（见 pkg）
   // 新增 DMA 写端口：dma_engine 使用 DST_INSTR_SRAM 时直接写入
-  sram_simple #(.MEM_BYTES(INSTR_SRAM_BYTES)) u_instr_sram (
+  sram_simple #(.MEM_BYTES(INSTR_SRAM_BYTES), .INIT_FILE(INSTR_INIT_FILE)) u_instr_sram (
     .clk         (clk),
     .rst_n       (rst_n),
     .req_valid   (instr_req_valid),
