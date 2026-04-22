@@ -185,6 +185,20 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_FIFO_END    = 32'h4000_04FF;
 
   // ──────────────────────────────────────────────────────────────────────────
+  // [feature/v2-arm-fpga-demo 2026-04-22] V2.B AXI-Lite window — proposed
+  //
+  // 仅在 `feature/v2-arm-fpga-demo` evidence branch 使用。放在 Zynq UltraScale+
+  // PS-PL AXI-Lite 干净窗口的 proposed 起点 0xA000_0000（HPM0_LPD），4 KB 够放
+  // snn_soc_v2b_top 的 register + indirect SBA/SBB 读。Final 基址以 Vivado
+  // BD Address Editor 生成的 xparameters.h 为准 —— 此处只是 default。
+  //
+  // **不 merge 回 v2**，除非 Qingan 另行决定（见 plan §7 evidence-branch 策略）。
+  // axi2simple_bridge.addr_mapped() 已加一行白名单包含此窗口。
+  // ──────────────────────────────────────────────────────────────────────────
+  localparam logic [31:0] ADDR_V2B_BASE    = 32'hA000_0000;
+  localparam logic [31:0] ADDR_V2B_END     = 32'hA000_0FFF;
+
+  // ──────────────────────────────────────────────────────────────────────────
   // V2 CIM 编程参数（ENABLE_PROGRAM_MODE=1 时生效）
   // ──────────────────────────────────────────────────────────────────────────
   parameter int PROG_LEVELS           = 16;  // 16 档电阻级别（N pulse = 第 N 档）

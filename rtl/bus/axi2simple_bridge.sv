@@ -112,7 +112,9 @@ module axi2simple_bridge (
       in_range(addr, snn_soc_pkg::ADDR_DMA_BASE,    snn_soc_pkg::ADDR_DMA_END)    ||
       in_range(addr, snn_soc_pkg::ADDR_UART_BASE,   snn_soc_pkg::ADDR_UART_END)   ||
       in_range(addr, snn_soc_pkg::ADDR_SPI_BASE,    snn_soc_pkg::ADDR_SPI_END)    ||
-      in_range(addr, snn_soc_pkg::ADDR_FIFO_BASE,   snn_soc_pkg::ADDR_FIFO_END);
+      in_range(addr, snn_soc_pkg::ADDR_FIFO_BASE,   snn_soc_pkg::ADDR_FIFO_END)   ||
+      // [feature/v2-arm-fpga-demo] V2.B AXI-Lite window (branch-local; do not merge)
+      in_range(addr, snn_soc_pkg::ADDR_V2B_BASE,    snn_soc_pkg::ADDR_V2B_END);
   endfunction
 
   function automatic logic addr_word_aligned (
