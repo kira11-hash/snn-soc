@@ -1237,15 +1237,23 @@ module snn_soc_top #(
   //======================
 
   // 根据 cim_test_mode 选择信号来源
-  assign cim_done  = cim_test_mode ? cim_done_test  : cim_done_hw;  // MUX: CIM 完成
-  assign adc_done  = cim_test_mode ? adc_done_test  : adc_done_hw;  // MUX: ADC 完成
+  //
+  // 【2026-04-22 MAIN-01 审查修复】cim_done/adc_done/bl_data 的 MUX 源从 `*_hw`
+  // 改为 `arb_*`（arbiter 的 infer-side 输出），让 arbiter 的对称屏蔽真正生效：
+  //   - ENABLE_PROGRAM_MODE=0：gen_no_prog 中 `arb_* = *_hw` 直连，行为与此前完全等价
+  //   - ENABLE_PROGRAM_MODE=1：arbiter 在 prog_busy=1 时把推理侧 done/data 屏蔽为 0，
+  //                            防止编程期间 macro 的脉冲被误当成推理完成
+  //                            （代价：推理 done/data 多 1 拍延迟，但 cim_array_ctrl
+  //                             只需要等 done，不依赖精确 start→done 延迟）
+  assign cim_done  = cim_test_mode ? cim_done_test  : arb_cim_done;  // MUX: CIM 完成
+  assign adc_done  = cim_test_mode ? adc_done_test  : arb_adc_done;  // MUX: ADC 完成
   // BL 数据 MUX：test mode 下按通道号分发 pos/neg 合成值
   //   bl_sel < NUM_OUTPUTS(10) → 正通道（ch 0~9）  → 返回 cim_test_data_pos
   //   bl_sel >= NUM_OUTPUTS    → 负通道（ch 10~19） → 返回 cim_test_data_neg
   // 令 pos≠neg（如 pos=100, neg=0）时，Scheme B 差分 = 100，LIF 膜电位可积累 spike
   assign bl_data   = cim_test_mode ?
       (bl_sel < $bits(bl_sel)'(NUM_OUTPUTS) ? cim_test_data_pos : cim_test_data_neg) :
-      bl_data_hw;
+      arb_bl_data;
 
   // CIM / ADC 假响应延迟生成器（寄存器逻辑）
   always_ff @(posedge clk or negedge rst_n) begin

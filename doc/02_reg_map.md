@@ -69,11 +69,24 @@
 
 **为什么写入是档位而不是自由脉宽？** RRAM 器件编程窗口未标定，留三档供实验标定；擦除固定 1ms 防止误写短脉冲烧伤器件。
 
-**两条路径互锁（reg_bank 实现）**：
-- 写 `CIM_CTRL.START=1` 时若 `prog_busy=1`，start_pulse 被屏蔽
-- 写 `PROG_CTRL.START=1` 时若 `snn_busy=1`，prog_start_pulse 被屏蔽
+**两条路径互锁（reg_bank 三重守卫实现，2026-04-22 Q2 修复）**：
 
-配合 `cim_macro_arbiter` 确保 CIM 宏任一时刻仅由一条路径驱动。
+每条 START 写入都检查 3 个条件：
+
+- `!{peer}_busy`：对侧 FSM 不处于 busy（稳态互锁）
+- `!{peer}_start_pending`：近期发过对侧 start_pulse 但对侧 busy 还没升起（多拍 downstream 延迟容忍）
+- `!{peer}_start_pulse`：本拍 reg_bank 同时在接受对侧的 START W1P（最激进的 back-to-back 情形）
+
+即：
+- 写 `CIM_CTRL.START=1` 要求 `!prog_busy && !prog_start_pending && !prog_start_pulse`
+- 写 `PROG_CTRL.START=1` 要求 `!snn_busy && !snn_start_pending && !start_pulse`
+
+仅用 `!busy` 单重守卫**无法封堵 back-to-back race**（start_pulse W1P 发出后下游 FSM 要
+下一拍才把 busy 拉高，这一拍的空窗足以让对侧 START 绕过互锁）。三重守卫 + `cim_macro_arbiter`
+共同确保 CIM 宏任一时刻仅由一条路径驱动。
+
+race 覆盖由 `tb/prog_start_interlock_tb.sv` 的 T3/T4 两个 case 验证（TB 人为按住 busy=0
+模拟下游 FSM 滞后，写 back-to-back CIM.START→PROG.START 或反向，检查只有第一条 START 生效）。
 
 ## dma_regs（base = 0x4000_0100）
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
