@@ -1,0 +1,219 @@
+ZCU102 ARM-hosted V2.B board smoke passed:
+C0 accelerator/MMIO PASS and C1 full scheduler PASS on 10 Fashion-MNIST 14x14 samples.
+
+Date: 2026-04-22
+
+=== UART Output (PuTTY COM4, 115200 8N1) ===
+UART_OK
+[TB] v2b_arm_demo start — 10 Fashion 14x14 samples via AXI-Lite
+[TB] V2B_SOC_BASE=0xa0000000
+[OK] MMIO round-trip CFG1
+
+[TB] C0 loop (bypass encoder)
+[PASS] sample 0 class=0 counts=[63 0 0 34 0 0 0 0 0 0]
+[PASS] sample 1 class=1 counts=[0 63 0 0 1 0 0 0 0 0]
+[PASS] sample 2 class=2 counts=[0 0 61 0 1 0 0 0 0 0]
+[PASS] sample 3 class=3 counts=[0 0 0 63 0 0 0 4 0 0]
+[PASS] sample 4 class=4 counts=[0 0 0 0 63 0 1 0 0 0]
+[PASS] sample 5 class=5 counts=[1 1 0 0 0 63 0 63 0 0]
+[PASS] sample 6 class=5 counts=[0 0 0 0 0 11 6 0 0 0]
+[PASS] sample 7 class=7 counts=[0 0 0 0 0 0 0 63 0 0]
+[PASS] sample 8 class=8 counts=[0 0 0 0 0 6 0 0 63 0]
+[PASS] sample 9 class=5 counts=[0 0 0 0 0 63 0 0 62 7]
+ARM_FPGA_DEMO_ACCEL_FASHION10_PASS
+
+[TB] C1 loop (full scheduler, real pixel encoder)
+[PASS] sample 0 predicted=0 counts=[63 0 0 34 0 0 0 0 0 0]
+[PASS] sample 1 predicted=1 counts=[0 63 0 0 1 0 0 0 0 0]
+[PASS] sample 2 predicted=2 counts=[0 0 61 0 1 0 0 0 0 0]
+[PASS] sample 3 predicted=3 counts=[0 0 0 63 0 0 0 4 0 0]
+[PASS] sample 4 predicted=4 counts=[0 0 0 0 63 0 1 0 0 0]
+[PASS] sample 5 predicted=5 counts=[1 1 0 0 0 63 0 63 0 0]
+[PASS] sample 6 predicted=5 counts=[0 0 0 0 0 11 6 0 0 0]
+[PASS] sample 7 predicted=7 counts=[0 0 0 0 0 0 0 63 0 0]
+[PASS] sample 8 predicted=8 counts=[0 0 0 0 0 6 0 0 63 0]
+[PASS] sample 9 predicted=5 counts=[0 0 0 0 0 63 0 0 62 7]
+ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS
+=== Git Info ===
+HEAD commit: 8e51ae2708ef778fd4b63e2c4c20b55099b3f205
+## feature/v2-arm-fpga-demo
+?? doc/arm-fpga-demo/board_bringup_log_c0_c1_uart.txt
+?? fpga_synth/zcu102_arm_demo_gpt.pid
+
+=== Branch History ===
+8e51ae27 board: Phase C0+C1 PASS — ARM_FPGA_DEMO_ACCEL/SCHEDULER_FASHION10_PASS
+24951bb3 gpt-fix: harden ARM board bring-up review findings
+7e6f24ef fixup: PL fabric clock 100 MHz → 50 MHz to match project baseline
+f7625ddf feature/v2-arm-fpga-demo Phase B + C0 static: firmware builds, Vivado BD validated
+8301c226 feature/v2-arm-fpga-demo Phase A: AXI-Lite wrapper + cosim TB PASS
+17693e4f v2: GPT round-3 minor-fix cleanup — RISK-01 OUTPUT_DST + doc/19 RAM inference + summary seed + scope banner + Q1 decision doc
+85add981 v2: GPT audit round-2 cleanup — BLOCK-V2-01 invalid-config reject + BLOCK-V2-02 CFG5 contract
+97feb0e4 v2: post-audit cleanup — V2-01 feedback OR parity + V2-02 V2.B regression harness + V2-03 FPGA target + V2-04 Phase A summary.txt
+42301a7d v2: CIM 4-level programming pulse + V2.B Phase A-D catch-up commit
+70bcc491 doc(bug log): add V2.B Vivado synthesis hangs entry + GPT FPGA review prompt
+5e0cb552 v2b FPGA-synth fix 3: sweep all remaining broadcast-reset / 2D-unpacked risks
+00717074 v2b FPGA-synth fix 2: tile_partial_buf flat 1D + ram_style distributed
+41790ff1 v2b FPGA-synth fix: refactor cim_mac_behavioral_v2 to WL-serial + all-j-parallel MAC
+68f9d000 fpga: add Vivado batch synthesis script + cowork Claude instructions
+c9000f9a doc(phase D): synthesis readiness assessment + GPT Q3 checkpoint prompt
+08ded4f7 v2b B3: tile_accumulator_parity_tb PASS + stage_engine_v2 tile-mode FSM fixes
+a5ee1977 v2b Phase C Milestone-1: firmware scheduler + co-sim bit-exact PASS
+83d52c08 v2b Phase C-pre: standalone V2B SoC top + bus-driven 10 Fashion sample parity PASS
+1080457e v2b B5: multilayer sample parity PASS — 10 Fashion 14x14 samples bit-exact
+e385729a v2b B2: real per-position MAC + streamed-stage Python<->RTL bit-parity PASS
+94cb7940 v2b B1 skeleton: streamed-stage RTL primitives + smoke TBs (ICARUS 4/4 green)
+b19108e4 v2b phase A: streamed-rate python stack + topology descriptor + tile/chunk engines
+bf079a5f docs: add work principles, false-positive KB, and paper writing guidelines
+24eda283 docs(audit): add markdown link gate and env notes
+618f5db0 docs(audit): 2026-03-31 comprehensive pre-TO audit and status refresh
+cd2c8126 fix(audit): keep wl wrapper busy through done
+9092e9dc docs(audit): refresh 2026-03-31 mainline baseline
+3d817b23 docs(audit): refresh 2026-03-24 verification baseline
+affe2f64 docs(audit): refresh 2026-03-23 verification baseline
+e0f79ae8 docs(audit): clarify spike semantics and handoff notes
+a11cef17 fix(audit): harden JTAG rescue + SPI timing + doc DMA FSM
+79c9e7f2 Fix E203 sim filelists and cleanup
+59736ab0 docs(audit): refresh learning path and smoke baseline
+61335380 fix(audit): scope UART baud override to sim builds
+15060ed8 chore(audit): pre-TO full audit — docs refined, TB addresses parameterized
+2ca327eb chore(audit): tapeout pre-TO full audit — docs refined
+9fe7c2e6 chore(audit): fix CIM test data bug and refresh stale docs
+b83f13eb docs(audit): sync main status docs with verified flows
+550c439b docs(audit): refine memory map and smoke walkthrough
+efc7c834 chore(main): tapeout audit fixes — CDC attrs, lint, fw completeness, docs
+fe9e09b9 chore(sim): harden asset discovery and refine audit docs
+7a0472e2 chore(main): tighten audit docs and firmware register defs
+7fe52ea8 Make simulation scripts WSL-friendly
+e5f81921 Add rescue JTAG loader and validation flow
+a2094075 chore(main): verify tapeout path and sync docs
+4a99619b fix(top): wire chip-level cim path and enable e203
+b14c4092 feat(e203): add spi boot flow and sync docs
+59b88ff7 docs(dma): sync dst selection register docs
+eefa40c1 feat(dma): add multi-destination transfer modes
+cb674031 feat(spi): integrate master controller and tests
+0fbdd965 feat(uart): integrate tx controller and tests
+9cdc5273 feat(bus): add AXI-Lite bridge scaffold
+4c64cbfc Refine docs/comments and add ADC saturation regression
+7489b42f Sync learning docs and top-level source comments
+63bd1359 Refresh overview for current ASIC mainline
+47de7900 Clarify current-study guidance in learning path
+de8adc49 Formalize 100-sample alignment corpus and ASIC pad map
+f96f4b06 docs(main): sync dual-chip analog handoff docs
+2e99b06b docs(main): remove stale draft-doc references
+b0f49415 chore(main): sync verification docs and lint config
+5095a290 fix(sim): stabilize weighted and sample-align input discovery
+e981cfe7 fix(sim): correct sample alignment fifo pop and batch support
+0ca71df7 feat(step3.4): add Python-RTL alignment scripts and stimulus files
+6243e0e8 docs(learning-path): fix stale TIMESTEPS=3 example to match T=10 default
+ce48bc4b Tighten smoke flows and sync default docs
+47de27f0 Clean sim artifacts and sync default docs
+c1b69b7c Sync current main workspace
+bf03c59a feat(model): clean modeling flow and add weighted verification
+ec66827e docs(model): remove obsolete change note
+33b5a0ff feat(model): sync latest python modeling assets
+b3760fab docs(repo): remove develop docs drafts
+8f33c0c6 chore(repo): ignore local manual sim dumps
+bd0cc4f0 sim(tb,docs): fix light smoke pass/fail gating and clean mojibake text
+9895ca28 sim: make light smoke weight staging optional for main/tapeout branches
+b5c83370 sim: add weight source fallback for branches without fpga dir
+f865e476 tb(sim): make light smoke cross-branch compatible and side-effect free
+52cbc353 rtl(tb): sync robustness fixes (wstrb + light smoke assertions)
+635e3164 docs(history): annotate UART/SPI stub sections with 2026-03-02 branch progress
+f589db18 docs(repo): unify SPI progress status across docs + enforce LF for .sh
+7e88a050 docs: fix T=10→T=3 default across all docs + fix encoding
+6835fdeb chore(sim): refresh icarus_light artifact after cross-branch smoke
+47131754 docs: refresh main-plan accuracy line for T=3 default
+1a8e7113 chore(sim): refresh icarus_light output artifact
+17a7ab8e sync default to T=3 and refresh full-run artifacts/docs
+db0ea1d4 docs(fpga): update doc13 with ZCU102 details and corrected BRAM estimates
+d5302e67 docs+rtl: align CIM appendix and add FIFO depth elaboration checks
+f1c2e9ac docs(claude): fix quick register map to match RTL and reg_map
+1c290bf8 chore(repo): remove leftover conflict markers and ignore local sim artifacts
+60e330af docs: fix broken internal links in learning and reading-note docs
+582e9f23 docs: add FPGA paper plan with codex review fixes
+97c6beac docs: add SPI long-read risk and mitigation strategy
+dab655f1 change the way to calculate weight
+a4dd35f6 end temporary
+c30a9d8c finished modeling
+8f8cf819 spike or membrane
+27e3efdd new model
+4ac4014c verson -2.25 new
+9c72eed9 增加了项目文档，里面包含了接口、怎么学、计划
+dc1f66ff init repo skeleton
+
+=== Tag ===
+8e51ae2708ef778fd4b63e2c4c20b55099b3f205 refs/tags/v2-arm-fpga-demo-passed
+
+=== Bitstream SHA256 ===
+
+Hash : 1215D913BCF3B436BE34FA63215DF61657D7C3591832CD34678C440478C46B67
+Path : D:\SoC Design\audit-v2\fpga_synth\zcu102_arm_demo\zcu102_arm_demo.runs\impl_1\v2b_arm_demo_bd_wrapper.bit
+
+
+
+Name          : v2b_arm_demo_bd_wrapper.bit
+Length        : 26510908
+LastWriteTime : 2026/4/22 20:46:53
+
+
+
+=== ELF SHA256 ===
+
+Hash : 1D6D6BB3E9D25A35667D65D516EE2B7A5922CFDFEB81D3D0D4FDE5B7A844CD65
+Path : D:\SoC Design\audit-v2\fw\arm\out\v2b_arm_demo.elf
+
+
+
+Name          : v2b_arm_demo.elf
+Length        : 155568
+LastWriteTime : 2026/4/22 22:50:42
+
+
+
+=== COM Port Mapping ===
+
+FriendlyName                                                    InstanceId
+------------                                                    ----------
+Silicon Labs Quad CP2108 USB to UART Bridge: Interface 3 (COM6) USB\VID_10C4&PID_EA71&MI_03\6&80173AF&0&0003
+Silicon Labs Quad CP2108 USB to UART Bridge: Interface 2 (COM3) USB\VID_10C4&PID_EA71&MI_02\6&80173AF&0&0002
+Silicon Labs Quad CP2108 USB to UART Bridge: Interface 1 (COM5) USB\VID_10C4&PID_EA71&MI_01\6&80173AF&0&0001
+Silicon Labs Quad CP2108 USB to UART Bridge: Interface 0 (COM4) USB\VID_10C4&PID_EA71&MI_00\6&80173AF&0&0000
+
+
+
+=== JTAG Device ===
+
+FriendlyName         Status Class InstanceId
+------------         ------ ----- ----------
+USB Serial Converter OK     USB   USB\VID_0403&PID_6014\210308A5F59B
+
+
+
+=== Tool Versions ===
+Vivado v2022.2 (64-bit)
+SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022
+IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
+
+
+INFO: [Physopt 32-619] Estimated Timing Summary | WNS=11.094 | TNS=0.000 |
+Phase 1 Physical Synthesis Initialization | Checksum: 24a9ad4c1
+
+Time (s): cpu = 00:00:02 ; elapsed = 00:00:01 . Memory (MB): peak = 4043.879 ; gain = 0.000
+--
+INFO: [Place 30-746] Post Placement Timing Summary WNS=11.094. For the most accurate timing information please run report_timing.
+Phase 4.1.1.2 Post Placement Timing Optimization | Checksum: 21f8c9c90
+
+Time (s): cpu = 00:03:01 ; elapsed = 00:02:37 . Memory (MB): peak = 4043.879 ; gain = 744.637
+--
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=11.543 | TNS=0.000  | WHS=-0.048 | THS=-15.546|
+
+
+Router Utilization Summary
+--
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=9.066  | TNS=0.000  | WHS=-0.002 | THS=-0.013 |
+
+Phase 4.1 Global Iteration 0 | Checksum: 20b370a4c
+
+--
+
+=== Bitgen evidence appended ===
