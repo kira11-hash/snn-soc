@@ -161,35 +161,52 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A8-2 `prog_level[3:0]` | 独立 pad `prog_level[3:0]`（pads 49..52），D→A，仅 write 时有效 |
 | A8-3 `full_array erase` | `prog_op[2:0] = 3'b100` 专用编码 |
 | A8-4 新增 pad vs 复用 | **新增 7 pads 作为编程 sideband**（方案 α'）；推理 pad 维持 frozen 不变 |
-| A8-5 编码与时序 | `prog_op` / `prog_level` 在 `prog_busy` 期间稳定；`cim_start` 脉冲沿为采样点；脉宽数字侧自计时（`PROG_PULSE_WIDTH` 档位 1/10/100 µs，擦除固定 1 ms）；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
+| A8-5 编码与时序（2026-04-24 Q1/Q2/Q3 锁定） | (Q1) `cim_start` 在 programming 模式下是 LEVEL-hold gate，本次 pulse/verify 时长 = `cim_start` 高电平持续时间，模拟侧不自计时；(Q2) `prog_op` / `prog_level` 仅在同一 `cim_start=1` 窗口内稳定，write→verify 相位切换发生在 `cim_start=0` 的 ≥ 1 cycle gap 中；(Q3) verify 时 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定到 ±1 LSB，RMS 噪声 ≤ 1 LSB；脉宽档位 `PROG_PULSE_WIDTH` = 1/10/100 µs，擦除固定 1 ms；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
 
-#### 数字侧已完成的 RTL 落地
+#### 数字侧已完成的 RTL 落地（2026-04-24 全部完工）
 
-- `rtl/top/snn_soc_top.sv`：新增输出端口 `prog_op_ext[2:0]` + `prog_level_ext[3:0]`；
-  编码器根据内部 `prog_busy` / `prog_en_sig` / `erase_en_sig` / `verify_en_sig` /
-  `prog_full_array` / `prog_level` 生成 `prog_op` 编码。
+- `rtl/top/snn_soc_top.sv`：
+  - 新增输出端口 `prog_op_ext[2:0]` + `prog_level_ext[3:0]`；
+  - 编码器根据内部 `prog_busy / prog_en_sig / erase_en_sig / verify_en_sig /
+    prog_full_array / prog_level` 生成 `prog_op_raw`；
+  - `prog_op_raw` / `prog_level` 经 10-stage pipeline (`prog_op_pipe` /
+    `prog_level_pipe`) 与 `cim_start_ext` 相位对齐（Q2 锁定）；
+  - `cim_start_ext = prog_busy ? shreg[(prog_dac_valid | verify_en_dly1)] :
+    cim_start_pulse`（Q1 LEVEL-gate，延迟 10 拍对齐 WL）；
+  - **共享载体 pad 路由已全部切通**：`wl_data / wl_group_sel / wl_latch` 在
+    `prog_busy=1` 时由 `prog_wl_spike` 驱动；`bl_sel_ext = arb_bl_sel`（arbiter
+    自动切换）。
 - `rtl/top/chip_top.sv`：新增 pad 端口 `prog_op_pad[2:0]` + `prog_level_pad[3:0]`，
   连接到 `snn_soc_top`。
 - `doc/15_asic_pad_map.md`：pad 表扩到 55 项，46..52 给新编程接口。
-- Gate A 回归 11/11 全绿；`CHIP_TOP_ROM_SMOKE_PASS` / `PROG_BYPASS_LATCH_TB_PASS` /
-  `CIM_PROGRAM_CTRL_PASS` 均过。
+- Gate A 回归 16/16 全绿：`LIGHT / WEIGHTED / DMA / UART / SPI / AXI_BRIDGE /
+  CIM_PROGRAM_CTRL / PROG_PULSE_CFG / PROG_START_INTERLOCK / BOOT_ROM /
+  SILICON_BRINGUP / E203 / CHIP_TOP_ROM_SMOKE / PROG_BYPASS_LATCH /
+  PROG_PAD_ENCODER / PROG_WL_PAD_ROUTE` 均过。
 
 #### 模拟侧可以直接开始做的事
 
-1. **解码 `prog_op[2:0]`**：在 `cim_start` 上升沿采样；`000` → 推理常态；`001/010/011/100` → 对应编程；其它视为 idle。
-2. **解码 `prog_level[3:0]`**：仅 `prog_op==010` (write) 时读取。
-3. **复用推理 pad 载 row/col**：编程的 row 来自 `wl_data / wl_group_sel / wl_latch` 的 8×8 TDM one-hot；col 来自 `bl_sel[4:0]`。
-4. **verify 读回路径**：收到 `prog_op=011` + `cim_start` 后，按单 cell 读电压做 ADC 采样，结果放 `bl_data[7:0]`；**不需要**上报 pass/fail。
-5. **脉冲驱动器**：数字侧自计时，模拟侧在 `cim_start` 到来后启动 pulse driver，数字侧撤销 `cim_start` 或将 `prog_op` 拉回 `000` 后关闭。
+1. **解码 `prog_op[2:0]`**：在 **`cim_start` 上升沿**锁存（数字侧保证此时
+   `prog_op` 稳定）；`000` → 推理常态；`001/010/011/100` → 对应编程；其它视为 idle。
+2. **解码 `prog_level[3:0]`**：仅 `prog_op==010` (write) 时读取；与 `prog_op`
+   相位一致，同时锁存即可。
+3. **复用推理 pad 载 row/col**：编程的 row 来自 `wl_data / wl_group_sel /
+   wl_latch` 的 8×8 TDM one-hot（在 `cim_start` 上升沿前已经 latch 完毕）；
+   col 来自 `bl_sel[4:0]`，在整个 `cim_start=1` 窗口内稳定。
+4. **脉冲驱动器（Q1）**：seeing `cim_start=1` → 打开 pulse driver 并按当前
+   `prog_op` 执行对应操作；seeing `cim_start=0` → 立即关闭。**不要**自己
+   做脉宽定时。
+5. **verify 读回路径（Q3）**：收到 `prog_op=011` + `cim_start=1` 后，**≤ 100 ns**
+   内把 8-bit ADC 读回值稳定到 `bl_data[7:0]`，保持到 `cim_start` 下降沿；
+   噪声控制在 RMS ≤ 1 LSB；**不需要**上报 pass/fail。
 
-#### 仍然是开放项（非 A8 blocker，但属于最终完工清单）
+#### 仍然是开放项（非 A8 blocker，最终完工清单）
 
-- **数字侧 shared-carrier routing follow-up**：当前新增的 `prog_op / prog_level`
-  sideband pads 已接到 `chip_top`，但 external programming 复用的共享载体
-  (`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`) 还没在 `prog_busy`
-  时全部切到 programming 路径。这不阻塞模拟同学按 A8 合同设计 decoder /
-  pulse driver / readback，但会阻塞端到端 digital+analog 联调。
 - 脉冲驱动器的**电压**与**上升/下降沿**规格 → A4 / A7（器件老师侧回填）
+- FPGA Phase C 上板端到端验证（`main-fpga-e203-alpha` 分支）：三个 PASS tag
+  `FPGA_E203_BOOT_UART_PASS` / `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` /
+  `FPGA_E203_PROGRAMMED_INFERENCE_PASS`，证明 Q1/Q2/Q3 在综合后的真实
+  硅时序上仍成立
 - 模拟芯片 pinout 最终落位（如 `doc/15_asic_pad_map.md` pad 索引要不要重排）→ P0（两边联合确认）
 - verify 读电压与推理读电压是否共用同一 TIA/ADC 通路 → A5 / A6 细化
 

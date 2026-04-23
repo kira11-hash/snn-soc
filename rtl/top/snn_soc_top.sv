@@ -1073,46 +1073,77 @@ module snn_soc_top #(
   assign wl_latch_ext     = wl_latch;
 
   // ─── External CIM pad routing for programming (2026-04-24, scheme α' follow-up) ───
-  // Three shared carrier pads need to switch to programming sources when
-  // prog_busy=1, so the external analog die actually sees the programming
-  // operation on the pads:
-  //   - bl_sel_ext: always use arb_bl_sel (arbiter transparently passes the
-  //     inference bl_sel when prog_busy=0 and prog_bl_sel when prog_busy=1)
-  //   - cim_start_ext: during programming, delay by WL_MUX_LATENCY cycles so
-  //     the 8-group wl_data TDM burst completes on the pads BEFORE the analog
-  //     macro sees cim_start.  arb_cim_start fires at ST_PULSE entry;
-  //     arb_adc_start fires at ST_READBACK entry (used for verify reads).
-  //     External analog uses cim_start as the generic "execute the prog_op
-  //     currently on the pads" trigger, so we OR them into one delayed pad
-  //     pulse.  Inference path is unchanged (zero delay).
+  // The three shared carrier pads switch to programming sources when prog_busy=1,
+  // so the external analog die sees the programming operation on the pads:
+  //
+  //   - bl_sel_ext: always = arb_bl_sel. The arbiter transparently forwards
+  //     the inference bl_sel when prog_busy=0 and prog_bl_sel when prog_busy=1.
+  //
+  //   - cim_start_ext (GATE semantics, 2026-04-24 Q1 lock-in):
+  //     During programming, cim_start_ext is a LEVEL-held gate that stays
+  //     HIGH for the entire "analog interaction" window. The analog die
+  //     applies programming voltage (write/erase) or read voltage (verify)
+  //     as long as cim_start_ext=1 and withdraws it on the falling edge —
+  //     no analog-side self-timing / pulse-width table lookup is required.
+  //
+  //     Internal gate = prog_dac_valid_sig | verify_en_sig, covering:
+  //       - prog_dac_valid_sig : ST_SETUP → ST_PULSE → ST_PULSE_HOLD
+  //                              (pulse-width-controlled, selected from
+  //                               REG_PROG_PULSE_WIDTH preset or erase_width)
+  //       - verify_en_sig      : ST_READBACK → ST_RB_WAIT
+  //                              (ADC readback window)
+  //     The gate is then delayed by WL_MUX_LATENCY_CYC cycles so that the
+  //     wl_data / wl_group_sel / wl_latch TDM burst on the shared WL pads
+  //     completes BEFORE the analog macro sees cim_start rise.
+  //
+  //     During inference (prog_busy=0), cim_start_ext falls back to the
+  //     legacy 1-cycle strobe (cim_start_pulse passthrough) — unchanged.
+  //
+  //     prog_op_ext is stable within each cim_start_ext=1 window. It may
+  //     change between windows (e.g. write → verify phase transitions),
+  //     but the FSM guarantees the transition only happens while
+  //     cim_start_ext=0, so the analog side can safely latch prog_op on
+  //     the cim_start_ext rising edge.
+  //
   //   - wl_mux_wrapper input bitmap: muxed to prog_wl_spike when prog_busy=1.
-  //     wl_mux_wrapper naturally encodes the 64-bit one-hot target row into
-  //     the existing 8×8 TDM wl_data / wl_group_sel / wl_latch pads.
-  //     Triggered once per prog_busy rising edge (row stays constant inside
-  //     a single programming op, so one TDM burst is enough).
+  //     wl_mux_wrapper encodes the 64-bit one-hot target row vector into
+  //     the 8×8 TDM burst on wl_data / wl_group_sel / wl_latch pads.
+  //     Retriggered once at prog_busy rising edge (row stays constant
+  //     inside a single programming op, one TDM burst suffices).
   localparam int WL_MUX_LATENCY_CYC = 10;
   logic        prog_busy_q;
-  logic [WL_MUX_LATENCY_CYC-1:0] prog_cim_start_shreg;
-  wire         prog_ext_trigger = arb_cim_start | arb_adc_start;
+  logic        verify_en_sig_dly1;   // 1-cycle delayed verify_en
+  logic [WL_MUX_LATENCY_CYC-1:0] prog_gate_shreg;
+  // Gate-gap trick (2026-04-24 Q2 lock-in):
+  //   prog_gate_active = prog_dac_valid | verify_en_dly
+  //   delaying verify_en by 1 cycle forces a 1-cycle gate=0 gap when the FSM
+  //   transitions from write/erase pulse (dac_valid=1, verify_en=0) to verify
+  //   readback (dac_valid=0, verify_en=1→on next cycle: verify_en_dly=1).
+  //   On that gap cycle, prog_op_ext switches from 010/001/100 → 011, so the
+  //   analog die can safely re-latch prog_op on the subsequent cim_start_ext
+  //   rising edge without risk of mid-window prog_op change.
+  wire         prog_gate_active = prog_dac_valid_sig | verify_en_sig_dly1;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      prog_busy_q          <= 1'b0;
-      prog_cim_start_shreg <= '0;
+      prog_busy_q        <= 1'b0;
+      verify_en_sig_dly1 <= 1'b0;
+      prog_gate_shreg    <= '0;
     end else begin
-      prog_busy_q          <= prog_busy;
-      prog_cim_start_shreg <= {prog_cim_start_shreg[WL_MUX_LATENCY_CYC-2:0],
-                               prog_ext_trigger};
+      prog_busy_q        <= prog_busy;
+      verify_en_sig_dly1 <= verify_en_sig;
+      prog_gate_shreg    <= {prog_gate_shreg[WL_MUX_LATENCY_CYC-2:0],
+                             prog_gate_active};
     end
   end
   wire prog_busy_rise = prog_busy & ~prog_busy_q;
 
   assign bl_sel_ext    = arb_bl_sel;
-  assign cim_start_ext = prog_busy ? prog_cim_start_shreg[WL_MUX_LATENCY_CYC-1]
+  assign cim_start_ext = prog_busy ? prog_gate_shreg[WL_MUX_LATENCY_CYC-1]
                                    : cim_start_pulse;
 
-  // ─── 外部编程 pad 编码器（2026-04-24 V1 方案 α' 冻结）─────────────
+  // ─── 外部编程 pad 编码器（2026-04-24 V1 方案 α' 冻结 + Q2 pipeline 对齐）────
   // ENABLE_EXT_CIM_IF=1 时生效；把数字侧内部的 prog_en/erase_en/verify_en/
-  // prog_full_array 打包成 3-bit 外部 prog_op 编码，prog_level 直通。
+  // prog_full_array 打包成 3-bit 外部 prog_op 编码。
   //
   // 编码映射（与 doc/08_cim_analog_interface.md §4 一致）：
   //   000 = inference   (prog_busy=0)
@@ -1122,14 +1153,48 @@ module snn_soc_top #(
   //   100 = erase_full_array
   //   101~111 = reserved (模拟侧应当作 idle 处理)
   //
-  // ENABLE_PROGRAM_MODE=0 的分支下 prog_busy/*_sig 都被 tie 0，编码自然落到 000。
-  assign prog_op_ext =
+  // Q2 对齐（2026-04-24）：prog_op_raw / prog_level_raw 通过 WL_MUX_LATENCY_CYC
+  // 级 shift register 延迟后再输出到 pad，使 pad 上的 prog_op_ext / prog_level_ext
+  // 相位与 cim_start_ext 对齐。结果：
+  //   · cim_start_ext 上升沿那一拍，pad 上的 prog_op_ext 对应的是 10 拍前的 FSM
+  //     内部状态（即 ST_SETUP/PULSE，write 阶段），值稳定。
+  //   · cim_start_ext=1 整个窗口期间，prog_op_ext 保持不变（因为内部 10 拍前
+  //     的状态在那段时间内都在 write/erase pulse 阶段）。
+  //   · cim_start_ext 下降沿那一拍，pad 上的 prog_op_ext 仍然是 write 值，且
+  //     1-cycle gate gap 后才切换到 verify 阶段的 prog_op=011。
+  // 由此模拟 die 在 cim_start_ext 上升沿 latch prog_op 就足以拿到正确编码。
+  //
+  // ENABLE_PROGRAM_MODE=0 的分支下 prog_busy/*_sig 都被 tie 0，raw 编码自然落到 000。
+  logic [2:0] prog_op_raw;
+  logic [3:0] prog_level_raw;
+  assign prog_op_raw =
       (prog_busy && verify_en_sig)                         ? 3'b011 :
       (prog_busy && prog_en_sig)                           ? 3'b010 :
       (prog_busy && erase_en_sig && prog_full_array)       ? 3'b100 :
       (prog_busy && erase_en_sig && !prog_full_array)      ? 3'b001 :
       3'b000;
-  assign prog_level_ext = prog_level;
+  assign prog_level_raw = prog_level;
+
+  logic [2:0] prog_op_pipe    [WL_MUX_LATENCY_CYC-1:0];
+  logic [3:0] prog_level_pipe [WL_MUX_LATENCY_CYC-1:0];
+  integer     pp_i;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      for (pp_i = 0; pp_i < WL_MUX_LATENCY_CYC; pp_i = pp_i + 1) begin
+        prog_op_pipe[pp_i]    <= 3'd0;
+        prog_level_pipe[pp_i] <= 4'd0;
+      end
+    end else begin
+      prog_op_pipe[0]    <= prog_op_raw;
+      prog_level_pipe[0] <= prog_level_raw;
+      for (pp_i = 1; pp_i < WL_MUX_LATENCY_CYC; pp_i = pp_i + 1) begin
+        prog_op_pipe[pp_i]    <= prog_op_pipe[pp_i-1];
+        prog_level_pipe[pp_i] <= prog_level_pipe[pp_i-1];
+      end
+    end
+  end
+  assign prog_op_ext    = prog_op_pipe   [WL_MUX_LATENCY_CYC-1];
+  assign prog_level_ext = prog_level_pipe[WL_MUX_LATENCY_CYC-1];
 
   // dac_ctrl：DAC 控制器（数字 → 模拟 WL 脉冲驱动）
   // 它把“数字位图何时有效”翻译成“模拟侧何时应认为 WL 已经建立完毕”。

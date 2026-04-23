@@ -9,6 +9,12 @@
 //   - write cell      -> 3'b010
 //   - verify readback -> 3'b011
 //   - erase full      -> 3'b100
+//
+// 2026-04-24 Q2 follow-up: prog_op_ext and prog_level_ext are pipelined by
+// WL_MUX_LATENCY_CYC (=10) cycles in snn_soc_top so they are phase-aligned
+// with cim_start_ext. This TB therefore compares prog_op_ext against the raw
+// encoder delayed by 10 cycles (rather than directly to the undelayed
+// internal signals).
 //==========================================================================
 module prog_pad_encoder_tb;
   import snn_soc_pkg::*;
@@ -93,33 +99,49 @@ module prog_pad_encoder_tb;
     end
   endtask
 
-  function automatic [2:0] expected_prog_op;
+  // Raw (undelayed) encoder identical to snn_soc_top.sv `prog_op_raw`.
+  function automatic [2:0] raw_prog_op;
     begin
-      expected_prog_op =
-          (dut.prog_busy && dut.verify_en_sig)                    ? 3'b011 :
-          (dut.prog_busy && dut.prog_en_sig)                      ? 3'b010 :
+      raw_prog_op =
+          (dut.prog_busy && dut.verify_en_sig)                        ? 3'b011 :
+          (dut.prog_busy && dut.prog_en_sig)                          ? 3'b010 :
           (dut.prog_busy && dut.erase_en_sig && dut.prog_full_array)  ? 3'b100 :
           (dut.prog_busy && dut.erase_en_sig && !dut.prog_full_array) ? 3'b001 :
           3'b000;
     end
   endfunction
 
+  // 10-stage shadow pipeline to match snn_soc_top prog_op / prog_level delay.
+  localparam int PROG_PAD_DLY = 10;
+  logic [2:0] exp_prog_op_pipe    [PROG_PAD_DLY-1:0];
+  logic [3:0] exp_prog_level_pipe [PROG_PAD_DLY-1:0];
+  integer     shadow_i;
   always @(posedge clk) begin
     if (!rst_n) begin
+      for (shadow_i = 0; shadow_i < PROG_PAD_DLY; shadow_i = shadow_i + 1) begin
+        exp_prog_op_pipe   [shadow_i] <= 3'd0;
+        exp_prog_level_pipe[shadow_i] <= 4'd0;
+      end
       seen_erase_cell <= 1'b0;
       seen_write      <= 1'b0;
       seen_verify     <= 1'b0;
       seen_erase_full <= 1'b0;
     end else begin
-      if (prog_op_ext !== expected_prog_op()) begin
-        $display("[FAIL] prog_op_ext mismatch: got=%b exp=%b busy=%0b prog_en=%0b erase_en=%0b verify_en=%0b full=%0b",
-                 prog_op_ext, expected_prog_op(), dut.prog_busy, dut.prog_en_sig,
-                 dut.erase_en_sig, dut.verify_en_sig, dut.prog_full_array);
+      exp_prog_op_pipe   [0] <= raw_prog_op();
+      exp_prog_level_pipe[0] <= dut.prog_level;
+      for (shadow_i = 1; shadow_i < PROG_PAD_DLY; shadow_i = shadow_i + 1) begin
+        exp_prog_op_pipe   [shadow_i] <= exp_prog_op_pipe   [shadow_i-1];
+        exp_prog_level_pipe[shadow_i] <= exp_prog_level_pipe[shadow_i-1];
+      end
+
+      if (prog_op_ext !== exp_prog_op_pipe[PROG_PAD_DLY-1]) begin
+        $display("[FAIL] prog_op_ext mismatch: got=%b exp=%b",
+                 prog_op_ext, exp_prog_op_pipe[PROG_PAD_DLY-1]);
         $fatal(1);
       end
-      if (prog_level_ext !== dut.prog_level) begin
+      if (prog_level_ext !== exp_prog_level_pipe[PROG_PAD_DLY-1]) begin
         $display("[FAIL] prog_level_ext mismatch: got=%0d exp=%0d",
-                 prog_level_ext, dut.prog_level);
+                 prog_level_ext, exp_prog_level_pipe[PROG_PAD_DLY-1]);
         $fatal(1);
       end
       if (prog_op_ext == 3'b001) seen_erase_cell <= 1'b1;

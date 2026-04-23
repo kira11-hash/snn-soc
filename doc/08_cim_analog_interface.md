@@ -12,11 +12,13 @@
 > - 本文**推理接口**章节自 v3.0 以来保持冻结。
 > - 项目要求已冻结：**V1 外部模拟 CIM die 必须支持由数字芯片发起的 erase / write / verify 编程。**
 > - **外部编程接口合同已于 2026-04-24 冻结**为方案 α'（7 new pads），详见本文 §10 **外部编程接口 (External Programming Interface)**。
+> - **Q1/Q2/Q3 已于 2026-04-24 收口（本文同日修订）**：
+>   - Q1：`cim_start` 在 programming 模式下是 LEVEL-hold gate（不是 strobe）；模拟侧按 `cim_start` 高电平持续时间驱动 pulse/read-voltage。
+>   - Q2：`prog_op` 只保证在**同一** `cim_start=1` 窗口内稳定；跨窗口（write→verify）可能切换，数字侧保证切换发生在 `cim_start=0` 的 1-cycle gap 中。
+>   - Q3：verify 的 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定；模拟+ADC 合计 RMS 噪声 ≤ 1 LSB。
 > - pad 总数从 48 扩到 **55**（46 signal + 6 power + 3 ESD；usable=52），见 `doc/15_asic_pad_map.md`。
 > - 模拟同学现在可以按本文 §2/§3/§4/§5（推理）**和** §10（外部编程）同时推进实现。
-> - 但要注意：当前数字侧 RTL 里，external programming 的 **shared carrier pads**
->   （`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`）还没全部切到
->   programming 路径；这不影响模拟侧按合同设计接口和电路，但会影响后续端到端联调。
+> - **共享载体 pad 路由已于 2026-04-24 补齐**：`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel` 在 `prog_busy=1` 时都会切到 programming 路径；回归 TB 为 `prog_wl_pad_route_tb.sv`（PROG_WL_PAD_ROUTE_TB_PASS）。
 
 ---
 
@@ -83,8 +85,10 @@
 > **重要边界**：
 > 本节只描述**推理接口**。  
 > 外部编程合同已经在本文 §10 + `doc/03` + `doc/15` 中冻结。  
-> 当前 remaining work 不是“协议未定”，而是数字侧 still needs an RTL follow-up
-> to drive the shared carrier pads from the programming path during `prog_busy`.
+> 共享载体 pad 路由（`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`
+> 在 `prog_busy=1` 时切到 programming 路径）已于 2026-04-24 在
+> `rtl/top/snn_soc_top.sv` 里补齐，并由 `tb/prog_wl_pad_route_tb.sv`
+> （PROG_WL_PAD_ROUTE_TB_PASS）回归覆盖。
 
 #### 1.3.1 WL 复用协议字段与拍数（冻结版）
 
@@ -726,11 +730,44 @@ module cim_macro_blackbox #(
 
 数字芯片在做**推理**和**编程**时共用 pad 19..45（`wl_data / wl_group_sel / wl_latch / cim_start / cim_done / bl_sel / bl_data`）。模拟芯片通过新增的 `prog_op[2:0]`（pad 46..48）判断当前 `cim_start` 对应什么操作；`prog_level[3:0]`（pad 49..52）给 write 操作提供目标电导等级。
 
-**关键不变量（模拟同学必须遵守）**：
-1. `prog_op[2:0]` 在整个 `prog_busy` 期间（多个 `cim_start` 脉冲之间）保持稳定，模拟侧可以在 `cim_start` 上升沿或任意稳定窗口采样。
-2. `prog_level[3:0]` 只在 `prog_op==3'b010`（write）时有效；其他 op 时数字侧仍然驱动但内容可忽略。
-3. verify 的 PASS/FAIL 判决由数字侧完成（数字侧对 `bl_data` 与 `prog_level*16` 做 ±2 窗口比较），**模拟侧不需要返回 pass 信号**。因此没有 `prog_pass` pad。
-4. 编程期间，模拟侧**不应**独立驱动 `cim_done` 为推理完成语义；`cim_done` 的编程语义是"本次操作已把 pulse 施加完毕"，数字侧的 `cim_program_ctrl` 是自计时的（用寄存器配置的 pulse 宽度倒计数），**不会**依赖 `cim_done` 推进编程状态。
+**关键不变量（模拟同学必须遵守，2026-04-24 Q1/Q2/Q3 锁死版）**：
+
+1. **`cim_start` 在编程模式下是 LEVEL-hold 的 pulse-gate（Q1）**：
+   - `cim_start=1`：数字侧认可当前 `prog_op` 对应的 pulse/read 正在生效；
+     模拟侧 pulse driver / read-voltage 驱动应全程打开。
+   - `cim_start=0`：pulse 关闭；模拟侧必须立即撤去 pulse/read-voltage。
+   - **本次脉冲时长以 `cim_start` 高电平持续时间为准**。模拟侧**不需要**
+     也**不应该**自己查 `prog_op→脉宽` 表做内部自计时——以免和数字侧
+     `REG_PROG_PULSE_WIDTH` 档位改变不同步。
+   - 推理模式下（`prog_busy=0`）`cim_start` 退化为原来的 1-cycle strobe
+     (`cim_start_pulse` 穿透)，保持推理链路兼容。
+
+2. **`prog_op[2:0]` 在每个 `cim_start=1` 窗口内稳定，跨窗口可能切换（Q2）**：
+   - 不变量是**"`prog_op` 在 `cim_start` 高电平期间保持不变"**，而**不是**
+     "`prog_op` 在整个 `prog_busy` 期间保持不变"。
+   - 单次 write 操作会依次出现两种窗口：
+     1) pulse 窗口：`cim_start=1` 且 `prog_op=010` 持续整个 SET 脉冲时长；
+     2) verify 窗口：`cim_start=1` 且 `prog_op=011` 持续整个读回时长。
+     两个窗口之间数字侧保证**至少 1 cycle 的 `cim_start=0` gap**，`prog_op`
+     的切换只会发生在 gap 里，因此模拟侧在 `cim_start` 上升沿锁存 `prog_op`
+     就足以拿到正确编码。
+   - retry 时同样是若干"pulse 窗口 + verify 窗口"交替，每次 `cim_start` 上升沿
+     都要重新锁存 `prog_op`。
+
+3. **`prog_level[3:0]` 与 `prog_op` 一起相位对齐**：只在 `prog_op==3'b010`
+   （write）时有效；其他 op 时数字侧仍然驱动但内容可忽略。数字侧 RTL 里
+   `prog_level_ext` 与 `prog_op_ext` 同时通过 10-stage pipeline 对齐到
+   `cim_start_ext`，因此两者相对相位是确定的。
+
+4. **verify 的 PASS/FAIL 判决由数字侧完成**：数字侧对 `bl_data` 与
+   `prog_level*16` 做 **±2 LSB** 窗口比较，**模拟侧不需要返回 pass 信号**。
+   因此**没有** `prog_pass` pad。模拟侧只需保证 `bl_data` 在 `cim_start=1`
+   窗口内有效（见 §10.5 时序预算）。
+
+5. **`cim_done` 在编程期间是可选反馈，不强制**：数字侧 `cim_program_ctrl`
+   是自计时的（用寄存器配置的 pulse 宽度倒计数），**不会**依赖 `cim_done`
+   推进编程状态。模拟侧如果需要驱动 `cim_done`，其语义是"本次 pulse 已施加
+   完毕"，不要赋予其他含义。
 
 ### 10.2 `prog_op[2:0]` 编码表
 
@@ -743,24 +780,24 @@ module cim_macro_blackbox #(
 | `100` | 全阵列擦除 (erase_full_array) | 全部 WL 同时拉高做 RESET 擦除（忽略 `wl_data`）| 否 | 全阵列 |
 | `101..111` | 保留 | 视作 idle / no-op；**不要**执行任何 program/erase 动作 | — | — |
 
-### 10.3 脉冲宽度与关断语义（合同级定义）
+### 10.3 脉冲宽度与关断语义（合同级定义，2026-04-24 Q1 锁定）
 
 外部编程合同按下面语义冻结：
 
-- `prog_op[2:0]` / `prog_level[3:0]` 负责表达**操作类型**和**目标等级**
-- 对于 `erase_cell / write / erase_full_array`，共享 pad `cim_start` 充当
-  **pulse-gate**
-  - `cim_start=1`：模拟侧 pulse driver 保持开启
-  - `cim_start=0`：模拟侧 pulse driver 立即关闭
-- 因此，**本次脉冲时长最终以 `cim_start` 高电平持续时间为准**
-- `prog_op` 回到 `000` 与 `cim_start` 拉低在合同上应保持一致；模拟侧以
-  `cim_start` 作为真正开/关控制，`prog_op` 只负责解释本次操作类型
-
-> **实现现状说明**：当前 `main` 的数字 RTL 里，external programming 共享载体
-> 信号的 routing follow-up 仍未补完，因此 `cim_start` 还没有在 `prog_busy`
-> 期间真正对外表现为上述 pulse-gate 语义。  
-> 但这条语义本身已经作为 **A8 合同冻结**，模拟侧可以按它设计 pulse driver；
-> 后续由数字侧把外部驱动补齐。
+- `prog_op[2:0]` / `prog_level[3:0]` 负责表达**操作类型**和**目标等级**；
+  两者在 RTL 内部经 10-stage pipeline 与 `cim_start_ext` 相位对齐，分析 die
+  在 `cim_start_ext` 上升沿锁存 `{prog_op, prog_level}` 即可获得正确编码。
+- 对于 `erase_cell / write / verify / erase_full_array`，共享 pad `cim_start`
+  充当 **LEVEL-hold pulse-gate**：
+  - `cim_start=1`：模拟侧按当前 `prog_op` 对应的操作保持 pulse / read-voltage
+    驱动打开；
+  - `cim_start=0`：模拟侧必须立即关闭 pulse / read-voltage 驱动。
+- **本次脉冲时长最终以 `cim_start` 高电平持续时间为准**，模拟侧**不要**
+  自己做脉宽定时（否则与数字侧 `REG_PROG_PULSE_WIDTH` 档位变化不同步）。
+- 数字侧保证 **同一 `cim_start` 高电平窗口内 `prog_op` 恒定**；写→读相位
+  切换发生在 `cim_start=0` 的 gap cycle 中（至少 1 cycle）。
+- 推理模式下（`prog_busy=0`）`cim_start` 退化为原来的 1-cycle strobe
+  (`cim_start_pulse`)，不受本节 level-gate 语义约束。
 
 | 档位 (`PROG_CTRL[17:16]`) | 写入脉宽 (cycles @ 50 MHz) | 实际时间 |
 |:---:|:---:|:---:|
@@ -771,52 +808,89 @@ module cim_macro_blackbox #(
 
 擦除脉宽固定 `50000 cycles = 1 ms @ 50 MHz`，数字侧硬编码。
 
-### 10.4 典型编程时序（单 cell 写入 level=7）
+> **RTL 对齐 (2026-04-24)**：`rtl/top/snn_soc_top.sv` 的 `cim_start_ext` 在
+> `prog_busy=1` 期间由 `(prog_dac_valid | verify_en_dly1)` 延迟 10 拍驱动，
+> 完全覆盖每次 SET / RESET / verify pulse 的宽度。`wl_data / wl_group_sel /
+> wl_latch` 通过 `wl_mux_wrapper` 的 prog_busy mux 路由来自 `prog_wl_spike`，
+> `bl_sel_ext` 来自 `arb_bl_sel`（arbiter 在 prog_busy 时自动切换到
+> `prog_bl_sel`）。共享载体 pad 的路由已全部对接编程路径，可按本文做端到端
+> 实现。
+
+### 10.4 典型编程时序（单 cell 写入 level=7，Q1/Q2 锁定后）
+
+write op 会产生"pulse 窗口 + verify 窗口"两段 `cim_start=1` 序列，中间至少
+隔 1 cycle。对于 level=7（7 个 SET 脉冲），数字侧会先发一次 cim_start=1
+覆盖 7 个连续脉冲，然后 1-cycle gap，再发一次 cim_start=1 覆盖 readback。
+波形示意：
 
 ```
-cycle    0   1   2   3 ... 52  53
----------------------------------------
-prog_op  010 010 010 010 010 010   ← stable during prog_busy
-prog_lvl  7   7   7   7   7   7    ← stable
-wl_data  (8×8 TDM 分批发送，最终在 cycle 10 前后 wl_latch 脉冲完成 row 锁存)
-bl_sel    C   C   C   C   C   C    ← target column, stable
-cim_start __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|__ ← pulse-gate，高电平持续时间 = 本次 SET 脉冲时长
-(analog pulse hardware: seeing cim_start↑ + prog_op==010 => pulse on;
- falling edge => pulse off)
-cim_done        (不是必需；数字侧不依赖它前进)
-bl_data          (don't care during write)
+                   ←——— pulse 窗口（~7×PULSE_WIDTH + 前后 overhead ———→ ←gap→ ←verify窗口→
+cycle     0   1   …  10  11  …      end_pulse  end_pulse+1   +2 …   rb_end
+──────────────────────────────────────────────────────────────────────────────
+prog_op   000 000 …  010 010 …      010        000             011 …   011
+prog_lvl   0   0  …   7   7  …       7          0               7  …    7      (don't care in verify)
+wl_data       (8×8 TDM row-bitmap burst during cycles 1..9)
+wl_latch   _____   ┴ ┴ ┴ ┴ ┴ ┴ ┴ ┴ __________________________________________
+bl_sel    (idle) … C  C  C  …      C          C               C  …    C
+cim_start ___________│‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾│_____│‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾│__
+                     │ ← 10 clk AFTER wl_latch seq  │     │ ← verify gate
+                     │   (确保 WL 已经 latch 完成)    │
+cim_done      (optional, 不必需)
+bl_data       (don't care during pulse window)     │     R   R  …  R   (read回 8-bit)
 ```
 
-### 10.5 典型 verify 时序（单 cell 读回比对）
+**要点**：
+- `cim_start` 上升沿距离 `wl_latch` 最后一拍 ≥ 9 clk（WL TDM 完全 latch 后
+  才给 cim_start）。
+- `cim_start=1` 高电平时长 ≈ 本次 SET 脉冲时长（单次 write 可能含多个
+  back-to-back 的内部 pulse，但外部 pad 上是一个连续的 level）。
+- `cim_start` 拉低时 pulse driver 立即关断。
+- 写→读之间 `cim_start=0` 至少 1 clk，这是 `prog_op` 安全切换到 `011` 的窗口。
+
+### 10.5 典型 verify 时序与时序预算（Q3 锁定）
 
 ```
-cycle    0   1   2   3   4  ...  N
----------------------------------------
-prog_op  011 011 011 011 011 ...  011
-prog_lvl  7   7   7   7   7  ...   7  ← don't care, 但数字侧仍然驱动
-wl_data  (row TDM 发送)
-bl_sel    C   C   C   C   C  ...   C
-cim_start ‾|_______________________ ← verify request strobe
-bl_data   -   -   -   -   R  ...   R  ← analog 把 8-bit 读回值放到 bl_data
-cim_done  -   -   -   -   -  ...   ‾| ← analog 可选：在数据稳定后拉 1 拍通知
+cycle       0   1   2   3   4   5   …   N
+─────────────────────────────────────────────
+prog_op   010 000 011 011 011 011 …   011    ← 在 cim_start=0 那一拍（cy=1）切换
+prog_lvl   7   7   7   7   7   7   …    7    ← don't care in verify, but driven
+bl_sel     C   C   C   C   C   C   …    C
+cim_start __│___│‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾│______   ← level gate (verify window)
+                │            ↑            │
+                │  模拟侧最晚在此把          │
+                │  bl_data 建立到 ±1 LSB    │
+bl_data    x   x   x   x   R   R   …    R
+cim_done                        (optional, 数字侧不依赖)
 ```
 
-**冻结要求（模拟侧必须满足）**：
+**时序预算（冻结）**：
 
-1. 当 `prog_op==011` 且 `cim_start` 出现 request strobe 后，模拟侧必须在
-   当前默认数字预算内把读回值放上 `bl_data`：
-   - `ADC_MUX_SETTLE_CYCLES = 2`
-   - `ADC_SAMPLE_CYCLES = 3`
-   - 合计默认预算 = `5 cycles = 100 ns @ 50 MHz`
-2. `bl_data` 一旦有效，应至少保持到下一次 `bl_sel` 变化或 `prog_op` 离开 `011`
-3. 若模拟侧同时拉 `cim_done`，则 `cim_done` 应在 `bl_data` 已稳定后再拉高
+- **开始计时点**：`cim_start_ext` 上升沿（即 verify 窗口开始）。
+- **bl_data 必须稳定时刻**：`cim_start_ext` 上升沿后 ≤ **`T_ADC_LATENCY`**
+  - 数字侧目前默认预算：`ADC_MUX_SETTLE_CYCLES=2` + `ADC_SAMPLE_CYCLES=3` =
+    **5 cycles = 100 ns @ 50 MHz**
+  - 即模拟侧从 cim_start 上升沿起 **≤ 100 ns** 必须把 8-bit 读回值稳定到
+    `bl_data[7:0]` 上
+- **bl_data 必须保持时长**：从建立点起一直保持到 **`cim_start_ext` 下降沿**
+  （或下一次 `bl_sel` 变化）。数字侧在 `adc_done` 拉高那拍采样，因此至少
+  要覆盖到 adc_done 时刻。
+- **cim_done（可选）**：若驱动，必须在 `bl_data` 已稳定之后拉高；数字侧
+  不依赖它推进状态，只是作为 optional 调试辅助。
 
-数字侧随后把 `bl_data` 和 target `prog_level*16` 做 **±2 LSB** 窗口比较，
-内部判 PASS/FAIL，**不需要**模拟侧告诉。
+**噪声预算（冻结）**：
 
-> **噪声预算提醒**：如果模拟侧 verify 读回在数字 ADC code 上的散布超过约 ±1 LSB，
-> 单次 verify 很容易因为固定 ±2 窗口而触发 false fail。数字侧虽然有 retry 机制，
-> 但若想稳定一次过，建议把 verify 读回噪声控制在 target code 附近约 ±1 LSB 内。
+- 数字侧判据：`target = prog_level × 16`，窗口 `±2 LSB`。
+- 要求模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**（约 ±0.4% 满量程）。
+  - 3σ 噪声 ≤ 2 LSB 时，一次过 verify 概率 ~99.7%。
+  - 噪声 > ±1 LSB RMS → false-fail 率上升，需增大 `PROG_CTRL.RETRY_LIMIT`
+    （默认 3，可配到 7）。
+- 换算到电流：8-bit ADC 满量程对应 LRS 电流（~nA 量级），1 LSB ≈ FS/256，
+  要求读回噪声 ≤ 数 pA RMS 级别。
+- 这个噪声预算是**工程硬契约**；如果模拟/器件实际做不到 ±1 LSB，需提前
+  与数字侧商量放宽判据（数字侧会改 `±2` 为 `±3` 或更大）。
+
+**数字侧判据复核**（不改）：`bl_data` vs `prog_level*16 ± 2`；擦除 verify
+复用 `bl_data ≤ 1` 判据（high-resistance 态 ≈ code 0）。
 
 ### 10.6 全阵列擦除 (`prog_op=100`)
 
@@ -851,22 +925,52 @@ cim_start __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾�
 沿用 §5（数字驱动能力 / 模拟输出要求），新增 `prog_op` / `prog_level` pad 的要求：
 - 驱动方向：**D→A**（数字输出，模拟输入）
 - 电平：沿用推理接口同一 IO bank 电平（见 §5.1）
-- 建立时间：`prog_op` / `prog_level` 在 `cim_start` 上升沿前至少 `10 ns` 稳定（1 个 50 MHz clk 周期的裕量）；保持时间 ≥ `5 ns`
+- 建立时间（setup）：`prog_op` / `prog_level` 在 `cim_start` 上升沿前至少
+  **10 ns** 稳定（1 个 50 MHz clk 周期的裕量）；数字侧已通过 10-stage
+  pipeline 把两者与 `cim_start_ext` 相位对齐，实际 setup ≈ 数个 clk，
+  10 ns 是保守最小值。
+- 保持时间（hold）：`prog_op` / `prog_level` 在 `cim_start` 下降沿后至少
+  **5 ns** 保持；数字侧 pipeline 会同步切换（下降沿那一拍起 `prog_op` 切
+  到 000 或下一阶段值），因此 hold 天然 ≥ 0，5 ns 是合同保守值。
+- `bl_data` (A→D, verify readback) 时序：**从 `cim_start_ext` 上升沿起
+  ≤ 100 ns 稳定到 ±1 LSB，保持到 `cim_start_ext` 下降沿**（见 §10.5）。
 - 功耗：静态（idle 态 `prog_op=000`）下可按常态 LVCMOS/LVCMOS18 静态功耗估算；编程脉冲期间主要功耗来自模拟侧的 pulse driver
 
 ### 10.9 验证与回归
 
-- 仿真：`tb/prog_bypass_latch_tb.sv`（bypass 锁存语义）+ `tb/cim_program_ctrl_tb.sv`（FSM 8 个子测试）覆盖编程 FSM。
-- 外部 pad 编码器：`tb/prog_pad_encoder_tb.sv` 直接观察 `snn_soc_top.prog_op_ext / prog_level_ext`，断言 write / erase_cell / verify / erase_full_array 四种编码与内部 `prog_en / erase_en / verify_en / prog_full_array` 相位一致。
-- FPGA：Phase C 的 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` tag 证明数字侧编程 FSM 与 arbiter 已跑通；对外部 pad 编码器的额外独立验证预计在 V1.1 的 FPGA 回归里补。
+- 仿真（编程 FSM）：`tb/prog_bypass_latch_tb.sv`（bypass 锁存语义）+
+  `tb/cim_program_ctrl_tb.sv`（FSM 8 个子测试）覆盖编程 FSM 自身。
+- 仿真（外部 pad 编码器）：`tb/prog_pad_encoder_tb.sv` 直接观察
+  `snn_soc_top.prog_op_ext / prog_level_ext`，断言 write / erase_cell /
+  verify / erase_full_array 四种编码与内部信号相位一致（带 10-stage 延迟对齐）。
+- 仿真（共享载体 pad 路由 + gate 语义）：`tb/prog_wl_pad_route_tb.sv` 断言
+  (a) WL 8×8 TDM 重组出的 64-bit 位图 = 编程目标行 one-hot；
+  (b) `cim_start_ext` 上升沿距离 `wl_latch` 最后一拍 ≥ 9 cycles；
+  (c) `cim_start_ext` 是 LEVEL gate 而不是 strobe（首窗口宽度 ≥ 40 cycles）；
+  (d) `prog_op_ext` 在单个 `cim_start=1` 窗口内稳定。
+- 脉宽寄存器：`tb/prog_pulse_cfg_tb.sv`（4 档 preset + erase fixed），通过
+  tag `PROG_PULSE_CFG_TB_PASS`。
+- 启动互锁：`tb/prog_start_interlock_tb.sv`，通过 tag
+  `PROG_START_INTERLOCK_TB_PASS`。
+- FPGA：Phase C 的 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` tag 证明数字侧编程
+  FSM 与 arbiter 已跑通；对 α' pad 编码 + gate 语义的 FPGA 端独立回归将在
+  `main-fpga-e203-alpha` 分支的 Phase C 里补。
 
 ### 10.10 已知 follow-up
 
-- 当前 `main` 中，external programming **sideband pads**（`prog_op / prog_level`）已经真正接到 `chip_top`；
-  但 external programming 复用的 **共享载体 pads** 还没有全部切到 programming 路径：
-  - `wl_data / wl_group_sel / wl_latch` 仍由推理 `wl_mux_wrapper` 驱动
-  - `cim_start_ext` 当前仍是推理 `cim_start_pulse`
-  - `bl_sel_ext` 当前仍是推理 `bl_sel`
-- 因此，**模拟同学现在可以按本文实现 pad decoder / pulse driver / verify readback 电路**；
-  但数字+模拟的端到端 external programming 联调，必须等数字侧把上述共享载体路由补齐。
-- 模拟侧回填 §5 的电气参数 + 芯片 pinout 后，应与本节 §10.8 合并成最终电气合同。
+- **共享载体 pad 路由状态（2026-04-24 已完成）**：
+  - `wl_data / wl_group_sel / wl_latch`：`prog_busy=1` 时由 `wl_mux_wrapper`
+    以 `prog_wl_spike` 为输入产生 TDM 脉冲（已在 `snn_soc_top` 里通过
+    `prog_busy` mux 切换，PROG_WL_PAD_ROUTE_TB_PASS 覆盖）。
+  - `cim_start_ext`：`prog_busy=1` 时由 `(prog_dac_valid | verify_en_dly1)`
+    经 10-stage shift register 延迟驱动（LEVEL gate，Q1 锁定）。
+  - `bl_sel_ext`：始终 = `arb_bl_sel`（arbiter 根据 `prog_busy` 自动在
+    inference bl_sel 与 `prog_bl_sel` 之间切换）。
+  - `prog_op_ext / prog_level_ext`：经 10-stage pipeline 与 `cim_start_ext`
+    对齐（Q2 锁定）。
+- **剩余 TODO**：
+  - 模拟侧回填 §5 的电气参数 + 芯片 pinout 后，应与本节 §10.8 合并成最终
+    电气合同。
+  - Phase C FPGA 上板端到端验证（`FPGA_E203_PROGRAM_ERASE_WRITE_PASS` +
+    `FPGA_E203_PROGRAMMED_INFERENCE_PASS`），用 `main-fpga-e203-alpha`
+    分支跑，证明 Q1/Q2/Q3 在实际综合路径上仍然成立。

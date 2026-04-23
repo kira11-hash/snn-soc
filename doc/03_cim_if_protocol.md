@@ -76,17 +76,49 @@ pop = popcount(wl_latched)
 
 ### 数字侧 RTL 入口
 
-- **编码器**：`rtl/top/snn_soc_top.sv` 在 `prog_op_ext` / `prog_level_ext` 输出端口生成编码（基于内部 `prog_busy`、`prog_en_sig`、`erase_en_sig`、`verify_en_sig`、`prog_full_array`、`prog_level`）。
-- **顶层 pad 路由**：`rtl/top/chip_top.sv` 把 `prog_op_ext` → `prog_op_pad`，`prog_level_ext` → `prog_level_pad`。
-- **脉冲宽度合同**：对 `erase_cell / write / erase_full_array`，`cim_start` 作为 external pulse-gate；模拟侧 seeing `cim_start=1` 时保持 pulse driver 开启，`cim_start=0` 时立即关闭。`PROG_PULSE_WIDTH` 档位 0/1/2 = 1/10/100 µs @ 50 MHz；擦除固定 1 ms。
+- **编码器**：`rtl/top/snn_soc_top.sv` 在 `prog_op_raw` 基于内部
+  `prog_busy / prog_en_sig / erase_en_sig / verify_en_sig / prog_full_array /
+  prog_level` 生成编码，然后经过 10-stage pipeline (`prog_op_pipe` /
+  `prog_level_pipe`) 与 `cim_start_ext` 相位对齐后，从 `prog_op_ext[2:0]` /
+  `prog_level_ext[3:0]` 输出端口给出。
+- **顶层 pad 路由**：`rtl/top/chip_top.sv` 把 `prog_op_ext` → `prog_op_pad`，
+  `prog_level_ext` → `prog_level_pad`。
+- **共享载体 pad 路由（2026-04-24 完成）**：`prog_busy=1` 时 `wl_data /
+  wl_group_sel / wl_latch` 由 `wl_mux_wrapper` 以 `prog_wl_spike` 为输入驱动；
+  `bl_sel_ext` 始终 = `arb_bl_sel`（arbiter 根据 `prog_busy` 自动切到
+  `prog_bl_sel`）。
+- **脉冲宽度合同（Q1 LEVEL-gate 锁定）**：对 `erase_cell / write / verify /
+  erase_full_array`，`cim_start_ext` 作为 external **LEVEL-hold pulse-gate**：
+  模拟侧 seeing `cim_start=1` 时保持 pulse driver / read-voltage 驱动开启，
+  `cim_start=0` 时立即关闭。**本次 pulse 时长 = `cim_start` 高电平持续时间**，
+  模拟侧不要自己做脉宽定时。`PROG_PULSE_WIDTH` 档位 0/1/2 = 1/10/100 µs
+  @ 50 MHz；擦除固定 1 ms。
+- **内部 gate 源**：`cim_start_ext = prog_busy ? shreg[(prog_dac_valid |
+  verify_en_dly1)] : cim_start_pulse`，延迟 10 拍以保证 `wl_data` TDM 先
+  完成；`verify_en_dly1` 引入 1-cycle gap，使 pulse 窗口与 verify 窗口
+  之间 `cim_start` 必然落到 0。
 
-### 编程时序不变量
+### 编程时序不变量（2026-04-24 Q1/Q2/Q3 锁定）
 
-1. `prog_op` / `prog_level` 在整个 `prog_busy` 期间保持稳定；模拟侧可以在 `cim_start` 上升沿或任一稳定窗口采样。
-2. verify 的 PASS/FAIL 由数字侧 `cim_program_ctrl` 在读到 `bl_data` 后自行比对（`bl_data` 落在 `prog_level * 16 ± 2` 内即 PASS），**模拟侧不需要返回 pass 信号**，也没有 `prog_pass` pad。为保证 single-shot verify 稳定一次过，建议模拟侧把 verify 读回在数字 ADC code 上的散布控制在 target 附近约 ±1 LSB 内。
-3. `prog_op==100`（全阵列擦除）时 `wl_data` / `wl_group_sel` / `wl_latch` 可为任意值，模拟侧忽略。
-4. 推理 (`prog_op==000`) 与编程 (`prog_op!=000`) 在物理 pad 上**不会同时出现**——数字侧的 `cim_macro_arbiter` 保证 `prog_busy` 与推理 FSM 互斥。
-5. verify (`prog_op==011`) 时，模拟侧需在默认 `ADC_MUX_SETTLE_CYCLES + ADC_SAMPLE_CYCLES = 5 cycles = 100 ns @ 50 MHz` 预算内把读回值放上 `bl_data`，并保持到下一次 `bl_sel` 或 `prog_op` 变化。
+1. **`cim_start` LEVEL-gate 语义（Q1）**：`cim_start=1` 高电平持续时间 = 本次
+   pulse 或 verify 读回时长；模拟侧以此为唯一开/关控制，不要自计时。
+2. **`prog_op` 稳定性（Q2）**：`prog_op` 在每个 `cim_start=1` 窗口内稳定，
+   **不保证**跨窗口稳定。write → verify 相位切换发生在 `cim_start=0` 的
+   gap cycle 中（至少 1 clk）。模拟侧在 `cim_start` 上升沿锁存 `prog_op` 即可。
+3. **`prog_level` 相位对齐**：`prog_level` 和 `prog_op` 通过同一 10-stage
+   pipeline 输出，相位相同；只在 `prog_op==010` 时有效。
+4. **verify 时序预算（Q3）**：`prog_op==011` 时模拟侧必须在 `cim_start_ext`
+   上升沿后 **≤ 100 ns**（5 cycles @ 50 MHz，= `ADC_MUX_SETTLE_CYCLES=2` +
+   `ADC_SAMPLE_CYCLES=3`）把 8-bit 读回值稳定到 `bl_data[7:0]`，并保持到
+   **`cim_start_ext` 下降沿**（或下一次 `bl_sel` 变化）。
+5. **verify 噪声预算（Q3）**：数字侧判据 `bl_data ∈ [level*16 - 2, level*16 + 2]`；
+   要求模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**。噪声不达标时用 `PROG_CTRL.RETRY_LIMIT`
+   多次重试救良率。
+6. **PASS/FAIL 由数字侧判**：**没有** `prog_pass` pad，模拟侧不要返回 pass 信号。
+7. **`prog_op==100`（全阵列擦除）**：`wl_data` / `wl_group_sel` / `wl_latch`
+   可为任意值，模拟侧忽略；`cim_start=1` 时驱动全阵列同步 RESET。
+8. **推理与编程互斥**：推理 (`prog_op==000`) 与编程 (`prog_op!=000`) 在物理
+   pad 上不会同时出现（`cim_macro_arbiter` 保证）。
 
 ### 与行为模型的关系
 
@@ -96,8 +128,19 @@ pop = popcount(wl_latched)
 
 - `tb/cim_program_ctrl_tb.sv`（8/8 PASS）— 数字侧编程 FSM
 - `tb/prog_bypass_latch_tb.sv`（PROG_BYPASS_LATCH_TB_PASS）— BYPASS_HANDSHAKE 锁存语义
+- `tb/prog_pulse_cfg_tb.sv`（PROG_PULSE_CFG_TB_PASS）— 脉宽寄存器 4 档 preset
+- `tb/prog_start_interlock_tb.sv`（PROG_START_INTERLOCK_TB_PASS）— START 互锁
 - `tb/silicon_bringup_tb.sv`（SILICON_BRINGUP_TB_PASS）— CPU 固件 E2E
-- `tb/prog_pad_encoder_tb.sv` — 直接观察 `snn_soc_top.prog_op_ext / prog_level_ext`，断言四种非 idle 编码与内部 `prog_en / erase_en / verify_en / prog_full_array` 一致
+- `tb/prog_pad_encoder_tb.sv`（PROG_PAD_ENCODER_TB_PASS）— 断言 `prog_op_ext` /
+  `prog_level_ext` 与 10-stage 延迟对齐后的内部 raw 编码匹配
+- `tb/prog_wl_pad_route_tb.sv`（PROG_WL_PAD_ROUTE_TB_PASS）— 断言：
+  (a) WL 8×8 TDM 重组 = 编程目标行 one-hot；
+  (b) `cim_start_ext` 上升沿距离 `wl_latch` 最后一拍 ≥ 9 cycles；
+  (c) `cim_start_ext` 是 LEVEL gate（首窗口 ≥ 40 cycles，排除 1-cycle strobe）；
+  (d) `prog_op_ext` 在单个 `cim_start=1` 窗口内稳定（Q2）。
 - `tb/chip_top_rom_smoke_tb.sv`（CHIP_TOP_ROM_SMOKE_PASS）— chip_top 端到端 smoke
 
-> **实现 follow-up 提醒**：当前 sideband pads 已接出，但 shared carrier pads (`wl_*`, `cim_start`, `bl_sel`) 还需要数字侧在 `prog_busy` 时切到 programming 源，之后数字+模拟 external programming 才能端到端联调。
+**2026-04-24 状态**：shared carrier pads (`wl_* / cim_start / bl_sel`) 已全部
+接通 programming 路径；sideband pads (`prog_op / prog_level`) 已通过 10-stage
+pipeline 与 `cim_start_ext` 相位对齐。数字侧 RTL 已满足本文所有不变量，待
+FPGA Phase C 端到端上板验证（`main-fpga-e203-alpha` 分支）。

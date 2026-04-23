@@ -75,12 +75,15 @@
 
 ---
 
-## 三、外部编程合同已于 2026-04-24 冻结（方案 α'）
+## 三、外部编程合同已于 2026-04-24 冻结（方案 α'，Q1/Q2/Q3 已全部收口）
 
-> **状态更新**：A8 外部编程 pad / 协议合同**已冻结**，模拟同学现在可以**同时**实现推理和外部编程，不再是协议 blocker。  
-> 但当前仍有一个**数字侧实现 follow-up**：external programming 复用的 shared carrier pads
-> （`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`）还没全部切到 programming
-> 路径。这不影响你按合同设计模拟接口/电路，但会影响后续数字+模拟的端到端联调。
+> **状态更新（2026-04-24 终版）**：A8 外部编程 pad / 协议合同**已冻结**，
+> 模拟同学现在可以**同时**实现推理和外部编程，不再是协议 blocker。  
+> **共享载体 pad 路由 + `cim_start` LEVEL-gate 语义 + prog_op/prog_level 与
+> cim_start 相位对齐 + verify 时序/噪声预算**均已于 2026-04-24 在数字侧 RTL
+> 全部落地并通过回归（`PROG_WL_PAD_ROUTE_TB_PASS` + `PROG_PAD_ENCODER_TB_PASS`
+> + `CIM_PROGRAM_CTRL_PASS` 等 16 项 Gate A 全绿）。你这边按本文合同做出来，
+> 后续数字+模拟端到端联调不会有协议返工。
 
 ### 冻结方案（α'）
 
@@ -111,14 +114,30 @@
 - **pad 索引 + 方向 + 类型**：`doc/15_asic_pad_map.md`（pads 46..52）
 - **A8 冻结记录**：`doc/11_analog_handoff_execution_plan.md` §A8
 
-### 时序不变量（模拟侧必须遵守）
+### 时序不变量（模拟侧必须遵守，2026-04-24 Q1/Q2/Q3 锁定）
 
-1. `prog_op[2:0]` 在整个 `prog_busy` 期间保持稳定；`cim_start` 上升沿为采样点。
-2. `prog_level[3:0]` 只在 `prog_op==010`（write）时读取；其它状态可忽略。
-3. 脉冲宽度由**共享 `cim_start` pulse-gate**表达：`cim_start=1` 时 pulse driver 开启，`cim_start=0` 时关闭；write 预置档位为 1/10/100 µs @ 50 MHz，擦除固定 1 ms。
-4. verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己算，**模拟侧不上报 pass 信号**。
-5. 遇到 `prog_op==101..111` 保留编码，模拟侧应视作 idle。
-6. verify 读回必须在默认 `5 cycles = 100 ns @ 50 MHz` 预算内把结果放上 `bl_data`，并保持到下一次 `bl_sel` 或 `prog_op` 变化。
+1. **Q1 — `cim_start` LEVEL-gate**：`cim_start=1` 时驱动 pulse driver /
+   read-voltage 打开并按当前 `prog_op` 执行对应操作，`cim_start=0` 时立即
+   关闭。**本次 pulse 时长 = `cim_start` 高电平持续时间**。模拟侧**不要**
+   自计时，也不要自己查 `prog_op→脉宽` 表。
+2. **Q2 — `prog_op` 稳定性**：`prog_op[2:0]` 在**每个** `cim_start=1` 窗口内
+   稳定，**不保证**跨整个 `prog_busy` 窗口稳定。write → verify 相位切换
+   发生在 `cim_start=0` 的 ≥ 1 cycle gap 中。模拟侧在 `cim_start` 上升沿
+   锁存 `prog_op` 即可拿到正确编码。`prog_level` 与 `prog_op` 相位一致。
+3. **`prog_level[3:0]` 有效性**：只在 `prog_op==010`（write）时读取；其它
+   状态可忽略。
+4. **脉宽档位**：`PROG_PULSE_WIDTH` 寄存器档位 0/1/2 = 1/10/100 µs @ 50 MHz
+   （数字侧自计时到 `cim_start` 高电平时长）；擦除固定 1 ms。
+5. **verify PASS/FAIL 由数字侧判**：数字侧比 `bl_data ∈ [level*16 - 2,
+   level*16 + 2]`；**模拟侧不上报 pass 信号**，没有 `prog_pass` pad。
+6. **Q3 — verify 时序预算**：`prog_op==011` + `cim_start=1` 后，模拟侧必须
+   在 **≤ 100 ns**（5 cycles @ 50 MHz = `ADC_MUX_SETTLE + ADC_SAMPLE`）内
+   把 8-bit 读回值稳定到 `bl_data[7:0]`，并保持到 `cim_start` 下降沿
+   （或下一次 `bl_sel` 变化）。
+7. **Q3 — verify 噪声预算**：模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**（约 ±0.4% FS）；
+   噪声达不到时会导致 false-fail，需靠 `PROG_CTRL.RETRY_LIMIT` 多次重试
+   救良率（默认 3 次，可配到 7 次）。
+8. **保留编码**：`prog_op==101..111` 应视作 idle，不动作。
 
 ---
 
@@ -133,17 +152,19 @@
 5. ADC/TIA/Vref/噪声/动态范围
 6. pad/pin/PCB 约束、电平兼容、供电/偏置方案
 
-### B. 编程侧（A8 已冻结，现在可开做）
+### B. 编程侧（A8 已冻结，数字侧已全部 ready，可开做到端到端）
 
-1. 按 §3 解码 `prog_op[2:0]` 和 `prog_level[3:0]`，接到内部
-   `erase / write / verify / full_array_erase` 控制通路
+1. 按 §3 在 `cim_start` 上升沿**锁存** `prog_op[2:0]` 和 `prog_level[3:0]`，
+   接到内部 `erase / write / verify / full_array_erase` 控制通路
 2. 实现 SET / RESET 脉冲驱动电路（电压幅度、上升/下降沿、pulse shape）——
-   数字侧保证 `cim_start` 到达时已经有稳定 `prog_op` / `prog_level`，pulse 时长
-   由模拟侧在 `cim_start` 期间保持开启
-3. 实现 verify 读回通路（单 cell ADC 读，结果放 `bl_data[7:0]`）
+   数字侧保证 `cim_start` 上升沿时 `prog_op` / `prog_level` 已经稳定；
+   pulse 时长由 `cim_start` 高电平持续时间决定，模拟侧**不要**自计时
+3. 实现 verify 读回通路（单 cell ADC 读，从 `cim_start` 上升沿起 ≤ 100 ns 内
+   把结果稳定到 `bl_data[7:0]`，保持到 `cim_start` 下降沿）；RMS 噪声 ≤ 1 LSB
 4. 明确 erase / write / verify 的**模拟电压规格**（A4 + A7 会进一步细化）
-5. 注意：直到数字侧把 shared carrier pads 的 programming routing follow-up 补完之前，
-   你这边可以完成接口实现与电路设计，但不能期待马上做完整的 digital+analog 联调
+5. 数字侧已把 shared carrier pads 的 programming routing 补齐（回归
+   `PROG_WL_PAD_ROUTE_TB_PASS`），协议层不会再变；你这边直接按本文做到
+   可测，就是下一步端到端联调的输入
 
 ### C. 需要模拟/器件侧回填的电气参数（非 A8 blocker）
 
