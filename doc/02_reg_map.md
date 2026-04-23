@@ -54,7 +54,7 @@
 | 0x38 | PROG_CTRL | START | [0] | W1P | 0 | 启动一次编程/擦除序列（推理进行中被硬件 interlock 屏蔽） |
 | 0x38 | PROG_CTRL | ERASE | [1] | RW | 0 | 0=写入(SET)，1=擦除(RESET) |
 | 0x38 | PROG_CTRL | FULL_ARRAY | [2] | RW | 0 | 仅 ERASE=1 生效：1=所有 WL 同时拉高并跳过 verify |
-| 0x38 | PROG_CTRL | BYPASS_HANDSHAKE | [3] | RW | 0 | **Silicon bring-up 专用**：1=绕过 `prog_adc_done` 等待，verify 始终 PASS（用 ideal readback）；用于模拟 die 缺失时的数字自检，生产固件必须保持 0 |
+| 0x38 | PROG_CTRL | BYPASS_HANDSHAKE | [3] | RW | 0 | **Silicon bring-up 专用**：1=绕过 `prog_adc_done` 等待，verify 始终 PASS（用 ideal readback）；START 时随 erase/level 一起锁存，本次操作不受 busy 期间后续写入影响；用于模拟 die 缺失时的数字自检，生产固件必须保持 0 |
 | 0x38 | PROG_CTRL | LEVEL | [7:4] | RW | 0 | 目标电导等级（0~15，对应 4-bit 权重量化） |
 | 0x38 | PROG_CTRL | RETRY_LIMIT | [10:8] | RW | 4 | verify 失败最大重试次数（0~7） |
 | 0x3C | PROG_ROW | row | [5:0] | RW | 0 | 目标行（0~63，= WL/NUM_INPUTS 索引） |

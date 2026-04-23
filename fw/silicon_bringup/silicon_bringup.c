@@ -50,8 +50,10 @@
 // Same LIF parameters as production inference
 // (THRESHOLD_VALUE=2550, TIMESTEPS_VALUE=10 come from soc_regs.h)
 
-// Reasonable timeouts for polling on a known-good FPGA reference
-#define POLL_TIMEOUT       0x00400000u
+// Poll bound for FPGA and slow-corner silicon bring-up.  Successful paths
+// return quickly; the larger bound avoids false timeout when the clock is
+// intentionally slowed for first power-on.
+#define POLL_TIMEOUT       0x02000000u
 
 // Input buffer (all-ones pattern; content irrelevant under test_mode because
 // bl_data is replaced by cim_test_data_pos/neg, but FSM still needs WL input
@@ -79,6 +81,12 @@ static uint32_t wait_cim_done_bound(void) {
 
 static uint32_t wait_prog_done_bound(void) {
     return poll_bit(&PROG_STATUS, PROG_STATUS_DONE_MASK, 1u);
+}
+
+static void hang(void) {
+    for (;;) {
+        __asm__ volatile ("wfi");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -139,14 +147,14 @@ int main(void) {
     DMA_CTRL      = DMA_CTRL_START_MASK;
     if (!poll_bit(&DMA_CTRL, DMA_CTRL_DONE_MASK, 1u)) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_DMA\n");
-        while (1) {}
+        hang();
     }
     DMA_CTRL = DMA_CTRL_DONE_MASK;
 
     CIM_CTRL = CIM_CTRL_START_MASK;
     if (!wait_cim_done_bound()) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_CIM_TIMEOUT\n");
-        while (1) {}
+        hang();
     }
 
     uint32_t out_count = REG_OUT_COUNT;
@@ -167,7 +175,7 @@ int main(void) {
     uart_printf("[STAGE_A] total_spikes=%u mismatch=%u\n", out_count, infer_mismatch);
     if (infer_mismatch != 0u) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_INFER\n");
-        while (1) {}
+        hang();
     }
 
     // Disable test_mode for clean follow-up
@@ -180,7 +188,24 @@ int main(void) {
     // --------------------------------------------------------------------
     uart_printf("[STAGE_B] programming FSM with bypass_handshake=1\n");
 
-    // B1: full-array erase + bypass
+    // B0: runtime 0->1->0 bypass readback toggle.  This is intentionally
+    // performed while the FSM is idle; in-flight policy remains "do not touch
+    // config fields while busy".
+    PROG_CTRL = PROG_CTRL_BYPASS_MASK;
+    if ((PROG_CTRL & PROG_CTRL_BYPASS_MASK) == 0u) {
+        uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_BYPASS_SET\n");
+        hang();
+    }
+    PROG_CTRL = 0u;
+    if ((PROG_CTRL & PROG_CTRL_BYPASS_MASK) != 0u) {
+        uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_BYPASS_CLR\n");
+        hang();
+    }
+    uart_printf("[STAGE_B] bypass toggle readback PASS\n");
+
+    // B1: full-array erase path.  This intentionally covers the special
+    // "skip verify" path in cim_program_ctrl; B2 below covers bypassed erase
+    // readback/verify.
     PROG_ROW  = 0u;
     PROG_COL  = 0u;
     PROG_CTRL = PROG_CTRL_BYPASS_MASK
@@ -189,19 +214,45 @@ int main(void) {
               | PROG_CTRL_START_MASK;
     if (!wait_prog_done_bound()) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_ERASE_TIMEOUT\n");
-        while (1) {}
+        hang();
+    }
+    {
+        uint32_t ps = PROG_STATUS;
+        PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C
+        uart_printf("[STAGE_B] full_array_erase PROG_STATUS=0x%x\n", ps);
+        if ((ps & PROG_STATUS_FAIL_MASK) || !(ps & PROG_STATUS_PASS_MASK)) {
+            uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_ERASE\n");
+            hang();
+        }
+    }
+
+    // B2: single-cell erase @ (row=5, col=3).  Unlike full-array erase, this
+    // enters READBACK/RB_WAIT/VERIFY and therefore proves BYPASS_HANDSHAKE
+    // supplies a fake done/data pair for erase verify.
+    PROG_ROW  = 5u;
+    PROG_COL  = 3u;
+    PROG_CTRL = PROG_CTRL_BYPASS_MASK
+              | PROG_CTRL_ERASE_MASK
+              | PROG_CTRL_START_MASK;
+    // Deliberately clear the live control register while the erase is in
+    // flight.  RTL must have latched BYPASS_HANDSHAKE/op/level at START, so
+    // this must not hang RB_WAIT or change the fake readback value.
+    PROG_CTRL = 0u;
+    if (!wait_prog_done_bound()) {
+        uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_CELL_ERASE_TIMEOUT\n");
+        hang();
     }
     {
         uint32_t ps = PROG_STATUS;
         PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C
         uart_printf("[STAGE_B] erase PROG_STATUS=0x%x\n", ps);
         if ((ps & PROG_STATUS_FAIL_MASK) || !(ps & PROG_STATUS_PASS_MASK)) {
-            uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_ERASE\n");
-            while (1) {}
+            uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_CELL_ERASE\n");
+            hang();
         }
     }
 
-    // B2: single-cell write @ (row=5, col=3), level=4
+    // B3: single-cell write @ (row=5, col=3), level=4
     PROG_ROW  = 5u;
     PROG_COL  = 3u;
     PROG_CTRL = PROG_CTRL_BYPASS_MASK
@@ -209,7 +260,7 @@ int main(void) {
               | PROG_CTRL_START_MASK;
     if (!wait_prog_done_bound()) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_WRITE_TIMEOUT\n");
-        while (1) {}
+        hang();
     }
     {
         uint32_t ps = PROG_STATUS;
@@ -217,7 +268,7 @@ int main(void) {
         uart_printf("[STAGE_B] write PROG_STATUS=0x%x\n", ps);
         if ((ps & PROG_STATUS_FAIL_MASK) || !(ps & PROG_STATUS_PASS_MASK)) {
             uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_WRITE\n");
-            while (1) {}
+            hang();
         }
     }
 
@@ -228,6 +279,6 @@ int main(void) {
     // All digital-only stages passed
     // --------------------------------------------------------------------
     uart_printf("SILICON_BRINGUP_DIGITAL_PASS\n");
-    while (1) {}
+    hang();
     return 0;
 }

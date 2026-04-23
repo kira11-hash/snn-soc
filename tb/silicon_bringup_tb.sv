@@ -141,6 +141,20 @@ module silicon_bringup_tb;
     jtag_tms     = 1'b0;
     jtag_tdi     = 1'b0;
 
+    // C1 boundary regression: shorter buffer than needle must be a clean miss,
+    // not an accidental match or out-of-range char_buf access.
+    char_count = 5;
+    char_buf[0] = "H";
+    char_buf[1] = "E";
+    char_buf[2] = "L";
+    char_buf[3] = "L";
+    char_buf[4] = "O";
+    if (find_substr("HELLO_WORLD")) begin
+      $display("[ERR] find_substr matched with char_count < needle length");
+      $fatal(1);
+    end
+    char_count = 0;
+
     // NOP-fill then overlay firmware
     for (i = 0; i < (INSTR_SRAM_BYTES / 4); i = i + 1) begin
       dut.u_instr_sram.mem[i] = 32'h0000_0013;

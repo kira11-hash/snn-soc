@@ -205,7 +205,7 @@ module reg_bank (
   localparam logic [7:0] REG_DBG_CNT_1       = 8'h34; // [15:0]=spike, [31:16]=wl_stall
 
   // CIM 编程寄存器（2026-04-22 从 v2 移植）
-  localparam logic [7:0] REG_PROG_CTRL        = 8'h38; // [0]=START W1P, [1]=ERASE RW, [2]=FULL_ARRAY RW, [7:4]=LEVEL RW, [10:8]=RETRY_LIMIT RW
+  localparam logic [7:0] REG_PROG_CTRL        = 8'h38; // [0]=START W1P, [1]=ERASE RW, [2]=FULL_ARRAY RW, [3]=BYPASS_HANDSHAKE RW, [7:4]=LEVEL RW, [10:8]=RETRY_LIMIT RW
   localparam logic [7:0] REG_PROG_ROW         = 8'h3C; // [5:0]=row (0~63)
   localparam logic [7:0] REG_PROG_COL         = 8'h40; // [4:0]=col (0~19)
   localparam logic [7:0] REG_PROG_STATUS      = 8'h44; // [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [7]=DONE W1C

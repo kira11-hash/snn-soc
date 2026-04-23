@@ -59,8 +59,11 @@ module boot_rom #(
   // 仿真 + FPGA：reg 数组 + $readmemh。ASIC：替换为 foundry ROM macro。
   logic [31:0] rom [0:WORDS-1];
 
-  // Word 地址提取（字节地址 >> 2，取 ADDR_BITS 位）
-  wire [ADDR_BITS-1:0] word_addr = req_addr[ADDR_BITS+1:2];
+  // Word 地址提取（字节地址 >> 2，取 ADDR_BITS 位）。
+  // SIZE_BYTES=4 时只有 rom[0] 一个 word；ADDR_BITS 被钳到 1 仅为避免零宽
+  // 向量，真实地址必须继续钳成 0，不能让 req_addr[2] 访问 rom[1]。
+  wire [ADDR_BITS-1:0] word_addr =
+      (WORDS <= 1) ? '0 : req_addr[ADDR_BITS+1:2];
 
   // 预装 ROM 内容
   initial begin
