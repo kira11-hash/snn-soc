@@ -19,9 +19,14 @@
 //       yields a 64-bit vector with exactly one bit set, at bit index 5.
 //   C2: cim_start_ext does NOT rise while wl_latch=1 (i.e. wl TDM burst
 //       completes before analog sees cim_start).
-//   C3: prog_busy's first cim_start_ext pulse lands at least 9 cycles AFTER
+//   C3: prog_busy's first cim_start_ext=1 window starts at least 9 cycles AFTER
 //       wl_latch first went high (WL_MUX_LATENCY_CYC = 10 shift register).
 //   C4: bl_sel_ext during prog_busy matches cim_program_ctrl's prog_col (3).
+//   C5: cim_start_ext uses GATE semantics (2026-04-24 Q1): the first continuous
+//       high window is wider than a 1-cycle strobe. With pulse_width preset=1us
+//       (~50 cycles @50MHz) the first gate pulse must be ≥40 cycles wide.
+//   C6: prog_op_ext is STABLE within each cim_start_ext=1 window (Q2).
+//       Sampled value at rising edge must equal sampled value at falling edge.
 //
 // Pass tag: PROG_WL_PAD_ROUTE_TB_PASS
 //==========================================================================
@@ -78,19 +83,37 @@ module prog_wl_pad_route_tb;
   logic [63:0] wl_pad_reassembled;
   logic        saw_wl_latch_during_prog;
   integer      wl_latch_first_cycle;    // cycle number when wl_latch first high in this prog op
-  integer      cim_start_ext_cycle;     // cycle when cim_start_ext first pulsed during prog op
+  integer      cim_start_ext_cycle;     // cycle when cim_start_ext first rose during prog op
   integer      cycle_cnt;
   logic        prog_busy_prev;
+  logic        cim_start_ext_prev;
   logic        latch_overlap_fail;
 
+  // Gate-window observers for C5 / C6 (Q1 / Q2 follow-up)
+  integer      first_gate_start_cycle;  // rising edge of first cim_start_ext=1 window
+  integer      first_gate_end_cycle;    // falling edge of same window
+  integer      first_gate_width;        // = end - start (computed on fall)
+  logic        first_gate_closed;       // marks that we captured a full rise+fall
+  logic [2:0]  prog_op_at_gate_rise;    // prog_op_ext sampled on rising edge
+  logic [2:0]  prog_op_at_gate_fall;    // prog_op_ext sampled one cycle before fall
+  logic        prog_op_stable_in_gate;  // C6 result
+
   initial begin
-    wl_pad_reassembled     = '0;
+    wl_pad_reassembled       = '0;
     saw_wl_latch_during_prog = 1'b0;
-    wl_latch_first_cycle   = -1;
-    cim_start_ext_cycle    = -1;
-    cycle_cnt              = 0;
-    prog_busy_prev         = 1'b0;
-    latch_overlap_fail     = 1'b0;
+    wl_latch_first_cycle     = -1;
+    cim_start_ext_cycle      = -1;
+    cycle_cnt                = 0;
+    prog_busy_prev           = 1'b0;
+    cim_start_ext_prev       = 1'b0;
+    latch_overlap_fail       = 1'b0;
+    first_gate_start_cycle   = -1;
+    first_gate_end_cycle     = -1;
+    first_gate_width         = 0;
+    first_gate_closed        = 1'b0;
+    prog_op_at_gate_rise     = 3'd0;
+    prog_op_at_gate_fall     = 3'd0;
+    prog_op_stable_in_gate   = 1'b1;
   end
 
   always @(posedge clk) begin
@@ -99,13 +122,19 @@ module prog_wl_pad_route_tb;
 
       // Reset observer state at prog_busy rising edge (new op)
       if (dut.prog_busy && !prog_busy_prev) begin
-        wl_pad_reassembled     <= '0;
+        wl_pad_reassembled       <= '0;
         saw_wl_latch_during_prog <= 1'b0;
-        wl_latch_first_cycle   <= -1;
-        cim_start_ext_cycle    <= -1;
-        latch_overlap_fail     <= 1'b0;
+        wl_latch_first_cycle     <= -1;
+        cim_start_ext_cycle      <= -1;
+        latch_overlap_fail       <= 1'b0;
+        first_gate_start_cycle   <= -1;
+        first_gate_end_cycle     <= -1;
+        first_gate_width         <= 0;
+        first_gate_closed        <= 1'b0;
+        prog_op_stable_in_gate   <= 1'b1;
       end
-      prog_busy_prev <= dut.prog_busy;
+      prog_busy_prev     <= dut.prog_busy;
+      cim_start_ext_prev <= cim_start_ext;
 
       // Capture wl_data into the reassembled 64-bit vector during prog_busy
       if (dut.prog_busy && wl_latch_ext) begin
@@ -117,9 +146,46 @@ module prog_wl_pad_route_tb;
         if (cim_start_ext) latch_overlap_fail <= 1'b1;
       end
 
-      // C1/C3 track: record first cim_start_ext pulse cycle during prog_busy
+      // C3 track: record first cim_start_ext rising-edge cycle during prog_busy
       if (dut.prog_busy && cim_start_ext && cim_start_ext_cycle == -1) begin
         cim_start_ext_cycle <= cycle_cnt;
+      end
+
+      // C5 track: measure width of first continuous cim_start_ext=1 window
+      //
+      // Note on falling edge: the RTL gates cim_start_ext behind prog_busy via
+      //   cim_start_ext = prog_busy ? prog_gate_shreg[9] : cim_start_pulse;
+      // So at prog_busy falling edge, cim_start_ext is forced low by the mux
+      // regardless of shreg state. For single-op FSM sequences (level=4 with no
+      // retry), the internal gate (prog_dac_valid | verify_en) never drops to 0
+      // between the 4 write pulses and the bypassed verify, so the pad gate
+      // stays high from the first rise until prog_busy falls. We therefore
+      // close the gate at prog_busy falling edge if no natural fall was seen.
+      if (dut.prog_busy && cim_start_ext && !cim_start_ext_prev
+          && first_gate_start_cycle == -1) begin
+        first_gate_start_cycle <= cycle_cnt;
+        prog_op_at_gate_rise   <= prog_op_ext;
+      end
+      // Natural falling edge (if it happens during prog_busy)
+      if (dut.prog_busy && !cim_start_ext && cim_start_ext_prev
+          && first_gate_start_cycle != -1 && !first_gate_closed) begin
+        first_gate_end_cycle <= cycle_cnt;
+        first_gate_width     <= cycle_cnt - first_gate_start_cycle;
+        prog_op_at_gate_fall <= prog_op_ext;
+        first_gate_closed    <= 1'b1;
+      end
+      // Forced fall at prog_busy falling edge (mux cuts the gate)
+      if (!dut.prog_busy && prog_busy_prev
+          && first_gate_start_cycle != -1 && !first_gate_closed) begin
+        first_gate_end_cycle <= cycle_cnt;
+        first_gate_width     <= cycle_cnt - first_gate_start_cycle;
+        prog_op_at_gate_fall <= prog_op_at_gate_rise; // last stable value
+        first_gate_closed    <= 1'b1;
+      end
+      // Continuous stability check inside the open gate window
+      if (dut.prog_busy && cim_start_ext && first_gate_start_cycle != -1
+          && !first_gate_closed) begin
+        if (prog_op_ext != prog_op_at_gate_rise) prog_op_stable_in_gate <= 1'b0;
       end
     end
   end
@@ -160,6 +226,11 @@ module prog_wl_pad_route_tb;
     $display("[INFO] wl_pad_reassembled = 0x%016h", wl_pad_reassembled);
     $display("[INFO] wl_latch_first_cycle = %0d", wl_latch_first_cycle);
     $display("[INFO] cim_start_ext_cycle  = %0d", cim_start_ext_cycle);
+    $display("[INFO] first_gate_start     = %0d", first_gate_start_cycle);
+    $display("[INFO] first_gate_end       = %0d", first_gate_end_cycle);
+    $display("[INFO] first_gate_width     = %0d cycles", first_gate_width);
+    $display("[INFO] prog_op @ gate rise  = %0d", prog_op_at_gate_rise);
+    $display("[INFO] prog_op @ gate fall  = %0d", prog_op_at_gate_fall);
 
     // C1: reassembled 64-bit vector has bit[5] set (target row 5) and no other bits
     check_true("C1 reassembled has only bit[5] set (target row)",
@@ -169,17 +240,26 @@ module prog_wl_pad_route_tb;
     check_true("C2 cim_start_ext did not overlap wl_latch=1 window",
                !latch_overlap_fail);
 
-    // C3: cim_start_ext first pulse lands AFTER wl_latch sequence — at least
+    // C3: cim_start_ext first gate rise lands AFTER wl_latch sequence — at least
     //     WL_MUX_LATENCY_CYC - 1 = 9 cycles after wl_latch went high
     check_true("C3 cim_start_ext delayed >= 9 cycles past first wl_latch",
                (cim_start_ext_cycle > 0) && (wl_latch_first_cycle > 0)
                && ((cim_start_ext_cycle - wl_latch_first_cycle) >= 9));
 
     // C4: bl_sel_ext during prog_busy reflects prog_col=3
-    //     (sample after bl_sel propagates through arbiter register; we just
-    //      check the current value after op completion — arb_bl_sel latched)
     check_true("C4 bl_sel_ext held value observed equals prog_col=3 or idle",
                (bl_sel_ext == 5'd3) || (bl_sel_ext == 5'd0));
+
+    // C5: GATE semantics — first cim_start_ext=1 window must be >= 40 cycles
+    //     (pulse_width preset=1us=50 cycles at 50MHz minus a little slack).
+    //     1-cycle strobe would give width=1, which proves the old regression.
+    check_true("C5 cim_start_ext is a gate (first window >= 40 cycles)",
+               first_gate_closed && (first_gate_width >= 40));
+
+    // C6: prog_op_ext is stable within a gate window (Q2 lock-in)
+    check_true("C6 prog_op_ext stable within cim_start_ext=1 window",
+               first_gate_closed && prog_op_stable_in_gate &&
+               (prog_op_at_gate_rise == prog_op_at_gate_fall));
 
     // Also spot-check: saw wl_latch at all during programming
     check_true("coverage: wl_latch was asserted during prog_busy",

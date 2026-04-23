@@ -23,7 +23,19 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
   - `cim_start`, `cim_done`, `wl_data / wl_group_sel / wl_latch`, `bl_sel`, `bl_data` are **shared** between inference and programming — analog side looks at `prog_op` to disambiguate.
   - The verify pass/fail decision is made by the **digital side** (`cim_program_ctrl` compares `bl_data` against `prog_level * (256/16) ± 2`), so **no** `prog_pass` A→D pad is required.
 - Full protocol details (encoding table, timing, electrical): `doc/08_cim_analog_interface.md` §10 + `doc/03_cim_if_protocol.md` §Programming.
-- Current digital RTL note: the 7 new sideband pads are already routed; shared carrier pads (`wl_*`, `cim_start`, `bl_sel`) still need a digital follow-up to switch to programming sources during `prog_busy`. This does not change the pad contract seen by the analog team, but it does matter for later end-to-end bring-up.
+- Current digital RTL status (2026-04-24 final): all seven new sideband pads
+  (`prog_op[2:0]`, `prog_level[3:0]`) are routed through `snn_soc_top` and
+  `chip_top`, **and** the shared carrier pads (`wl_data`, `wl_group_sel`,
+  `wl_latch`, `cim_start`, `bl_sel`) are fully switched to the programming
+  path when `prog_busy=1`. The Q1 LEVEL-gate / Q2 phase-aligned /
+  Q3 verify-timing contracts are locked in `doc/08` §10 and covered by
+  regressions `PROG_WL_PAD_ROUTE_TB_PASS` + `PROG_PAD_ENCODER_TB_PASS`.
+  - `prog_op_ext` / `prog_level_ext` carry a 10-stage pipeline delay so
+    they are phase-aligned with `cim_start_ext` — analog side can safely
+    latch on `cim_start` rising edge.
+  - `cim_start_ext` is a **LEVEL-hold pulse gate** during `prog_busy=1`
+    (not a 1-cycle strobe) — analog side drives pulse / read-voltage
+    while `cim_start=1` and withdraws on the falling edge.
 - `expected signal owner`:
   - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
   - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv), but still not backed by technology pad cells
@@ -91,7 +103,8 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 
 ## Programming op encoding (pads 46..48)
 
-Analog macro samples `prog_op[2:0]` concurrently with `cim_start` rising edge
+Analog macro latches `prog_op[2:0]` on `cim_start` rising edge (digital side
+pipelines `prog_op_ext` / `prog_level_ext` so they are stable at that edge)
 and decodes:
 
 | `prog_op[2:0]` | Meaning | `prog_level` field | Cell selected by |
@@ -103,8 +116,21 @@ and decodes:
 | `3'b100` | Erase full array (ignores row selection) | don't care | all rows asserted; `bl_sel` don't care |
 | `3'b101..111` | Reserved | — | analog side shall treat as idle / no-op |
 
-Digital compares `bl_data` readback against `prog_level * (256/16) ± 2` internally.
-Therefore **no** analog → digital `prog_pass` pad is required.
+Contract (2026-04-24 Q1/Q2/Q3 lock-in):
+
+- **Q1 — LEVEL-gate `cim_start`**: during `prog_busy=1`, `cim_start` is held
+  high for the entire pulse / verify window. Analog drives pulse while
+  `cim_start=1`, withdraws on falling edge. **No analog-side self-timing.**
+- **Q2 — per-window `prog_op` stability**: `prog_op` is stable within each
+  `cim_start=1` window but may switch between windows (e.g. write → verify);
+  the digital FSM guarantees a ≥ 1-cycle gap with `cim_start=0` between
+  windows, during which `prog_op` transitions. Latch on rising edge is safe.
+- **Q3 — verify `bl_data` timing + noise budget**: `bl_data` must settle to
+  ±1 LSB within **≤ 100 ns** after `cim_start_ext` rising edge, and hold
+  until `cim_start_ext` falling edge. Digital compares against
+  `prog_level * 16 ± 2`; RMS noise budget on the analog side is **≤ 1 LSB**
+  to avoid false fails. Therefore **no** analog → digital `prog_pass` pad
+  is required.
 
 ## Totals
 
