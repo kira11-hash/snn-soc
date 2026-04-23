@@ -8,7 +8,7 @@
 | :------ | :----: | :------------------------------ |
 | **MVP** |  ✅ 完成  | 基础功能可仿真跑通                       |
 | **V1 RTL** | ✅ 功能冻结 | E203 + UART + SPI + DMA多目标 + AXI-Lite bridge + JTAG rescue 全部接入，仿真全量通过 |
-| **V1 TO** | 🚧 进行中 | 综合 / PPA / 后端 P&R / DFT / STA 签核 / pad cell 集成 |
+| **V1 TO** | 🚧 进行中 | 综合 / PPA / 后端 P&R / DFT / STA 签核 / pad cell 集成 / ROM handoff |
 
 **流片目标**：2026年6月30日，数字 SoC 单独流片 + 片外混合集成验证（数字 SoC + 模拟 CIM Macro）
 **时钟频率**：50MHz（目标）
@@ -61,6 +61,9 @@
 - `cd sim && bash run_jtag_pyhost_selftest.sh`：Python 主机侧无硬件自测，期望 `JTAG_PYHOST_SELFTEST_PASS`
 - `cd sim && bash run_jtag_rescue_top_icarus.sh`：JTAG rescue 顶层回归，期望 `JTAG_RESCUE_TOP_PASS`
 - `cd sim && bash run_e203_icarus.sh`：E203 最小启动链回归，期望 `E203_SMOKETEST_PASS`
+- `cd sim && bash run_silicon_bringup.sh`：数字 die 自检固件回归，期望 `SILICON_BRINGUP_TB_PASS`
+- `cd sim && bash run_prog_bypass_latch.sh`：验证 `PROG_CTRL.START` busy 期间重写不会破坏 in-flight bypass，期望 `PROG_BYPASS_LATCH_TB_PASS`
+- `cd sim && bash run_chip_top_rom_smoke.sh`：`chip_top` + `ENABLE_BOOT_ROM=1` + SPI boot smoke，期望 `CHIP_TOP_ROM_SMOKE_PASS`
 - `cd sim && iverilog -g2012 -gno-assertions -f rtl_with_chip_top_check.f -s chip_top -o chip_top_check.out`：TO 路径的 `chip_top` 编译门禁
 - `verilator.cmd -Wall --lint-only --top-module chip_top -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-CASEINCOMPLETE -f sim\\rtl_with_chip_top_check.f`：`chip_top` lint 门禁
 - `python scripts/check_markdown_links.py`：检查所有 Git 跟踪 `.md` 文件的本地相对链接是否存在
@@ -85,6 +88,23 @@ sim/   仿真脚本与波形
 scripts/ Python 主机工具
 doc/   中文说明文档
 ```
+
+## V1.1 / Tape-out Prep 增量
+
+- `boot_rom` 已接入主线地址图：
+  - `chip_top` 路径下 `BOOT_ROM @ 0x0000_0000..0x0000_0FFF`
+  - `INSTR_SRAM @ 0x0000_1000..0x0000_4FFF`
+- `fw/boot_rom/boot_rom_main.c`：Mask ROM 里的 SPI bootloader
+- `fw/link_app.ld`：应用固件链接到 `0x0000_1000`
+- `scripts/make_boot_image.py`：生成带 16-byte `'BOOT'` header 的 SPI flash image
+- `tb/chip_top_tb.sv` / `run_chip_top_rom_smoke.sh`：ROM boot 综合级 smoke 已打通
+- `fw/silicon_bringup/silicon_bringup.c`：数字 die 自检固件（`test_mode + BYPASS_HANDSHAKE`）
+
+这意味着当前 `main` 已经同时具备：
+
+1. **V1 默认 Gate A 回归口径**（`ENABLE_BOOT_ROM=0`）
+2. **Tape-out 目标 boot 口径**（`chip_top.ENABLE_BOOT_ROM=1`）
+3. **Day 1 / Day 2 silicon bring-up 基础设施**
 
 ## 关键说明
 - **参数口径**：所有默认参数与时序常量以 `rtl/top/snn_soc_pkg.sv` 为准，文档中的数值仅作说明与示例，若不一致请以 pkg 为准。

@@ -105,6 +105,7 @@ int main(void) {
 
     // Reset membrane potentials before test
     CIM_CTRL = CIM_CTRL_SOFT_RESET_MASK;
+    REG_RESET_MODE = 0u; // always force soft-reset semantics for the SW golden
 
     REG_TIMESTEPS = TIMESTEPS_VALUE;
     REG_THRESHOLD = THRESHOLD_VALUE;

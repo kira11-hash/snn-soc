@@ -4,7 +4,9 @@
 
 | 地址范围                      |   大小 | 模块                |
 | ------------------------- | ---: | ----------------- |
-| 0x0000_0000 ~ 0x0000_3FFF | 16KB | instr_sram        |
+| 0x0000_0000 ~ 0x0000_0FFF | 4KB  | boot_rom（仅 `ENABLE_BOOT_ROM=1` / `chip_top` 路径） |
+| 0x0000_0000 ~ 0x0000_3FFF | 16KB | instr_sram（默认 `snn_soc_top.ENABLE_BOOT_ROM=0`） |
+| 0x0000_1000 ~ 0x0000_4FFF | 16KB | instr_sram（`chip_top.ENABLE_BOOT_ROM=1` 时的平移窗口） |
 | 0x0001_0000 ~ 0x0001_3FFF | 16KB | data_sram         |
 | 0x0003_0000 ~ 0x0003_3FFF | 16KB | weight_sram（保留窗口） |
 | 0x4000_0000 ~ 0x4000_00FF | 256B | reg_bank          |
@@ -19,13 +21,14 @@
 | --- | --- | --- | --- |
 | `INPUT_FIFO` (`0`) | `data_sram` | `input_fifo` | 当前正式推理路径；`DMA_LEN_WORDS` 必须为偶数，因为硬件按 2 个 32-bit word 拼 1 个 64-bit bit-plane |
 | `WEIGHT_SRAM` (`1`) | `data_sram` | `weight_sram` | 逐 word 写入；允许奇数长度；适合 live patch / 调试装载 |
-| `INSTR_SRAM` (`2`) | `data_sram` | `instr_sram` | 逐 word 写入；允许奇数长度；常见于 rescue / bring-up 装载链路 |
+| `INSTR_SRAM` (`2`) | `data_sram` | `instr_sram` | 逐 word 写入；允许奇数长度；常见于 rescue / bring-up 装载链路。`ENABLE_BOOT_ROM=1` 时该窗口的有效物理地址是 `0x1000..0x4FFF` |
 
 ## SRAM 窗口的当前职责
 
 | 窗口 | 当前主用途 | 典型写入方 | 典型读取方 | 备注 |
 | --- | --- | --- | --- | --- |
-| `instr_sram` | E203 bootloader / rescue 指令区 | TB、JTAG rescue loader | E203 IFU | 当前 `run_e203_icarus.sh` 和 `run_jtag_rescue_top_icarus.sh` 都会实际使用 |
+| `boot_rom` | Mask ROM bootloader（SPI / rescue 入口） | Foundry ROM handoff / FPGA `$readmemh` | E203 IFU | 仅 `chip_top.ENABLE_BOOT_ROM=1` 路径存在 |
+| `instr_sram` | E203 应用 / rescue 指令区 | TB、SPI bootloader、JTAG rescue loader | E203 IFU | `ENABLE_BOOT_ROM=1` 时上移到 `0x1000..0x4FFF` |
 | `data_sram` | 推理 bit-plane 暂存区；E203 app 装载区 | TB、E203 bootloader、JTAG rescue loader | DMA、E203 LSU | 当前主线默认 DMA 源窗口 |
 | `weight_sram` | V1 保留/调试窗口，支持 live patch | DMA（`DST_SEL=WEIGHT_SRAM`）、JTAG rescue loader | 调试逻辑、V2 权重缓存扩展 | V1 不参与正式推理数据流；V2 计划用于片上权重缓存 |
 
@@ -55,9 +58,11 @@
 
 ## 当前主线的地址使用约定
 
-- E203 启动链中，bootloader 常驻 `instr_sram`，应用镜像经 SPI boot 装载到 `data_sram @ 0x0001_0000` 后再跳转执行。
+- 当前主线同时保留两种启动口径：
+  - 默认回归口径：`ENABLE_BOOT_ROM=0`，`instr_sram @ 0x0`
+  - tape-out 口径：`chip_top.ENABLE_BOOT_ROM=1`，`boot_rom @ 0x0`，应用经 SPI / JTAG 装载到 `instr_sram @ 0x1000`
 - 纯 RTL 推理 smoke / sample align 中，TB 直接把 bit-plane 数据写入 `data_sram`，然后由 DMA 读出送往 `input_fifo`。
-- 若同一次 bring-up 同时涉及 E203 应用和推理输入，需要软件自行规避 `data_sram` 地址重叠；仓库当前没有硬件级地址隔离机制。
+- 因为 tape-out 口径下应用固件运行在 `instr_sram @ 0x1000`，`data_sram @ 0x10000` 不再承担 app text 存放职责，减少了 app / input overlap 风险。
 - `weight_sram` 当前更适合作为保留、调试和 live patch 窗口使用，不应被误认为当前主线 sample-align 所依赖的正式权重来源。
 
 ## bring-up / tapeout 前复核点

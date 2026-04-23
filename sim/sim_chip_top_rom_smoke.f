@@ -80,3 +80,4 @@
 ../tb/spi_flash_model.sv
 ../tb/chip_top_rom_smoke_tb.sv
 ../tb/chip_top_tb.sv
+../tb/chip_top_hi_tb.sv
