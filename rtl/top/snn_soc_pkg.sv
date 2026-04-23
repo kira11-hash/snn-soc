@@ -147,10 +147,23 @@ package snn_soc_pkg;
   localparam logic [31:0] DATA_SRAM_BYTES   = 32'h0000_4000; // 16KB
   localparam logic [31:0] WEIGHT_SRAM_BYTES = 32'h0000_4000; // 16KB
 
-  // 指令 SRAM：0x0000_0000 ~ 0x0000_3FFF
+  // Boot ROM（mask ROM）容量：4KB，仅在 snn_soc_top.ENABLE_BOOT_ROM=1 时启用
+  localparam logic [31:0] BOOT_ROM_BYTES    = 32'h0000_1000; // 4KB
+
+  // 指令 SRAM：
+  //   ENABLE_BOOT_ROM=0 （默认，FPGA / Gate A 回归）：0x0000_0000 ~ 0x0000_3FFF
+  //   ENABLE_BOOT_ROM=1 （ASIC tape-out）：ROM @ 0x0000_0000~0x0FFF，INSTR @ 0x1000~0x4FFF
   localparam logic [31:0] ADDR_INSTR_BASE  = 32'h0000_0000;
   localparam logic [31:0] ADDR_INSTR_END   = ADDR_INSTR_BASE + INSTR_SRAM_BYTES - 1;
   // = 0x0000_3FFF
+
+  // Boot ROM 区段（ENABLE_BOOT_ROM=1 时替换 INSTR_SRAM 低 4KB）
+  localparam logic [31:0] ADDR_BOOT_ROM_BASE        = 32'h0000_0000;
+  localparam logic [31:0] ADDR_BOOT_ROM_END         = ADDR_BOOT_ROM_BASE + BOOT_ROM_BYTES - 1;
+  // ROM 启用时 INSTR_SRAM 整体向上平移 4KB 避免区段重叠
+  localparam logic [31:0] ADDR_INSTR_BASE_WITH_ROM  = 32'h0000_1000;
+  localparam logic [31:0] ADDR_INSTR_END_WITH_ROM   = ADDR_INSTR_BASE_WITH_ROM + INSTR_SRAM_BYTES - 1;
+  // = 0x0000_4FFF
 
   // 数据 SRAM：0x0001_0000 ~ 0x0001_3FFF
   localparam logic [31:0] ADDR_DATA_BASE   = 32'h0001_0000;

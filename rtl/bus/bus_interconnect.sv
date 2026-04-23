@@ -69,7 +69,15 @@
 //   m_ready:   0    1    0    ← 主设备在此拍得到写完成确认
 // ============================================================
 
-module bus_interconnect (
+module bus_interconnect #(
+  // ENABLE_BOOT_ROM=1（ASIC tape-out 用）：
+  //   0x0000_0000..0x0000_0FFF 路由到 boot_rom 从设备（4 KB mask ROM）
+  //   0x0000_1000..0x0000_4FFF 路由到 instr_sram（地址整体平移 4 KB）
+  // ENABLE_BOOT_ROM=0（默认，Gate A 回归 / FPGA）：
+  //   0x0000_0000..0x0000_3FFF 路由到 instr_sram（V1 原始行为）
+  //   boot_rom 从设备不被激活（rom_req_valid 永远为 0）
+  parameter bit ENABLE_BOOT_ROM = 1'b0
+) (
   // 全局时钟与异步低有效复位
   input  logic        clk,
   input  logic        rst_n,
@@ -89,9 +97,21 @@ module bus_interconnect (
   output logic        m_rvalid,  // 读数据有效：互联通知主设备读数据已就绪
 
   // ----------------------------------------------------------
+  // 从设备接口：boot_rom（mask ROM，仅 ENABLE_BOOT_ROM=1 激活）
+  // 地址范围：0x0000_0000 ~ 0x0000_0FFF（4 KB）
+  // 写请求被 boot_rom 内部忽略（ROM 只读），互联依然把 m_ready/m_rvalid 正常回给主设备
+  // ENABLE_BOOT_ROM=0 时 rom_req_valid 恒 0，rdata 恒 0，ROM 从设备可以不实例化
+  // ----------------------------------------------------------
+  output logic        rom_req_valid,   // ROM 请求有效（地址命中 0x0..0xFFF 且 ENABLE_BOOT_ROM）
+  output logic [31:0] rom_req_addr,    // 本地偏移地址（= 全局地址 - ADDR_BOOT_ROM_BASE）
+  input  logic [31:0] rom_rdata,       // ROM 读出数据（组合，与 SRAM 同协议）
+
+  // ----------------------------------------------------------
   // 从设备接口：instr_sram（指令 SRAM）
-  // 地址范围：ADDR_INSTR_BASE ~ ADDR_INSTR_END（见 snn_soc_pkg）
-  // 用途：存放 CPU 指令（MVP 阶段 TB 预加载，E203 V2 接入后使用）
+  // 地址范围：
+  //   ENABLE_BOOT_ROM=0: ADDR_INSTR_BASE ~ ADDR_INSTR_END（0x0..0x3FFF）
+  //   ENABLE_BOOT_ROM=1: ADDR_INSTR_BASE_WITH_ROM ~ ..._WITH_ROM（0x1000..0x4FFF）
+  // 用途：存放 CPU 指令
   // ----------------------------------------------------------
   output logic        instr_req_valid, // 指令 SRAM 请求有效（地址命中 instr 区域）
   output logic        instr_req_write, // 写使能（通常为 0，CPU 不写指令空间）
@@ -215,6 +235,7 @@ module bus_interconnect (
   localparam logic [3:0] SEL_UART   = 4'd6;
   localparam logic [3:0] SEL_SPI    = 4'd7;
   localparam logic [3:0] SEL_FIFO   = 4'd8;
+  localparam logic [3:0] SEL_ROM    = 4'd9; // boot_rom (ENABLE_BOOT_ROM=1 only)
 
   // ----------------------------------------------------------
   // 寄存后的请求信号（req_*）
@@ -270,9 +291,18 @@ module bus_interconnect (
   // 未命中地址（address miss）：req_sel = SEL_NONE，读操作返回 32'h0。
   // 这是一种防御性设计，避免总线锁死（即使地址错误也能正常返回）。
   // ----------------------------------------------------------
+  // 指令 SRAM 地址上下限在 ENABLE_BOOT_ROM=1 时整体平移 4 KB
+  localparam logic [31:0] INSTR_BASE_EFFECTIVE =
+      ENABLE_BOOT_ROM ? ADDR_INSTR_BASE_WITH_ROM : ADDR_INSTR_BASE;
+  localparam logic [31:0] INSTR_END_EFFECTIVE  =
+      ENABLE_BOOT_ROM ? ADDR_INSTR_END_WITH_ROM  : ADDR_INSTR_END;
+
   always_comb begin
     req_sel = SEL_NONE; // 默认：未命中任何从设备
-    if (in_range(req_addr, ADDR_INSTR_BASE, ADDR_INSTR_END)) begin
+    if (ENABLE_BOOT_ROM &&
+        in_range(req_addr, ADDR_BOOT_ROM_BASE, ADDR_BOOT_ROM_END)) begin
+      req_sel = SEL_ROM;     // 命中 boot ROM（仅 ENABLE_BOOT_ROM=1 激活）
+    end else if (in_range(req_addr, INSTR_BASE_EFFECTIVE, INSTR_END_EFFECTIVE)) begin
       req_sel = SEL_INSTR;   // 命中指令 SRAM
     end else if (in_range(req_addr, ADDR_DATA_BASE, ADDR_DATA_END)) begin
       req_sel = SEL_DATA;    // 命中数据 SRAM
@@ -365,7 +395,11 @@ module bus_interconnect (
   // 注意：减法仅在对应 req_valid 有效时才有意义；
   //       无效拍时 req_addr 可能是任意值，但从设备不会响应（req_valid=0）。
   // ----------------------------------------------------------
-  assign instr_req_addr  = req_addr - ADDR_INSTR_BASE;   // 相对于指令 SRAM 起始地址的偏移
+  // INSTR SRAM 偏移：ENABLE_BOOT_ROM=1 时从 0x1000 起，减 0x1000；否则从 0x0 起不减
+  assign instr_req_addr  = req_addr - INSTR_BASE_EFFECTIVE;  // 指令 SRAM 本地偏移
+  // Boot ROM 偏移：始终从 0x0 起，与 ROM 内部地址对齐
+  assign rom_req_valid   = ENABLE_BOOT_ROM && req_valid && (req_sel == SEL_ROM);
+  assign rom_req_addr    = req_addr - ADDR_BOOT_ROM_BASE;
   assign data_req_addr   = req_addr - ADDR_DATA_BASE;    // 相对于数据 SRAM 起始地址的偏移
   assign weight_req_addr = req_addr - ADDR_WEIGHT_BASE;  // 相对于权重 SRAM 起始地址的偏移
   assign reg_req_addr    = req_addr - ADDR_REG_BASE;     // 相对于控制寄存器起始地址的偏移
@@ -415,6 +449,7 @@ module bus_interconnect (
   always_comb begin
     req_rdata = 32'h0; // 默认：未命中时返回全零
     case (req_sel)
+      SEL_ROM:    req_rdata = rom_rdata;     // Boot ROM 读出数据 (ENABLE_BOOT_ROM=1)
       SEL_INSTR:  req_rdata = instr_rdata;   // 指令 SRAM 读出数据
       SEL_DATA:   req_rdata = data_rdata;    // 数据 SRAM 读出数据
       SEL_WEIGHT: req_rdata = weight_rdata;  // 权重 SRAM 读出数据

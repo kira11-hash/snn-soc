@@ -52,10 +52,17 @@ module chip_top (
   output logic [4:0] bl_sel_pad,
   input  logic [7:0] bl_data_pad
 );
-  // 核心 SoC（TO 目标路径：默认带 E203 + 外部 CIM pad 接口）
+  // 核心 SoC（TO 目标路径：默认带 E203 + 外部 CIM pad 接口 + mask ROM）
+  //   * ENABLE_PROGRAM_MODE=1：挂上 cim_program_ctrl + arbiter（tape-out 需要）
+  //   * ENABLE_BOOT_ROM=1：0x0 走 boot_rom mask ROM（上电即跑 bootloader），
+  //     instr_sram 上移到 0x1000。BOOT_ROM_INIT_FILE 在正式流片前替换为
+  //     foundry ROM compiler 的 mask 数据，这里保持空让 FPGA 仿真可用。
   snn_soc_top #(
-    .ENABLE_E203(1'b1),
-    .ENABLE_EXT_CIM_IF(1'b1)
+    .ENABLE_E203         (1'b1),
+    .ENABLE_EXT_CIM_IF   (1'b1),
+    .ENABLE_PROGRAM_MODE (1'b1),
+    .ENABLE_BOOT_ROM     (1'b1),
+    .BOOT_ROM_INIT_FILE  ("")
   ) u_soc_core (
     .clk      (clk_pad),
     .rst_n    (rst_n_pad),

@@ -77,7 +77,15 @@ module snn_soc_top #(
   // 行为模型——0 用 V1 popcount ADC 公式（与原 main 行为完全一致）；
   //            1 用 BRAM weight_mem + bram_weighted_sum()（编程会真正更新权重）。
   // 默认跟 ENABLE_PROGRAM_MODE 走，但显式拆开便于"只测互锁不测权重"等 ablation 场景。
-  parameter bit ENABLE_PROGRAM_WEIGHT_MODEL = ENABLE_PROGRAM_MODE
+  parameter bit ENABLE_PROGRAM_WEIGHT_MODEL = ENABLE_PROGRAM_MODE,
+  // ENABLE_BOOT_ROM（V1.1 tape-out prep, 2026-04-23）：
+  //   0 默认：FPGA / Gate A 回归行为不变，0x0 直接路由到 instr_sram。
+  //   1 ASIC：0x0000_0000..0x0000_0FFF 指向 boot_rom（mask ROM，4 KB），
+  //           instr_sram 平移到 0x0000_1000..0x0000_4FFF。
+  // BOOT_ROM_INIT_FILE：ROM 预装的 $readmemh 文件（工艺 ROM compiler 会取代
+  //   此参数，用 mask 数据烧入，但仿真 / FPGA 路径仍用 $readmemh）。
+  parameter bit    ENABLE_BOOT_ROM    = 1'b0,
+  parameter        BOOT_ROM_INIT_FILE = ""
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -630,7 +638,14 @@ module snn_soc_top #(
     .cpu_reset_hold(cpu_reset_hold_req)
   );
 
-  bus_interconnect u_bus_interconnect (
+  // ── Boot ROM slave signals (ENABLE_BOOT_ROM=1 仅使用) ───────────────
+  logic        rom_req_valid;
+  logic [31:0] rom_req_addr;
+  logic [31:0] rom_rdata;
+
+  bus_interconnect #(
+    .ENABLE_BOOT_ROM(ENABLE_BOOT_ROM)
+  ) u_bus_interconnect (
     .clk            (clk),
     .rst_n          (rst_n),
 
@@ -643,6 +658,11 @@ module snn_soc_top #(
     .m_ready        (fabric_m_ready),
     .m_rdata        (fabric_m_rdata),
     .m_rvalid       (fabric_m_rvalid),
+
+    // Boot ROM（新加，ENABLE_BOOT_ROM=0 时 rom_req_valid 恒 0）
+    .rom_req_valid  (rom_req_valid),
+    .rom_req_addr   (rom_req_addr),
+    .rom_rdata      (rom_rdata),
 
     // 从设备侧：各从设备接口信号（已在上方声明）
     .instr_req_valid(instr_req_valid),
@@ -710,6 +730,31 @@ module snn_soc_top #(
   // SRAM 实例
   // 三块 SRAM 分别服务于不同用途，地址范围来自 snn_soc_pkg
   //======================
+
+  // ── Boot ROM（ENABLE_BOOT_ROM=1 tape-out 路径启用）────────────────
+  // 与 instr_sram 并列的只读 slave；bus_interconnect 负责地址译码 + rdata MUX。
+  // ENABLE_BOOT_ROM=0 时整个 generate 块跳过，rom_req_valid/rom_rdata 被 tied 0。
+  generate
+    if (ENABLE_BOOT_ROM) begin : gen_boot_rom
+      boot_rom #(
+        .SIZE_BYTES (BOOT_ROM_BYTES),
+        .INIT_FILE  (BOOT_ROM_INIT_FILE)
+      ) u_boot_rom (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .req_valid (rom_req_valid),
+        .req_write (1'b0),            // ROM read-only, ignore writes at bus level
+        .req_addr  (rom_req_addr),
+        .req_wdata (32'h0),
+        .req_wstrb (4'h0),
+        .rdata     (rom_rdata)
+      );
+    end else begin : gen_no_boot_rom
+      // ENABLE_BOOT_ROM=0：未引出 ROM slave，用 tie-off 让回归行为不变
+      assign rom_rdata = 32'h0;
+      wire _unused_rom = &{1'b0, rom_req_valid, rom_req_addr};
+    end
+  endgenerate
 
   // 指令 SRAM：MEM_BYTES = INSTR_SRAM_BYTES（见 pkg）
   // 新增 DMA 写端口：dma_engine 使用 DST_INSTR_SRAM 时直接写入
