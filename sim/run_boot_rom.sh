@@ -11,9 +11,25 @@ resolve_iverilog_tools
 
 mkdir -p waves
 
-# Pre-generate the boot_rom init hex (8 words) — must exist before vvp
+# Pre-generate boot_rom init hex files — must exist before vvp
 # starts so the DUT's initial-block $readmemh sees it at time 0.
-cat > boot_rom_init.hex <<'EOF'
+cat > boot_rom_init_1.hex <<'EOF'
+0BADC0DE
+EOF
+
+cat > boot_rom_init_2.hex <<'EOF'
+11110000
+22220000
+EOF
+
+cat > boot_rom_init_4.hex <<'EOF'
+11110000
+22220000
+33330000
+44440000
+EOF
+
+cat > boot_rom_init_8.hex <<'EOF'
 DEADBEEF
 CAFEBABE
 00000013

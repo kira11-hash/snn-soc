@@ -9,17 +9,18 @@
 #   CROSS=riscv64-unknown-elf   RISC-V toolchain prefix (default: riscv64-unknown-elf)
 #   VIVADO=vivado                Vivado executable (default: vivado)
 #   SKIP_FW=1                    Skip firmware build (use existing hex)
+#   HEX=/path/to/fw.hex          Override BRAM init hex (default: e203_smoke.hex)
+#   OUT_DIR=/path/to/out         Override output directory
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-OUT_DIR="$SCRIPT_DIR/out"
-
 CROSS="${CROSS:-riscv64-unknown-elf}"
 VIVADO="${VIVADO:-vivado}"
 SKIP_FW="${SKIP_FW:-0}"
 
-HEX="$REPO_ROOT/fw/e203_smoke/out/e203_smoke.hex"
+HEX="${HEX:-$REPO_ROOT/fw/e203_smoke/out/e203_smoke.hex}"
+OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/out}"
 
 mkdir -p "$OUT_DIR"
 
@@ -43,12 +44,23 @@ win_short_dir() {
   printf '%s' "${result:-$posix_path}"
 }
 
+win_short_file() {
+  local posix_path="$1"
+  local win_path result
+  win_path="$(cygpath -w "$posix_path" 2>/dev/null || printf '%s' "$posix_path")"
+  result="$(powershell.exe -NoProfile -Command \
+    "\$fso=New-Object -ComObject Scripting.FileSystemObject; Write-Output \$fso.GetFile('$win_path').ShortPath" \
+    2>/dev/null | tr -d '\r\n' | sed 's|\\|/|g')"
+  printf '%s' "${result:-$posix_path}"
+}
+
 REPO_SHORT="$(win_short_dir "$REPO_ROOT" 2>/dev/null || printf '%s' "$REPO_ROOT")"
-HEX_SHORT="${REPO_SHORT}/fw/e203_smoke/out/e203_smoke.hex"
-OUT_SHORT="${REPO_SHORT}/fpga_synth/zcu102_e203_demo/out"
+HEX_SHORT="$(win_short_file "$HEX" 2>/dev/null || printf '%s' "$HEX")"
+OUT_SHORT="$(win_short_dir "$OUT_DIR" 2>/dev/null || printf '%s' "$OUT_DIR")"
 
 echo "=== E203 FPGA Build Pipeline ==="
 echo "Repo root  : $REPO_ROOT  →  $REPO_SHORT"
+echo "Firmware   : $HEX  →  $HEX_SHORT"
 echo "Output     : $OUT_DIR"
 
 # ---------------------------------------------------------------------------

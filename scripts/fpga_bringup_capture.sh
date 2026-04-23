@@ -54,6 +54,7 @@ OUT_LOG=""
 TAGS=()
 FAIL_TAGS=()
 XSCT="${XSCT:-xsct}"
+PYTHON="${PYTHON:-}"
 SKIP_PROGRAM="0"
 
 while [[ $# -gt 0 ]]; do
@@ -67,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     --fail-tag)    FAIL_TAGS+=("$2"); shift 2 ;;
     --skip-program) SKIP_PROGRAM="1"; shift ;;
     --xsct)        XSCT="$2"; shift 2 ;;
+    --python)      PYTHON="$2"; shift 2 ;;
     --help|-h)
       sed -n '2,30p' "$0"
       exit 0 ;;
@@ -81,6 +83,17 @@ if [ ${#TAGS[@]} -eq 0 ]; then
   exit 64
 fi
 
+if [ -z "$PYTHON" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON="$(command -v python3)"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON="$(command -v python)"
+  else
+    echo "[ERR] neither python3 nor python found; pass --python /path/to/python" >&2
+    exit 64
+  fi
+fi
+
 if [ -z "$OUT_LOG" ]; then
   STAMP="$(date +%Y%m%d_%H%M%S)"
   OUT_LOG="$ROOT_DIR/doc/main-fpga-e203/uart_capture_${STAMP}.log"
@@ -92,6 +105,7 @@ echo "Bitstream  : ${BITSTREAM:-<skipped>}"
 echo "Serial     : $SERIAL_PORT @ $BAUD"
 echo "Timeout    : ${TIMEOUT}s"
 echo "Log        : $OUT_LOG"
+echo "Python     : $PYTHON"
 echo "Expected tags:"
 for t in "${TAGS[@]}"; do echo "  - $t"; done
 if [ ${#FAIL_TAGS[@]} -gt 0 ]; then
@@ -100,8 +114,15 @@ if [ ${#FAIL_TAGS[@]} -gt 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 1: xsct programs PL (unless --skip-program)
+# Python capture via pyserial (portable Windows/Linux/WSL)
+#
+# Important ordering: open the serial port BEFORE programming the PL.  The E203
+# starts from BRAM immediately after fpga programming; opening COM3 after xsct
+# returns can miss the first UART tags.
 # ---------------------------------------------------------------------------
+echo ""
+echo "--- Step 1/2: open serial first, then program PL via xsct ---"
+
 if [ "$SKIP_PROGRAM" = "0" ]; then
   if [ -z "$BITSTREAM" ]; then
     echo "[ERR] --bitstream required (or use --skip-program to reuse the running design)" >&2
@@ -111,98 +132,153 @@ if [ "$SKIP_PROGRAM" = "0" ]; then
     echo "[ERR] bitstream not found: $BITSTREAM" >&2
     exit 64
   fi
-  echo ""
-  echo "--- Step 1: programming PL via xsct ---"
-  if ! "$XSCT" "$ROOT_DIR/scripts/program_zcu102_e203.tcl" "$BITSTREAM" 2>&1 | tee "${OUT_LOG}.xsct.log"; then
-    echo "[ERR] xsct programming failed — see ${OUT_LOG}.xsct.log" >&2
-    exit 3
-  fi
-  # Let the PL power-stabilise + E203 reset before opening serial
-  sleep 1
-else
-  echo "--- Step 1: SKIP_PROGRAM (reuse already-running FPGA) ---"
 fi
 
-# ---------------------------------------------------------------------------
-# Step 2: Python capture via pyserial (portable Windows/Linux/WSL)
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 2: serial capture on $SERIAL_PORT ---"
+export FPGA_ROOT_DIR="$ROOT_DIR"
+export FPGA_BITSTREAM="$BITSTREAM"
+export FPGA_SERIAL_PORT="$SERIAL_PORT"
+export FPGA_BAUD="$BAUD"
+export FPGA_TIMEOUT="$TIMEOUT"
+export FPGA_OUT_LOG="$OUT_LOG"
+export FPGA_TAGS="$(printf "%s\n" "${TAGS[@]}")"
+export FPGA_FAIL_TAGS="$(printf "%s\n" "${FAIL_TAGS[@]:-}")"
+export FPGA_XSCT="$XSCT"
+export FPGA_SKIP_PROGRAM="$SKIP_PROGRAM"
 
-TAGS_JOIN="$(printf "%s\n" "${TAGS[@]}" | tr '\n' '|' | sed 's/|$//')"
-FAIL_TAGS_JOIN="$(printf "%s\n" "${FAIL_TAGS[@]:-}" | tr '\n' '|' | sed 's/|$//')"
+"$PYTHON" - <<'PYEOF'
+import os
+import subprocess
+import sys
+import threading
+import time
 
-python - <<PYEOF
-import sys, time, serial
-
-port = r"$SERIAL_PORT"
-baud = int("$BAUD")
-timeout_s = float("$TIMEOUT")
-expect = [t for t in r"""${TAGS_JOIN}""".split("|") if t]
-fail_tags = [t for t in r"""${FAIL_TAGS_JOIN}""".split("|") if t]
-out_path = r"$OUT_LOG"
-
-print(f"[INFO] opening {port} @ {baud}", flush=True)
 try:
-    ser = serial.Serial(port, baud, timeout=0.5)
+    import serial
+except Exception as e:
+    print(f"[ERR] pyserial import failed: {e}", flush=True)
+    sys.exit(4)
+
+root_dir = os.environ["FPGA_ROOT_DIR"]
+bitstream = os.environ.get("FPGA_BITSTREAM", "")
+port = os.environ["FPGA_SERIAL_PORT"]
+baud = int(os.environ["FPGA_BAUD"])
+timeout_s = float(os.environ["FPGA_TIMEOUT"])
+out_path = os.environ["FPGA_OUT_LOG"]
+expect = [t for t in os.environ.get("FPGA_TAGS", "").splitlines() if t]
+fail_tags = [t for t in os.environ.get("FPGA_FAIL_TAGS", "").splitlines() if t]
+xsct = os.environ.get("FPGA_XSCT", "xsct")
+skip_program = os.environ.get("FPGA_SKIP_PROGRAM", "0") == "1"
+
+print(f"[INFO] opening {port} @ {baud} before programming", flush=True)
+try:
+    ser = serial.Serial(port, baud, timeout=0.1)
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
 except Exception as e:
     print(f"[ERR] could not open {port}: {e}", flush=True)
     sys.exit(4)
 
-start = time.time()
-buf = ""
-seen = set()
-fail_seen = None
-with open(out_path, "w", encoding="utf-8", errors="replace") as fh:
-    fh.write(f"# capture from {port} @ {baud} starting {time.ctime(start)}\n")
-    fh.flush()
-    while time.time() - start < timeout_s:
-        chunk = ser.read(256)
-        if chunk:
-            try:
-                text = chunk.decode("utf-8", errors="replace")
-            except Exception:
-                text = ""
+state = {
+    "buf": "",
+    "seen": set(),
+    "fail_seen": None,
+    "stop": False,
+}
+lock = threading.Lock()
+
+def reader():
+    with open(out_path, "w", encoding="utf-8", errors="replace") as fh:
+        fh.write(f"# capture from {port} @ {baud} starting {time.ctime()}\n")
+        fh.flush()
+        while True:
+            with lock:
+                if state["stop"]:
+                    break
+            chunk = ser.read(256)
+            if not chunk:
+                continue
+            text = chunk.decode("utf-8", errors="replace")
             sys.stdout.write(text)
             sys.stdout.flush()
             fh.write(text)
             fh.flush()
-            buf += text
-            # Keep buffer bounded
-            if len(buf) > 8192:
-                buf = buf[-4096:]
-            # Check fail tags first
-            for ft in fail_tags:
-                if ft and ft in buf:
-                    fail_seen = ft
-                    break
-            if fail_seen:
-                break
-            # Check expected tags
-            for t in expect:
-                if t not in seen and t in buf:
-                    seen.add(t)
-            if len(seen) == len(expect):
-                break
+            with lock:
+                state["buf"] += text
+                if len(state["buf"]) > 8192:
+                    state["buf"] = state["buf"][-4096:]
+                for ft in fail_tags:
+                    if ft and ft in state["buf"]:
+                        state["fail_seen"] = ft
+                        state["stop"] = True
+                        break
+                for t in expect:
+                    if t not in state["seen"] and t in state["buf"]:
+                        state["seen"].add(t)
+                if len(state["seen"]) == len(expect):
+                    state["stop"] = True
+
+reader_thread = threading.Thread(target=reader, daemon=True)
+reader_thread.start()
+
+xsct_rc = 0
+if not skip_program:
+    print("", flush=True)
+    print("--- programming PL via xsct while serial capture is active ---", flush=True)
+    tcl = os.path.join(root_dir, "scripts", "program_zcu102_e203.tcl")
+    xsct_log = out_path + ".xsct.log"
+    with open(xsct_log, "w", encoding="utf-8", errors="replace") as xfh:
+        proc = subprocess.Popen(
+            [xsct, tcl, bitstream],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            xfh.write(line)
+            xfh.flush()
+        xsct_rc = proc.wait()
+        if xsct_rc != 0:
+            print(f"[ERR] xsct programming failed rc={xsct_rc} — see {xsct_log}", flush=True)
+else:
+    print("--- SKIP_PROGRAM (reuse already-running FPGA) ---", flush=True)
+
+deadline = time.time() + timeout_s
+while time.time() < deadline:
+    with lock:
+        done = state["stop"]
+    if done:
+        break
+    time.sleep(0.05)
+
+with lock:
+    state["stop"] = True
+reader_thread.join(timeout=1.0)
 ser.close()
 
 print("", flush=True)
 print("=" * 60, flush=True)
-if fail_seen:
-    print(f"[RESULT] FAIL — fail tag observed: {fail_seen}", flush=True)
+if xsct_rc != 0:
+    sys.exit(3)
+if state["fail_seen"]:
+    print(f"[RESULT] FAIL — fail tag observed: {state['fail_seen']}", flush=True)
     sys.exit(2)
-if len(seen) == len(expect):
+if len(state["seen"]) == len(expect):
     print(f"[RESULT] PASS — all {len(expect)} tag(s) observed", flush=True)
     for t in expect:
         print(f"  [OK] {t}", flush=True)
     sys.exit(0)
-else:
-    missing = [t for t in expect if t not in seen]
-    print("[RESULT] FAIL — timeout, missing tags:", flush=True)
-    for t in missing:
-        print(f"  [MISS] {t}", flush=True)
-    sys.exit(1)
+
+missing = [t for t in expect if t not in state["seen"]]
+print("[RESULT] FAIL — timeout, missing tags:", flush=True)
+for t in missing:
+    print(f"  [MISS] {t}", flush=True)
+sys.exit(1)
 PYEOF
 
-# Propagate Python's exit code
 exit $?

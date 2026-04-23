@@ -8,11 +8,9 @@
 # Default bitstream path:
 #   fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
 #
-# After programming: connect USB-TTL adapter to PMOD J55
-#   A20 (FPGA TX) → USB-TTL RX
-#   B20 (FPGA RX) → USB-TTL TX
-#   GND           → J55 pin 5 or 11
-# Open PuTTY / minicom at 115200 8N1 and watch for:
+# After programming: open the on-board CP2108 UART on J83.
+#   CP2108 Interface 2 / COM3 = PL-side E203 console (115200 8N1).
+# Open PuTTY / minicom / fpga_bringup_capture.sh and watch for:
 #   FPGA_E203_BOOT_UART_PASS
 #   FPGA_E203_PROGRAM_ERASE_WRITE_PASS
 #   FPGA_E203_PROGRAMMED_INFERENCE_PASS
@@ -56,10 +54,9 @@ puts "=== Bitstream programmed successfully ==="
 puts ""
 puts "E203 RISC-V soft-core starts automatically from BRAM."
 puts ""
-puts "Now connect your USB-TTL adapter to PMOD J55:"
-puts "  FPGA TX (A20) -> USB-TTL RX"
-puts "  FPGA RX (B20) -> USB-TTL TX"
-puts "  GND           -> J55 pin 5 or 11"
+puts "Open the on-board CP2108 UART on J83:"
+puts "  Interface 2 / COM3 = PL-side E203 console"
+puts "  Settings: 115200 8N1, no flow control"
 puts ""
 puts "Open serial terminal at 115200 8N1 and watch for:"
 puts "  FPGA_E203_BOOT_UART_PASS"

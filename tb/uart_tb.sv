@@ -180,14 +180,33 @@ module uart_tb;
     uart_rx   = 1;
     baud_clk  = 8;   // 仿真用小分频值
 
+    // T0: reset-low write conflict.  Writes asserted only while reset is low
+    // must not disturb baud_div_reg or baud_div_active reset defaults.
+    req_valid = 1;
+    req_write = 1;
+    req_addr  = UART_BASE | {24'h0, REG_CTRL};
+    req_wdata = 32'd123;
+    req_wstrb = 4'hF;
+    repeat (2) @(posedge clk);
+    #1;
+    req_valid = 0;
+    req_write = 0;
+    req_addr  = 0;
+    req_wdata = 0;
+    req_wstrb = 0;
+
     // 复位释放
-    repeat (4) @(posedge clk);
+    repeat (2) @(posedge clk);
     #1; rst_n = 1;
     repeat (2) @(posedge clk);
 
     $display("============================================================");
     $display("[INFO] UART TX Smoke Test Start");
     $display("============================================================");
+
+    bus_read(REG_CTRL, rd_data);
+    check(rd_data, 32'd434, "T0_CTRL ");
+    check({16'h0, dut.baud_div_active}, 32'd434, "T0_ACTV ");
 
     // ──────────────────────────────────────────────────────────────────────
     // T1: 写 CTRL（baud_div=8），读回验证

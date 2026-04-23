@@ -41,12 +41,14 @@ module prog_pulse_cfg_tb;
   logic        prog_start_pulse;
   logic        prog_erase;
   logic        prog_full_array;
+  logic        prog_handshake_bypass;
   logic [5:0]  prog_row;
   logic [4:0]  prog_col;
   logic [3:0]  prog_level;
   logic [2:0]  prog_retry_limit;
   logic [15:0] prog_pulse_width;
   logic [15:0] prog_erase_width;
+  logic [31:0] rd_data;
 
   initial clk = 1'b0;
   always #5 clk = ~clk;
@@ -87,6 +89,7 @@ module prog_pulse_cfg_tb;
     .prog_start_pulse(prog_start_pulse),
     .prog_erase(prog_erase),
     .prog_full_array(prog_full_array),
+    .prog_handshake_bypass(prog_handshake_bypass),
     .prog_row(prog_row),
     .prog_col(prog_col),
     .prog_level(prog_level),
@@ -175,6 +178,28 @@ module prog_pulse_cfg_tb;
     end
     if (prog_erase_width !== PROG_ERASE_WIDTH_CYC[15:0]) begin
       $display("[FAIL] reset erase width=%0d", prog_erase_width);
+      $finish;
+    end
+
+    // PROG_CTRL readback layout regression:
+    // {21'h0, retry_limit[2:0], level[3:0], bypass, full_array, erase, START=0}
+    bus_write(8'h38, 32'h0000_05AE); // retry=5, level=A, bypass/full/erase=1, start=0
+    bus_read(8'h38, rd_data);
+    if (rd_data !== 32'h0000_05AE) begin
+      $display("[FAIL] PROG_CTRL readback layout rd=0x%08x expected=0x000005ae", rd_data);
+      $finish;
+    end
+    if (prog_retry_limit !== 3'd5 || prog_level !== 4'hA ||
+        !prog_handshake_bypass || !prog_full_array || !prog_erase) begin
+      $display("[FAIL] PROG_CTRL decoded outputs retry=%0d level=0x%0h bypass=%0b full=%0b erase=%0b",
+               prog_retry_limit, prog_level, prog_handshake_bypass, prog_full_array, prog_erase);
+      $finish;
+    end
+
+    bus_write(8'h38, 32'h0000_0000);
+    bus_read(8'h38, rd_data);
+    if (rd_data !== 32'h0000_0000) begin
+      $display("[FAIL] PROG_CTRL clear readback rd=0x%08x expected=0x00000000", rd_data);
       $finish;
     end
 

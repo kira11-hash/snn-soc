@@ -1086,9 +1086,13 @@ module snn_soc_top #(
       // 对 prog_adc_done / prog_bl_data 的等待，让 FSM 在**没有模拟 die**
       // 的情况下也能把编程序列跑完（verify 始终返回 PASS）。
       //
+      // BYPASS_HANDSHAKE / erase / level 在 prog_start_pulse 时锁存，保证
+      // 软件在 busy 期间误改 PROG_CTRL 不会改变本次 in-flight 操作。
+      //
       // 造假策略：
-      //   - prog_adc_start_sig 脉冲后下一拍拉 prog_adc_done_fake=1（单拍）
-      //   - prog_bl_data_fake = op_erase ? 0 : prog_level * 16
+      //   - prog_adc_start_sig 脉冲后，经寄存器路径产生 prog_adc_done_fake
+      //     单拍；cim_program_ctrl 在 RB_WAIT 稳定采样到对应 bl_data。
+      //   - prog_bl_data_fake = latched_erase ? 0 : latched_level * 16
       //     （落在 cim_program_ctrl ST_VERIFY 的 target_level ±2 窗口内）
       //
       // 注：prog_cim_done 在当前 FSM 设计里不被使用（自计时），无需 MUX。
@@ -1099,21 +1103,36 @@ module snn_soc_top #(
       logic                prog_adc_done_fake;
       logic                prog_adc_fake_busy;
       logic [ADC_BITS-1:0] prog_bl_data_fake;
+      logic                prog_handshake_bypass_active;
+      logic                prog_bypass_op_erase;
+      logic [3:0]          prog_bypass_target_level;
 
       always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
           prog_adc_done_fake <= 1'b0;
           prog_adc_fake_busy <= 1'b0;
           prog_bl_data_fake  <= '0;
+          prog_handshake_bypass_active <= 1'b0;
+          prog_bypass_op_erase         <= 1'b0;
+          prog_bypass_target_level     <= 4'd0;
         end else begin
           prog_adc_done_fake <= 1'b0;
-          if (prog_adc_start_sig && !prog_adc_fake_busy) begin
+
+          if (prog_start_pulse) begin
+            prog_handshake_bypass_active <= prog_handshake_bypass;
+            prog_bypass_op_erase         <= prog_erase;
+            prog_bypass_target_level     <= prog_level;
+          end else if (prog_done_pulse_sig) begin
+            prog_handshake_bypass_active <= 1'b0;
+          end
+
+          if (prog_handshake_bypass_active && prog_adc_start_sig && !prog_adc_fake_busy) begin
             prog_adc_fake_busy <= 1'b1;
             // 落在 ST_VERIFY 窗口中心：
             //   erase: readback ≤ 1 → 用 0
             //   write: readback 在 target_level*16 ± 2 → 用 target_level*16
-            prog_bl_data_fake  <= prog_erase ? ADC_BITS'(0)
-                                             : ADC_BITS'({4'b0, prog_level} * 8'd16);
+            prog_bl_data_fake  <= prog_bypass_op_erase ? ADC_BITS'(0)
+                                             : ADC_BITS'({4'b0, prog_bypass_target_level} * 8'd16);
           end else if (prog_adc_fake_busy) begin
             prog_adc_done_fake <= 1'b1;
             prog_adc_fake_busy <= 1'b0;
@@ -1123,9 +1142,9 @@ module snn_soc_top #(
 
       // MUX: bypass 生效时用 fake 信号驱动 cim_program_ctrl
       wire                 prog_adc_done_effective =
-          prog_handshake_bypass ? prog_adc_done_fake : prog_adc_done_sig;
+          prog_handshake_bypass_active ? prog_adc_done_fake : prog_adc_done_sig;
       wire [ADC_BITS-1:0]  prog_bl_data_effective =
-          prog_handshake_bypass ? prog_bl_data_fake  : prog_bl_data_sig;
+          prog_handshake_bypass_active ? prog_bl_data_fake  : prog_bl_data_sig;
 
       cim_program_ctrl u_prog_ctrl (
         .clk              (clk),

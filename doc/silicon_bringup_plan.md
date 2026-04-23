@@ -66,12 +66,15 @@ Replaces **inference-path** signals so the CPU can validate the digital datapath
 
 ### 2.2 `REG_PROG_CTRL[3] = BYPASS_HANDSHAKE` (NEW 2026-04-23)
 
-Added by Stage 2 of this work.  When set, `snn_soc_top` injects a **fake** `prog_adc_done` 1 cycle after `prog_adc_start`, and forces `prog_bl_data` to the **ideal** readback value:
+Added by Stage 2 of this work.  When set before `PROG_CTRL.START`, `snn_soc_top` latches
+`BYPASS_HANDSHAKE`, erase/write mode, and level for the current operation, injects a
+registered **fake** `prog_adc_done` response after `prog_adc_start`, and forces
+`prog_bl_data` to the **ideal** readback value:
 
 - `erase` op → readback = `0` (passes `<= 1` verify)
 - `write` op → readback = `prog_level * 16` (centre of the `target_level * (256 / PROG_LEVELS) ± 2` window)
 
-Result: `cim_program_ctrl` ST_VERIFY always transitions to ST_PASS.  CPU can exercise the **full** programming state machine (SETUP → PULSE → PULSE_HOLD → READBACK → RB_WAIT → VERIFY → PASS → DONE) **without the analog die present**.
+Result: `cim_program_ctrl` ST_VERIFY always transitions to ST_PASS.  CPU can exercise the **full** programming state machine (SETUP → PULSE → PULSE_HOLD → READBACK → RB_WAIT → VERIFY → PASS → DONE) **without the analog die present**.  The latched control also means accidental firmware writes to `PROG_CTRL` while busy do not change the in-flight bypass decision.
 
 **Covers**: `cim_program_ctrl`, `cim_macro_arbiter` infer-side masking, reg_bank sticky DONE, retry/fail path.
 
@@ -165,17 +168,19 @@ The extensions added in this work (`BYPASS_HANDSHAKE` bit + fake-response MUX) m
 | `sim/run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS` | ✅ |
 | `sim/run_prog_start_interlock.sh` | `PROG_START_INTERLOCK_TB_PASS` | ✅ |
 | `sim/run_fpga_programmable_cim_model.sh` | `FPGA_PROGRAMMABLE_CIM_MODEL_TB_PASS` | ✅ |
-| `sim/run_boot_rom.sh` | `BOOT_ROM_TB_PASS` (17/17) | ✅ |
+| `sim/run_boot_rom.sh` | `BOOT_ROM_TB_PASS` (23/23) | ✅ |
 | `sim/run_silicon_bringup.sh` | `SILICON_BRINGUP_TB_PASS` | ✅ |
 
 ### FPGA board (for GPT / user to run)
 
 ```bash
 # 1. Build the silicon-bringup FPGA variant
-VIVADO=/d/Xilinx/Vivado/2022.2/bin/vivado SKIP_FW=1 \
-    bash fpga_synth/zcu102_e203_demo/build_e203_demo.sh
-# (NOTE: must have silicon_bringup.hex in place of e203_smoke.hex first;
-#  see Stage-7 commit for the swap-and-build procedure.)
+bash fw/silicon_bringup/build_silicon_bringup.sh
+VIVADO=/d/Xilinx/Vivado/2022.2/bin/vivado \
+  SKIP_FW=1 \
+  HEX="$PWD/fw/silicon_bringup/out/silicon_bringup.hex" \
+  OUT_DIR="$PWD/fpga_synth/zcu102_silicon_bringup/out" \
+  bash fpga_synth/zcu102_e203_demo/build_e203_demo.sh
 
 # 2. Capture with the new harness
 bash scripts/fpga_bringup_capture.sh \
@@ -189,6 +194,20 @@ bash scripts/fpga_bringup_capture.sh \
 
 Expected exit code: `0` (all tags seen).  Saves UART capture to
 `doc/main-fpga-e203/uart_capture_<TIMESTAMP>.log`.
+
+Expected UART landmarks:
+
+```text
+SILICON_BRINGUP_START v1 build=...
+[STAGE_A] neuron[0] hw=80 sw=80 OK
+...
+[STAGE_A] total_spikes=800 mismatch=0
+[STAGE_B] bypass toggle readback PASS
+[STAGE_B] full_array_erase PROG_STATUS=0x00000082
+[STAGE_B] erase PROG_STATUS=0x00000082
+[STAGE_B] write PROG_STATUS=0x00000082
+SILICON_BRINGUP_DIGITAL_PASS
+```
 
 ---
 
