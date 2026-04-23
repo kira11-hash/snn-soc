@@ -78,6 +78,53 @@ Default does NOT merge to main.
 | B | `bash fpga_synth/zcu102_e203_demo/build_e203_demo.sh` | WNS > 0, bitstream generated |
 | C | UART capture | `FPGA_E203_BOOT_UART_PASS` + `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` + `FPGA_E203_PROGRAMMED_INFERENCE_PASS` |
 
+## Gate B Results (2026-04-23)
+
+```
+Device     : xczu9eg-ffvb1156-2-e (ZCU102 PL)
+Clock      : 50 MHz (MMCM from 300 MHz USER_SI570)
+WNS        : +3.463 ns   (timing PASS, large margin)
+CLB LUTs   : 45930 / 274080  (16.76 %)
+CLB Regs   : 43836 / 548160  ( 8.00 %)
+BRAM tiles :    32 /    912  ( 3.51 %)   — E203 ITCM/DTCM
+LUT-as-Mem : 12288 / 144000  ( 8.53 %)   — 3×16KB sram_simple (async read)
+DSPs       :     0 /   2520  ( 0.00 %)
+Bitstream  : snn_soc_fpga_top.bit (26 MB)
+```
+
+## Phase C Runbook (on ZCU102 board)
+
+Hardware prep:
+1. USB-TTL adapter (3.3 V) wired to **PMOD J55**: adapter-RX → FPGA-TX (A20),
+   adapter-TX → FPGA-RX (B20), adapter-GND → PMOD-GND.
+2. USB-JTAG on the ZCU102's built-in Digilent port.
+3. Serial terminal: 115200 8N1 on the USB-TTL's COM port.
+
+Program and capture:
+```bash
+# From repo root (with Vivado xsct on PATH):
+xsct scripts/program_zcu102_e203.tcl \
+     fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
+```
+
+Expected UART stream (one continuous capture, save as
+`doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`):
+
+```
+UART_OK
+FPGA_E203_BOOT_UART_PASS                       ← Gate C0
+[PROG] full-array erase DONE
+[PROG] verify all-zero subset PASS
+[PROG] write rows=0..9 cols=0..9 level=1 PASS
+[PROG] verify programmed subset PASS
+FPGA_E203_PROGRAM_ERASE_WRITE_PASS             ← Gate C1
+[INFER] all-ones input, T=10, ratio=1
+[INFER] spike counts = [80 80 80 80 80 80 80 80 80 80]
+FPGA_E203_PROGRAMMED_INFERENCE_PASS            ← Gate C2
+```
+
+All three tags ⇒ tag `main-fpga-e203-passed` on this branch.
+
 ## Inference Expected Counts
 
 With programmed weights (rows 0..9 × cols 0..9, level 1 → weight 16) and
