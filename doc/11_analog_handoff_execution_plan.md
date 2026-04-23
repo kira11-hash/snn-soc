@@ -116,15 +116,21 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 > 影响：决定 zero-spike 率能否保持为 0%（阈值过高时微小电流差被噪声掩盖，导致所有神经元静默）
 
+**已知前置条件（2026-04-24 从 `项目相关文件/器件对齐/` 校入）**：
+- **Vread = 1.5 V**（RRAM 读电压，冻结）
+- **On/off ratio = 5000:1**（来自 I-V 实测 + `memristor_plugin.py` 的 g_min/g_max 拟合）
+- **HRS ≈ 1 TΩ / LRS ≈ 200 MΩ**（实测拟合值，非标称默认）
+- **单 cell LRS 理论电流 ≈ 7.5 nA**（= 1.5 V / 200 MΩ），A6-5 只需确认实测是否符合该理论值
+
 | 编号 | 问题 | 需要的答案形式 |
 |---|---|---|
 | A6-1 | ADC 输入端的 RMS 噪声是多少？（包含热噪声、1/f噪声、量化噪声的总和） | [LSB RMS] 或 [μV RMS] |
 | A6-2 | ADC 输入端的峰峰值噪声（3σ 或 6σ）？（用于估计最坏情况误判率） | [LSB pp] |
 | A6-3 | ADC 有效噪声带宽（ENOB）在当前采样率下是多少位？ | [bit] |
-| A6-4 | 当所有 64 根 WL 激活（wl_spike = 0xFF...FF）时，期望的 BL 电流总量是多少？ | [nA] |
-| A6-5 | 当单根 WL 激活、权重为 LRS 时，单个存储单元产生的电流是多少？（R_on ≈ 200MΩ，Vread=1.5V → I≈7.5nA） | [nA]（确认理论值是否符合实测） |
-| A6-6 | HRS 状态（R_off ≈ 1TΩ）下，单个存储单元的漏电流（包含 sneak path）是多少？ | [pA] |
-| A6-7 | ADC 有没有内置偏移校准？如果有，上电后是否需要运行校准序列再做推理？ | 是/否，以及校准时间 |
+| A6-4 | 当所有 64 根 WL 激活（wl_spike = 0xFF...FF）时，期望的 BL 电流总量是多少？**若超出 TIA 线性范围数字侧需知道**以决定是否加 clamp | [nA] |
+| A6-5 | 单 cell LRS 实测电流是否符合理论 7.5 nA？ | [nA] |
+| A6-6 | HRS 状态（R_off ≈ 1TΩ）下，单个存储单元的漏电流（含 sneak path）是多少？**决定 bl_data 在 HRS 权重下是否被漏电污染** | [pA] |
+| A6-7 | ADC 有没有内置偏移校准？若有，上电后是否需要运行校准序列再做推理？**决定固件 bring-up 流程** | 是/否 + 校准时间 |
 | A6-8 | 温度从 0°C 到 85°C 的变化对 ADC offset 有多大影响（温漂，单位 LSB/°C）？ | [LSB/°C] |
 
 ---
@@ -162,6 +168,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A8-3 `full_array erase` | `prog_op[2:0] = 3'b100` 专用编码 |
 | A8-4 新增 pad vs 复用 | **新增 7 pads 作为编程 sideband**（方案 α'）；推理 pad 维持 frozen 不变 |
 | A8-5 编码与时序（2026-04-24 Q1/Q2/Q3 锁定） | (Q1) `cim_start` 在 programming 模式下是 LEVEL-hold gate，本次 pulse/verify 时长 = `cim_start` 高电平持续时间，模拟侧不自计时；(Q2) `prog_op` / `prog_level` 仅在同一 `cim_start=1` 窗口内稳定，write→verify 相位切换发生在 `cim_start=0` 的 ≥ 1 cycle gap 中；(Q3) verify 时 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定到 ±1 LSB，并保持到 `cim_start_ext` 下降沿；若要近似 3σ 落在数字侧 `±2 LSB` 判据内，建议 RMS 噪声 ≤ 0.67 LSB（RMS ≤ 1 LSB 时单次通过率约 95%，应依赖 retry）；脉宽档位 `PROG_PULSE_WIDTH` = 1/10/100 µs，擦除固定 1 ms；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
+| A8-6 16-level 编码方式（2026-04-24 器件侧确认） | **通过"加 N 个 SET 脉冲"区分**，不是通过调幅度。数字侧 `cim_program_ctrl` FSM 实现：写等级 N 时发 N 个脉冲，每写完一次 verify 一次；`bl_data ∈ [N·16 ± 2]` 即 PASS，否则 retry 直到 `PROG_CTRL.RETRY_LIMIT`（默认 3，上限 7）。剩余待器件侧确认：每个 SET 脉冲 1/10/100 µs 档位是否够用、retry 默认次数是否合理 |
 
 #### 数字侧已完成的 RTL 落地（2026-04-24 全部完工）
 
@@ -278,7 +285,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 |---|---|---|---|---|---|
 | A4（Vref/TIA） | 待模拟侧给出量化值；数字侧当前仅冻结逻辑阈值 `THRESHOLD_DEFAULT=2550`，尚未建立物理电流映射 | 模拟团队 | 首轮 handoff 会后回填 | 本文 A4；数字默认阈值见 `doc/02_reg_map.md` / `rtl/top/snn_soc_pkg.sv` | 未回填前不调整默认 `ratio_code` / `threshold` |
 | A5（时序数字） | 待模拟侧给出实测 ns/cycles；数字侧当前临时值为 `DAC=5 / CIM=10 / MUX_SETTLE=2 / ADC_SAMPLE=3` cycles | 模拟团队 | 首轮 handoff 会后回填 | 本文 A5；当前占位值见 `rtl/top/snn_soc_pkg.sv` | 未回填前不冻结最终 STA/时序合同 |
-| A6（噪声/动态范围） | 待模拟侧给出噪声/动态范围；数字侧目前仅有功能口径证据：Step 3.4/3.5 `SAMPLE_ALIGN_PASS`、zero-spike=0.00% | 模拟团队 | 首轮 handoff 会后回填 | 本文 A6；证据见 `项目相关文件/器件对齐/Python建模/summary.txt` | 未回填前不重标定 Python 噪声参数 |
+| A6（噪声/动态范围） | **部分已知**（Vread=1.5 V / On-off=5000:1 / HRS≈1TΩ / LRS≈200MΩ 已从 I-V 实测拟合入；来自 `项目相关文件/器件对齐/`）；待模拟侧给出 A6-1..A6-8 的量化噪声 + 动态范围 | 模拟团队 | 首轮 handoff 会后回填 | 本文 A6；证据见 `项目相关文件/器件对齐/Python建模/summary.txt` + `memristor_plugin.py` | 未回填前不重标定 Python 噪声参数 |
 | A7（时序合同） | 部分已冻结：`dac_ready` 已删除、外部协议统一到 `cim_start/cim_done/bl_sel/bl_data`；仍待确认脉宽与 guard time | 数字+模拟联合 | 首轮联合对齐会 | 本文 A7；协议主合同见 `doc/08_cim_analog_interface.md` / `doc/03_cim_if_protocol.md` | 这是 RTL 状态机和板级 bring-up 的关键收口项 |
 | A8（外部编程合同） | **已冻结（方案 α'）**：新增 `prog_op[2:0] + prog_level[3:0]` 7 个 D→A pads；verify PASS/FAIL 由数字侧自己比对 | 数字+模拟联合 | 已完成 | 本文 A8；关联 `doc/08_cim_analog_interface.md` / `doc/15_asic_pad_map.md` / `doc/02_reg_map.md` | 当前剩余的是数字侧 shared-carrier routing follow-up，不是协议 blocker |
 | P0（pin/pad/PCB布局） | 数字侧 pad 真源已冻结；待模拟芯片 pad 排列与 PCB 约束回填 | 模拟+PCB | pad 定稿前 | 数字侧真源：`doc/15_asic_pad_map.md`、`rtl/top/chip_top.sv` | 未回填前不提交最终 pad-ring/PCB 定稿 |
