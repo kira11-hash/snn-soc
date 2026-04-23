@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""Legacy FPGA boot-image helper for the old boot_main/app_link.ld flow.
+
+Tape-out / silicon Day-2 boot should use scripts/make_boot_image.py instead.
+"""
 import pathlib
 import struct
 import sys

@@ -5,6 +5,26 @@
 **参数口径**：寄存器默认值、位宽与地址映射以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 **架构说明**：本文描述的寄存器全部位于**数字芯片**内部。数字芯片与模拟 CIM 芯片为独立封装，通过 PCB 互联（详见 `doc/08_cim_analog_interface.md`）。
 
+## Memory Map Overview
+
+`main` 当前同时保留两种指令地址图口径：
+
+- `snn_soc_top.ENABLE_BOOT_ROM=0`（默认，Gate A / 旧回归）
+  `INSTR_SRAM @ 0x0000_0000..0x0000_3FFF`
+- `chip_top.ENABLE_BOOT_ROM=1`（tape-out 目标）
+  `BOOT_ROM   @ 0x0000_0000..0x0000_0FFF`
+  `INSTR_SRAM @ 0x0000_1000..0x0000_4FFF`
+
+其他区段不变：
+
+- `DATA_SRAM   @ 0x0001_0000..0x0001_3FFF`
+- `WEIGHT_SRAM @ 0x0003_0000..0x0003_3FFF`
+- `reg_bank    @ 0x4000_0000`
+- `dma_regs    @ 0x4000_0100`
+- `uart_ctrl   @ 0x4000_0200`
+- `spi_ctrl    @ 0x4000_0300`
+- `fifo_regs   @ 0x4000_0400`
+
 ## reg_bank（base = 0x4000_0000）
 | OFFSET | 名称               | 字段             | 位段      | 访问  | 默认                | 说明                                                                       |
 | -----: | ---------------- | -------------- | ------- | --- | ----------------- | ------------------------------------------------------------------------ |

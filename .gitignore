@@ -41,6 +41,8 @@ sim/*.out
 sim/*_check.out
 sim/*_fix_check.out
 sim/*_final_check.out
+sim/boot_rom_init*.hex
+sim/sim_boot_rom.f
 sim/*_manual
 sim/a.out
 sim/xilinx_prim_stubs.sv

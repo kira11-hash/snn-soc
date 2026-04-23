@@ -22,7 +22,7 @@
 |---|---|---|---|
 | **A — SRAM pre-init** | `$readmemh` fills INSTR_SRAM at reset (FPGA BRAM INIT_xx style) | ❌ foundry SRAM macros generally do not support `$readmemh` — uninitialised SRAM = X on power-on | ❌ (same constraint; use Path A' below) |
 | **A′ — Mask ROM pre-init** | Replace SRAM @ reset vector with a mask ROM macro | ✅ via `rtl/mem/boot_rom.sv` → foundry ROM compiler (e.g., TSMC ROM) | ✅ (primary path this plan enables) |
-| **B — SPI flash boot** | Bootloader reads from external SPI flash → DMA into SRAM → jump | Needs a bootloader in some non-volatile storage first — requires Path A′ to host the bootloader | ✅ Path A′ ROM contains `boot_main.c` which does SPI flash boot |
+| **B — SPI flash boot** | Bootloader reads from external SPI flash → loads SRAM → jump | Needs a bootloader in some non-volatile storage first — requires Path A′ to host the bootloader | ✅ Path A′ ROM contains `fw/boot_rom/boot_rom_main.c` |
 | **C — JTAG rescue** | Host PC uses `scripts/jtag_rescue.py` to halt CPU, load SRAM over JTAG, release CPU | ✅ works even without `boot_rom` (assuming JTAG TAP, `jtag_mem_loader`, and CPU-hold logic are on-die) | ✅ (used as fallback if ROM image is flawed) |
 
 **Recommended ASIC tape-out composition**: Path A′ (2–4 KB mask ROM at 0x0) hosting a minimal bootloader (SPI flash boot + JTAG-rescue wait), with Path C as permanent fallback.
@@ -38,13 +38,11 @@ Two flavours are usable right now:
 1. **Trampoline ROM (~50 bytes)**: `jal 0x1000` (jump to INSTR_SRAM).  Pair with JTAG rescue or a pre-loaded SRAM (e.g., via JTAG-flashed FPGA emulation in early bring-up).
 2. **Full bring-up ROM (~3 KB, fits in 4 KB)**: compile `fw/silicon_bringup/silicon_bringup.c` directly into the ROM.  Chip powers on → immediately self-tests via `test_mode` + `BYPASS_HANDSHAKE`, reports PASS on UART.  Most informative choice for silicon bring-up.
 
-Integration with `snn_soc_top` is deliberately **deferred to V1.1** — it requires:
+Integration into `snn_soc_top` / `chip_top` is now complete on `main`:
 
-- Bus-interconnect address decoder change (ROM region + shifted INSTR_SRAM)
-- Linker script update for firmware text base
-- Full regression re-baseline against the new memory map
-
-This keeps V1 main-branch Gate A regressions untouched while giving the tape-out team a ready module to drop in.
+- Bus-interconnect address decoder shifts `INSTR_SRAM` to `0x1000..0x4FFF` when `ENABLE_BOOT_ROM=1`
+- `chip_top` enables `BOOT_ROM` and `PROGRAM_MODE` for the tape-out intent path
+- `fw/link_app.ld`, `fw/boot_rom/build_boot_rom.sh`, and `scripts/make_boot_image.py` complete the Day-2 boot chain
 
 ---
 
@@ -129,9 +127,9 @@ If this fails, the digital die is compromised — triage via the specific `SILIC
 ### Day 2 — SPI flash boot (if ROM populated)
 
 ```
-1. Flash silicon_bringup.bin to external SPI flash (addr 0, with 16-byte
-   boot_main-style header prepended).
-2. Power on.  CPU runs boot_main from ROM → reads SPI → loads SRAM → jumps.
+1. Flash silicon_bringup.bin to external SPI flash (addr 0, with the 16-byte
+   `scripts/make_boot_image.py` header prepended).
+2. Power on.  CPU runs `fw/boot_rom/boot_rom_main.c` from ROM → reads SPI → loads SRAM → jumps.
 3. Expect same SILICON_BRINGUP_DIGITAL_PASS UART stream as Day 1.
 ```
 
@@ -213,9 +211,8 @@ SILICON_BRINGUP_DIGITAL_PASS
 
 ## 5. Open items / deferred to V1.1
 
-- [ ] Wire `boot_rom` into `snn_soc_top` / `bus_interconnect` (requires address-decoder rework + linker base change + regression re-baseline).
 - [ ] Pick final ROM size (2 KB trampoline vs. 4 KB full self-test) after SPI-flash boot flow is frozen.
-- [ ] Script that generates the ROM `$readmemh` image from `boot_main.c` (analogous to `scripts/gen_bram_init.py`, but without the 16 KB padding).
+- [ ] Decide whether tape-out ROM content is the full SPI bootloader (`fw/boot_rom/boot_rom_main.c`) or a smaller trampoline ROM.
 - [ ] Integrate `fpga_bringup_capture.sh` into the automation CI so any RTL change automatically re-runs Phase C on a physical board (requires remote board access infrastructure).
 - [ ] Decide whether `BYPASS_HANDSHAKE` should be gated by a hard fuse or production firmware lock so it cannot be abused in shipped silicon.
 

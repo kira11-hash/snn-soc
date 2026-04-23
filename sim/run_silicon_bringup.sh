@@ -40,7 +40,17 @@ VENDOR_SRC_WIN="${VENDOR_SRC_WIN//\//\\}"
 mkdir -p waves
 
 CREATED_VENDOR_JUNCTION=0
+RESTORE_DEFAULT_FW=1
 cleanup() {
+  if [ "$RESTORE_DEFAULT_FW" -eq 1 ]; then
+    # The sim build below overrides UART_BAUD_DIV to 2 for speed and writes the
+    # tracked fw/silicon_bringup/out/silicon_bringup.hex.  Always restore the
+    # default 50MHz/115200 image before returning so Gate A does not leave the
+    # tape-out firmware artifact dirty or board-hostile.
+    run_in_wsl "bash fw/silicon_bringup/build_silicon_bringup.sh" \
+      > silicon_bringup_fw_restore.log 2>&1 || \
+      echo "[WARN] failed to restore default silicon_bringup.hex; see silicon_bringup_fw_restore.log" >&2
+  fi
   if [ "$CREATED_VENDOR_JUNCTION" -eq 1 ]; then
     MSYS2_ARG_CONV_EXCL='*' cmd.exe /c rmdir "$VENDOR_ASCII_WIN" > /dev/null 2>&1 || true
   fi

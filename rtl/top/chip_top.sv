@@ -26,7 +26,11 @@
 //       b) ESD/drive strength/电平配置收敛
 //       c) package/pad-ring/IO 约束收敛
 //======================================================================
-module chip_top (
+module chip_top #(
+  // Simulation / FPGA bring-up hook.  Tape-out replaces boot_rom.sv with a
+  // foundry mask-ROM macro generated from the same boot_rom.hex content.
+  parameter BOOT_ROM_INIT_FILE = ""
+) (
   // 基础时钟复位（pad）
   input  logic clk_pad,
   input  logic rst_n_pad,
@@ -62,7 +66,7 @@ module chip_top (
     .ENABLE_EXT_CIM_IF   (1'b1),
     .ENABLE_PROGRAM_MODE (1'b1),
     .ENABLE_BOOT_ROM     (1'b1),
-    .BOOT_ROM_INIT_FILE  ("")
+    .BOOT_ROM_INIT_FILE  (BOOT_ROM_INIT_FILE)
   ) u_soc_core (
     .clk      (clk_pad),
     .rst_n    (rst_n_pad),

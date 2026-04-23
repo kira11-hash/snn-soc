@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Legacy FPGA/e203_tb build flow:
+#   - bootloader text @ 0x0000_0000 (INSTR_SRAM directly, no boot ROM)
+#   - app text        @ 0x0001_0000 (DATA_SRAM)
+#   - flash image built by fw/build_flash_image.py
+#
+# Tape-out / silicon Day-2 flow uses the newer chain instead:
+#   - fw/boot_rom/build_boot_rom.sh        (ROM bootloader @ 0x0, 4KB mask ROM)
+#   - fw/link_app.ld                       (app @ 0x0000_1000 in INSTR_SRAM)
+#   - scripts/make_boot_image.py           (16-byte BOOT header + payload)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

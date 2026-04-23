@@ -58,6 +58,20 @@
 - [ ] Python 3 + `pyserial`（`pip install pyserial`）
 - [ ] PuTTY 或等效串口工具
 
+### 1.4 Tape-out 物理签核补充项（必须和后端/器件老师对齐）
+
+- [ ] **Pad library 电压域**：确认 UART / SPI / JTAG / reset / LED / 模拟互联 pad 所选 IO cell 电压与板级外设兼容。
+      如果数字 die pad ring 是 1.8V，而 SPI flash / USB-UART / JTAG dongle 是 3.3V，必须明确：
+      - 板上做电平转换，或
+      - 改用 1.8V 兼容器件，或
+      - tape-out 选 3.3V tolerant IO option
+- [ ] **ESD 策略**：`doc/15_asic_pad_map.md` 里保留的 ESD / reserved pad 是否已在 pad ring 方案里真正落地；外部 SPI/JTAG/UART 口不能只靠板级 ESD 代替芯片级 ESD。
+- [ ] **Drive strength / slew**：SPI `sck/cs/mosi`、UART TX、JTAG TCK/TMS/TDI/TDO、以及数字→模拟 die 的 `wl_* / cim_start / bl_sel` 是否都选了合适的 drive strength；过弱会边沿太慢，过强会带来串扰和 EMI。
+- [ ] **上电默认态**：reset、CS、JTAG TMS/TCK、UART TX 空闲态是否有 pad 侧 pull-up / pull-down 方案，避免上电毛刺误触发 SPI 写保护、JTAG 进入异常 TAP 状态、或 bootloader 读到垃圾。
+- [ ] **SPI flash 供电兼容性**：flash 的 `VCC` / `WP` / `HOLD` 接法和数字 die VCCIO 是否完全一致，特别是如果板子上 flash 常供电、数字 die 分域上电，必须确认不会通过 IO 反向灌电。
+- [ ] **ROM mask 内容 handoff**：后端 / Foundry 拿到的 ROM image 必须来自 `fw/boot_rom/out/boot_rom.bin`，并记录 SHA；不能手工拷贝旧版本 hex。
+- [ ] **SRAM macro wrapper 对齐**：`sram_simple(.sv/.dp.sv)` 只是行为模型。后端接 foundry SRAM macro 前，必须确认 byte-write、读时序、读写冲突语义和 macro wrapper 一致；若不一致，必须在流片前补 wrapper，而不是在版图后临时改。
+
 ---
 
 ## 2. Day 1 —— 光数字 die 的自检（JTAG rescue 路径）
@@ -80,6 +94,7 @@
      LED[3] 灭
 6. UART：PuTTY 开对应 COM 口，115200 8N1 无流控，应该看到：
      BL start
+     BL rdid=...
      BL: SPI magic mismatch, entering JTAG rescue wait
      BL: waiting for JTAG
 ```
@@ -144,7 +159,7 @@
 ```
 1. 准备 .bin 文件（带 boot header）:
    - header = 16 字节
-     [0..3]   magic    = 0xB00TC0DE
+     [0..3]   magic    = 0x544F4F42 (`'BOOT'`, little-endian)
      [4..7]   size     = uint32 LE (固件字节数)
      [8..11]  load_addr = 0x0000_1000
      [12..15] entry_addr= 0x0000_1000
@@ -155,8 +170,6 @@
          --load-addr 0x1000 \
          --entry-addr 0x1000 \
          --out        flash_image.bin
-
-   (make_boot_image.py 需要新写，目前仓库里没有 —— 列入 TODO)
 
 2. 物理连接:
    - 把 SOIC-8 夹子卡住板上 SPI flash 芯片 (注意 pin 1 方向对齐)
@@ -188,7 +201,7 @@
 
 **前提**：Day 1 已经证明数字 die + SPI master 工作正常。
 
-**需要额外写的固件**（**本仓库目前还没有**，TODO list）：
+**需要额外写的固件**（**本仓库目前仍没有**，TODO list）：
 
 `fw/spi_writer/spi_writer.c` — 一段常驻 SRAM 的固件，接收来自 UART 或 JTAG 的新 flash 内容，调用自己的 SPI master 写入：
 
@@ -249,7 +262,7 @@ while (1) {
 
 | 工具 | 用途 | 工作量 | 优先级 |
 |---|---|---|---|
-| `scripts/make_boot_image.py` | 生成带 16 B header 的 .bin | ~30 行 Python，半小时 | 高（Day 2 必需）|
+| `scripts/make_boot_image.py` | 生成带 16 B header 的 .bin | 已完成 | 高（Day 2 已可执行）|
 | `fw/spi_writer/` | 在路烧录固件 | ~200 行 C，半天 | 中（方式 C 需要） |
 | `scripts/uart_upload_flash.py` | PC 侧配套上位机 | ~100 行 Python，1 小时 | 中（方式 C 需要） |
 | `scripts/make_golden_log.py` | 保存期望 UART 输出用于 CI 对比 | ~50 行 Python，半小时 | 低 |
@@ -268,16 +281,16 @@ while (1) {
 2. CPU PC=0x0000_0000 → 从 mask ROM 取指 → 开始执行 bootloader:
    a. uart_init, 打 "BL start"
    b. spi_init, 读 flash [0..15] 作为 header
-   c. 验证 magic = 0xB00TC0DE -> 读 size / load_addr / entry_addr
-   d. 调 DMA 或 memcpy 把 flash[16..16+size] 搬到 INSTR_SRAM (0x0000_1000..)
-   e. 打 "BL jump to 0x1000"
+   c. 验证 magic = 0x544F4F42 ('BOOT') -> 读 size / load_addr / entry_addr
+   d. 通过 SPI 直接把 flash[16..16+size] 读到 INSTR_SRAM (0x0000_1000..)
+   e. 打 "BL size=<size>"，然后 "BL jump to 0x1000"
    f. jal 0x0000_1000 (或者 jr ra with ra=entry_addr)
 3. CPU 到 0x0000_1000 → INSTR_SRAM 里是 silicon_bringup 代码
 4. silicon_bringup 自检流程启动 -> 跟 Day 1 JTAG 塞固件之后看到的一样
 5. UART 最终输出:
      BL start
      BL rdid=XX YY ZZ         (flash ID, 调试用)
-     BL magic OK size=<N>
+     BL size=<N>
      BL jump to 0x1000
      SILICON_BRINGUP_START v1 build=...
      ... (Stage A / Stage B)
@@ -290,8 +303,8 @@ while (1) {
 |---|---|---|
 | `BL start` 之后停 | SPI flash 没读出来 | 用示波器看 SCK/MOSI/MISO 有无波形；用 CH341A 再读一次 flash 内容 |
 | `BL rdid=00 00 00` | SPI flash MISO 没信号 | 焊接问题 或 flash 没供电 |
-| `BL rdid=EF 40 17` 正常但卡在后面 | 读 header 成功但 magic 不对 | flash 里内容没带 header；回到方式 B/C 重新烧 |
-| `BL magic OK size=<size>` 但之后没 `BL jump` | DMA 或 memcpy 失败 | DMA 寄存器写入正确性、check busy/done 轮询超时 |
+| `BL rdid=EF 40 17` 正常但紧跟 `BL: SPI magic mismatch...` | flash 里内容没带 header 或 header 被擦坏 | 回到方式 B/C 重新烧 |
+| `BL size=<size>` 但之后没 `BL jump` | SPI 读 payload / SRAM 落点有问题 | 检查 `load_addr` / `entry_addr` 是否都是 0x1000，确认 flash image header 正确 |
 | `BL jump to 0x1000` 之后没有 silicon_bringup 输出 | 固件本身或 INSTR_SRAM 内容损坏 | 重烧 flash |
 | 看到 `SILICON_BRINGUP_DIGITAL_FAIL_*` | 同 Day 1 对应错误 | 查 Day 1 诊断表 |
 
@@ -321,7 +334,7 @@ while (1) {
 3. UART 应该看到:
      BL start
      BL rdid=...
-     BL magic OK size=2268
+     BL size=2268
      BL jump to 0x1000
      UART_OK
      FPGA_E203_BOOT_UART_PASS                  ← Gate 1
@@ -369,6 +382,41 @@ python scripts/jtag_rescue.py \
 
 ---
 
+## 6.5 Mask ROM handoff（给后端 / Foundry）
+
+当前仓库里的 ROM 源内容和交付链如下：
+
+1. 源码：`fw/boot_rom/boot_rom_main.c`
+2. 构建：`bash fw/boot_rom/build_boot_rom.sh`
+3. 产物：
+   - `fw/boot_rom/out/boot_rom.bin`
+   - `fw/boot_rom/out/boot_rom.hex`
+4. SoC 连接：
+   - `chip_top` 里 `ENABLE_BOOT_ROM=1`
+   - `BOOT_ROM_INIT_FILE` 仅用于仿真 / FPGA
+   - 正式流片时由 foundry ROM compiler / memory compiler 生成 mask ROM macro，内容来源必须与 `boot_rom.bin` / `boot_rom.hex` 一致
+
+**handoff 规则**：
+
+- RTL 仿真 / FPGA 用 `boot_rom.hex`
+- ROM compiler / foundry 交付用 `boot_rom.bin` 或 compiler 需要的等价格式
+- backend signoff 文档必须记录：
+  - git commit hash
+  - `boot_rom.bin` SHA256
+  - `boot_rom.hex` SHA256
+  - 目标地址窗口：`0x0000_0000..0x0000_0FFF`
+
+如果 ROM 内容改了，必须重新跑：
+
+```bash
+bash fw/boot_rom/build_boot_rom.sh
+bash sim/run_chip_top_rom_smoke.sh
+```
+
+这两步都绿了，才能把新 ROM 内容交给后端 / Foundry。
+
+---
+
 ## 7. 验收 checklist
 
 | 阶段 | 判据 | 过没过 |
@@ -381,18 +429,18 @@ python scripts/jtag_rescue.py \
 
 ---
 
-## 8. 补遗：仓库里还缺的东西（按优先级排）
+## 8. 补遗：仓库里还需要补齐的东西（按优先级排）
 
 | # | 缺失 | 阻塞哪一步 |
 |---|---|---|
-| 1 | `fw/boot_rom/boot_rom_main.c` — ROM 里的 bootloader 源码（从现有 `fw/boot_main.c` 派生+适配 ROM-in-0x0/SRAM-in-0x1000 的地址图）| Day 2 开始需要；tape-out 前必须完成并烧进 ROM mask |
-| 2 | `fw/link_app.ld` — 把应用固件 text section 链接到 0x0000_1000 | Day 2 |
-| 3 | `scripts/make_boot_image.py` — 打包带 header 的 .bin | Day 2（没这个就没法烧 flash 让 boot 识别）|
-| 4 | `fw/spi_writer/` — 方式 C 所需自烧固件 | 方式 C，不阻塞 Day 2，但对开发迭代速度很重要 |
-| 5 | `scripts/uart_upload_flash.py` — 方式 C 配套 PC 侧工具 | 同 4 |
-| 6 | `tb/chip_top_tb.sv` — 以 `chip_top` 为 DUT（带 `ENABLE_BOOT_ROM=1`）的综合级 smoke | 建议 tape-out 前跑一次确认 ROM 路径综合可过 |
+| 1 | `fw/boot_rom/boot_rom_main.c` | 已完成：ROM 里的 bootloader，适配 ROM@0x0 / app@0x1000 |
+| 2 | `fw/link_app.ld` | 已完成：应用固件链接到 `0x0000_1000` |
+| 3 | `scripts/make_boot_image.py` | 已完成：生成带 16 B header 的 boot image |
+| 4 | `fw/spi_writer/` — 方式 C 所需自烧固件 | 仍缺失；方式 C，不阻塞 Day 2 |
+| 5 | `scripts/uart_upload_flash.py` — 方式 C 配套 PC 侧工具 | 仍缺失；方式 C，不阻塞 Day 2 |
+| 6 | `tb/chip_top_rom_smoke_tb.sv` + `sim/run_chip_top_rom_smoke.sh` | 已完成：`ENABLE_BOOT_ROM=1` 综合级 ROM boot smoke |
 
-以上前 3 项是 Day 2 上板的硬依赖，**tape-out 前必须写完**。后 3 项是方式 C 和综合级验证，可以先打 tape-out、后补。
+当前阻塞 tape-out 的 Day 2 基础链已具备：ROM bootloader、0x1000 app linker、boot image 打包脚本、chip_top ROM smoke 都已落地。方式 C 相关工具仍可在流片等待期补齐。
 
 ---
 
