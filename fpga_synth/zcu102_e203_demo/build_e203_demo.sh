@@ -23,9 +23,33 @@ HEX="$REPO_ROOT/fw/e203_smoke/out/e203_smoke.hex"
 
 mkdir -p "$OUT_DIR"
 
+# ---------------------------------------------------------------------------
+# Get 8.3 short paths to work around Vivado's inability to handle spaces
+# in file paths passed to read_verilog. On Windows (Git Bash / MSYS2) we
+# use PowerShell's COM FileSystemObject; on Linux the path has no spaces.
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Get 8.3 short path for repo root so Vivado can handle paths with spaces.
+# Uses PowerShell FileSystemObject (Windows only); falls back gracefully.
+# HEX and OUT paths are constructed from REPO_SHORT: subdirs have no spaces.
+# ---------------------------------------------------------------------------
+win_short_dir() {
+  local posix_path="$1"
+  local win_path result
+  win_path="$(cygpath -w "$posix_path" 2>/dev/null || printf '%s' "$posix_path")"
+  result="$(powershell.exe -NoProfile -Command \
+    "\$fso=New-Object -ComObject Scripting.FileSystemObject; Write-Output \$fso.GetFolder('$win_path').ShortPath" \
+    2>/dev/null | tr -d '\r\n' | sed 's|\\|/|g')"
+  printf '%s' "${result:-$posix_path}"
+}
+
+REPO_SHORT="$(win_short_dir "$REPO_ROOT" 2>/dev/null || printf '%s' "$REPO_ROOT")"
+HEX_SHORT="${REPO_SHORT}/fw/e203_smoke/out/e203_smoke.hex"
+OUT_SHORT="${REPO_SHORT}/fpga_synth/zcu102_e203_demo/out"
+
 echo "=== E203 FPGA Build Pipeline ==="
-echo "Repo root : $REPO_ROOT"
-echo "Output    : $OUT_DIR"
+echo "Repo root  : $REPO_ROOT  →  $REPO_SHORT"
+echo "Output     : $OUT_DIR"
 
 # ---------------------------------------------------------------------------
 # Step 1: Build firmware
@@ -50,7 +74,7 @@ echo ""
 echo "--- Step 2: Vivado synthesis + bitstream ---"
 "$VIVADO" -mode batch \
   -source "$SCRIPT_DIR/build_e203_demo.tcl" \
-  -tclargs "$HEX" "$OUT_DIR" \
+  -tclargs "$REPO_SHORT" "$HEX_SHORT" "$OUT_SHORT" \
   -log "$OUT_DIR/vivado_build.log" \
   -journal "$OUT_DIR/vivado_build.jou"
 
