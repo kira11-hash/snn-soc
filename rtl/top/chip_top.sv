@@ -57,7 +57,7 @@ module chip_top #(
   output logic [4:0] bl_sel_pad,
   input  logic [7:0] bl_data_pad,
   //   外部编程接口（新增，frozen 2026-04-24，方案 α'，7 new pads）
-  //   详见 doc/08_cim_analog_interface.md §4 + doc/15_asic_pad_map.md 49..55 号 pad
+  //   详见 doc/08_cim_analog_interface.md §10 + doc/15_asic_pad_map.md 46..52 号 pad
   output logic [2:0] prog_op_pad,      // op 编码（D→A）
   output logic [3:0] prog_level_pad    // 目标电导等级（D→A，仅 write 生效）
 );

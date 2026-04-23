@@ -22,6 +22,7 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
   - 7 new pads carry `prog_op[2:0]` (D→A op encoding) + `prog_level[3:0]` (D→A target conductance level).
   - `cim_start`, `cim_done`, `wl_data / wl_group_sel / wl_latch`, `bl_sel`, `bl_data` are **shared** between inference and programming — analog side looks at `prog_op` to disambiguate.
   - The verify pass/fail decision is made by the **digital side** (`cim_program_ctrl` compares `bl_data` against `prog_level * (256/16) ± 2`), so **no** `prog_pass` A→D pad is required.
+  - Noise implication: if analog+ADC RMS noise is about **1 LSB**, single-shot verify pass rate under the fixed `±2 LSB` window is only about 95%; for near-3σ single-shot margin, target roughly **≤ 0.67 LSB RMS**.
 - Full protocol details (encoding table, timing, electrical): `doc/08_cim_analog_interface.md` §10 + `doc/03_cim_if_protocol.md` §Programming.
 - Current digital RTL status (2026-04-24 final): all seven new sideband pads
   (`prog_op[2:0]`, `prog_level[3:0]`) are routed through `snn_soc_top` and

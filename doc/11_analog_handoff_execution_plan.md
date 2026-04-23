@@ -161,7 +161,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A8-2 `prog_level[3:0]` | 独立 pad `prog_level[3:0]`（pads 49..52），D→A，仅 write 时有效 |
 | A8-3 `full_array erase` | `prog_op[2:0] = 3'b100` 专用编码 |
 | A8-4 新增 pad vs 复用 | **新增 7 pads 作为编程 sideband**（方案 α'）；推理 pad 维持 frozen 不变 |
-| A8-5 编码与时序（2026-04-24 Q1/Q2/Q3 锁定） | (Q1) `cim_start` 在 programming 模式下是 LEVEL-hold gate，本次 pulse/verify 时长 = `cim_start` 高电平持续时间，模拟侧不自计时；(Q2) `prog_op` / `prog_level` 仅在同一 `cim_start=1` 窗口内稳定，write→verify 相位切换发生在 `cim_start=0` 的 ≥ 1 cycle gap 中；(Q3) verify 时 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定到 ±1 LSB，RMS 噪声 ≤ 1 LSB；脉宽档位 `PROG_PULSE_WIDTH` = 1/10/100 µs，擦除固定 1 ms；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
+| A8-5 编码与时序（2026-04-24 Q1/Q2/Q3 锁定） | (Q1) `cim_start` 在 programming 模式下是 LEVEL-hold gate，本次 pulse/verify 时长 = `cim_start` 高电平持续时间，模拟侧不自计时；(Q2) `prog_op` / `prog_level` 仅在同一 `cim_start=1` 窗口内稳定，write→verify 相位切换发生在 `cim_start=0` 的 ≥ 1 cycle gap 中；(Q3) verify 时 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定到 ±1 LSB，并保持到 `cim_start_ext` 下降沿；若要近似 3σ 落在数字侧 `±2 LSB` 判据内，建议 RMS 噪声 ≤ 0.67 LSB（RMS ≤ 1 LSB 时单次通过率约 95%，应依赖 retry）；脉宽档位 `PROG_PULSE_WIDTH` = 1/10/100 µs，擦除固定 1 ms；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
 
 #### 数字侧已完成的 RTL 落地（2026-04-24 全部完工）
 
@@ -198,7 +198,9 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
    做脉宽定时。
 5. **verify 读回路径（Q3）**：收到 `prog_op=011` + `cim_start=1` 后，**≤ 100 ns**
    内把 8-bit ADC 读回值稳定到 `bl_data[7:0]`，保持到 `cim_start` 下降沿；
-   噪声控制在 RMS ≤ 1 LSB；**不需要**上报 pass/fail。
+   若要近似 3σ 落在数字侧 `±2 LSB` 判据内，建议模拟+ADC 合计 RMS 噪声
+   ≤ **0.67 LSB**。若只能做到 RMS ≤ **1 LSB**，系统仍可工作，但默认应依赖
+   retry；**不需要**上报 pass/fail。
 
 #### 仍然是开放项（非 A8 blocker，最终完工清单）
 

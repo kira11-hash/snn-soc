@@ -111,9 +111,11 @@ pop = popcount(wl_latched)
    上升沿后 **≤ 100 ns**（5 cycles @ 50 MHz，= `ADC_MUX_SETTLE_CYCLES=2` +
    `ADC_SAMPLE_CYCLES=3`）把 8-bit 读回值稳定到 `bl_data[7:0]`，并保持到
    **`cim_start_ext` 下降沿**（或下一次 `bl_sel` 变化）。
-5. **verify 噪声预算（Q3）**：数字侧判据 `bl_data ∈ [level*16 - 2, level*16 + 2]`；
-   要求模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**。噪声不达标时用 `PROG_CTRL.RETRY_LIMIT`
-   多次重试救良率。
+5. **verify 噪声预算（Q3）**：数字侧判据 `bl_data ∈ [level*16 - 2, level*16 + 2]`。
+   - 若模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**，则单次落在 `±2 LSB` 窗口内的概率约
+     为 95%，数字侧可依赖 `PROG_CTRL.RETRY_LIMIT` 多次重试救良率。
+   - 若目标是“近似 3σ 都落在 `±2 LSB` 内”，则建议把 RMS 噪声压到约
+     **≤ 0.67 LSB**。
 6. **PASS/FAIL 由数字侧判**：**没有** `prog_pass` pad，模拟侧不要返回 pass 信号。
 7. **`prog_op==100`（全阵列擦除）**：`wl_data` / `wl_group_sel` / `wl_latch`
    可为任意值，模拟侧忽略；`cim_start=1` 时驱动全阵列同步 RESET。

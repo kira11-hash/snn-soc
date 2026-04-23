@@ -134,9 +134,10 @@
    在 **≤ 100 ns**（5 cycles @ 50 MHz = `ADC_MUX_SETTLE + ADC_SAMPLE`）内
    把 8-bit 读回值稳定到 `bl_data[7:0]`，并保持到 `cim_start` 下降沿
    （或下一次 `bl_sel` 变化）。
-7. **Q3 — verify 噪声预算**：模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**（约 ±0.4% FS）；
-   噪声达不到时会导致 false-fail，需靠 `PROG_CTRL.RETRY_LIMIT` 多次重试
-   救良率（默认 3 次，可配到 7 次）。
+7. **Q3 — verify 噪声预算**：数字侧判据是 `prog_level*16 ± 2`。
+   - 若想接近“3σ 都落在窗口内”，建议模拟+ADC 合计 RMS 噪声 ≤ **0.67 LSB**
+   - 若只能做到 RMS ≤ **1 LSB**（约 ±0.4% FS），系统仍可工作，但单次通过率大约 95%，
+     需靠 `PROG_CTRL.RETRY_LIMIT` 多次重试救良率（默认 3 次，可配到 7 次）
 8. **保留编码**：`prog_op==101..111` 应视作 idle，不动作。
 
 ---
@@ -160,7 +161,9 @@
    数字侧保证 `cim_start` 上升沿时 `prog_op` / `prog_level` 已经稳定；
    pulse 时长由 `cim_start` 高电平持续时间决定，模拟侧**不要**自计时
 3. 实现 verify 读回通路（单 cell ADC 读，从 `cim_start` 上升沿起 ≤ 100 ns 内
-   把结果稳定到 `bl_data[7:0]`，保持到 `cim_start` 下降沿）；RMS 噪声 ≤ 1 LSB
+   把结果稳定到 `bl_data[7:0]`，保持到 `cim_start` 下降沿）；若想接近 3σ
+   落在数字侧 `±2 LSB` 判据内，建议 RMS 噪声 ≤ 0.67 LSB；若只能做到
+   RMS ≤ 1 LSB，则默认依赖 retry
 4. 明确 erase / write / verify 的**模拟电压规格**（A4 + A7 会进一步细化）
 5. 数字侧已把 shared carrier pads 的 programming routing 补齐（回归
    `PROG_WL_PAD_ROUTE_TB_PASS`），协议层不会再变；你这边直接按本文做到

@@ -15,7 +15,7 @@
 > - **Q1/Q2/Q3 已于 2026-04-24 收口（本文同日修订）**：
 >   - Q1：`cim_start` 在 programming 模式下是 LEVEL-hold gate（不是 strobe）；模拟侧按 `cim_start` 高电平持续时间驱动 pulse/read-voltage。
 >   - Q2：`prog_op` 只保证在**同一** `cim_start=1` 窗口内稳定；跨窗口（write→verify）可能切换，数字侧保证切换发生在 `cim_start=0` 的 1-cycle gap 中。
->   - Q3：verify 的 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定；模拟+ADC 合计 RMS 噪声 ≤ 1 LSB。
+>   - Q3：verify 的 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定；若目标是接近 3σ 落在数字侧 `±2 LSB` 判据内，建议模拟+ADC 合计 RMS 噪声 ≤ 0.67 LSB（RMS ≤ 1 LSB 时可工作，但通常要依赖 retry）。
 > - pad 总数从 48 扩到 **55**（46 signal + 6 power + 3 ESD；usable=52），见 `doc/15_asic_pad_map.md`。
 > - 模拟同学现在可以按本文 §2/§3/§4/§5（推理）**和** §10（外部编程）同时推进实现。
 > - **共享载体 pad 路由已于 2026-04-24 补齐**：`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel` 在 `prog_busy=1` 时都会切到 programming 路径；回归 TB 为 `prog_wl_pad_route_tb.sv`（PROG_WL_PAD_ROUTE_TB_PASS）。
@@ -643,7 +643,7 @@ module cim_macro_blackbox #(
 2. ✅ 确认表格中的时序参数（DAC/CIM/ADC 延迟）
 3. ✅ 提供模拟芯片 IO 时序模型（用于数字芯片 STA 约束推导）
 4. ✅ 确认 IO 电平标准（VIH/VIL/VOH/VOL）及与数字芯片的兼容性
-5. ⚠️ 若 V1 还要求外部模拟 die 支持数字发起 `erase/write/verify`，请不要只按本文直接实现；必须先与数字侧共同冻结 `doc/11_analog_handoff_execution_plan.md` 的 A8 外部编程合同
+5. ✅ 外部编程 sideband pads (`prog_op[2:0]` + `prog_level[3:0]`) 已冻结；模拟同学可按本文 §10 直接实现 decoder / pulse driver / verify readback 路径
 
 ---
 
@@ -880,14 +880,17 @@ cim_done                        (optional, 数字侧不依赖)
 **噪声预算（冻结）**：
 
 - 数字侧判据：`target = prog_level × 16`，窗口 `±2 LSB`。
-- 要求模拟+ADC 合计 RMS 噪声 ≤ **1 LSB**（约 ±0.4% 满量程）。
-  - 3σ 噪声 ≤ 2 LSB 时，一次过 verify 概率 ~99.7%。
-  - 噪声 > ±1 LSB RMS → false-fail 率上升，需增大 `PROG_CTRL.RETRY_LIMIT`
-    （默认 3，可配到 7）。
+- 噪声预算建议这样理解：
+  - **RMS ≤ 1 LSB**（约 ±0.4% 满量程）时，在高斯且零均值近似下，单次 verify
+    落在 `±2 LSB` 窗口内的概率约为 **95.4%**；数字侧可依赖
+    `PROG_CTRL.RETRY_LIMIT`（默认 3，可配到 7）吸收剩余 false-fail。
+  - **若目标是“约 3σ 都落在 ±2 LSB 内”**，则 RMS 噪声应压到约 **≤ 0.67 LSB**。
+  - 因此，对模拟/器件侧的工程建议是：**尽量做到 RMS ≤ 0.67 LSB；若只能做到
+    RMS ≤ 1 LSB，系统仍可工作，但默认应保留 retry。**
 - 换算到电流：8-bit ADC 满量程对应 LRS 电流（~nA 量级），1 LSB ≈ FS/256，
   要求读回噪声 ≤ 数 pA RMS 级别。
-- 这个噪声预算是**工程硬契约**；如果模拟/器件实际做不到 ±1 LSB，需提前
-  与数字侧商量放宽判据（数字侧会改 `±2` 为 `±3` 或更大）。
+- 如果模拟/器件实际做不到上述预算，需提前与数字侧商量放宽判据（数字侧会改
+  `±2` 为 `±3` 或更大），否则 verify 阶段会出现可预期的 false-fail。
 
 **数字侧判据复核**（不改）：`bl_data` vs `prog_level*16 ± 2`；擦除 verify
 复用 `bl_data ≤ 1` 判据（high-resistance 态 ≈ code 0）。
