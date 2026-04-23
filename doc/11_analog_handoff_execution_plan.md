@@ -184,6 +184,11 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 #### 仍然是开放项（非 A8 blocker，但属于最终完工清单）
 
+- **数字侧 shared-carrier routing follow-up**：当前新增的 `prog_op / prog_level`
+  sideband pads 已接到 `chip_top`，但 external programming 复用的共享载体
+  (`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`) 还没在 `prog_busy`
+  时全部切到 programming 路径。这不阻塞模拟同学按 A8 合同设计 decoder /
+  pulse driver / readback，但会阻塞端到端 digital+analog 联调。
 - 脉冲驱动器的**电压**与**上升/下降沿**规格 → A4 / A7（器件老师侧回填）
 - 模拟芯片 pinout 最终落位（如 `doc/15_asic_pad_map.md` pad 索引要不要重排）→ P0（两边联合确认）
 - verify 读电压与推理读电压是否共用同一 TIA/ADC 通路 → A5 / A6 细化
@@ -198,7 +203,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P0-1 | 请确认最终 48 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
+| P0-1 | 请确认最终 55 pad 全表（数字侧真源见 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)），是否有调整需求？ | 双方 | 需要双方确认一版定稿 pin list，两颗芯片 pad 一一对应 |
 | P0-2 | 模拟芯片的 die size（长×宽，mm）和封装形式？ | 模拟芯片 | 影响 PCB 布局和走线长度 |
 | P0-3 | 模拟芯片信号 pad 的排列顺序（wl_data/bl_data 各从哪侧引出）？ | 模拟芯片 | 影响 PCB 走线对齐和信号完整性 |
 | P0-4 | 两颗芯片的供电方案：AVDD/AVSS（模拟）和 DVDD/DVSS（数字）在 PCB 上如何分区？是否需要独立 LDO？ | PCB 设计 | 影响电源完整性和噪声隔离 |
@@ -223,14 +228,14 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 > 影响：模拟芯片上电后能否直接做推理，还是需要先写权重
 > **双芯片架构说明（2026-04-23 更新）**：RRAM 位于模拟芯片内部。`main` 分支数字侧已经引入编程控制器与 `PROG_*` 寄存器，项目目标也已经调整为：**V1 外部模拟 die 最终要支持由数字芯片发起的 erase / write / verify。**
-> 但当前外部编程 pad / 协议合同尚未冻结（见 A8），因此在 A8 完成前，系统 bring-up 仍需按“预烧录 / 外部测试写入”准备兜底方案。
+> 外部编程 pad / 协议合同已经在 A8 冻结；当前 remaining gap 不是协议，而是数字侧 external programming 共享载体信号 routing 的 RTL follow-up。系统 bring-up 仍建议保留“预烧录 / 外部测试写入”作为兜底方案。
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
 | P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ | 模拟芯片 | 决定上电后是否必须先跑数字发起的编程流程 |
 | P2-2 | 权重的保留时间（retention time）在工作温度下估计是多少年/月？ | 模拟芯片 | 评估权重写入后测试窗口 |
 | P2-3 | 读取操作对 RRAM 状态有无干扰（read disturb）？连续推理 N 次后权重是否退化？ | 模拟芯片 | 影响系统可靠性指标 |
-| P2-4 | V1 模拟芯片的权重写入方案：由数字芯片发起 erase/write/verify，还是仅保留 wafer 测试设备写入作为 fallback？ | 模拟芯片 + 数字芯片 | 主路径已要求支持数字发起编程；若 A8 尚未冻结，需保留外部测试写入 fallback |
+| P2-4 | V1 模拟芯片的权重写入方案：由数字芯片发起 erase/write/verify，还是仅保留 wafer 测试设备写入作为 fallback？ | 模拟芯片 + 数字芯片 | 主路径已要求支持数字发起编程；bring-up 仍建议保留外部测试写入 fallback |
 
 ---
 
@@ -256,19 +261,19 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A5（时序数字） | 待模拟侧给出实测 ns/cycles；数字侧当前临时值为 `DAC=5 / CIM=10 / MUX_SETTLE=2 / ADC_SAMPLE=3` cycles | 模拟团队 | 首轮 handoff 会后回填 | 本文 A5；当前占位值见 `rtl/top/snn_soc_pkg.sv` | 未回填前不冻结最终 STA/时序合同 |
 | A6（噪声/动态范围） | 待模拟侧给出噪声/动态范围；数字侧目前仅有功能口径证据：Step 3.4/3.5 `SAMPLE_ALIGN_PASS`、zero-spike=0.00% | 模拟团队 | 首轮 handoff 会后回填 | 本文 A6；证据见 `项目相关文件/器件对齐/Python建模/summary.txt` | 未回填前不重标定 Python 噪声参数 |
 | A7（时序合同） | 部分已冻结：`dac_ready` 已删除、外部协议统一到 `cim_start/cim_done/bl_sel/bl_data`；仍待确认脉宽与 guard time | 数字+模拟联合 | 首轮联合对齐会 | 本文 A7；协议主合同见 `doc/08_cim_analog_interface.md` / `doc/03_cim_if_protocol.md` | 这是 RTL 状态机和板级 bring-up 的关键收口项 |
-| A8（外部编程合同） | **需求已冻结，但协议未冻结**：V1 外部模拟 die 必须支持数字发起 erase/write/verify；当前仍缺 op-type / level / full-array 的跨芯片表达方式 | 数字+模拟联合 | **必须优先拍板** | 本文 A8；关联 `doc/08_cim_analog_interface.md` / `doc/15_asic_pad_map.md` / `doc/02_reg_map.md` | 这是模拟同学能否直接开做 external programming 的 blocker |
+| A8（外部编程合同） | **已冻结（方案 α'）**：新增 `prog_op[2:0] + prog_level[3:0]` 7 个 D→A pads；verify PASS/FAIL 由数字侧自己比对 | 数字+模拟联合 | 已完成 | 本文 A8；关联 `doc/08_cim_analog_interface.md` / `doc/15_asic_pad_map.md` / `doc/02_reg_map.md` | 当前剩余的是数字侧 shared-carrier routing follow-up，不是协议 blocker |
 | P0（pin/pad/PCB布局） | 数字侧 pad 真源已冻结；待模拟芯片 pad 排列与 PCB 约束回填 | 模拟+PCB | pad 定稿前 | 数字侧真源：`doc/15_asic_pad_map.md`、`rtl/top/chip_top.sv` | 未回填前不提交最终 pad-ring/PCB 定稿 |
 | P1（供电/偏置） | 待模拟侧确认外部偏置/参考是否需要独立引脚；数字侧当前未新增相关 pad | 模拟+PCB | 电源方案评审前 | 本文 P1；数字侧现状见 `doc/15_asic_pad_map.md` | 直接影响 PCB BOM 与电源隔离方案 |
-| P2（RRAM 状态） | 待器件/模拟侧确认上电状态与写入方案；数字侧主目标已改为支持数字发起外部编程，但 A8 未冻结前仍需保留 fallback | 器件团队 | V1 bring-up 方案冻结前 | 本文 P2 | 未回填前不能只按“上电即推理”假设准备系统 |
+| P2（RRAM 状态） | 待器件/模拟侧确认上电状态与写入方案；数字侧主目标已改为支持数字发起外部编程，但 bring-up 仍建议保留 fallback | 器件团队 | V1 bring-up 方案冻结前 | 本文 P2 | 未回填前不能只按“上电即推理”假设准备系统 |
 
 ### 收口准入条件
 
 - `A7`：每个时序信号的主从、有效沿、脉宽（cycles）、是否允许 back-to-back。
-- `A8`：外部编程协议的跨芯片表达方式（新增 pad 还是复用现有 pad；若复用，给出编码与时序）。
+- `A8`：外部编程协议本身已冻结；后续只需跟踪 shared-carrier routing 的数字 RTL 落地。
 - `A5`：每阶段延迟（ns/cycles）+ 最坏 PVT 数值。
 - `A4`：Vref 高低点、TIA 增益标称/容差、是否可调、温漂。
 - `A6`：噪声（LSB RMS / pp）、最小可检电流、ENOB、温漂影响。
-- `P0`：两颗芯片的最终 pin list（48 pad 全表，其中 45 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估。
+- `P0`：两颗芯片的最终 pin list（55 pad 全表，其中 52 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估。
 - `P1`：AVDD/DVDD 约束、偏置来源、PCB 电源方案、是否新增外部引脚。
 - `P2`：RRAM 上电状态、retention/read-disturb、模拟芯片权重写入方案（主路径=数字发起编程；fallback=外部测试写入）。
 

@@ -22,7 +22,8 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
   - 7 new pads carry `prog_op[2:0]` (D→A op encoding) + `prog_level[3:0]` (D→A target conductance level).
   - `cim_start`, `cim_done`, `wl_data / wl_group_sel / wl_latch`, `bl_sel`, `bl_data` are **shared** between inference and programming — analog side looks at `prog_op` to disambiguate.
   - The verify pass/fail decision is made by the **digital side** (`cim_program_ctrl` compares `bl_data` against `prog_level * (256/16) ± 2`), so **no** `prog_pass` A→D pad is required.
-  - Full protocol details (encoding table, timing, electrical): `doc/08_cim_analog_interface.md` §4 + `doc/03_cim_if_protocol.md` §Programming.
+- Full protocol details (encoding table, timing, electrical): `doc/08_cim_analog_interface.md` §10 + `doc/03_cim_if_protocol.md` §Programming.
+- Current digital RTL note: the 7 new sideband pads are already routed; shared carrier pads (`wl_*`, `cim_start`, `bl_sel`) still need a digital follow-up to switch to programming sources during `prog_busy`. This does not change the pad contract seen by the analog team, but it does matter for later end-to-end bring-up.
 - `expected signal owner`:
   - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
   - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv), but still not backed by technology pad cells
