@@ -130,6 +130,8 @@ module snn_soc_fpga_top #(
   logic        wl_latch_ext_nc;
   logic        cim_start_ext_nc;
   logic [4:0]  bl_sel_ext_nc;
+  logic [2:0]  prog_op_ext_nc;
+  logic [3:0]  prog_level_ext_nc;
 
   snn_soc_top #(
     .ENABLE_E203              (1'b1),
@@ -159,7 +161,10 @@ module snn_soc_fpga_top #(
     .cim_start_ext    (cim_start_ext_nc),
     .cim_done_ext     (1'b0),
     .bl_sel_ext       (bl_sel_ext_nc),
-    .bl_data_ext      (8'h00)
+    .bl_data_ext      (8'h00),
+    // Scheme α' external programming sideband (not routed on FPGA)
+    .prog_op_ext      (prog_op_ext_nc),
+    .prog_level_ext   (prog_level_ext_nc)
   );
 
   // -------------------------------------------------------------------------
@@ -179,6 +184,7 @@ module snn_soc_fpga_top #(
 
   // Suppress lint on undriven outputs
   wire _unused = &{wl_data_ext_nc, wl_group_sel_ext_nc,
-                   wl_latch_ext_nc, cim_start_ext_nc, bl_sel_ext_nc};
+                   wl_latch_ext_nc, cim_start_ext_nc, bl_sel_ext_nc,
+                   prog_op_ext_nc, prog_level_ext_nc};
 
 endmodule
