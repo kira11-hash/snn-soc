@@ -94,11 +94,16 @@ Bitstream  : snn_soc_fpga_top.bit (26 MB)
 
 ## Phase C Runbook (on ZCU102 board)
 
-Hardware prep:
-1. USB-TTL adapter (3.3 V) wired to **PMOD J55**: adapter-RX → FPGA-TX (A20),
-   adapter-TX → FPGA-RX (B20), adapter-GND → PMOD-GND.
-2. USB-JTAG on the ZCU102's built-in Digilent port.
-3. Serial terminal: 115200 8N1 on the USB-TTL's COM port.
+Hardware prep (ZCU102 rev 1.0, on-board only — no external adapter needed):
+1. **J83 (micro-USB)** → PC: CP2108 USB-UART bridge.  Windows enumerates four
+   consecutive COM ports (Silicon Labs Quad CP2108 Interface 0..3).  The
+   E203 PL soft-core UART is on **Interface 2** (F13/E13 → CP2108 Ch2).
+   On the reference development PC, Interface 2 = **COM3** (confirmed
+   2026-04-23).  Interface 0 / 1 (COM4 / COM5) are PS-side MIO UARTs used
+   by the ARM demo branch; E203 does not use them.
+2. **J18 (micro-USB)** → PC: on-board USB-JTAG (Digilent FT4232H).  xsct
+   uses this for bitstream download.
+3. Serial terminal on **COM3**, 115200 8N1, no flow control.
 
 Program and capture:
 ```bash
