@@ -120,7 +120,20 @@ module snn_soc_top #(
   output logic        cim_start_ext,
   input  logic        cim_done_ext,
   output logic [4:0]  bl_sel_ext,
-  input  logic [7:0]  bl_data_ext
+  input  logic [7:0]  bl_data_ext,
+  // ─── V1 外部编程协议（2026-04-24 冻结，方案 α'，7 new pads） ───
+  // 跨芯片 D→A，通知模拟 die 本次 cim_start 脉冲对应什么操作；
+  // 在 !prog_busy 时默认 000 (inference)，prog_busy 期间按当前编程阶段编码
+  // 000 = inference  (reuse cim_start + wl_data + bl_sel 做 MAC)
+  // 001 = erase_cell (按 wl_data + bl_sel 指定单 cell 擦除)
+  // 010 = write      (按 wl_data + bl_sel 指定单 cell 写入，目标 prog_level 在 [3:0] 脚上)
+  // 011 = verify     (按 wl_data + bl_sel 指定单 cell 读回，模拟侧把结果放 bl_data)
+  // 100 = erase_full_array (忽略 wl_data，全阵列擦除)
+  // 101..111 = reserved (模拟侧遇到应当作 idle 处理)
+  output logic [2:0]  prog_op_ext,
+  // 目标电导等级 0~15；仅在 prog_op_ext == 010 (write) 时模拟侧需读取。
+  // 其它操作模拟侧应忽略该字段。
+  output logic [3:0]  prog_level_ext
 );
   // 导入 snn_soc_pkg 中的全局参数与地址常量
   // 例如：NUM_INPUTS=64, ADC_BITS=8, ADC_CHANNELS=20, NEURON_DATA_WIDTH=9 等
@@ -1013,6 +1026,27 @@ module snn_soc_top #(
   assign wl_latch_ext     = wl_latch;
   assign cim_start_ext    = cim_start_pulse;
   assign bl_sel_ext       = bl_sel;
+
+  // ─── 外部编程 pad 编码器（2026-04-24 V1 方案 α' 冻结）─────────────
+  // ENABLE_EXT_CIM_IF=1 时生效；把数字侧内部的 prog_en/erase_en/verify_en/
+  // prog_full_array 打包成 3-bit 外部 prog_op 编码，prog_level 直通。
+  //
+  // 编码映射（与 doc/08_cim_analog_interface.md §4 一致）：
+  //   000 = inference   (prog_busy=0)
+  //   001 = erase_cell
+  //   010 = write       (需读 prog_level)
+  //   011 = verify      (读回在 bl_data；pass/fail 由数字侧内部比对)
+  //   100 = erase_full_array
+  //   101~111 = reserved (模拟侧应当作 idle 处理)
+  //
+  // ENABLE_PROGRAM_MODE=0 的分支下 prog_busy/*_sig 都被 tie 0，编码自然落到 000。
+  assign prog_op_ext =
+      (prog_busy && verify_en_sig)                         ? 3'b011 :
+      (prog_busy && prog_en_sig)                           ? 3'b010 :
+      (prog_busy && erase_en_sig && prog_full_array)       ? 3'b100 :
+      (prog_busy && erase_en_sig && !prog_full_array)      ? 3'b001 :
+      3'b000;
+  assign prog_level_ext = prog_level;
 
   // dac_ctrl：DAC 控制器（数字 → 模拟 WL 脉冲驱动）
   // 它把“数字位图何时有效”翻译成“模拟侧何时应认为 WL 已经建立完毕”。

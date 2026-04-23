@@ -139,6 +139,8 @@ module top_tb;
   logic       cim_done_ext;
   logic [4:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic [2:0] prog_op_ext;      // V1 external programming (2026-04-24)
+  logic [3:0] prog_level_ext;
 
   // -----------------------------------------------------------------------
   // DUT 实例化：snn_soc_top
@@ -163,7 +165,9 @@ module top_tb;
     .cim_start_ext    (cim_start_ext),
     .cim_done_ext     (cim_done_ext),
     .bl_sel_ext       (bl_sel_ext),
-    .bl_data_ext      (bl_data_ext)
+    .bl_data_ext      (bl_data_ext),
+    .prog_op_ext      (prog_op_ext),
+    .prog_level_ext   (prog_level_ext)
   );
 
   task automatic bus_write32(

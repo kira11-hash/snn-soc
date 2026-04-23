@@ -165,6 +165,18 @@
 - 数字侧计算：`diff[i] = raw[i] - raw[i+10]`（signed 9-bit）
 - 这是确定方案（A1），不可改回 Scheme A
 
+## Pad 预算 + 外部编程合同（tape-out 口径，2026-04-24 冻结）
+
+- **总 pad 数：55**（之前 48，2026-04-24 扩 +7 给外部编程接口）
+  - 52 usable signal + 6 power/ground + 3 ESD-reserved
+  - 权威：`doc/15_asic_pad_map.md`
+- **外部编程方案：α'**（7 new D→A pads）
+  - `prog_op[2:0]` (pads 46..48) 编码 inference/erase/write/verify/full_array_erase
+  - `prog_level[3:0]` (pads 49..52) 目标电导等级，write 时有效
+  - verify PASS/FAIL 由数字侧比对 `bl_data` 自己算，不需要 `prog_pass` pad
+  - 详细协议：`doc/08_cim_analog_interface.md` §10 + `doc/03_cim_if_protocol.md` 末节
+- RTL 入口：`rtl/top/snn_soc_top.sv` 的 `prog_op_ext` / `prog_level_ext` 编码器 + `rtl/top/chip_top.sv` pad 路由
+
 ## 仿真环境
 
 - **黑盒 Icarus**（test mode，无权重）：`cd sim && bash run_icarus_light.sh`，通过标准：`LIGHT_SMOKETEST_PASS`

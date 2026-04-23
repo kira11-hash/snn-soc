@@ -5,6 +5,18 @@
 **日期**：2026-03-22（2026-03-31 审核确认：自 v2.1 以来数字侧参数无变更，全部冻结事项保持有效）
 **集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联（非片上集成）。
 
+> **2026-04-24 状态更新（必须先读）**
+>
+> 1. `main` 分支当前已经包含数字侧 `cim_program_ctrl + cim_macro_arbiter + PROG_*` 寄存器，项目要求已明确：
+>    **V1 外部模拟 CIM die 必须支持由数字芯片发起的 erase / write / verify 编程序列**。
+> 2. **外部编程 pad / 协议合同已于 2026-04-24 冻结为方案 α'**（7 new D→A pads：
+>    `prog_op[2:0]` + `prog_level[3:0]`，pad 总数 48 → 55）。详细见本文 **A8 章节**
+>    的冻结记录 + `doc/08_cim_analog_interface.md` §10 + `doc/03_cim_if_protocol.md`
+>    "编程协议" 节 + `doc/15_asic_pad_map.md` pads 46..52。
+> 3. 模拟同学现在可以**同时**按推理接口（`doc/08` §1-9 + `doc/03` 上半）和编程接口
+>    （`doc/08` §10 + `doc/03` 下半）开做，不再需要等 A8 冻结。
+> 4. 本文的 A8 章节保留，以文字形式记录冻结过程与决定——新接手的同学读本节即可。
+
 ---
 
 ## 零、已确认事项（2026-02-27 更新）
@@ -23,6 +35,7 @@
 
 | 优先级 | 文档                                        | 说明                                            |
 | :-: | ----------------------------------------- | --------------------------------------------- |
+| ★★★ | `doc/17_cim_macro_handoff_cover.md`       | **对外 handoff 封面**：先看这份，明确什么已经冻结、什么仍是 blocker |
 | ★★★ | `doc/11_analog_handoff_execution_plan.md` | 执行主文档：对齐结论、待确认问题、会后回填模板                       |
 | ★★★ | `doc/08_cim_analog_interface.md`          | 主合同：信号定义、时序协议、接口边界、待确认事项                      |
 | ★★★ | `doc/03_cim_if_protocol.md`               | 快速版协议参考（固定时序、ADC MUX 流程）                      |
@@ -35,7 +48,7 @@
 - 若历史文档与上述 5 份冲突，一律以上述 5 份为准（且以 RTL `rtl/top/snn_soc_pkg.sv` 参数为最终准绳）。
 - **新增确认（2026-03-16）**：Step 3.4 Python↔RTL 数值对齐已通过，参数为强冻结版本。
 
-**建议阅读顺序**：先看 11 文档掌握整体结论与待回填项，再看 08 文档了解接口框架，然后看 03 文档看协议细节，再看 02 文档了解可配参数，最后看主文档关键决策点确认定版结论。
+**建议阅读顺序**：先看 `doc/17_cim_macro_handoff_cover.md` 掌握哪些事项已经冻结、哪些仍是 blocker；再看 11 文档掌握整体结论与待回填项，然后看 08 文档了解接口框架，再看 03 文档看协议细节，再看 02 文档了解可配参数，最后看主文档关键决策点确认定版结论。
 
 ---
 
@@ -54,7 +67,7 @@
 | 时钟频率 | **50 MHz**（目标） | 周期 20 ns |
 | 总推理子时间步数 | **80** | T=10 帧 × PIXEL_BITS=8 bit-plane = 80 |
 | 对齐精度口径 | spike-only；zero-spike=0.00% | 与当前 Python/RTL 定版口径一致 |
-| 证据文件 | `项目相关文件/器件对齐/Python建模/results/summary.txt` | 对齐结果归档 |
+| 证据文件 | `项目相关文件/器件对齐/Python建模/summary.txt` | 对齐结果归档 |
 
 ---
 
@@ -132,6 +145,51 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 ---
 
+### A8【已冻结 2026-04-24】外部编程合同（方案 α'，7 new pads）
+
+> 状态更新（2026-04-24）：**A8 不再是 blocker，已冻结为方案 α'**——新增 7 个
+> D→A 外部 pad 承载编程语义；pad 总数从 48 扩到 55。模拟同学现在可以按文档
+> 直接实现。详细协议与时序见 `doc/08_cim_analog_interface.md` §10 +
+> `doc/03_cim_if_protocol.md` "编程协议" 节 + `doc/15_asic_pad_map.md` pads
+> 46..52。
+
+#### A8-DECISION（冻结记录）
+
+| 项 | 冻结结果 |
+|---|---|
+| A8-1 `erase / write / verify` 操作类型 | 编码进 `prog_op[2:0]`（pads 46..48）：`001`=erase_cell, `010`=write, `011`=verify |
+| A8-2 `prog_level[3:0]` | 独立 pad `prog_level[3:0]`（pads 49..52），D→A，仅 write 时有效 |
+| A8-3 `full_array erase` | `prog_op[2:0] = 3'b100` 专用编码 |
+| A8-4 新增 pad vs 复用 | **新增 7 pads 作为编程 sideband**（方案 α'）；推理 pad 维持 frozen 不变 |
+| A8-5 编码与时序 | `prog_op` / `prog_level` 在 `prog_busy` 期间稳定；`cim_start` 脉冲沿为采样点；脉宽数字侧自计时（`PROG_PULSE_WIDTH` 档位 1/10/100 µs，擦除固定 1 ms）；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
+
+#### 数字侧已完成的 RTL 落地
+
+- `rtl/top/snn_soc_top.sv`：新增输出端口 `prog_op_ext[2:0]` + `prog_level_ext[3:0]`；
+  编码器根据内部 `prog_busy` / `prog_en_sig` / `erase_en_sig` / `verify_en_sig` /
+  `prog_full_array` / `prog_level` 生成 `prog_op` 编码。
+- `rtl/top/chip_top.sv`：新增 pad 端口 `prog_op_pad[2:0]` + `prog_level_pad[3:0]`，
+  连接到 `snn_soc_top`。
+- `doc/15_asic_pad_map.md`：pad 表扩到 55 项，46..52 给新编程接口。
+- Gate A 回归 11/11 全绿；`CHIP_TOP_ROM_SMOKE_PASS` / `PROG_BYPASS_LATCH_TB_PASS` /
+  `CIM_PROGRAM_CTRL_PASS` 均过。
+
+#### 模拟侧可以直接开始做的事
+
+1. **解码 `prog_op[2:0]`**：在 `cim_start` 上升沿采样；`000` → 推理常态；`001/010/011/100` → 对应编程；其它视为 idle。
+2. **解码 `prog_level[3:0]`**：仅 `prog_op==010` (write) 时读取。
+3. **复用推理 pad 载 row/col**：编程的 row 来自 `wl_data / wl_group_sel / wl_latch` 的 8×8 TDM one-hot；col 来自 `bl_sel[4:0]`。
+4. **verify 读回路径**：收到 `prog_op=011` + `cim_start` 后，按单 cell 读电压做 ADC 采样，结果放 `bl_data[7:0]`；**不需要**上报 pass/fail。
+5. **脉冲驱动器**：数字侧自计时，模拟侧在 `cim_start` 到来后启动 pulse driver，数字侧撤销 `cim_start` 或将 `prog_op` 拉回 `000` 后关闭。
+
+#### 仍然是开放项（非 A8 blocker，但属于最终完工清单）
+
+- 脉冲驱动器的**电压**与**上升/下降沿**规格 → A4 / A7（器件老师侧回填）
+- 模拟芯片 pinout 最终落位（如 `doc/15_asic_pad_map.md` pad 索引要不要重排）→ P0（两边联合确认）
+- verify 读电压与推理读电压是否共用同一 TIA/ADC 通路 → A5 / A6 细化
+
+---
+
 ### P0【中等优先级】物理 pad 映射与 pin 分配
 
 > 影响：两颗芯片各自的 pad 布局 + PCB 互联走线规划
@@ -164,14 +222,15 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 ### P2【低优先级，但需提前确认】RRAM 权重状态
 
 > 影响：模拟芯片上电后能否直接做推理，还是需要先写权重
-> **双芯片架构说明**：RRAM 位于模拟芯片内部。V1 数字芯片不含写权重逻辑（Write/Erase/P&V 推迟到 V2）。权重写入由模拟芯片侧在 wafer 测试阶段完成，或通过外部测试设备完成。
+> **双芯片架构说明（2026-04-23 更新）**：RRAM 位于模拟芯片内部。`main` 分支数字侧已经引入编程控制器与 `PROG_*` 寄存器，项目目标也已经调整为：**V1 外部模拟 die 最终要支持由数字芯片发起的 erase / write / verify。**
+> 但当前外部编程 pad / 协议合同尚未冻结（见 A8），因此在 A8 完成前，系统 bring-up 仍需按“预烧录 / 外部测试写入”准备兜底方案。
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ | 模拟芯片 | V1 只做推理，需确认出厂状态 |
+| P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ | 模拟芯片 | 决定上电后是否必须先跑数字发起的编程流程 |
 | P2-2 | 权重的保留时间（retention time）在工作温度下估计是多少年/月？ | 模拟芯片 | 评估权重写入后测试窗口 |
 | P2-3 | 读取操作对 RRAM 状态有无干扰（read disturb）？连续推理 N 次后权重是否退化？ | 模拟芯片 | 影响系统可靠性指标 |
-| P2-4 | V1 模拟芯片的权重写入方案：由模拟芯片自带写入控制逻辑（外部提供 Write/Erase 信号）？还是通过 wafer 测试设备直接写入？ | 模拟芯片 | V1 数字芯片不含写权重接口，Write/Erase/P&V 推迟到 V2 |
+| P2-4 | V1 模拟芯片的权重写入方案：由数字芯片发起 erase/write/verify，还是仅保留 wafer 测试设备写入作为 fallback？ | 模拟芯片 + 数字芯片 | 主路径已要求支持数字发起编程；若 A8 尚未冻结，需保留外部测试写入 fallback |
 
 ---
 
@@ -195,21 +254,23 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 |---|---|---|---|---|---|
 | A4（Vref/TIA） | 待模拟侧给出量化值；数字侧当前仅冻结逻辑阈值 `THRESHOLD_DEFAULT=2550`，尚未建立物理电流映射 | 模拟团队 | 首轮 handoff 会后回填 | 本文 A4；数字默认阈值见 `doc/02_reg_map.md` / `rtl/top/snn_soc_pkg.sv` | 未回填前不调整默认 `ratio_code` / `threshold` |
 | A5（时序数字） | 待模拟侧给出实测 ns/cycles；数字侧当前临时值为 `DAC=5 / CIM=10 / MUX_SETTLE=2 / ADC_SAMPLE=3` cycles | 模拟团队 | 首轮 handoff 会后回填 | 本文 A5；当前占位值见 `rtl/top/snn_soc_pkg.sv` | 未回填前不冻结最终 STA/时序合同 |
-| A6（噪声/动态范围） | 待模拟侧给出噪声/动态范围；数字侧目前仅有功能口径证据：Step 3.4/3.5 `SAMPLE_ALIGN_PASS`、zero-spike=0.00% | 模拟团队 | 首轮 handoff 会后回填 | 本文 A6；证据见 `项目相关文件/器件对齐/Python建模/results/summary.txt` | 未回填前不重标定 Python 噪声参数 |
+| A6（噪声/动态范围） | 待模拟侧给出噪声/动态范围；数字侧目前仅有功能口径证据：Step 3.4/3.5 `SAMPLE_ALIGN_PASS`、zero-spike=0.00% | 模拟团队 | 首轮 handoff 会后回填 | 本文 A6；证据见 `项目相关文件/器件对齐/Python建模/summary.txt` | 未回填前不重标定 Python 噪声参数 |
 | A7（时序合同） | 部分已冻结：`dac_ready` 已删除、外部协议统一到 `cim_start/cim_done/bl_sel/bl_data`；仍待确认脉宽与 guard time | 数字+模拟联合 | 首轮联合对齐会 | 本文 A7；协议主合同见 `doc/08_cim_analog_interface.md` / `doc/03_cim_if_protocol.md` | 这是 RTL 状态机和板级 bring-up 的关键收口项 |
+| A8（外部编程合同） | **需求已冻结，但协议未冻结**：V1 外部模拟 die 必须支持数字发起 erase/write/verify；当前仍缺 op-type / level / full-array 的跨芯片表达方式 | 数字+模拟联合 | **必须优先拍板** | 本文 A8；关联 `doc/08_cim_analog_interface.md` / `doc/15_asic_pad_map.md` / `doc/02_reg_map.md` | 这是模拟同学能否直接开做 external programming 的 blocker |
 | P0（pin/pad/PCB布局） | 数字侧 pad 真源已冻结；待模拟芯片 pad 排列与 PCB 约束回填 | 模拟+PCB | pad 定稿前 | 数字侧真源：`doc/15_asic_pad_map.md`、`rtl/top/chip_top.sv` | 未回填前不提交最终 pad-ring/PCB 定稿 |
 | P1（供电/偏置） | 待模拟侧确认外部偏置/参考是否需要独立引脚；数字侧当前未新增相关 pad | 模拟+PCB | 电源方案评审前 | 本文 P1；数字侧现状见 `doc/15_asic_pad_map.md` | 直接影响 PCB BOM 与电源隔离方案 |
-| P2（RRAM 状态） | 待器件/模拟侧确认上电状态与写入方案；数字侧 V1 不提供片上写权重路径 | 器件团队 | V1 bring-up 方案冻结前 | 本文 P2；V1 当前仅保留 `weight_sram` 总线窗口，不等价于 RRAM 写入通路 | 未回填前只能按“预烧录/外部测试写入”准备 bring-up |
+| P2（RRAM 状态） | 待器件/模拟侧确认上电状态与写入方案；数字侧主目标已改为支持数字发起外部编程，但 A8 未冻结前仍需保留 fallback | 器件团队 | V1 bring-up 方案冻结前 | 本文 P2 | 未回填前不能只按“上电即推理”假设准备系统 |
 
 ### 收口准入条件
 
 - `A7`：每个时序信号的主从、有效沿、脉宽（cycles）、是否允许 back-to-back。
+- `A8`：外部编程协议的跨芯片表达方式（新增 pad 还是复用现有 pad；若复用，给出编码与时序）。
 - `A5`：每阶段延迟（ns/cycles）+ 最坏 PVT 数值。
 - `A4`：Vref 高低点、TIA 增益标称/容差、是否可调、温漂。
 - `A6`：噪声（LSB RMS / pp）、最小可检电流、ENOB、温漂影响。
 - `P0`：两颗芯片的最终 pin list（48 pad 全表，其中 45 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估。
 - `P1`：AVDD/DVDD 约束、偏置来源、PCB 电源方案、是否新增外部引脚。
-- `P2`：RRAM 上电状态、retention/read-disturb、模拟芯片权重写入方案。
+- `P2`：RRAM 上电状态、retention/read-disturb、模拟芯片权重写入方案（主路径=数字发起编程；fallback=外部测试写入）。
 
 ---
 

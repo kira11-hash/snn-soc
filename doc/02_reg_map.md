@@ -49,6 +49,16 @@
 
 仅在 `snn_soc_top.ENABLE_PROGRAM_MODE=1` 时由 `cim_program_ctrl` + `cim_macro_arbiter` 真正消费；默认参数下寄存器依然存在但不会触发任何硬件副作用（arbiter 和编程控制器都被 gen 块跳过）。
 
+**外部编程 pad 映射（2026-04-24，方案 α'）**：tape-out 路径
+（`chip_top.ENABLE_EXT_CIM_IF=1`）下这些寄存器的硬件副作用会经过 7 个新增
+pad（`prog_op[2:0]` + `prog_level[3:0]`，pads 46..52）传递给模拟 die：
+- `PROG_CTRL.ERASE / FULL_ARRAY` + `cim_program_ctrl` 的 `prog_en / erase_en /
+  verify_en` 共同编码为 `prog_op_ext[2:0]`（见 `rtl/top/snn_soc_top.sv`
+  编码器逻辑）。
+- `PROG_CTRL.LEVEL[7:4]` 直通到 `prog_level_ext[3:0]`。
+- 详细跨芯片协议见 `doc/08_cim_analog_interface.md` §10 +
+  `doc/03_cim_if_protocol.md` "编程协议" 节 + `doc/15_asic_pad_map.md` pads 46..52。
+
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x38 | PROG_CTRL | START | [0] | W1P | 0 | 启动一次编程/擦除序列（推理进行中被硬件 interlock 屏蔽） |
