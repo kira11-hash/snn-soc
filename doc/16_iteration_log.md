@@ -4,6 +4,77 @@
 
 ---
 
+## Iteration 12 — `main-fpga-e203-alpha` 板上验证 PASS（2026-04-24）
+
+**背景**：在 `main` 分支完成 A8 α'（7 new pads）冻结、Gap 修复、以及 Q1/Q2/Q3
+锁定后，为确认这些改动不会破坏既有 `main-fpga-e203` 的 FPGA 证据链，
+从 `feature/main-fpga-e203 @ f985868b` 新建 `main-fpga-e203-alpha`，并在该支线上：
+
+- cherry-pick `58408ca4`（A8 α' pad 合同冻结）
+- cherry-pick `11883602`（Gap 1 / Gap 2 修复）
+- 补 FPGA wrapper：`803c98f9`（将 `prog_op_ext / prog_level_ext` 接成 NC + `_unused`）
+- cherry-pick `a8c098a5`（Q1 gate / Q2 pipeline / Q3 timing+noise 收口）
+
+最终板上验证的支线 HEAD：
+
+- `main-fpga-e203-alpha @ 4e22e5f9`
+
+### Vivado 构建结果
+
+- bitstream: `fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit`
+- bitstream SHA256:
+  `EFE5B9FA25A25FC848F2194B74AC89DD8CAAF5BE5FE7D3BDA3C9C627CF448657`
+- timing: `WNS = +5.411 ns @ 50 MHz`
+- DRC / bitgen:
+  - 0 error
+  - 0 critical warning
+  - 1 个已知非阻塞 warning（no-routable-load，和此前支线一致）
+  - `Bitgen Completed Successfully`
+
+### 板上验证（ZCU102）
+
+板上通过 `xsct scripts/program_zcu102_e203.tcl fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit`
+烧录 bitstream，E203 从 BRAM 自启。UART 观测到完整 PASS 文本：
+
+```text
+UART_OK
+FPGA_E203_BOOT_UART_PASS
+[PROG] full-array erase DONE
+[PROG] write subset rows=0..9 cols=0..9 PASS
+FPGA_E203_PROGRAM_ERASE_WRITE_PASS
+[INFER] neuron[0] hw=80 sw=80 OK
+[INFER] neuron[1] hw=80 sw=80 OK
+[INFER] neuron[2] hw=80 sw=80 OK
+[INFER] neuron[3] hw=80 sw=80 OK
+[INFER] neuron[4] hw=80 sw=80 OK
+[INFER] neuron[5] hw=80 sw=80 OK
+[INFER] neuron[6] hw=80 sw=80 OK
+[INFER] neuron[7] hw=80 sw=80 OK
+[INFER] neuron[8] hw=80 sw=80 OK
+[INFER] neuron[9] hw=80 sw=80 OK
+[INFER] total_spikes=800 mismatch=0
+FPGA_E203_PROGRAMMED_INFERENCE_PASS
+```
+
+### 这次板上 PASS 说明了什么
+
+1. A8 α' / Q1/Q2/Q3 的数字侧改动**没有破坏**既有 E203 boot/program/inference 板级链路
+2. `main-fpga-e203-alpha` 可以继续作为
+   “`main` 最新编程协议改动对 FPGA 证据线无回归”的证明
+3. 由于 FPGA wrapper 中新增的 `prog_op_ext / prog_level_ext` 目前接成 NC，
+   这次板上 PASS 证明的是：
+   - A8 相关改动没有把主链路搞坏
+   - **不是**“外部模拟 die + 55 pads + A8 协议”已经在 FPGA 上做了物理联调
+
+### 证据归档
+
+- 归档文件：
+  `doc/main-fpga-e203/alpha_board_bringup_log_20260424.txt`
+- 截图 / 板照：
+  由人工拍摄保存，不纳入本节 commit
+
+---
+
 ## Iteration 9 — 2026-03-31 main 分支再审计与 WL wrapper 边界修正
 
 ### 本次复核范围
