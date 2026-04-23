@@ -136,7 +136,7 @@
 
 | 绝对地址 | offset | 名称 | 说明 |
 |------|------|------|------|
-| 0x4000_0038 | 0x38 | PROG_CTRL | [0]=START(W1P), [1]=ERASE(RW), [2]=FULL_ARRAY(RW), [7:4]=LEVEL(RW), [10:8]=RETRY_LIMIT(RW) |
+| 0x4000_0038 | 0x38 | PROG_CTRL | [0]=START(W1P), [1]=ERASE(RW), [2]=FULL_ARRAY(RW), [3]=BYPASS_HANDSHAKE(RW, silicon bring-up only, START 时锁存), [7:4]=LEVEL(RW), [10:8]=RETRY_LIMIT(RW) |
 | 0x4000_003C | 0x3C | PROG_ROW | [5:0]=目标行（0~63） |
 | 0x4000_0040 | 0x40 | PROG_COL | [4:0]=目标列（0~19） |
 | 0x4000_0044 | 0x44 | PROG_STATUS | [0]=BUSY(RO), [1]=PASS(RO), [2]=FAIL(RO), [5:3]=RETRY_COUNT(RO), [7]=DONE(W1C) |

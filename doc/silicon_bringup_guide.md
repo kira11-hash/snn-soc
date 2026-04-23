@@ -102,18 +102,28 @@
 ### 2.2 用 JTAG 塞固件
 
 ```
-1. PC 连上 JTAG 适配器 → 板上 JTAG 口
-2. 在仓库根目录跑：
+1. PC 连上 JTAG 适配器（pyftdi 兼容的 FT2232H / FT4232H cable）→ 板上 JTAG 口
+2. 先把 silicon_bringup 固件编译成 $readmemh 格式（jtag_rescue 只吃 .hex）：
+   wsl bash fw/silicon_bringup/build_silicon_bringup.sh
+   → 产出 fw/silicon_bringup/out/silicon_bringup.hex（4096 words, NOP-padded）
+3. 在仓库根目录跑：
    python scripts/jtag_rescue.py \
-       --jtag-iface ft2232 \
-       --firmware fw/silicon_bringup/out/silicon_bringup.bin \
-       --load-addr 0x0000_1000 \
-       --entry-addr 0x0000_1000
-3. jtag_rescue.py 做 3 件事：
-   a. 通过 MEMACC IR 把 silicon_bringup.bin 写到 INSTR_SRAM @ 0x1000
-   b. 把数据写完后，发 CPUCTL IR 让 CPU 从 0x1000 重新取指
-   c. CPU 从 INSTR_SRAM 0x1000 开始跑 silicon_bringup 固件
-4. UART 应该立即打印：
+       --backend pyftdi \
+       --url "ftdi:///1" \
+       --frequency 1000000 \
+       rescue-load \
+           fw/silicon_bringup/out/silicon_bringup.hex \
+           --load-addr 0x1000
+   说明：
+     --load-addr 0x1000 是 tape-out 路径（chip_top.ENABLE_BOOT_ROM=1）下 INSTR_SRAM
+     的真实基址；省略该参数则默认 0x0（V1 legacy 路径，ROM 未启用时使用）。
+4. jtag_rescue.py 做 3 件事：
+   a. 发 CPUCTL IR 把 CPU 锁在 reset (hold=1)
+   b. 通过 MEMACC IR 把 silicon_bringup.hex 逐字写到指定 load-addr
+   c. 发 CPUCTL IR 释放 CPU (hold=0)，CPU 从 reset vector (mask ROM) 重启，
+      boot_rom_main 走 SPI flash 分支 (magic 错 → rescue wait) 或直接 fall
+      through 到 INSTR_SRAM 跑刚写进去的代码
+5. UART 应该打印：
      SILICON_BRINGUP_START v1 build=...
      [STAGE_A] inference with test_mode=1, pos=100, neg=0
      [STAGE_A] neuron[0] hw=80 sw=80 OK
@@ -124,7 +134,7 @@
      [STAGE_B] erase  PROG_STATUS=0x82
      [STAGE_B] write  PROG_STATUS=0x82
      SILICON_BRINGUP_DIGITAL_PASS
-5. 看到 `SILICON_BRINGUP_DIGITAL_PASS` → Day 1 成功
+6. 看到 `SILICON_BRINGUP_DIGITAL_PASS` → Day 1 成功
 ```
 
 ### 2.3 Day 1 失败诊断表

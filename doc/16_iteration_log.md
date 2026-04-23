@@ -460,6 +460,81 @@ chip_top lint:                       → verilator lint clean
 
 ---
 
+## Iteration 10 — V1.1 silicon bring-up 收尾 + boot_rom 集成（2026-04-23）
+
+**背景**：feature/main-fpga-e203 在 ZCU102 上 Phase C 全过后，回 main 做流片前最后一轮前端收尾。
+
+### 8 个 Stage 概览
+
+1. **Stage 1** — 两个 CRITICAL WARNING 修复
+   - XDC `set_false_path -from *mmcm_locked*` 打不到 cell → 改成 `-to rst_sync_reg[0]`
+   - `uart_ctrl.sv` `baud_div_active` 多驱动 → 全部合并到 TX FSM
+2. **Stage 2** — `PROG_CTRL[3] = BYPASS_HANDSHAKE` 新增（test_mode 扩到编程 FSM）
+   - bypass=1 时注入 fake prog_adc_done + 理想 prog_bl_data，verify 永远 PASS
+   - START 时锁存，busy 期间改 PROG_CTRL 不影响 in-flight
+3. **Stage 3+4** — `fw/silicon_bringup/` 数字自检固件 + Icarus TB
+   - Stage A test_mode 推理对齐 + Stage B BYPASS_HANDSHAKE 编程 FSM
+   - `SILICON_BRINGUP_DIGITAL_PASS` / `_FAIL_<stage>` tag
+4. **Stage 5** — `rtl/mem/boot_rom.sv` 独立模块 + TB（23/23 PASS）
+5. **Stage 6** — `scripts/fpga_bringup_capture.sh` xsct+pyserial 自动化
+6. **Stage 7** — FPGA 板上验证 test_mode，COM3 收到 `SILICON_BRINGUP_DIGITAL_PASS`
+7. **Stage 8** — 文档（`silicon_bringup_plan.md` + `silicon_bringup_guide.md`）
+
+### V1.1 — boot_rom 真正连进 SoC（2026-04-23 下午）
+
+- `bus_interconnect.sv`：ENABLE_BOOT_ROM=1 时地址解码把 0x0000..0x0FFF 指向 ROM，
+  INSTR_SRAM 从 0x0 往上 shift 0x1000，容量保持 16 KB
+- `snn_soc_top.sv`：新增 `ENABLE_BOOT_ROM` 参数 + 条件实例化 boot_rom
+- `chip_top.sv`：tape-out 路径打开 `ENABLE_BOOT_ROM=1` + `BOOT_ROM_INIT_FILE` 可注入
+- `fw/boot_rom/boot_rom_main.c`：完整 SPI flash bootloader
+  （RDID + 读 header + 验 magic `0x544F4F42`='BOOT' + 搬运 + 跳转）
+- `fw/boot_rom/link_boot_rom.ld` / `build_boot_rom.sh`：text @ 0x0，ROM 4 KB
+- `fw/link_app.ld`：应用固件链接地址 0x0 → 0x1000
+- `scripts/make_boot_image.py`：生成 16B header + app bin 的 flash 镜像
+- `tb/chip_top_rom_smoke_tb.sv`：端到端 ROM → SPI flash model → SRAM → app
+- `tb/prog_bypass_latch_tb.sv`：BYPASS_HANDSHAKE latch 专测
+
+### Gate A 回归（14/14 全绿）
+
+```
+LIGHT_SMOKETEST_PASS            DMA_SMOKETEST_PASS
+CIM_PROGRAM_CTRL_PASS           UART_SMOKETEST_PASS
+SPI_SMOKETEST_PASS              AXI_BRIDGE_SMOKETEST_PASS
+PROG_PULSE_CFG_TB_PASS          PROG_START_INTERLOCK_TB_PASS
+BOOT_ROM_TB_PASS (23/23)        SILICON_BRINGUP_TB_PASS
+E203_SMOKETEST_PASS             CHIP_TOP_ROM_SMOKE_PASS
+PROG_BYPASS_LATCH_TB_PASS       WEIGHTED_SIM_PASS
+```
+
+### 关键 commit（新增到 main）
+
+```
+5ab0223b gpt-fix: finalize main tapeout boot chain and ROM smoke
+6c73d052 docs: add silicon_bringup_guide.md (Day 1/2/3 SOP + method B/C)
+688bea8d feat(rtl): V1.1 — integrate boot_rom into SoC bus (ENABLE_BOOT_ROM)
+10652709 gpt-fix: harden silicon bring-up bypass and capture flow
+926b3ae6 feat+docs: Stage 6+8 — FPGA bring-up capture harness + silicon plan
+d5a4e87d feat: Stage 5 — add boot_rom mask ROM module (standalone + TB)
+58292120 feat: Stage 3+4 — silicon bring-up firmware + Icarus TB
+f47fe738 feat(rtl+xdc): Stage 1+2 — critical warnings fixed + test_mode extended
+```
+
+### 当前 main 分支状态（tape-out 视角）
+
+- **数字 RTL 功能**：全部 ready，tape-out-intent 路径
+  （`ENABLE_PROGRAM_MODE=1` + `ENABLE_BOOT_ROM=1` + `ENABLE_EXT_CIM_IF=1`）
+  仿真级 smoke 通过
+- **固件物料**：`fw/boot_rom/`（ROM bootloader）+
+  `fw/silicon_bringup/`（数字自检）+ `fw/e203_smoke/`（完整推理）都已就位
+- **FPGA 证据**：feature/main-fpga-e203 分支 Phase C 三个 PASS tag 归档在
+  commit `dc7c8903` + GPT 加固 `f985868b`
+- **下一步（非前端）**：
+  - 后端：DC 综合 / P&R / STA / DRC / LVS / ESD / 工艺 SRAM+ROM macro swap
+  - 板级 / 器件老师：pad ring / VCCIO / 模拟接口 IO 电压定档
+  - 前端如需改动只做 bug fix，不再加功能
+
+---
+
 ## 后续计划（Tapeout 准备）
 
 | 项目 | 内容 | 说明 |
@@ -470,5 +545,7 @@ chip_top lint:                       → verilator lint clean
 | P&R | 布局布线 | 1×1mm die |
 | Signoff | STA / DRC / LVS / ERC | 最终检查 |
 | 板级 bring-up | boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash | 仿真→板级过渡 |
+| Foundry ROM macro swap | boot_rom.sv → TSMC ROM compiler macro | 流片前 mask data 交付 |
+| Foundry SRAM macro swap | sram_simple → TS6N65LP（或等效）| 综合前对齐接口 |
 
 每次迭代完成后在本文档追加一节记录。

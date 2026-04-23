@@ -46,10 +46,16 @@ module icb2simple_bridge (
     in_range = (addr >= base) && (addr <= last);
   endfunction
 
+  // Address window accepts either the default INSTR layout
+  // (ENABLE_BOOT_ROM=0: 0x0000..0x3FFF) or the boot-ROM-shifted layout
+  // (ENABLE_BOOT_ROM=1: BOOT_ROM 0x0000..0x0FFF + INSTR 0x1000..0x4FFF).
+  // We take the union [0x0000 .. ADDR_INSTR_END_WITH_ROM] here so that CPU /
+  // JTAG access to the shifted INSTR_SRAM high 4 KB is NOT pre-rejected.
+  // bus_interconnect.sv remains the authority on real routing.
   function automatic logic is_sram_addr(input logic [31:0] addr);
     is_sram_addr =
-        in_range(addr, ADDR_INSTR_BASE,  ADDR_INSTR_END)  ||
-        in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)   ||
+        in_range(addr, ADDR_INSTR_BASE,  ADDR_INSTR_END_WITH_ROM) ||
+        in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)           ||
         in_range(addr, ADDR_WEIGHT_BASE, ADDR_WEIGHT_END);
   endfunction
 

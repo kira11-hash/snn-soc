@@ -407,9 +407,14 @@ module reg_bank (
             if (req_wstrb[0] && req_wdata[7]) done_sticky <= 1'b0;
           end
           REG_PROG_CTRL: begin
-            // 推理进行中屏蔽编程启动（三重互锁，参考 REG_CIM_CTRL 注释）
+            // 推理 + 编程双向互锁：屏蔽在对方 busy 期间重新启动自己。
+            //   - !snn_busy / !snn_start_pending / !start_pulse：推理进行中阻塞编程启动
+            //   - !prog_busy / !prog_start_pulse：编程进行中阻塞再次启动（2026-04-23 新增，
+            //     否则 in-flight bypass/erase/level 会被后续 START 脉冲重新锁存，
+            //     导致 cim_program_ctrl 与 snn_soc_top 内部状态不一致 → 莫名其妙 FAIL）
             if (req_wstrb[0] && req_wdata[0]
-                && !snn_busy && !snn_start_pending && !start_pulse) begin
+                && !snn_busy && !snn_start_pending && !start_pulse
+                && !prog_busy && !prog_start_pulse) begin
               prog_start_pulse <= 1'b1;
             end
             if (req_wstrb[0]) prog_erase      <= req_wdata[1];

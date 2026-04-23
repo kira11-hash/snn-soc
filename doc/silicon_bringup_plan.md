@@ -106,19 +106,39 @@ With `cim_test_mode=1` + `BYPASS_HANDSHAKE=1`, the silicon digital die can run `
 
 Assumes digital die comes back first; analog die may or may not be attached.
 
-### Day 1 — Power-on sanity (no analog die)
+### Day 1 — Power-on sanity (no analog die, no SPI flash)
+
+Assumes `chip_top.ENABLE_BOOT_ROM=1` (the frozen tape-out configuration) so the
+mask ROM boots first; the SPI flash pads are left unconnected or empty.
 
 ```
-1. Plug digital die + JTAG + UART.  Power on.
-2. CPU should fault immediately from uninitialised SRAM (PC stuck or wild).
-3. JTAG rescue: run scripts/jtag_rescue.py to load silicon_bringup.bin into SRAM.
-4. JTAG release CPU → self-test runs.
-5. Expected UART:
+1. Plug digital die + JTAG (pyftdi-compatible) + UART (115200 8N1).  Power on.
+2. Reset vector points to the mask ROM at 0x0.  boot_rom_main.c starts:
+     BL start
+     BL rdid=<hex>              (CP2108 → UART; flash not present → junk ID)
+     BL bad magic 0xFFFFFFFF
+     BL waiting for JTAG rescue (wfi)
+   CPU enters wfi loop.  The JTAG TAP + jtag_mem_loader are still alive and
+   independent of the CPU.
+3. JTAG rescue (load self-test firmware into the SHIFTED INSTR_SRAM @ 0x1000):
+     wsl bash fw/silicon_bringup/build_silicon_bringup.sh      # produce .hex
+     python scripts/jtag_rescue.py --backend pyftdi --url "ftdi:///1" \
+         rescue-load fw/silicon_bringup/out/silicon_bringup.hex \
+             --load-addr 0x1000
+   The script holds CPU, writes INSTR_SRAM @ 0x1000, releases CPU.  Because the
+   ROM's bootloader is still in wfi, the release makes CPU re-fetch from 0x0:
+   it re-runs boot_rom_main, hits the wfi again unless the rescue concurrently
+   triggered soft reset — the recommended flow is to *release-cpu after
+   pressing the external reset button* so PC restarts at 0x0, the bootloader
+   does not find valid flash, and falls through to running the freshly loaded
+   code at 0x1000 (via the "fallback jump" path documented in
+   doc/silicon_bringup_guide.md §2.2).
+4. Expected UART after the fallback jump:
      SILICON_BRINGUP_START v1 build=...
      [STAGE_A] neuron[0..9] hw=80 sw=80 OK
      [STAGE_A] total_spikes=800 mismatch=0
-     [STAGE_B] erase  PROG_STATUS=0x82  (DONE + PASS)
-     [STAGE_B] write  PROG_STATUS=0x82  (DONE + PASS)
+     [STAGE_B] erase  PROG_STATUS=0x00000082  (DONE + PASS)
+     [STAGE_B] write  PROG_STATUS=0x00000082  (DONE + PASS)
      SILICON_BRINGUP_DIGITAL_PASS
 ```
 

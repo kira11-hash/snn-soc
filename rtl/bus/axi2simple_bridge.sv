@@ -101,13 +101,16 @@ module axi2simple_bridge (
     in_range = (addr >= base) && (addr <= last);
   endfunction
 
+  // See icb2simple_bridge.is_sram_addr for the same ENABLE_BOOT_ROM rationale:
+  // the INSTR window covers both default and boot-ROM shifted layouts so an
+  // AXI master can reach the shifted INSTR_SRAM high 4 KB when ROM is present.
   function automatic logic addr_mapped (
     input logic [31:0] addr
   );
     addr_mapped =
-      in_range(addr, snn_soc_pkg::ADDR_INSTR_BASE,  snn_soc_pkg::ADDR_INSTR_END)  ||
-      in_range(addr, snn_soc_pkg::ADDR_DATA_BASE,   snn_soc_pkg::ADDR_DATA_END)   ||
-      in_range(addr, snn_soc_pkg::ADDR_WEIGHT_BASE, snn_soc_pkg::ADDR_WEIGHT_END) ||
+      in_range(addr, snn_soc_pkg::ADDR_INSTR_BASE,  snn_soc_pkg::ADDR_INSTR_END_WITH_ROM) ||
+      in_range(addr, snn_soc_pkg::ADDR_DATA_BASE,   snn_soc_pkg::ADDR_DATA_END)           ||
+      in_range(addr, snn_soc_pkg::ADDR_WEIGHT_BASE, snn_soc_pkg::ADDR_WEIGHT_END)         ||
       in_range(addr, snn_soc_pkg::ADDR_REG_BASE,    snn_soc_pkg::ADDR_REG_END)    ||
       in_range(addr, snn_soc_pkg::ADDR_DMA_BASE,    snn_soc_pkg::ADDR_DMA_END)    ||
       in_range(addr, snn_soc_pkg::ADDR_UART_BASE,   snn_soc_pkg::ADDR_UART_END)   ||

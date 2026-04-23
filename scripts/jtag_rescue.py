@@ -333,12 +333,13 @@ def cmd_rescue_load(client: JtagRescueClient, args: argparse.Namespace) -> int:
     if data_path:
         data_words = parse_readmemh(data_path)
 
+    load_addr = args.load_addr
     hold = client.hold_cpu()
     if hold != 1:
         raise RuntimeError("failed to hold CPU before rescue load")
 
-    write_words(client, ADDR_INSTR_BASE, imem_words)
-    verify_words(client, ADDR_INSTR_BASE, imem_words)
+    write_words(client, load_addr, imem_words)
+    verify_words(client, load_addr, imem_words)
 
     if data_words:
         write_words(client, ADDR_DATA_BASE, data_words)
@@ -348,7 +349,10 @@ def cmd_rescue_load(client: JtagRescueClient, args: argparse.Namespace) -> int:
     if hold != 0:
         raise RuntimeError("failed to release CPU after rescue load")
 
-    print(f"rescue-load complete: imem_words={len(imem_words)} data_words={len(data_words)}")
+    print(
+        f"rescue-load complete: load_addr=0x{load_addr:08X} "
+        f"imem_words={len(imem_words)} data_words={len(data_words)}"
+    )
     return 0
 
 
@@ -378,6 +382,17 @@ def build_parser() -> argparse.ArgumentParser:
     rescue_parser = subparsers.add_parser("rescue-load")
     rescue_parser.add_argument("imem_hex")
     rescue_parser.add_argument("data_hex", nargs="?")
+    # When tape-out chip_top has ENABLE_BOOT_ROM=1, the bus decoder routes
+    # 0x0..0xFFF to the mask ROM (writes ignored).  In that layout the real
+    # INSTR_SRAM sits at 0x1000..0x4FFF, so firmware must be loaded to 0x1000.
+    # Accept an override here; default keeps legacy V1 behaviour (0x0).
+    rescue_parser.add_argument(
+        "--load-addr",
+        type=parse_int,
+        default=ADDR_INSTR_BASE,
+        help="Destination base address for imem_hex "
+             "(default 0x0 V1 layout; use 0x1000 when ENABLE_BOOT_ROM=1).",
+    )
 
     return parser
 
