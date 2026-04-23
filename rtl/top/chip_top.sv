@@ -47,14 +47,19 @@ module chip_top #(
   input  logic jtag_tdi_pad,
   output logic jtag_tdo_pad,
 
-  // 45 个信号 pad 中与模拟芯片互联相关的复用信号（pad-facing RTL 端口）
+  // 45 信号 pad 中与模拟芯片互联相关的复用信号（pad-facing RTL 端口）
+  //   推理接口（原有，frozen 2026-03-16）
   output logic [7:0] wl_data_pad,
   output logic [2:0] wl_group_sel_pad,
   output logic       wl_latch_pad,
   output logic       cim_start_pad,
   input  logic       cim_done_pad,
   output logic [4:0] bl_sel_pad,
-  input  logic [7:0] bl_data_pad
+  input  logic [7:0] bl_data_pad,
+  //   外部编程接口（新增，frozen 2026-04-24，方案 α'，7 new pads）
+  //   详见 doc/08_cim_analog_interface.md §4 + doc/15_asic_pad_map.md 49..55 号 pad
+  output logic [2:0] prog_op_pad,      // op 编码（D→A）
+  output logic [3:0] prog_level_pad    // 目标电导等级（D→A，仅 write 生效）
 );
   // 核心 SoC（TO 目标路径：默认带 E203 + 外部 CIM pad 接口 + mask ROM）
   //   * ENABLE_PROGRAM_MODE=1：挂上 cim_program_ctrl + arbiter（tape-out 需要）
@@ -86,7 +91,9 @@ module chip_top #(
     .cim_start_ext    (cim_start_pad),
     .cim_done_ext     (cim_done_pad),
     .bl_sel_ext       (bl_sel_pad),
-    .bl_data_ext      (bl_data_pad)
+    .bl_data_ext      (bl_data_pad),
+    .prog_op_ext      (prog_op_pad),
+    .prog_level_ext   (prog_level_pad)
   );
 endmodule
 

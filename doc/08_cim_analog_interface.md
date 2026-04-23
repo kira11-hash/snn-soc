@@ -7,12 +7,13 @@
 **参数口径**：本文涉及的默认时序参数以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 **集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联（非片上集成）。
 
-> **2026-04-23 重要澄清**
+> **2026-04-24 关键更新**
 >
-> - 本文当前**已经冻结**的是 `V1` 的**推理接口合同**。
-> - 项目最新要求同时明确：**V1 外部模拟 CIM die 最终还必须支持由数字芯片发起的 erase / write / verify 编程。**
-> - 但当前仓库里**尚未冻结**“外部编程命令如何跨芯片表达”的 pad / 时序合同。
-> - 所以：模拟同学可以直接按本文开做**推理接口、时序、电平、ADC/TIA/Vref、pad/PCB**；但如果要实现**外部编程支持**，必须先看 `doc/11_analog_handoff_execution_plan.md` 中新增的 **A8 外部编程合同冻结**。
+> - 本文**推理接口**章节自 v3.0 以来保持冻结。
+> - 项目要求已冻结：**V1 外部模拟 CIM die 必须支持由数字芯片发起的 erase / write / verify 编程。**
+> - **外部编程接口合同已于 2026-04-24 冻结**为方案 α'（7 new pads），详见本文 §10 **外部编程接口 (External Programming Interface)**。
+> - pad 总数从 48 扩到 **55**（52 usable signal + 6 power + 3 ESD），见 `doc/15_asic_pad_map.md`。
+> - 模拟同学现在可以按本文 §2/§3/§4/§5（推理）**和** §10（外部编程）同时推进实现。
 
 ---
 
@@ -708,3 +709,117 @@ module cim_macro_blackbox #(
 - 对齐语义说明：`expected_classes.hex` 存的是 Python `predicted_class`，用于 RTL 等价性比对；真实标签保存在 `alignment_manifest.json`
 - 数字芯片推理链路已验证完整：DMA→input FIFO→CIM FSM→ADC MUX→LIF 神经元→output FIFO
 - 当前进入 Phase 4 外设集成阶段（AXI-Lite → UART → SPI → DMA扩展 → E203接入）
+
+---
+
+## 10. 外部编程接口 (External Programming Interface)
+
+**冻结日期**：2026-04-24（方案 α'）
+**对应 pad**：`doc/15_asic_pad_map.md` 中的 pad 46..52（共 7 pads）
+**RTL 入口**：`rtl/top/snn_soc_top.sv` 的 `prog_op_ext[2:0]` / `prog_level_ext[3:0]` 输出端口
+
+### 10.1 合同总览
+
+数字芯片在做**推理**和**编程**时共用 pad 19..45（`wl_data / wl_group_sel / wl_latch / cim_start / cim_done / bl_sel / bl_data`）。模拟芯片通过新增的 `prog_op[2:0]`（pad 46..48）判断当前 `cim_start` 对应什么操作；`prog_level[3:0]`（pad 49..52）给 write 操作提供目标电导等级。
+
+**关键不变量（模拟同学必须遵守）**：
+1. `prog_op[2:0]` 在整个 `prog_busy` 期间（多个 `cim_start` 脉冲之间）保持稳定，模拟侧可以在 `cim_start` 上升沿或任意稳定窗口采样。
+2. `prog_level[3:0]` 只在 `prog_op==3'b010`（write）时有效；其他 op 时数字侧仍然驱动但内容可忽略。
+3. verify 的 PASS/FAIL 判决由数字侧完成（数字侧对 `bl_data` 与 `prog_level*16` 做 ±2 窗口比较），**模拟侧不需要返回 pass 信号**。因此没有 `prog_pass` pad。
+4. 编程期间，模拟侧**不应**独立驱动 `cim_done` 为推理完成语义；`cim_done` 的编程语义是"本次操作已把 pulse 施加完毕"，数字侧的 `cim_program_ctrl` 是自计时的（用寄存器配置的 pulse 宽度倒计数），**不会**依赖 `cim_done` 推进编程状态。
+
+### 10.2 `prog_op[2:0]` 编码表
+
+| `prog_op[2:0]` | 操作 | 模拟侧动作 | `prog_level` 有效？ | row / col 来源 |
+|:---:|---|---|:---:|---|
+| `000` | 推理 (inference) | 按标准 MAC 做 Scheme B 差分，读 10+10 列 | 否 | `wl_data + wl_group_sel + wl_latch`（64-bit 一热位图经 8×8 TDM）+ `bl_sel` |
+| `001` | 擦除单 cell (erase_cell) | 对所选 cell 施加 RESET 脉冲（擦至高阻） | 否 | `wl_data + wl_group_sel + wl_latch`（单行 one-hot）+ `bl_sel`（列） |
+| `010` | 写入单 cell (write) | 对所选 cell 施加 SET 脉冲（写到 `prog_level` 对应的电导） | **是** | 同 001 |
+| `011` | 验证读回 (verify) | 对所选 cell 做读电压采样，结果量化 8-bit 放 `bl_data` | 否 | 同 001 |
+| `100` | 全阵列擦除 (erase_full_array) | 全部 WL 同时拉高做 RESET 擦除（忽略 `wl_data`）| 否 | 全阵列 |
+| `101..111` | 保留 | 视作 idle / no-op；**不要**执行任何 program/erase 动作 | — | — |
+
+### 10.3 脉冲宽度（数字侧自计时）
+
+数字侧通过 `PROG_CTRL` 的 `PROG_PULSE_WIDTH`（写入脉冲）和固定 `PROG_ERASE_WIDTH=1ms`（擦除脉冲）控制长度。模拟侧**不需要**自己计数脉冲宽度，只需在 `cim_start` 到来后开启脉冲驱动电路，并在数字侧把 `cim_start` 撤销（或 `prog_op` 回到 `000`）后关闭。
+
+| 档位 (`PROG_CTRL[17:16]`) | 写入脉宽 (cycles @ 50 MHz) | 实际时间 |
+|:---:|:---:|:---:|
+| `00` | 50 | 1 µs |
+| `01` | 500 | 10 µs |
+| `10` | 5000 | 100 µs |
+| `11` | (保留，钳到 100 µs) | 100 µs |
+
+擦除脉宽固定 `50000 cycles = 1 ms @ 50 MHz`，数字侧硬编码。
+
+### 10.4 典型编程时序（单 cell 写入 level=7）
+
+```
+cycle    0   1   2   3 ... 52  53
+---------------------------------------
+prog_op  010 010 010 010 010 010   ← stable during prog_busy
+prog_lvl  7   7   7   7   7   7    ← stable
+wl_data  (8×8 TDM 分批发送，最终在 cycle 10 前后 wl_latch 脉冲完成 row 锁存)
+bl_sel    C   C   C   C   C   C    ← target column, stable
+cim_start ‾|_____________________   ← 1 cycle pulse at op start
+(analog pulse hardware: 50 cycles SET pulse begins after seeing cim_start + prog_op==010)
+cim_done        (不是必需；数字侧不依赖它前进)
+bl_data          (don't care during write)
+```
+
+### 10.5 典型 verify 时序（单 cell 读回比对）
+
+```
+cycle    0   1   2   3   4  ...  N
+---------------------------------------
+prog_op  011 011 011 011 011 ...  011
+prog_lvl  7   7   7   7   7  ...   7  ← don't care, 但数字侧仍然驱动
+wl_data  (row TDM 发送)
+bl_sel    C   C   C   C   C  ...   C
+cim_start ‾|_______________________ (数字侧也可能用 adc_start 单独拉，见 §2.2)
+bl_data   -   -   -   -   R  ...   R  ← analog 把 8-bit 读回值放到 bl_data
+cim_done  -   -   -   -   -  ...   ‾| ← analog 可选：在数据稳定后拉 1 拍通知
+```
+
+数字侧看到 `bl_data` 稳定后（典型 1-2 cycle 后锁存），把它和 target `prog_level*16` 做 ±2 窗口比对，
+内部判 PASS/FAIL，**不需要**模拟侧告诉。
+
+### 10.6 全阵列擦除 (`prog_op=100`)
+
+```
+cycle    0   1   2   ...   50000
+---------------------------------------
+prog_op  100 100 100 ...   100
+prog_lvl  x   x   x  ...    x    ← don't care
+wl_data   x   x   x  ...    x    ← analog ignores wl_data in this mode,
+                                   全阵列同时 RESET
+bl_sel    x   x   x  ...    x
+cim_start ‾|__________________
+(analog: drive 1ms RESET pulse to all WLs simultaneously)
+```
+
+擦除期间**不需要** verify（单独的 erase op 是 fire-and-forget）；数字侧固件如需验证全阵列状态，会在擦除后逐 cell 用 `prog_op=011` verify。
+
+### 10.7 reset + idle 行为
+
+- 芯片级 `rst_n` 有效时：数字侧所有 `prog_*` 信号都被拉 0，`cim_start` 也不会发。
+- `!prog_busy && !cim_array_busy`（系统空闲）时：`prog_op=000` 作为默认值，`cim_start=0`。模拟侧此时应保持 idle，不做任何 pulse。
+- 模拟侧遇到未定义编码 `101..111` 时：**视作 idle，不执行任何 program/erase/verify 动作**。这是未来扩展预留。
+
+### 10.8 电气要求
+
+沿用 §5（数字驱动能力 / 模拟输出要求），新增 `prog_op` / `prog_level` pad 的要求：
+- 驱动方向：**D→A**（数字输出，模拟输入）
+- 电平：沿用推理接口同一 IO bank 电平（见 §5.1）
+- 建立时间：`prog_op` / `prog_level` 在 `cim_start` 上升沿前至少 `10 ns` 稳定（1 个 50 MHz clk 周期的裕量）；保持时间 ≥ `5 ns`
+- 功耗：静态（idle 态 `prog_op=000`）下可按常态 LVCMOS/LVCMOS18 静态功耗估算；编程脉冲期间主要功耗来自模拟侧的 pulse driver
+
+### 10.9 验证与回归
+
+- 仿真：`tb/prog_bypass_latch_tb.sv`（bypass 锁存语义）+ `tb/cim_program_ctrl_tb.sv`（FSM 8 个子测试）覆盖编程 FSM；数字侧的外部 pad 编码器对 `snn_soc_top.prog_op_ext`/`prog_level_ext` 的输出可以用 `tb/chip_top_rom_smoke_tb.sv` 的 chip_top 级别 smoke 间接观察。
+- FPGA：Phase C 的 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` tag 证明数字侧编程 FSM 与 arbiter 已跑通；对外部 pad 编码器的额外独立验证预计在 V1.1 的 FPGA 回归里补。
+
+### 10.10 已知 follow-up
+
+- `wl_mux_wrapper` 当前由 `cim_array_ctrl` 的推理 bitmap 驱动 pad 19..30；在 `prog_busy=1` 时让 `prog_wl_spike` 也经该路径时分复用到 pads，属于**内部 RTL follow-up**（不影响 pad 层合同）。冻结时间估计在 main 分支下一个 RTL commit。
+- 模拟侧回填 §5 的电气参数 + 芯片 pinout 后，应与本节 §10.8 合并成最终电气合同。

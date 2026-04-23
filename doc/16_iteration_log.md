@@ -535,6 +535,64 @@ f47fe738 feat(rtl+xdc): Stage 1+2 — critical warnings fixed + test_mode extend
 
 ---
 
+## Iteration 11 — 外部编程合同 A8 冻结（方案 α'，2026-04-24）
+
+**背景**：模拟 CIM macro 交接 handoff 前最后一步。推理接口已冻结，但外部 erase/write/verify
+编程接口 (A8) 一直是 blocker，模拟同学无法按文档直接做。本轮由数字侧拍板并落地。
+
+### 决定（方案 α'）
+
+- 新增 **7 个 D→A pads**（pad 总数 48 → 55），承载编程操作类型和目标电导等级
+- **不新增** A→D pad：verify PASS/FAIL 由数字侧对 `bl_data` 自己比对得出
+
+| 新增 pad | 位宽 | 方向 | 语义 |
+|---|---|---|---|
+| `prog_op[2:0]` (pads 46..48) | 3 | D→A | 000 inference / 001 erase_cell / 010 write / 011 verify / 100 erase_full_array / 101..111 reserved |
+| `prog_level[3:0]` (pads 49..52) | 4 | D→A | 目标电导等级 0..15，仅 write 时有效 |
+
+### RTL 改动
+
+- `rtl/top/snn_soc_top.sv`：新增 output ports `prog_op_ext[2:0]` + `prog_level_ext[3:0]`；加编码器逻辑（基于内部 `prog_busy`/`prog_en_sig`/`erase_en_sig`/`verify_en_sig`/`prog_full_array`/`prog_level`）
+- `rtl/top/chip_top.sv`：新增 pad ports `prog_op_pad[2:0]` + `prog_level_pad[3:0]`，连接到 `snn_soc_top`
+- 7 个 TB（`top_tb.sv` / `silicon_bringup_tb.sv` / `prog_bypass_latch_tb.sv` / `e203_tb.sv` / `jtag_rescue_top_tb.sv` / `top_tb_adc_sat_counter.sv` / `top_tb_icarus_light.sv` / `top_tb_icarus_weighted.sv` / `top_tb_sample_align.sv`）补 wire 声明
+
+### 文档改动（全部已冻结）
+
+- `doc/08_cim_analog_interface.md` §10 新增 "外部编程接口"——编码表、时序图、
+  电气要求、不变量、回归覆盖
+- `doc/03_cim_if_protocol.md` 末节新增 "编程协议"——协议 + RTL 入口 + 验证
+- `doc/15_asic_pad_map.md`：pad 表扩 48→55；46..52 新增编程 pad；含编码子表
+- `doc/11_analog_handoff_execution_plan.md` A8 从 "blocker" 标为 "已冻结"，
+  保留冻结决策记录
+- `doc/17_cim_macro_handoff_cover.md` 封面从 "编程 blocker" 改为 "编程 frozen"
+- `doc/02_reg_map.md` CIM 编程寄存器节加 pad 映射注释
+- `CLAUDE.md` 新增 "Pad 预算 + 外部编程合同" 段
+
+### 回归（11/11 全绿）
+
+```
+LIGHT_SMOKETEST_PASS            DMA_SMOKETEST_PASS
+CIM_PROGRAM_CTRL_PASS           UART_SMOKETEST_PASS
+PROG_PULSE_CFG_TB_PASS          PROG_START_INTERLOCK_TB_PASS
+BOOT_ROM_TB_PASS                SILICON_BRINGUP_TB_PASS
+E203_SMOKETEST_PASS             CHIP_TOP_ROM_SMOKE_PASS
+PROG_BYPASS_LATCH_TB_PASS
+```
+
+### 已知 follow-up（不阻塞 handoff，但影响 tape-out 完备性）
+
+- `wl_mux_wrapper` 当前被 `cim_array_ctrl` 的推理 bitmap 独占；编程路径 `prog_wl_spike`
+  还没经过 TDM 打上 `wl_data` pad（内部 macro 可见，外部 pad 不见）。follow-up 是让
+  `wl_mux_wrapper.wl_bitmap_in` 在 `prog_busy=1` 时 mux 到 `prog_wl_spike`。
+  ASIC 上模拟 die 需要看到 row 选择才能做单 cell program；这条 follow-up 不做完 tape-out 不能算完整支持外部编程，但不影响 analog 接口文档（pads + 协议）交付给器件老师。
+- 模拟侧回填的电气参数（A4/A5/A6/A7 电压/时序/噪声）需要按冻结后的编程协议对齐
+
+### 关键 commit（按时间）
+
+- `rtl/top/snn_soc_top.sv` + `rtl/top/chip_top.sv` pad 扩容 + 文档集合（本次）
+
+---
+
 ## 后续计划（Tapeout 准备）
 
 | 项目 | 内容 | 说明 |

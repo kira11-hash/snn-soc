@@ -5,13 +5,17 @@
 **日期**：2026-03-22（2026-03-31 审核确认：自 v2.1 以来数字侧参数无变更，全部冻结事项保持有效）
 **集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联（非片上集成）。
 
-> **2026-04-23 重要澄清（必须先读）**
+> **2026-04-24 状态更新（必须先读）**
 >
-> 1. `main` 分支当前已经包含数字侧 `cim_program_ctrl + cim_macro_arbiter + PROG_*` 寄存器，项目要求也已明确为：
->    **V1 外部模拟 CIM die 最终必须支持由数字芯片发起的 erase / write / verify 编程序列**，不再是“只做推理、权重完全预烧录”的口径。
-> 2. 但当前仓库里**已经冻结**的对外 pad 合同，仍然主要描述**推理接口**（`wl_data / wl_group_sel / wl_latch / cim_start / cim_done / bl_sel / bl_data`）。
-> 3. 也就是说：**“数字侧需要外部编程能力”这个需求已经冻结；但“编程命令如何跨芯片传过去”的 pad / 协议合同还没有冻结。**
-> 4. 因此，模拟同学现在可以立刻按本文与 `doc/08` / `doc/15` 进入**推理接口、时序、电平、pad/PCB、噪声/动态范围**这些工作；但如果要开始做**外部编程接口实现**，必须先完成本文新增的 **A8 外部编程合同冻结**。
+> 1. `main` 分支当前已经包含数字侧 `cim_program_ctrl + cim_macro_arbiter + PROG_*` 寄存器，项目要求已明确：
+>    **V1 外部模拟 CIM die 必须支持由数字芯片发起的 erase / write / verify 编程序列**。
+> 2. **外部编程 pad / 协议合同已于 2026-04-24 冻结为方案 α'**（7 new D→A pads：
+>    `prog_op[2:0]` + `prog_level[3:0]`，pad 总数 48 → 55）。详细见本文 **A8 章节**
+>    的冻结记录 + `doc/08_cim_analog_interface.md` §10 + `doc/03_cim_if_protocol.md`
+>    "编程协议" 节 + `doc/15_asic_pad_map.md` pads 46..52。
+> 3. 模拟同学现在可以**同时**按推理接口（`doc/08` §1-9 + `doc/03` 上半）和编程接口
+>    （`doc/08` §10 + `doc/03` 下半）开做，不再需要等 A8 冻结。
+> 4. 本文的 A8 章节保留，以文字形式记录冻结过程与决定——新接手的同学读本节即可。
 
 ---
 
@@ -141,53 +145,48 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 ---
 
-### A8【最高优先级】外部编程合同冻结（新增 2026-04-23）
+### A8【已冻结 2026-04-24】外部编程合同（方案 α'，7 new pads）
 
-> 影响：这是当前 handoff 的**真正 blocker**。若不冻结这部分，模拟同学无法“按文档直接实现”外部编程支持。
+> 状态更新（2026-04-24）：**A8 不再是 blocker，已冻结为方案 α'**——新增 7 个
+> D→A 外部 pad 承载编程语义；pad 总数从 48 扩到 55。模拟同学现在可以按文档
+> 直接实现。详细协议与时序见 `doc/08_cim_analog_interface.md` §10 +
+> `doc/03_cim_if_protocol.md` "编程协议" 节 + `doc/15_asic_pad_map.md` pads
+> 46..52。
 
-当前数字侧仓库已经有：
+#### A8-DECISION（冻结记录）
 
-- `PROG_CTRL / PROG_ROW / PROG_COL / PROG_STATUS / PROG_PULSE_WIDTH / PROG_ERASE_WIDTH`
-- `cim_program_ctrl.sv`
-- `cim_macro_arbiter.sv`
-- `BYPASS_HANDSHAKE`（仅数字自检用，**不能**当作真实外部编程协议）
+| 项 | 冻结结果 |
+|---|---|
+| A8-1 `erase / write / verify` 操作类型 | 编码进 `prog_op[2:0]`（pads 46..48）：`001`=erase_cell, `010`=write, `011`=verify |
+| A8-2 `prog_level[3:0]` | 独立 pad `prog_level[3:0]`（pads 49..52），D→A，仅 write 时有效 |
+| A8-3 `full_array erase` | `prog_op[2:0] = 3'b100` 专用编码 |
+| A8-4 新增 pad vs 复用 | **新增 7 pads 作为编程 sideband**（方案 α'）；推理 pad 维持 frozen 不变 |
+| A8-5 编码与时序 | `prog_op` / `prog_level` 在 `prog_busy` 期间稳定；`cim_start` 脉冲沿为采样点；脉宽数字侧自计时（`PROG_PULSE_WIDTH` 档位 1/10/100 µs，擦除固定 1 ms）；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
 
-但当前已经冻结的外部 pad 合同，仍然只明确了：
+#### 数字侧已完成的 RTL 落地
 
-- `wl_data[7:0]`
-- `wl_group_sel[2:0]`
-- `wl_latch`
-- `cim_start / cim_done`
-- `bl_sel[4:0]`
-- `bl_data[7:0]`
+- `rtl/top/snn_soc_top.sv`：新增输出端口 `prog_op_ext[2:0]` + `prog_level_ext[3:0]`；
+  编码器根据内部 `prog_busy` / `prog_en_sig` / `erase_en_sig` / `verify_en_sig` /
+  `prog_full_array` / `prog_level` 生成 `prog_op` 编码。
+- `rtl/top/chip_top.sv`：新增 pad 端口 `prog_op_pad[2:0]` + `prog_level_pad[3:0]`，
+  连接到 `snn_soc_top`。
+- `doc/15_asic_pad_map.md`：pad 表扩到 55 项，46..52 给新编程接口。
+- Gate A 回归 11/11 全绿；`CHIP_TOP_ROM_SMOKE_PASS` / `PROG_BYPASS_LATCH_TB_PASS` /
+  `CIM_PROGRAM_CTRL_PASS` 均过。
 
-**缺的不是“数字侧有没有 programming FSM”，而是“跨芯片如何表达下面这些信息”：**
+#### 模拟侧可以直接开始做的事
 
-| 编号 | 外部编程合同缺口 | 为什么缺它就没法实现 |
-|---|---|---|
-| A8-1 | `erase / write / verify` 操作类型如何传到模拟 die | 现有 pad 合同里没有外部 `prog_en / erase_en / verify_en` |
-| A8-2 | `prog_level[3:0]`（目标电导等级）如何传到模拟 die | 现有 pad 合同里没有 level 字段 |
-| A8-3 | `full_array erase` 如何编码 | 现有 pad 合同里没有全阵列擦除专用外部语义 |
-| A8-4 | 外部编程是否复用现有推理引脚、还是必须新增 pad | 这会直接影响 pad freeze / PCB / 模拟芯片 pinout |
-| A8-5 | 若复用现有引脚，具体时序编码是什么 | 否则模拟同学无法实现解码逻辑 |
+1. **解码 `prog_op[2:0]`**：在 `cim_start` 上升沿采样；`000` → 推理常态；`001/010/011/100` → 对应编程；其它视为 idle。
+2. **解码 `prog_level[3:0]`**：仅 `prog_op==010` (write) 时读取。
+3. **复用推理 pad 载 row/col**：编程的 row 来自 `wl_data / wl_group_sel / wl_latch` 的 8×8 TDM one-hot；col 来自 `bl_sel[4:0]`。
+4. **verify 读回路径**：收到 `prog_op=011` + `cim_start` 后，按单 cell 读电压做 ADC 采样，结果放 `bl_data[7:0]`；**不需要**上报 pass/fail。
+5. **脉冲驱动器**：数字侧自计时，模拟侧在 `cim_start` 到来后启动 pulse driver，数字侧撤销 `cim_start` 或将 `prog_op` 拉回 `000` 后关闭。
 
-**本条要求数字/模拟联合做一个二选一决定：**
+#### 仍然是开放项（非 A8 blocker，但属于最终完工清单）
 
-1. **方案 A：新增外部编程 pad / sideband**
-   - 优点：语义清楚，模拟实现最直接
-   - 代价：要重开 pad freeze / `doc/15_asic_pad_map.md`
-
-2. **方案 B：复用现有推理 pad，冻结一套“编程 over 推理接口”的时序编码**
-   - 优点：不一定增加 pad
-   - 代价：必须明确定义 `erase/write/verify/level/full_array` 的编码方式，且数字 RTL / 模拟接口文档要同步收敛
-
-在 A8 未冻结前，模拟同学可以先推进：
-
-- 推理接口
-- ADC/TIA/Vref/噪声/时序
-- pad/pin/PCB 约束
-
-但**不能**把“外部编程接口实现”当成已冻结合同直接开做。
+- 脉冲驱动器的**电压**与**上升/下降沿**规格 → A4 / A7（器件老师侧回填）
+- 模拟芯片 pinout 最终落位（如 `doc/15_asic_pad_map.md` pad 索引要不要重排）→ P0（两边联合确认）
+- verify 读电压与推理读电压是否共用同一 TIA/ADC 通路 → A5 / A6 细化
 
 ---
 

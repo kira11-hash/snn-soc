@@ -6,7 +6,9 @@
 **参数口径**：与时序相关的默认参数以 `rtl/top/snn_soc_pkg.sv` 为准，本文数值仅作说明，若不一致以 pkg 为准。
 **架构说明**：本文描述的是数字芯片内部的 `snn_soc_top` 与行为模型 `cim_macro_blackbox` 之间的**内部并行接口**。实际流片后，数字芯片与模拟 CIM 芯片为独立封装，通过 PCB 互联，使用 `wl_mux_wrapper` 提供的**外部复用接口**（45 个可用 pad 口径）。详见 `doc/08_cim_analog_interface.md` §1.3 与 `doc/15_asic_pad_map.md`。
 
-> **边界说明（2026-04-23）**：本文只覆盖**推理**链路的内部协议，不定义外部 `erase/write/verify` 编程协议。若 V1 外部模拟 die 需要支持数字发起编程，请以 `doc/11_analog_handoff_execution_plan.md` 的 A8 为准，先冻结跨芯片编程合同。
+> **边界说明（2026-04-24 更新）**：本文描述的是数字芯片内部行为模型接口。
+> - **推理链路**：本文 §"接口信号" / "时序与触发" / "ADC 时分复用" 节覆盖
+> - **外部编程链路**（数字芯片 ↔ 模拟 CIM 芯片，V1 α' 方案已冻结 7 new pads）：见本文末尾 §"编程协议 (External Programming Protocol)" 节 + `doc/08_cim_analog_interface.md` §10 + `doc/15_asic_pad_map.md` pads 46..52
 
 ## 接口信号
 | 方向 | 信号 | 位宽 | 类型 | 说明 |
@@ -46,3 +48,52 @@ pop = popcount(wl_latched)
 负列 (j >= 10): bl_data[j] = (pop / 2 + (j-10)) & 8'hFF
 ```
 - `popcount` 统计锁存后 `wl_latched` 中 1 的个数（0..64）。
+
+---
+
+## 编程协议 (External Programming Protocol)
+
+**冻结日期**：2026-04-24（方案 α'）
+**适用范围**：数字芯片 ↔ 模拟 CIM 芯片跨 PCB 互联（非行为模型）
+
+### 新增外部 pad
+
+| pad 索引（参见 `doc/15_asic_pad_map.md`）| 信号 | 方向 | 位宽 | 说明 |
+|:---:|---|:---:|---:|---|
+| 46..48 | `prog_op[2:0]` | D→A | 3 | 编程操作类型编码，`cim_start` 脉冲时由模拟侧采样 |
+| 49..52 | `prog_level[3:0]` | D→A | 4 | 目标电导等级 0..15，**仅 write (op=010) 时有效** |
+
+### 操作编码
+
+| `prog_op` | 操作 | 载体信号（共享推理 pad） |
+|:---:|---|---|
+| `3'b000` | 推理 (inference) | `wl_data / wl_group_sel / wl_latch / cim_start / cim_done / bl_sel / bl_data` |
+| `3'b001` | 擦除单 cell | 同上；WL 发送 one-hot row，`bl_sel` = col |
+| `3'b010` | 写入单 cell | 同上；`prog_level` 给出目标等级 |
+| `3'b011` | 验证单 cell（读回） | `wl_data` / `bl_sel` 选 cell；模拟侧 ADC 采样后放到 `bl_data`，数字侧自己比对 pass/fail |
+| `3'b100` | 全阵列擦除 | `wl_data` 被模拟侧忽略，所有 WL 同步擦除 |
+| `3'b101..111` | 保留 | 模拟侧应视为 idle，不动作 |
+
+### 数字侧 RTL 入口
+
+- **编码器**：`rtl/top/snn_soc_top.sv` 在 `prog_op_ext` / `prog_level_ext` 输出端口生成编码（基于内部 `prog_busy`、`prog_en_sig`、`erase_en_sig`、`verify_en_sig`、`prog_full_array`、`prog_level`）。
+- **顶层 pad 路由**：`rtl/top/chip_top.sv` 把 `prog_op_ext` → `prog_op_pad`，`prog_level_ext` → `prog_level_pad`。
+- **脉冲宽度 (数字侧自计时)**：`PROG_PULSE_WIDTH` 档位 0/1/2 = 1/10/100 µs @ 50 MHz；擦除固定 1 ms。模拟侧不计脉宽，只在 `cim_start` 到来后开始 pulse driver，直到数字侧把 `cim_start` 撤销 / `prog_op` 回到 `000`。
+
+### 编程时序不变量
+
+1. `prog_op` / `prog_level` 在整个 `prog_busy` 期间保持稳定；模拟侧可以在 `cim_start` 上升沿或任一稳定窗口采样。
+2. verify 的 PASS/FAIL 由数字侧 `cim_program_ctrl` 在读到 `bl_data` 后自行比对（`bl_data` 落在 `prog_level * 16 ± 2` 内即 PASS），**模拟侧不需要返回 pass 信号**，也没有 `prog_pass` pad。
+3. `prog_op==100`（全阵列擦除）时 `wl_data` / `wl_group_sel` / `wl_latch` 可为任意值，模拟侧忽略。
+4. 推理 (`prog_op==000`) 与编程 (`prog_op!=000`) 在物理 pad 上**不会同时出现**——数字侧的 `cim_macro_arbiter` 保证 `prog_busy` 与推理 FSM 互斥。
+
+### 与行为模型的关系
+
+`cim_macro_blackbox.sv` 内部用 `prog_en` / `erase_en` / `verify_en` 三个独立信号直接接收编程动作（不经过 pad 级的 `prog_op` 编码）。`prog_op` 编码器是为了把这三个内部信号打包成 3-bit 跨芯片传递，**仅在 ASIC 流片外部模拟 die 场景下起作用**，FPGA 仿真 / Icarus 仿真沿用内部并行接口，不受影响。
+
+### 回归覆盖
+
+- `tb/cim_program_ctrl_tb.sv`（8/8 PASS）— 数字侧编程 FSM
+- `tb/prog_bypass_latch_tb.sv`（PROG_BYPASS_LATCH_TB_PASS）— BYPASS_HANDSHAKE 锁存语义
+- `tb/silicon_bringup_tb.sv`（SILICON_BRINGUP_TB_PASS）— CPU 固件 E2E
+- `tb/chip_top_rom_smoke_tb.sv`（CHIP_TOP_ROM_SMOKE_PASS）— chip_top 端到端（`prog_op_pad` / `prog_level_pad` 在这里可观察但当前未做编码断言，作为 follow-up）

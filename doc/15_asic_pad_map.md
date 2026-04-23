@@ -5,26 +5,30 @@
 This document is the canonical in-repo source of truth for the current ASIC pad plan.
 
 - Scope: ASIC mainline only
-- Physical intent: full 48-pad package view
-- Current RTL status: [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv) now routes the digital core signals to the documented pad-facing ports, but still does not instantiate technology-specific pad cells
+- Physical intent: full **55-pad** package view (expanded from 48 on 2026-04-24 to accommodate the external programming contract — see V1 freeze notes below)
+- Current RTL status: [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv) now routes the digital core signals (including the 7 new programming-interface signals) to the documented pad-facing ports, but still does not instantiate technology-specific pad cells
 - Counting rule:
-  - 48 pads total
-  - 45 usable pads
+  - **55 pads total**
+  - **52 usable pads**
   - 3 `ESD-reserved` pads
-  - The 45 usable pads are split into 39 functional signal pads + 6 power/ground pads
+  - The 52 usable pads are split into **46 functional signal pads** (39 original + **7 external programming**) + 6 power/ground pads
 
 ## Notes
 
 - Pad index order below is the frozen documentation order for interface planning and cross-team review. It is not yet a final physical pad-ring placement order.
 - `default/reset behavior` describes the current repository behavior and reset expectation. Where `chip_top.sv` still lacks technology-specific pad-cell implementation, that is called out explicitly.
-- This 48-pad freeze documents the **currently frozen digital-chip pad contract**, which already covers the external **inference** interface to the analog CIM die.
-- It does **not** by itself freeze the external **programming** contract. If V1 must support digital-chip-initiated `erase/write/verify`, digital and analog teams still need to freeze how programming op-type / level / full-array semantics cross the chip boundary (see `doc/11_analog_handoff_execution_plan.md` A8).
+- This **55-pad freeze** documents the currently frozen digital-chip pad contract. It covers **both** the external inference interface (pads 19..45, frozen 2026-03-16) **and** the external programming interface (pads 46..52, frozen 2026-04-24, scheme α').
+- **External programming contract (scheme α', 2026-04-24)**:
+  - 7 new pads carry `prog_op[2:0]` (D→A op encoding) + `prog_level[3:0]` (D→A target conductance level).
+  - `cim_start`, `cim_done`, `wl_data / wl_group_sel / wl_latch`, `bl_sel`, `bl_data` are **shared** between inference and programming — analog side looks at `prog_op` to disambiguate.
+  - The verify pass/fail decision is made by the **digital side** (`cim_program_ctrl` compares `bl_data` against `prog_level * (256/16) ± 2`), so **no** `prog_pass` A→D pad is required.
+  - Full protocol details (encoding table, timing, electrical): `doc/08_cim_analog_interface.md` §4 + `doc/03_cim_if_protocol.md` §Programming.
 - `expected signal owner`:
   - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
   - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv), but still not backed by technology pad cells
 - JTAG remains 4-wire only in the current pad freeze. There is no dedicated `TRST_n` pad.
 
-## Full 48-Pad Table
+## Full 55-Pad Table
 
 | Pad | Name | Function | Dir | Class | Default / Reset Behavior | Notes |
 |---|---|---|---|---|---|---|
@@ -73,18 +77,42 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 43 | `bl_data[5]` | BL readback data bit 5 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 44 | `bl_data[6]` | BL readback data bit 6 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
 | 45 | `bl_data[7]` | BL readback data bit 7 | in | signal | External analog side drives and feeds `snn_soc_top` external CIM interface | Current sink: chip-level external CIM input |
-| 46 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
-| 47 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
-| 48 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 46 | `prog_op[0]` | External programming op bit 0 | out | signal | Driven from `snn_soc_top.prog_op_ext`. See §Programming below for encoding. | Current source: `snn_soc_top` encoder from `cim_program_ctrl` + `reg_bank`. Added 2026-04-24. |
+| 47 | `prog_op[1]` | External programming op bit 1 | out | signal | Driven from `snn_soc_top.prog_op_ext` | Same source as pad 46 |
+| 48 | `prog_op[2]` | External programming op bit 2 | out | signal | Driven from `snn_soc_top.prog_op_ext` | Same source as pad 46 |
+| 49 | `prog_level[0]` | External programming target level bit 0 | out | signal | Driven from `snn_soc_top.prog_level_ext` (directly from `reg_bank.PROG_CTRL[7:4]`). Valid only when `prog_op==010` (write). | Current source: `reg_bank` prog_level. Added 2026-04-24. |
+| 50 | `prog_level[1]` | External programming target level bit 1 | out | signal | Same as pad 49 | Same source as pad 49 |
+| 51 | `prog_level[2]` | External programming target level bit 2 | out | signal | Same as pad 49 | Same source as pad 49 |
+| 52 | `prog_level[3]` | External programming target level bit 3 | out | signal | Same as pad 49 | Same source as pad 49 |
+| 53 | `ESD_RSV0` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 54 | `ESD_RSV1` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+| 55 | `ESD_RSV2` | Reserved pad for ESD / foundry rule closure | n/a | ESD-reserved | Do not assign logic use | Not exported in current RTL wrapper |
+
+## Programming op encoding (pads 46..48)
+
+Analog macro samples `prog_op[2:0]` concurrently with `cim_start` rising edge
+and decodes:
+
+| `prog_op[2:0]` | Meaning | `prog_level` field | Cell selected by |
+|---|---|---|---|
+| `3'b000` | Inference (standard MAC) | — | `wl_data / wl_group_sel / wl_latch` (inference WL vector) + `bl_sel` |
+| `3'b001` | Erase cell | don't care | `wl_data / wl_group_sel / wl_latch` (one-hot row) + `bl_sel` (col) |
+| `3'b010` | Write cell | **target level 0..15** | `wl_data / wl_group_sel / wl_latch` (one-hot row) + `bl_sel` (col) |
+| `3'b011` | Verify cell (readback on `bl_data`) | don't care | `wl_data / wl_group_sel / wl_latch` (one-hot row) + `bl_sel` (col) |
+| `3'b100` | Erase full array (ignores row selection) | don't care | all rows asserted; `bl_sel` don't care |
+| `3'b101..111` | Reserved | — | analog side shall treat as idle / no-op |
+
+Digital compares `bl_data` readback against `prog_level * (256/16) ± 2` internally.
+Therefore **no** analog → digital `prog_pass` pad is required.
 
 ## Totals
 
 | Class | Count |
 |---|---:|
-| `signal` | 39 |
+| `signal` | 46 |
 | `power` | 6 |
 | `ESD-reserved` | 3 |
-| Total | 48 |
+| Total | **55** |
 
 ## Consistency Rules
 

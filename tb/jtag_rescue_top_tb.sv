@@ -32,6 +32,8 @@ module jtag_rescue_top_tb;
   logic       cim_done_ext;
   logic [4:0] bl_sel_ext;
   logic [7:0] bl_data_ext;
+  logic [2:0] prog_op_ext;      // V1 external programming (2026-04-24)
+  logic [3:0] prog_level_ext;
 
   logic uart_busy_d;
   integer uart_byte_count;
