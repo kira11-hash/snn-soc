@@ -12,8 +12,11 @@
 > - 本文**推理接口**章节自 v3.0 以来保持冻结。
 > - 项目要求已冻结：**V1 外部模拟 CIM die 必须支持由数字芯片发起的 erase / write / verify 编程。**
 > - **外部编程接口合同已于 2026-04-24 冻结**为方案 α'（7 new pads），详见本文 §10 **外部编程接口 (External Programming Interface)**。
-> - pad 总数从 48 扩到 **55**（52 usable signal + 6 power + 3 ESD），见 `doc/15_asic_pad_map.md`。
+> - pad 总数从 48 扩到 **55**（46 signal + 6 power + 3 ESD；usable=52），见 `doc/15_asic_pad_map.md`。
 > - 模拟同学现在可以按本文 §2/§3/§4/§5（推理）**和** §10（外部编程）同时推进实现。
+> - 但要注意：当前数字侧 RTL 里，external programming 的 **shared carrier pads**
+>   （`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`）还没全部切到
+>   programming 路径；这不影响模拟侧按合同设计接口和电路，但会影响后续端到端联调。
 
 ---
 
@@ -78,9 +81,10 @@
 当前 RTL 已加入协议原型：`rtl/snn/wl_mux_wrapper.sv`。
 
 > **重要边界**：
-> 本节描述的是**已经冻结**、可以直接交给模拟同学实现的**推理接口**。
-> 它**不能自动推出**外部编程接口合同。
-> 当前 `main` 虽然已经有 `PROG_*` 寄存器和数字编程 FSM，但 `chip_top/snn_soc_top` 对外冻结的 pad 子集仍只明确覆盖推理路径；外部编程仍需联合冻结额外协议（见 `doc/11_analog_handoff_execution_plan.md` A8）。
+> 本节只描述**推理接口**。  
+> 外部编程合同已经在本文 §10 + `doc/03` + `doc/15` 中冻结。  
+> 当前 remaining work 不是“协议未定”，而是数字侧 still needs an RTL follow-up
+> to drive the shared carrier pads from the programming path during `prog_busy`.
 
 #### 1.3.1 WL 复用协议字段与拍数（冻结版）
 
@@ -739,9 +743,24 @@ module cim_macro_blackbox #(
 | `100` | 全阵列擦除 (erase_full_array) | 全部 WL 同时拉高做 RESET 擦除（忽略 `wl_data`）| 否 | 全阵列 |
 | `101..111` | 保留 | 视作 idle / no-op；**不要**执行任何 program/erase 动作 | — | — |
 
-### 10.3 脉冲宽度（数字侧自计时）
+### 10.3 脉冲宽度与关断语义（合同级定义）
 
-数字侧通过 `PROG_CTRL` 的 `PROG_PULSE_WIDTH`（写入脉冲）和固定 `PROG_ERASE_WIDTH=1ms`（擦除脉冲）控制长度。模拟侧**不需要**自己计数脉冲宽度，只需在 `cim_start` 到来后开启脉冲驱动电路，并在数字侧把 `cim_start` 撤销（或 `prog_op` 回到 `000`）后关闭。
+外部编程合同按下面语义冻结：
+
+- `prog_op[2:0]` / `prog_level[3:0]` 负责表达**操作类型**和**目标等级**
+- 对于 `erase_cell / write / erase_full_array`，共享 pad `cim_start` 充当
+  **pulse-gate**
+  - `cim_start=1`：模拟侧 pulse driver 保持开启
+  - `cim_start=0`：模拟侧 pulse driver 立即关闭
+- 因此，**本次脉冲时长最终以 `cim_start` 高电平持续时间为准**
+- `prog_op` 回到 `000` 与 `cim_start` 拉低在合同上应保持一致；模拟侧以
+  `cim_start` 作为真正开/关控制，`prog_op` 只负责解释本次操作类型
+
+> **实现现状说明**：当前 `main` 的数字 RTL 里，external programming 共享载体
+> 信号的 routing follow-up 仍未补完，因此 `cim_start` 还没有在 `prog_busy`
+> 期间真正对外表现为上述 pulse-gate 语义。  
+> 但这条语义本身已经作为 **A8 合同冻结**，模拟侧可以按它设计 pulse driver；
+> 后续由数字侧把外部驱动补齐。
 
 | 档位 (`PROG_CTRL[17:16]`) | 写入脉宽 (cycles @ 50 MHz) | 实际时间 |
 |:---:|:---:|:---:|
@@ -761,8 +780,9 @@ prog_op  010 010 010 010 010 010   ← stable during prog_busy
 prog_lvl  7   7   7   7   7   7    ← stable
 wl_data  (8×8 TDM 分批发送，最终在 cycle 10 前后 wl_latch 脉冲完成 row 锁存)
 bl_sel    C   C   C   C   C   C    ← target column, stable
-cim_start ‾|_____________________   ← 1 cycle pulse at op start
-(analog pulse hardware: 50 cycles SET pulse begins after seeing cim_start + prog_op==010)
+cim_start __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|__ ← pulse-gate，高电平持续时间 = 本次 SET 脉冲时长
+(analog pulse hardware: seeing cim_start↑ + prog_op==010 => pulse on;
+ falling edge => pulse off)
 cim_done        (不是必需；数字侧不依赖它前进)
 bl_data          (don't care during write)
 ```
@@ -776,13 +796,27 @@ prog_op  011 011 011 011 011 ...  011
 prog_lvl  7   7   7   7   7  ...   7  ← don't care, 但数字侧仍然驱动
 wl_data  (row TDM 发送)
 bl_sel    C   C   C   C   C  ...   C
-cim_start ‾|_______________________ (数字侧也可能用 adc_start 单独拉，见 §2.2)
+cim_start ‾|_______________________ ← verify request strobe
 bl_data   -   -   -   -   R  ...   R  ← analog 把 8-bit 读回值放到 bl_data
 cim_done  -   -   -   -   -  ...   ‾| ← analog 可选：在数据稳定后拉 1 拍通知
 ```
 
-数字侧看到 `bl_data` 稳定后（典型 1-2 cycle 后锁存），把它和 target `prog_level*16` 做 ±2 窗口比对，
+**冻结要求（模拟侧必须满足）**：
+
+1. 当 `prog_op==011` 且 `cim_start` 出现 request strobe 后，模拟侧必须在
+   当前默认数字预算内把读回值放上 `bl_data`：
+   - `ADC_MUX_SETTLE_CYCLES = 2`
+   - `ADC_SAMPLE_CYCLES = 3`
+   - 合计默认预算 = `5 cycles = 100 ns @ 50 MHz`
+2. `bl_data` 一旦有效，应至少保持到下一次 `bl_sel` 变化或 `prog_op` 离开 `011`
+3. 若模拟侧同时拉 `cim_done`，则 `cim_done` 应在 `bl_data` 已稳定后再拉高
+
+数字侧随后把 `bl_data` 和 target `prog_level*16` 做 **±2 LSB** 窗口比较，
 内部判 PASS/FAIL，**不需要**模拟侧告诉。
+
+> **噪声预算提醒**：如果模拟侧 verify 读回在数字 ADC code 上的散布超过约 ±1 LSB，
+> 单次 verify 很容易因为固定 ±2 窗口而触发 false fail。数字侧虽然有 retry 机制，
+> 但若想稳定一次过，建议把 verify 读回噪声控制在 target code 附近约 ±1 LSB 内。
 
 ### 10.6 全阵列擦除 (`prog_op=100`)
 
@@ -794,11 +828,17 @@ prog_lvl  x   x   x  ...    x    ← don't care
 wl_data   x   x   x  ...    x    ← analog ignores wl_data in this mode,
                                    全阵列同时 RESET
 bl_sel    x   x   x  ...    x
-cim_start ‾|__________________
-(analog: drive 1ms RESET pulse to all WLs simultaneously)
+cim_start __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|__
+(analog: drive full-array RESET while cim_start=1)
 ```
 
 擦除期间**不需要** verify（单独的 erase op 是 fire-and-forget）；数字侧固件如需验证全阵列状态，会在擦除后逐 cell 用 `prog_op=011` verify。
+
+**关断语义冻结**：
+
+- 模拟侧必须把 `cim_start` 看作全阵列擦除 pulse-gate
+- 若数字侧因为复位/异常提前把 `cim_start` 拉低，模拟侧应**立即停止当前 pulse**，
+  不应在内部偷偷补完整个 1 ms pulse
 
 ### 10.7 reset + idle 行为
 
@@ -816,10 +856,17 @@ cim_start ‾|__________________
 
 ### 10.9 验证与回归
 
-- 仿真：`tb/prog_bypass_latch_tb.sv`（bypass 锁存语义）+ `tb/cim_program_ctrl_tb.sv`（FSM 8 个子测试）覆盖编程 FSM；数字侧的外部 pad 编码器对 `snn_soc_top.prog_op_ext`/`prog_level_ext` 的输出可以用 `tb/chip_top_rom_smoke_tb.sv` 的 chip_top 级别 smoke 间接观察。
+- 仿真：`tb/prog_bypass_latch_tb.sv`（bypass 锁存语义）+ `tb/cim_program_ctrl_tb.sv`（FSM 8 个子测试）覆盖编程 FSM。
+- 外部 pad 编码器：`tb/prog_pad_encoder_tb.sv` 直接观察 `snn_soc_top.prog_op_ext / prog_level_ext`，断言 write / erase_cell / verify / erase_full_array 四种编码与内部 `prog_en / erase_en / verify_en / prog_full_array` 相位一致。
 - FPGA：Phase C 的 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` tag 证明数字侧编程 FSM 与 arbiter 已跑通；对外部 pad 编码器的额外独立验证预计在 V1.1 的 FPGA 回归里补。
 
 ### 10.10 已知 follow-up
 
-- `wl_mux_wrapper` 当前由 `cim_array_ctrl` 的推理 bitmap 驱动 pad 19..30；在 `prog_busy=1` 时让 `prog_wl_spike` 也经该路径时分复用到 pads，属于**内部 RTL follow-up**（不影响 pad 层合同）。冻结时间估计在 main 分支下一个 RTL commit。
+- 当前 `main` 中，external programming **sideband pads**（`prog_op / prog_level`）已经真正接到 `chip_top`；
+  但 external programming 复用的 **共享载体 pads** 还没有全部切到 programming 路径：
+  - `wl_data / wl_group_sel / wl_latch` 仍由推理 `wl_mux_wrapper` 驱动
+  - `cim_start_ext` 当前仍是推理 `cim_start_pulse`
+  - `bl_sel_ext` 当前仍是推理 `bl_sel`
+- 因此，**模拟同学现在可以按本文实现 pad decoder / pulse driver / verify readback 电路**；
+  但数字+模拟的端到端 external programming 联调，必须等数字侧把上述共享载体路由补齐。
 - 模拟侧回填 §5 的电气参数 + 芯片 pinout 后，应与本节 §10.8 合并成最终电气合同。

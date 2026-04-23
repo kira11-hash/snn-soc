@@ -77,7 +77,10 @@
 
 ## 三、外部编程合同已于 2026-04-24 冻结（方案 α'）
 
-> **状态更新**：A8 外部编程 pad / 协议合同**已冻结**，模拟同学现在可以**同时**实现推理和外部编程，不再是 blocker。
+> **状态更新**：A8 外部编程 pad / 协议合同**已冻结**，模拟同学现在可以**同时**实现推理和外部编程，不再是协议 blocker。  
+> 但当前仍有一个**数字侧实现 follow-up**：external programming 复用的 shared carrier pads
+> （`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel`）还没全部切到 programming
+> 路径。这不影响你按合同设计模拟接口/电路，但会影响后续数字+模拟的端到端联调。
 
 ### 冻结方案（α'）
 
@@ -112,9 +115,10 @@
 
 1. `prog_op[2:0]` 在整个 `prog_busy` 期间保持稳定；`cim_start` 上升沿为采样点。
 2. `prog_level[3:0]` 只在 `prog_op==010`（write）时读取；其它状态可忽略。
-3. 脉冲宽度由**数字侧自计时**（1/10/100 µs write @ 50 MHz，擦除固定 1 ms）；模拟侧只需在 `cim_start` 到来后启动 pulse driver，撤销后关闭。
+3. 脉冲宽度由**共享 `cim_start` pulse-gate**表达：`cim_start=1` 时 pulse driver 开启，`cim_start=0` 时关闭；write 预置档位为 1/10/100 µs @ 50 MHz，擦除固定 1 ms。
 4. verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己算，**模拟侧不上报 pass 信号**。
 5. 遇到 `prog_op==101..111` 保留编码，模拟侧应视作 idle。
+6. verify 读回必须在默认 `5 cycles = 100 ns @ 50 MHz` 预算内把结果放上 `bl_data`，并保持到下一次 `bl_sel` 或 `prog_op` 变化。
 
 ---
 
@@ -138,6 +142,8 @@
    由模拟侧在 `cim_start` 期间保持开启
 3. 实现 verify 读回通路（单 cell ADC 读，结果放 `bl_data[7:0]`）
 4. 明确 erase / write / verify 的**模拟电压规格**（A4 + A7 会进一步细化）
+5. 注意：直到数字侧把 shared carrier pads 的 programming routing follow-up 补完之前，
+   你这边可以完成接口实现与电路设计，但不能期待马上做完整的 digital+analog 联调
 
 ### C. 需要模拟/器件侧回填的电气参数（非 A8 blocker）
 

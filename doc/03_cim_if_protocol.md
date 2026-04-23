@@ -78,14 +78,15 @@ pop = popcount(wl_latched)
 
 - **编码器**：`rtl/top/snn_soc_top.sv` 在 `prog_op_ext` / `prog_level_ext` 输出端口生成编码（基于内部 `prog_busy`、`prog_en_sig`、`erase_en_sig`、`verify_en_sig`、`prog_full_array`、`prog_level`）。
 - **顶层 pad 路由**：`rtl/top/chip_top.sv` 把 `prog_op_ext` → `prog_op_pad`，`prog_level_ext` → `prog_level_pad`。
-- **脉冲宽度 (数字侧自计时)**：`PROG_PULSE_WIDTH` 档位 0/1/2 = 1/10/100 µs @ 50 MHz；擦除固定 1 ms。模拟侧不计脉宽，只在 `cim_start` 到来后开始 pulse driver，直到数字侧把 `cim_start` 撤销 / `prog_op` 回到 `000`。
+- **脉冲宽度合同**：对 `erase_cell / write / erase_full_array`，`cim_start` 作为 external pulse-gate；模拟侧 seeing `cim_start=1` 时保持 pulse driver 开启，`cim_start=0` 时立即关闭。`PROG_PULSE_WIDTH` 档位 0/1/2 = 1/10/100 µs @ 50 MHz；擦除固定 1 ms。
 
 ### 编程时序不变量
 
 1. `prog_op` / `prog_level` 在整个 `prog_busy` 期间保持稳定；模拟侧可以在 `cim_start` 上升沿或任一稳定窗口采样。
-2. verify 的 PASS/FAIL 由数字侧 `cim_program_ctrl` 在读到 `bl_data` 后自行比对（`bl_data` 落在 `prog_level * 16 ± 2` 内即 PASS），**模拟侧不需要返回 pass 信号**，也没有 `prog_pass` pad。
+2. verify 的 PASS/FAIL 由数字侧 `cim_program_ctrl` 在读到 `bl_data` 后自行比对（`bl_data` 落在 `prog_level * 16 ± 2` 内即 PASS），**模拟侧不需要返回 pass 信号**，也没有 `prog_pass` pad。为保证 single-shot verify 稳定一次过，建议模拟侧把 verify 读回在数字 ADC code 上的散布控制在 target 附近约 ±1 LSB 内。
 3. `prog_op==100`（全阵列擦除）时 `wl_data` / `wl_group_sel` / `wl_latch` 可为任意值，模拟侧忽略。
 4. 推理 (`prog_op==000`) 与编程 (`prog_op!=000`) 在物理 pad 上**不会同时出现**——数字侧的 `cim_macro_arbiter` 保证 `prog_busy` 与推理 FSM 互斥。
+5. verify (`prog_op==011`) 时，模拟侧需在默认 `ADC_MUX_SETTLE_CYCLES + ADC_SAMPLE_CYCLES = 5 cycles = 100 ns @ 50 MHz` 预算内把读回值放上 `bl_data`，并保持到下一次 `bl_sel` 或 `prog_op` 变化。
 
 ### 与行为模型的关系
 
@@ -96,4 +97,7 @@ pop = popcount(wl_latched)
 - `tb/cim_program_ctrl_tb.sv`（8/8 PASS）— 数字侧编程 FSM
 - `tb/prog_bypass_latch_tb.sv`（PROG_BYPASS_LATCH_TB_PASS）— BYPASS_HANDSHAKE 锁存语义
 - `tb/silicon_bringup_tb.sv`（SILICON_BRINGUP_TB_PASS）— CPU 固件 E2E
-- `tb/chip_top_rom_smoke_tb.sv`（CHIP_TOP_ROM_SMOKE_PASS）— chip_top 端到端（`prog_op_pad` / `prog_level_pad` 在这里可观察但当前未做编码断言，作为 follow-up）
+- `tb/prog_pad_encoder_tb.sv` — 直接观察 `snn_soc_top.prog_op_ext / prog_level_ext`，断言四种非 idle 编码与内部 `prog_en / erase_en / verify_en / prog_full_array` 一致
+- `tb/chip_top_rom_smoke_tb.sv`（CHIP_TOP_ROM_SMOKE_PASS）— chip_top 端到端 smoke
+
+> **实现 follow-up 提醒**：当前 sideband pads 已接出，但 shared carrier pads (`wl_*`, `cim_start`, `bl_sel`) 还需要数字侧在 `prog_busy` 时切到 programming 源，之后数字+模拟 external programming 才能端到端联调。

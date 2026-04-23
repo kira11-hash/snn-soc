@@ -1011,8 +1011,14 @@ module snn_soc_top #(
   wl_mux_wrapper u_wl_mux_wrapper (
     .clk               (clk),
     .rst_n             (rst_n),
-    .wl_bitmap_in      (wl_bitmap),
-    .wl_valid_pulse_in (wl_valid_pulse),
+    // During programming we feed the one-hot target-row vector (prog_wl_spike,
+    // output of cim_program_ctrl via arbiter) through wl_mux_wrapper so the
+    // 8×8 TDM wl_data / wl_group_sel / wl_latch pad sequence carries the
+    // programming row to the analog die.  Triggered once per prog_busy
+    // rising edge; the row stays constant for the entire cell program op,
+    // so one TDM burst per op is sufficient.
+    .wl_bitmap_in      (prog_busy ? prog_wl_spike : wl_bitmap),
+    .wl_valid_pulse_in (prog_busy ? prog_busy_rise : wl_valid_pulse),
     .wl_bitmap_out     (wl_bitmap_wrapped),     // 时序对齐后的 bitmap → dac_ctrl
     .wl_valid_pulse_out(wl_valid_pulse_wrapped), // 时序对齐后的有效脉冲 → dac_ctrl
     .wl_data           (wl_data),               // → chip_top pad (wl_data_ext)
@@ -1024,8 +1030,44 @@ module snn_soc_top #(
   assign wl_data_ext      = wl_data;
   assign wl_group_sel_ext = wl_group_sel;
   assign wl_latch_ext     = wl_latch;
-  assign cim_start_ext    = cim_start_pulse;
-  assign bl_sel_ext       = bl_sel;
+
+  // ─── External CIM pad routing for programming (2026-04-24, scheme α' follow-up) ───
+  // Three shared carrier pads need to switch to programming sources when
+  // prog_busy=1, so the external analog die actually sees the programming
+  // operation on the pads:
+  //   - bl_sel_ext: always use arb_bl_sel (arbiter transparently passes the
+  //     inference bl_sel when prog_busy=0 and prog_bl_sel when prog_busy=1)
+  //   - cim_start_ext: during programming, delay by WL_MUX_LATENCY cycles so
+  //     the 8-group wl_data TDM burst completes on the pads BEFORE the analog
+  //     macro sees cim_start.  arb_cim_start fires at ST_PULSE entry;
+  //     arb_adc_start fires at ST_READBACK entry (used for verify reads).
+  //     External analog uses cim_start as the generic "execute the prog_op
+  //     currently on the pads" trigger, so we OR them into one delayed pad
+  //     pulse.  Inference path is unchanged (zero delay).
+  //   - wl_mux_wrapper input bitmap: muxed to prog_wl_spike when prog_busy=1.
+  //     wl_mux_wrapper naturally encodes the 64-bit one-hot target row into
+  //     the existing 8×8 TDM wl_data / wl_group_sel / wl_latch pads.
+  //     Triggered once per prog_busy rising edge (row stays constant inside
+  //     a single programming op, so one TDM burst is enough).
+  localparam int WL_MUX_LATENCY_CYC = 10;
+  logic        prog_busy_q;
+  logic [WL_MUX_LATENCY_CYC-1:0] prog_cim_start_shreg;
+  wire         prog_ext_trigger = arb_cim_start | arb_adc_start;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      prog_busy_q          <= 1'b0;
+      prog_cim_start_shreg <= '0;
+    end else begin
+      prog_busy_q          <= prog_busy;
+      prog_cim_start_shreg <= {prog_cim_start_shreg[WL_MUX_LATENCY_CYC-2:0],
+                               prog_ext_trigger};
+    end
+  end
+  wire prog_busy_rise = prog_busy & ~prog_busy_q;
+
+  assign bl_sel_ext    = arb_bl_sel;
+  assign cim_start_ext = prog_busy ? prog_cim_start_shreg[WL_MUX_LATENCY_CYC-1]
+                                   : cim_start_pulse;
 
   // ─── 外部编程 pad 编码器（2026-04-24 V1 方案 α' 冻结）─────────────
   // ENABLE_EXT_CIM_IF=1 时生效；把数字侧内部的 prog_en/erase_en/verify_en/
