@@ -155,6 +155,11 @@ module reg_bank (
   output logic        prog_start_pulse, // W1P 启动编程序列
   output logic        prog_erase,       // 0=SET 写入，1=RESET 擦除
   output logic        prog_full_array,  // 全阵列擦除（仅 erase=1 时生效）
+  // Silicon bring-up: bypass prog_adc_done handshake so cim_program_ctrl
+  // can complete without a responding analog macro.  When set, verify
+  // always returns PASS with ideal readback value (erase=0, write=level*16).
+  // Intended for post-silicon digital self-test only; leave 0 in normal flow.
+  output logic        prog_handshake_bypass,
   output logic [5:0]  prog_row,         // 目标行（0~63）
   output logic [4:0]  prog_col,         // 目标列（0~19）
   output logic [3:0]  prog_level,       // 目标等级（0~15）
@@ -308,6 +313,7 @@ module reg_bank (
       prog_start_pulse  <= 1'b0;
       prog_erase        <= 1'b0;
       prog_full_array   <= 1'b0;
+      prog_handshake_bypass <= 1'b0; // 默认不绕过：真实宏握手
       prog_row          <= 6'd0;
       prog_col          <= 5'd0;
       prog_level        <= 4'd0;
@@ -408,6 +414,8 @@ module reg_bank (
             end
             if (req_wstrb[0]) prog_erase      <= req_wdata[1];
             if (req_wstrb[0]) prog_full_array <= req_wdata[2];
+            // bit[3] = BYPASS_HANDSHAKE — silicon bring-up ONLY
+            if (req_wstrb[0]) prog_handshake_bypass <= req_wdata[3];
             if (req_wstrb[0]) prog_level      <= req_wdata[7:4];
             if (req_wstrb[1]) prog_retry_limit<= req_wdata[10:8];
           end
@@ -544,8 +552,11 @@ module reg_bank (
       // Debug 计数器 1：高 16=wl_stall，低 16=spike
       REG_DBG_CNT_1:       rdata = {dbg_wl_stall_cnt, dbg_spike_cnt};
       // CIM 编程寄存器
-      // REG_PROG_CTRL readback: 重组 {21'h0, retry_limit[2:0], level[3:0], 1'b0, full_array, erase, 1'b0(START=W1P 读 0)}
-      REG_PROG_CTRL:       rdata = {21'h0, prog_retry_limit, prog_level, 1'b0, prog_full_array, prog_erase, 1'b0};
+      // REG_PROG_CTRL readback layout:
+      //   [0]=START (W1P, reads 0), [1]=ERASE, [2]=FULL_ARRAY, [3]=BYPASS_HANDSHAKE,
+      //   [7:4]=LEVEL, [10:8]=RETRY_LIMIT, [31:11]=RAZ
+      REG_PROG_CTRL:       rdata = {21'h0, prog_retry_limit, prog_level,
+                                     prog_handshake_bypass, prog_full_array, prog_erase, 1'b0};
       REG_PROG_ROW:        rdata = {26'h0, prog_row};
       REG_PROG_COL:        rdata = {27'h0, prog_col};
       REG_PROG_STATUS:     rdata = {24'h0, prog_done_sticky, 1'b0, prog_retry_count, prog_fail, prog_pass, prog_busy};

@@ -471,6 +471,7 @@ module snn_soc_top #(
   // ----------------------------------------------------------
   // 寄存器 → 控制
   logic        prog_start_pulse, prog_erase, prog_full_array;
+  logic        prog_handshake_bypass; // silicon bring-up: 绕过 prog_adc_done 握手
   logic [5:0]  prog_row;
   logic [4:0]  prog_col;
   logic [3:0]  prog_level;
@@ -904,10 +905,11 @@ module snn_soc_top #(
     .cim_test_data_neg(cim_test_data_neg), // 负通道合成值（ch 10~19）
     .out_fifo_pop   (out_fifo_pop),       // SW 读输出结果时触发 pop（脉冲）
     // CIM 编程寄存器（2026-04-22 移植）
-    .prog_start_pulse (prog_start_pulse),
-    .prog_erase       (prog_erase),
-    .prog_full_array  (prog_full_array),
-    .prog_row         (prog_row),
+    .prog_start_pulse      (prog_start_pulse),
+    .prog_erase            (prog_erase),
+    .prog_full_array       (prog_full_array),
+    .prog_handshake_bypass (prog_handshake_bypass),
+    .prog_row              (prog_row),
     .prog_col         (prog_col),
     .prog_level       (prog_level),
     .prog_retry_limit (prog_retry_limit),
@@ -1077,6 +1079,54 @@ module snn_soc_top #(
   // ==================================================================
   generate
     if (ENABLE_PROGRAM_MODE) begin : gen_prog_ctrl
+      // ==================================================================
+      // Programming-handshake bypass (silicon bring-up only)
+      //
+      // 当 PROG_CTRL.BYPASS_HANDSHAKE (bit[3]) = 1 时，绕开 cim_program_ctrl
+      // 对 prog_adc_done / prog_bl_data 的等待，让 FSM 在**没有模拟 die**
+      // 的情况下也能把编程序列跑完（verify 始终返回 PASS）。
+      //
+      // 造假策略：
+      //   - prog_adc_start_sig 脉冲后下一拍拉 prog_adc_done_fake=1（单拍）
+      //   - prog_bl_data_fake = op_erase ? 0 : prog_level * 16
+      //     （落在 cim_program_ctrl ST_VERIFY 的 target_level ±2 窗口内）
+      //
+      // 注：prog_cim_done 在当前 FSM 设计里不被使用（自计时），无需 MUX。
+      //
+      // tape-out 后若数字 die 单独上电、模拟 die 未接，CPU 写 PROG_CTRL 置 1
+      // 此位即可完整验证编程 FSM 的状态转移而不挂死。
+      // ==================================================================
+      logic                prog_adc_done_fake;
+      logic                prog_adc_fake_busy;
+      logic [ADC_BITS-1:0] prog_bl_data_fake;
+
+      always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+          prog_adc_done_fake <= 1'b0;
+          prog_adc_fake_busy <= 1'b0;
+          prog_bl_data_fake  <= '0;
+        end else begin
+          prog_adc_done_fake <= 1'b0;
+          if (prog_adc_start_sig && !prog_adc_fake_busy) begin
+            prog_adc_fake_busy <= 1'b1;
+            // 落在 ST_VERIFY 窗口中心：
+            //   erase: readback ≤ 1 → 用 0
+            //   write: readback 在 target_level*16 ± 2 → 用 target_level*16
+            prog_bl_data_fake  <= prog_erase ? ADC_BITS'(0)
+                                             : ADC_BITS'({4'b0, prog_level} * 8'd16);
+          end else if (prog_adc_fake_busy) begin
+            prog_adc_done_fake <= 1'b1;
+            prog_adc_fake_busy <= 1'b0;
+          end
+        end
+      end
+
+      // MUX: bypass 生效时用 fake 信号驱动 cim_program_ctrl
+      wire                 prog_adc_done_effective =
+          prog_handshake_bypass ? prog_adc_done_fake : prog_adc_done_sig;
+      wire [ADC_BITS-1:0]  prog_bl_data_effective =
+          prog_handshake_bypass ? prog_bl_data_fake  : prog_bl_data_sig;
+
       cim_program_ctrl u_prog_ctrl (
         .clk              (clk),
         .rst_n            (rst_n),
@@ -1099,9 +1149,9 @@ module snn_soc_top #(
         .prog_cim_start   (prog_cim_start_sig),
         .prog_cim_done    (prog_cim_done_sig),
         .prog_adc_start   (prog_adc_start_sig),
-        .prog_adc_done    (prog_adc_done_sig),
+        .prog_adc_done    (prog_adc_done_effective),  // bypass MUX
         .prog_bl_sel      (prog_bl_sel_sig),
-        .prog_bl_data     (prog_bl_data_sig),
+        .prog_bl_data     (prog_bl_data_effective),   // bypass MUX
         .prog_en          (prog_en_sig),
         .erase_en         (erase_en_sig),
         .verify_en        (verify_en_sig)
@@ -1170,6 +1220,7 @@ module snn_soc_top #(
       assign prog_bl_data_sig    = '0;
       // 消除未用输入 lint 告警
       wire _unused_prog_inputs = &{1'b0, prog_start_pulse, prog_erase, prog_full_array,
+                                   prog_handshake_bypass,
                                    ^prog_row, ^prog_col, ^prog_level, ^prog_retry_limit,
                                    ^prog_pulse_width, ^prog_erase_width};
     end

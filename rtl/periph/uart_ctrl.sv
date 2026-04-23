@@ -80,12 +80,11 @@ module uart_ctrl (
   wire        write_en  = req_valid && req_write;
   wire        baud_last = (baud_cnt == 16'd0); // 当前 baud 周期最后一拍
 
-  // ── 寄存器写逻辑 ──────────────────────────────────────────────────────────
+  // ── 寄存器写逻辑（不驱动 baud_div_active，见下方 TX FSM）────────────────
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       txdata_shadow   <= 8'h0;
       baud_div_reg    <= BAUD_DIV_DEFAULT;
-      baud_div_active <= BAUD_DIV_DEFAULT;
     end else begin
       if (write_en) begin
         case (addr_off)
@@ -100,14 +99,17 @@ module uart_ctrl (
     end
   end
 
-  // ── TX FSM（状态、计数器、移位寄存器）────────────────────────────────────
+  // ── TX FSM（状态、计数器、移位寄存器，含 baud_div_active）──────────────
+  // baud_div_active 由本 always_ff 独家驱动（reset + TX 启动锁存），避免
+  // Vivado 综合时多驱动 CRITICAL WARNING（Synth 8-6859/6858/8-6870）。
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      tx_state  <= ST_IDLE;
-      baud_cnt  <= 16'd0;
-      bit_cnt   <= 3'd0;
-      tx_shift  <= 8'hFF;
-      tx_busy   <= 1'b0;
+      tx_state        <= ST_IDLE;
+      baud_cnt        <= 16'd0;
+      bit_cnt         <= 3'd0;
+      tx_shift        <= 8'hFF;
+      tx_busy         <= 1'b0;
+      baud_div_active <= BAUD_DIV_DEFAULT;
     end else begin
       case (tx_state)
 

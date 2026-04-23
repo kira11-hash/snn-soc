@@ -57,6 +57,11 @@ set_property IOSTANDARD LVCMOS33 [get_ports {led[3]}]
 ## ---------------------------------------------------------------------------
 ## Timing exceptions
 ## ---------------------------------------------------------------------------
-## False path from async reset synchroniser input to registered domain
+## Async reset path (btn_rst + !mmcm_locked) is asynchronously asserted and
+## synchronously released via a 2-FF synchroniser (rst_sync[1:0]).  Tell STA
+## to ignore the path into the first stage of that synchroniser:
+##   * mmcm_locked is a wire (MMCME4_ADV LOCKED output), so target the SINK
+##     side of the path (rst_sync_reg[0]) rather than the source.
+##   * -to <cell> covers both D-pin and async-clear pin of that FF.
 set_false_path -from [get_ports btn_rst]
-set_false_path -from [get_cells -hierarchical -filter {NAME =~ *mmcm_locked*}] -to [get_cells -hierarchical -filter {NAME =~ *rst_sync*}]
+set_false_path -to   [get_cells -hier -filter {NAME =~ *rst_sync_reg[0]*}]
