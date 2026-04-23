@@ -6,6 +6,8 @@
 **参数口径**：与时序相关的默认参数以 `rtl/top/snn_soc_pkg.sv` 为准，本文数值仅作说明，若不一致以 pkg 为准。
 **架构说明**：本文描述的是数字芯片内部的 `snn_soc_top` 与行为模型 `cim_macro_blackbox` 之间的**内部并行接口**。实际流片后，数字芯片与模拟 CIM 芯片为独立封装，通过 PCB 互联，使用 `wl_mux_wrapper` 提供的**外部复用接口**（45 个可用 pad 口径）。详见 `doc/08_cim_analog_interface.md` §1.3 与 `doc/15_asic_pad_map.md`。
 
+> **边界说明（2026-04-23）**：本文只覆盖**推理**链路的内部协议，不定义外部 `erase/write/verify` 编程协议。若 V1 外部模拟 die 需要支持数字发起编程，请以 `doc/11_analog_handoff_execution_plan.md` 的 A8 为准，先冻结跨芯片编程合同。
+
 ## 接口信号
 | 方向 | 信号 | 位宽 | 类型 | 说明 |
 |---|---|---:|---|---|

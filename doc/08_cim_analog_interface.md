@@ -7,6 +7,13 @@
 **参数口径**：本文涉及的默认时序参数以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 **集成架构**：数字芯片与模拟 CIM 芯片为**独立封装、分别流片**，通过 PCB 走线互联（非片上集成）。
 
+> **2026-04-23 重要澄清**
+>
+> - 本文当前**已经冻结**的是 `V1` 的**推理接口合同**。
+> - 项目最新要求同时明确：**V1 外部模拟 CIM die 最终还必须支持由数字芯片发起的 erase / write / verify 编程。**
+> - 但当前仓库里**尚未冻结**“外部编程命令如何跨芯片表达”的 pad / 时序合同。
+> - 所以：模拟同学可以直接按本文开做**推理接口、时序、电平、ADC/TIA/Vref、pad/PCB**；但如果要实现**外部编程支持**，必须先看 `doc/11_analog_handoff_execution_plan.md` 中新增的 **A8 外部编程合同冻结**。
+
 ---
 
 ## 1. 概述
@@ -24,7 +31,7 @@
 **模拟 CIM 芯片**（独立 die）负责：
 - CIM Macro（128×256 RRAM 阵列，模拟计算核心）
 - DAC（数字到模拟转换，WL de-mux + 电压驱动）
-- ADC（模拟到数字转换，1 路 8-bit SAR ADC + 20:1 MUX）
+- ADC（模拟到数字转换，功能合同为 1 路 8-bit ADC + 20:1 MUX；实现可等效，不强制 SAR）
 
 **PCB 互联**：两颗芯片通过 PCB 走线连接，接口信号见 §1.3 外部复用口径；ASIC pad/pin 正式真源见 [`doc/15_asic_pad_map.md`](15_asic_pad_map.md)。PCB 走线需关注信号完整性（串扰、延迟匹配），详见 §5。
 
@@ -58,7 +65,7 @@
 
 ---
 
-### 1.3 V1 冻结口径（必须遵守）
+### 1.3 V1 当前已冻结的推理口径（必须遵守）
 
 为避免后续接口漂移，V1 统一采用“内部并行 + 外部复用”双层口径：
 
@@ -68,6 +75,11 @@
   `wl_data[7:0] + wl_group_sel[2:0] + wl_latch + cim_start/done + bl_sel[4:0] + bl_data[7:0] + clk + rst_n`
 
 当前 RTL 已加入协议原型：`rtl/snn/wl_mux_wrapper.sv`。
+
+> **重要边界**：
+> 本节描述的是**已经冻结**、可以直接交给模拟同学实现的**推理接口**。
+> 它**不能自动推出**外部编程接口合同。
+> 当前 `main` 虽然已经有 `PROG_*` 寄存器和数字编程 FSM，但 `chip_top/snn_soc_top` 对外冻结的 pad 子集仍只明确覆盖推理路径；外部编程仍需联合冻结额外协议（见 `doc/11_analog_handoff_execution_plan.md` A8）。
 
 #### 1.3.1 WL 复用协议字段与拍数（冻结版）
 
@@ -92,6 +104,7 @@
   接收 `wl_data[7:0]/wl_group_sel[2:0]/wl_latch` 并在**模拟芯片内部**完成 WL de-mux（8 组 × 8bit 锁存器，共 64 根字线驱动）；CIM MAC + ADC 转换的模拟实现，以及 `cim_done/bl_data` 返回时序。
   **简化协议**：外部接口不使用 `adc_start/adc_done` 信号（省 2 pin）。模拟芯片在收到 `cim_start` 后内部自行完成 CIM MAC 计算 + 全部 20 通道 ADC 转换，完成后拉高 `cim_done`；数字侧在 `cim_done` 后扫描 `bl_sel` 读取 `bl_data`（固定建立时间，无逐通道握手）。
   具体 de-mux 架构：模拟芯片内部有 8 个 8-bit 锁存器组，`wl_latch=1` 期间按 `wl_group_sel` 将 `wl_data` 写入对应锁存器；8 组全部写入后还原完整 64-bit WL 驱动向量。
+  **注意**：本条只覆盖推理链路。若要支持外部 erase/write/verify，模拟侧还需要一个明确冻结的“编程命令表达方式”；本文当前没有把它定义死。
 - 后端/PCB 集成负责：
   **数字芯片侧**：在 `chip_top/pad wrapper` 完成数字芯片的 pad 复用映射与约束收敛。
   **模拟芯片侧**：完成模拟芯片的 pad 布局与信号引出。
@@ -617,10 +630,11 @@ module cim_macro_blackbox #(
 
 **模拟芯片团队需要提供：**
 
-1. ✅ 符合接口定义的 CIM Macro（外部复用口径与 45 个可用 pad 方案完全匹配）
+1. ✅ 符合接口定义的 CIM Macro（**推理外部复用口径**与当前数字芯片 pad 方案匹配）
 2. ✅ 确认表格中的时序参数（DAC/CIM/ADC 延迟）
 3. ✅ 提供模拟芯片 IO 时序模型（用于数字芯片 STA 约束推导）
 4. ✅ 确认 IO 电平标准（VIH/VIL/VOH/VOL）及与数字芯片的兼容性
+5. ⚠️ 若 V1 还要求外部模拟 die 支持数字发起 `erase/write/verify`，请不要只按本文直接实现；必须先与数字侧共同冻结 `doc/11_analog_handoff_execution_plan.md` 的 A8 外部编程合同
 
 ---
 

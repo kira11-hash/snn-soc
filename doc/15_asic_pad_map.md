@@ -17,6 +17,8 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 
 - Pad index order below is the frozen documentation order for interface planning and cross-team review. It is not yet a final physical pad-ring placement order.
 - `default/reset behavior` describes the current repository behavior and reset expectation. Where `chip_top.sv` still lacks technology-specific pad-cell implementation, that is called out explicitly.
+- This 48-pad freeze documents the **currently frozen digital-chip pad contract**, which already covers the external **inference** interface to the analog CIM die.
+- It does **not** by itself freeze the external **programming** contract. If V1 must support digital-chip-initiated `erase/write/verify`, digital and analog teams still need to freeze how programming op-type / level / full-array semantics cross the chip boundary (see `doc/11_analog_handoff_execution_plan.md` A8).
 - `expected signal owner`:
   - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
   - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv), but still not backed by technology pad cells

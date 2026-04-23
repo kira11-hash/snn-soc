@@ -135,7 +135,7 @@ doc/   中文说明文档
   - val 侧 `0.10%` 差异小于统计波动量级（`~0.31%-0.34%`），不具显著性。
   - V1 参数继续沿用 `soft`，理由是与既有 RTL/文档口径一致，且无需引入额外改动风险。
 - 结果证据：
-  - `项目相关文件/器件对齐/Python建模/results/summary.txt`
+  - `项目相关文件/器件对齐/Python建模/summary.txt`
   - `项目相关文件/器件对齐/Python建模/results/run_all_skiptrain_hard_20260210_161450.log`
 
 ## 文档索引
@@ -160,6 +160,7 @@ doc/   中文说明文档
 | `doc/13_fpga_paper_plan.md` | FPGA 验证平台方案 |
 | `doc/14_gemm_accelerator_plan.md` | 双模态 AI SoC（GEMM+SNN）扩展规划（V2/V3 远景） |
 | `doc/15_asic_pad_map.md` | **ASIC Pad Map（48 pad 冻结真源）** |
+| `doc/17_cim_macro_handoff_cover.md` | **发给模拟 CIM macro 同学的封面说明（先读这份）** |
 | `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
 | `eassy-prompt/17_ic_paper_prompt_shared.md` | IC 论文总控 prompt 共享模块（共性流程、真实性与门控） |
 | `eassy-prompt/18_ic_paper_prompt_A_fpga.md` | 模式 A：系统架构 / FPGA 原型验证论文 prompt 模块 |
@@ -182,6 +183,7 @@ doc/   中文说明文档
 ### 论文写作口径备忘（V1 vs V2）
 
 - 当前 `V1` 的真实形态是**双芯片 PCB 集成**：数字 SoC 与模拟 `CIM Macro` 独立流片、独立封装，通过 `wl_data / bl_sel / bl_data / cim_start / cim_done` 等 pad 信号互联。
+- 当前已经冻结的是**外部推理接口**；若 `V1` 还要求外部模拟 die 支持数字发起 `erase/write/verify`，则仍需先冻结跨芯片编程合同。参见 `doc/17_cim_macro_handoff_cover.md` 与 `doc/11_analog_handoff_execution_plan.md` A8。
 - 因此，当前版本**不能**写成“已实现片上数模混合集成”或“已解决互联问题”；更准确的说法是：本工作完成了面向混合集成的数字 SoC，并验证了其与外部 `CIM Macro` 协同工作的控制逻辑、接口协议和推理链路。
 - 面向后续 `V2/V3`，可以将“单芯片数模混合集成以降低片间通信延迟、接口能耗与数据搬运开销”写成 roadmap / motivation，但必须明确这是未来工作，而非 `V1` 已实现事实。
 - 若后续实现同一颗 die 上的数模混合集成，则可强调“控制器与 `CIM Macro` 的片上紧耦合”带来的系统级收益；若仅做到同封装 `MCM/SiP`，则应表述为“封装级集成”，不等同于单 die 片上集成。
