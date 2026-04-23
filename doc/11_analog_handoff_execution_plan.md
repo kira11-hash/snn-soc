@@ -19,6 +19,35 @@
 
 ---
 
+## 【数字侧 P0 阻塞项快速清单】（2026-04-24）
+
+> **🔥 这 18 项是数字侧进入后端 STA 签核前必须拿到的参数**。其他章节（A4~A7 剩余项 + P0/P1/P2 其余 + X1~X5）**可以延后回填**，不影响后端启动。
+> **建议回填 deadline：2026-05-08（2 周）**。
+
+| 类别 | 编号 | 数字侧用它做什么 |
+|:---:|:---:|---|
+| **A4 ADC/TIA** | A4-1 | Vref_high / Vref_low → 校准 `THRESHOLD_DEFAULT` 的物理电流含义 |
+| | A4-2 | TIA 反馈电阻 R_f → BL 电流到电压的增益 |
+| | A4-5 | HRS/LRS 对应 TIA 输出电压 → 验证落在 ADC 动态范围内 |
+| **A5 时序** | A5-1 | WL 电压建立 → pkg `DAC_LATENCY_CYCLES` 占位 5 需校准 |
+| | A5-2 | CIM 电流稳定 → pkg `CIM_LATENCY_CYCLES` 占位 10 需校准 |
+| | A5-3 | ADC MUX 切换建立 → pkg `ADC_MUX_SETTLE_CYCLES` 占位 2 需校准 |
+| | A5-4 | ADC 单次 SAR 转换 → pkg `ADC_SAMPLE_CYCLES` 占位 3 需校准 |
+| | A5-5 | bl_data 有效建立 → 影响 Q3 verify 100 ns 窗口是否需放宽 |
+| **A6 噪声** | A6-1 | ADC RMS 噪声 → 决定 verify 判据 ±2 LSB 是否需放宽 + retry 默认值 |
+| | A6-7 | ADC offset 校准机制 → 决定 bring-up 固件是否需预留初始化时间 |
+| **A7 时序合同** | A7-1 | cim_done 脉冲宽度 → 数字侧 FSM 分支（单拍/电平） |
+| | A7-4 | bl_sel 在 cim_done 后 guard time → `adc_ctrl` 状态机 |
+| | A7-5 | wl_spike=全 0 时 cim_done 行为 → 数字侧要不要加"全零短路"分支 |
+| | A7-6 | worst-case cim_start→cim_done 延迟 → 数字侧 timeout 保护阈值 |
+| **P0/P1 物理** | P0-2 | 模拟 die 尺寸 + 封装 → PCB 布局 + 两 die 互联走线长度 |
+| | P0-3 | 模拟 die 各组信号 pad 引出方向 → PCB 走线对齐 |
+| | P1-1/2/3 | 外部电源/偏置 pin 清单 → PCB BOM + 电源规划 |
+
+**填法**：直接在本文 §三 对应章节的表格里填答案，每行末尾都标了"需要的答案形式"和单位。
+
+---
+
 ## 零、已确认事项（2026-02-27 更新）
 | 编号 | 事项 | 状态 |
 |:---:|---|:---:|
