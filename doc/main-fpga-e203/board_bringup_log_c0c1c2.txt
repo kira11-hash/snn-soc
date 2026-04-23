@@ -1,0 +1,75 @@
+feature/main-fpga-e203 ZCU102 board bring-up log
+Date: 2026-04-23
+Branch: feature/main-fpga-e203
+Commit: 041a02a5b06aab1de5773df822e1cc363d0ad6f5
+
+Board:
+- Xilinx ZCU102 (xczu9eg-ffvb1156-2-e)
+- J18 USB-JTAG used for PL programming
+- J83 on-board CP2108 UART, Interface 2 / COM3 used for E203 console
+- UART settings: 115200 8N1, no flow control
+
+Artifacts:
+- Bitstream: fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
+- Bitstream SHA256: CF446955ECC8379C75D489D1E716CD05932DB8C811DEE2A1014948446F38ACFB
+- Bitstream size: 26,510,901 bytes
+- Bitstream timestamp: 2026-04-23 09:00:14
+- Firmware hex: fw/e203_smoke/out/e203_smoke.hex
+- Firmware hex SHA256: BBF15EFBE4402B1CC440AE5F3DCA55E061AD001C44408C18B0FEBBD97B892A17
+- Firmware hex size: 36,864 bytes
+- Firmware hex timestamp: 2026-04-23 01:21:33
+
+Vivado reports:
+- Timing summary: fpga_synth/zcu102_e203_demo/out/timing_summary.rpt
+- WNS: +4.439 ns at 50 MHz
+- TNS: 0.000 ns
+- WHS: +0.003 ns
+- Utilization report: fpga_synth/zcu102_e203_demo/out/utilization.rpt
+- CLB LUTs: 45,930 / 274,080 = 16.76%
+- CLB Registers: 43,837 / 548,160 = 8.00%
+- Block RAM Tile: 32 / 912 = 3.51%
+- DSPs: 0 / 2,520 = 0.00%
+
+Programming command:
+
+    D:\Xilinx\Vitis\2022.2\bin\xsct.bat scripts/program_zcu102_e203.tcl fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
+
+XSCT result:
+
+    === E203 FPGA Board Bring-up ===
+    Bitstream : fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
+    Available targets:
+      1  PS TAP
+         2  PMU
+         3  PL
+    Programming PL with bitstream...
+
+    === Bitstream programmed successfully ===
+
+UART capture from COM3:
+
+    UART_OK
+           FPGA_E203_BOOT_UART_PASS
+                                   [PROG] full-array erase DONE
+                                                               [PROG] write subset rows=0..9 cols=0..9 PASS
+                           FPGA_E203_PROGRAM_ERASE_WRITE_PASS
+                                                             [INFER] neuron[0] hw=80 sw=80 OK
+             [INFER] neuron[1] hw=80 sw=80 OK
+                                             [INFER] neuron[2] hw=80 sw=80 OK
+                                                                             [INFER] neuron[3] hw=80 sw=80 OK
+                             [INFER] neuron[4] hw=80 sw=80 OK
+                                                             [INFER] neuron[5] hw=80 sw=80 OK
+             [INFER] neuron[6] hw=80 sw=80 OK
+                                             [INFER] neuron[7] hw=80 sw=80 OK
+                                                                             [INFER] neuron[8] hw=80 sw=80 OK
+                             [INFER] neuron[9] hw=80 sw=80 OK
+                                                             [INFER] total_spikes=800 mismatch=0
+                FPGA_E203_PROGRAMMED_INFERENCE_PASS
+
+Gate result:
+- Gate C0 boot UART: PASS (FPGA_E203_BOOT_UART_PASS)
+- Gate C1 digital programming path: PASS (FPGA_E203_PROGRAM_ERASE_WRITE_PASS)
+- Gate C2 programmed-weight inference: PASS (FPGA_E203_PROGRAMMED_INFERENCE_PASS)
+
+Conclusion:
+main/V1 FPGA E203 evidence branch passed on ZCU102. The PL-hosted E203 soft-core booted from BRAM, drove the digital erase/write programming path against the FPGA programmable CIM model, and completed programmed-weight inference with per-neuron hardware/software spike-count agreement.
