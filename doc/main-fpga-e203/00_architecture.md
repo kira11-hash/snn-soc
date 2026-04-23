@@ -66,6 +66,11 @@ Default does NOT merge to main.
 | `fpga_synth/zcu102_e203_demo/build_e203_demo.sh` | Full pipeline wrapper |
 | `tb/fpga_programmable_cim_model_tb.sv` | FPGA CIM model unit TB |
 | `sim/run_fpga_programmable_cim_model.sh` | Icarus runner for above TB |
+| `fw/silicon_bringup/silicon_bringup.c` | Post-silicon digital self-test firmware (Stage A test_mode inference + Stage B BYPASS_HANDSHAKE programming) |
+| `tb/silicon_bringup_tb.sv` / `sim/run_silicon_bringup.sh` | Icarus TB for silicon_bringup.c (pass tag `SILICON_BRINGUP_TB_PASS`) |
+| `rtl/mem/boot_rom.sv` + `tb/boot_rom_tb.sv` | Mask ROM module for ASIC tape-out (foundation; integration deferred to V1.1) |
+| `scripts/fpga_bringup_capture.sh` | xsct + pyserial harness — program PL + capture UART + diff against expected tags |
+| `doc/silicon_bringup_plan.md` | Full bring-up plan: boot paths, test-mode coverage table, day-by-day sequence |
 
 ## Gate Criteria
 
