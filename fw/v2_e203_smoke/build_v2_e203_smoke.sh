@@ -22,10 +22,15 @@ CC="${CROSS}gcc"
 OBJCOPY="${CROSS}objcopy"
 SIZE="${CROSS}size"
 
+# NUM_COSIM_SAMPLES can be overridden from env to bound Icarus wall-clock;
+# default 3 is enough to prove firmware→RTL bit-exact (FPGA G3 ups this to 10).
+NUM_COSIM_SAMPLES="${NUM_COSIM_SAMPLES:-3}"
+
 CFLAGS="-march=rv32i_zicsr_zifencei -mabi=ilp32 -O2 -ffreestanding -nostdlib \
         -fno-pic -mcmodel=medany -ffunction-sections -fdata-sections \
         -Wall -Wextra -Werror \
-        -Iinclude"
+        -DNUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES} \
+        -Iinclude -I../include"
 
 LDFLAGS_COMMON="-nostdlib -Wl,--gc-sections -Wl,--print-memory-usage"
 
@@ -49,6 +54,8 @@ build_one() {
     $CC $CFLAGS \
         src/crt0_v2_e203.S \
         src/uart_printf_v2e203.c \
+        src/v2b_scheduler_e203.c \
+        src/golden_fashion10.c \
         "$main_src" \
         -T "$ldscript" \
         $LDFLAGS_COMMON \

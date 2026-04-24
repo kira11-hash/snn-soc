@@ -1,21 +1,16 @@
 `timescale 1ns/1ps
 //======================================================================
-// 文件名: tb/v2_e203_encoder_parity_tb.sv
+// 文件名: tb/v2_e203_encoder_parity_tb.sv (Phase A-8)
 //
-// Phase A-7 encoder-parity TB (skeleton-level)：验证 CPU ↔ TB RPC 握手
-// 协议能跑通（TB 写 ENCODER_SAMPLE_REQ → FW 读 → FW 写 DONE → TB 轮询）。
+// Real encoder-parity TB. Firmware runs v2b_encode_pixel_even_rate on
+// golden_fashion10[k].pixel_196 and writes 64×8 uint32 stream to
+// __encoder_stream_base (runtime address from BUFFER_PTR_0). TB compares
+// each sample's stream bytes to
+// python_multilayer/results_multilayer/fashion_multilayer_golden/sample_kk_wl_stream.hex
+// (Python pre-encoded WL stream).
 //
-// 完整 bit-exact 对齐 Python sample_XX_wl_stream.hex 是 Phase A-8 任务
-// （FW 里需要实现 v2b_encode_pixel_even_rate）。本 gate 只验证协议本身
-// + marker flow + sample-by-sample handshake，不校验 stream 数据。
-//
-// 【测试流程】
-//   1. 加载 v2_e203_encoder.hex 到 INSTR_SRAM
-//   2. rst 释放，等 BOOT_MARK (0xB0070001)
-//   3. 通过 MARKER BUFFER_PTR_1/2 找到 req/done linker-symbol slots
-//   4. 对 k = 0..9 做 RPC 握手（skeleton echo；A-8 升级 bit-exact stream）
-//   4. TB 写 REQ = 0xFF（终结）
-//   5. 等 ENCODER_DONE_MARK (0x31C0D001)
+// RPC 协议：TB writes REQ=k, polls DONE==k, compares stream, REQ=IDLE.
+// 10 rounds + REQ=0xFF终结 → ENCODER_DONE_MARK.
 //
 // PASS tag: V2_E203_ENCODER_PARITY_PASS
 //======================================================================
@@ -39,7 +34,7 @@ module v2_e203_encoder_parity_tb;
     $readmemh("../fw/v2_e203_smoke/out/v2_e203_encoder.hex", dut.u_instr_sram.mem);
   end
 
-  // DMEM word-offset helpers (addr - 0x00010000) >> 2
+  // DMEM word-offset helpers
   localparam int WADDR_BOOT_MARK      = (32'h00011F00 - 32'h00010000) >> 2;
   localparam int WADDR_ENCODER_DONE   = (32'h00011F08 - 32'h00010000) >> 2;
   localparam int WADDR_BUF_PTR_0      = (32'h00011F0C - 32'h00010000) >> 2;
@@ -51,15 +46,17 @@ module v2_e203_encoder_parity_tb;
   localparam logic [31:0] REQ_IDLE                 = 32'hFFFFFFFF;
   localparam logic [31:0] REQ_ALL_DONE             = 32'h000000FF;
 
+  localparam int T_ROWS        = 64;
+  localparam int WORDS_PER_ROW = 8;
+  localparam int STREAM_WORDS  = T_ROWS * WORDS_PER_ROW;  // = 512 uint32 = 2 KB
+
   int errors;
   int waddr_stream;
   int waddr_sample_req;
   int waddr_sample_done;
 
   function automatic int dmem_waddr(input logic [31:0] addr);
-    begin
-      dmem_waddr = (addr - 32'h0001_0000) >> 2;
-    end
+    dmem_waddr = int'((addr - 32'h0001_0000) >> 2);
   endfunction
 
   function automatic logic ptr_in_dmem(input logic [31:0] ptr, input int bytes);
@@ -71,6 +68,39 @@ module v2_e203_encoder_parity_tb;
                   && (last < 32'h0001_1F00);
     end
   endfunction
+
+  // Python wl_stream[T_ROWS][WORDS_PER_ROW] loaded as 256-bit rows.
+  // sample_XX_wl_stream.hex has T lines each 64 hex chars (256 bits), MSB-first
+  // in string. We convert to WORDS_PER_ROW uint32 (word0 = bits 31:0, LSB of value).
+  logic [31:0] py_stream [0:9][0:T_ROWS-1][0:WORDS_PER_ROW-1];
+
+  task automatic load_python_stream(input int k);
+    int fd, r, w, cnt;
+    string path, line;
+    logic [255:0] row_big;
+    string hexstr;
+    begin
+      path = $sformatf("../python_multilayer/results_multilayer/fashion_multilayer_golden/sample_%02d_wl_stream.hex", k);
+      fd = $fopen(path, "r");
+      if (fd == 0) begin
+        $display("[FATAL] cannot open %s", path); $fatal(1);
+      end
+      for (r = 0; r < T_ROWS; r++) begin
+        cnt = $fscanf(fd, "%s\n", line);
+        if (cnt != 1) begin
+          $display("[FATAL] %s row %0d parse fail", path, r);
+          $fatal(1);
+        end
+        // Convert 64-char hex string to 256-bit. Icarus $sscanf supports %h into
+        // wide vector.
+        cnt = $sscanf(line, "%h", row_big);
+        for (w = 0; w < WORDS_PER_ROW; w++) begin
+          py_stream[k][r][w] = row_big[(32*w) +: 32];
+        end
+      end
+      $fclose(fd);
+    end
+  endtask
 
   initial begin
     $dumpfile("waves/v2_e203_encoder_parity.vcd");
@@ -104,64 +134,81 @@ module v2_e203_encoder_parity_tb;
     errors  = 0;
     rst_n   = 0;
     uart_rx = 1;
+    for (int k = 0; k < 10; k++) load_python_stream(k);
+    $display("[INFO] loaded Python wl_stream for 10 samples");
+
     repeat (8) @(posedge clk);
     rst_n = 1;
     repeat (2) @(posedge clk);
     $display("[INFO] encoder-parity TB start");
 
-    /* 1. 等 BOOT_MARK */
-    wait_dmem(WADDR_BOOT_MARK, V2E203_BOOT_MARK, 2000, "BOOT_MARK");
+    // 1. Wait BOOT_MARK
+    wait_dmem(WADDR_BOOT_MARK, V2E203_BOOT_MARK, 20000, "BOOT_MARK");
 
-    /* 2. 校验 runtime BUFFER_PTR */
+    // 2. Read BUFFER_PTRs
     begin
-      logic [31:0] stream_ptr;
-      logic [31:0] req_ptr;
-      logic [31:0] done_ptr;
+      logic [31:0] stream_ptr, req_ptr, done_ptr;
       stream_ptr = dut.u_data_sram.mem[WADDR_BUF_PTR_0];
       req_ptr    = dut.u_data_sram.mem[WADDR_BUF_PTR_1];
       done_ptr   = dut.u_data_sram.mem[WADDR_BUF_PTR_2];
-
-      if (!ptr_in_dmem(stream_ptr, 2048)) begin
-        $display("[ERR] BUFFER_PTR_0 invalid: 0x%08h", stream_ptr);
-        errors++;
+      if (!ptr_in_dmem(stream_ptr, STREAM_WORDS*4)) begin
+        $display("[ERR] BUFFER_PTR_0 (stream) invalid: 0x%08h", stream_ptr); errors++;
       end
       if (!ptr_in_dmem(req_ptr, 4)) begin
-        $display("[ERR] BUFFER_PTR_1 invalid: 0x%08h", req_ptr);
-        errors++;
+        $display("[ERR] BUFFER_PTR_1 (req) invalid: 0x%08h", req_ptr); errors++;
       end
       if (!ptr_in_dmem(done_ptr, 4)) begin
-        $display("[ERR] BUFFER_PTR_2 invalid: 0x%08h", done_ptr);
-        errors++;
+        $display("[ERR] BUFFER_PTR_2 (done) invalid: 0x%08h", done_ptr); errors++;
       end
-
       waddr_stream      = dmem_waddr(stream_ptr);
       waddr_sample_req  = dmem_waddr(req_ptr);
       waddr_sample_done = dmem_waddr(done_ptr);
     end
 
-    /* 3. 等 FW 把 SAMPLE_REQ_ADDR 初始化成 IDLE (0xFFFFFFFF) 再开始握手 */
-    wait_dmem(waddr_sample_req, REQ_IDLE, 2000, "SAMPLE_REQ init to IDLE");
+    // 3. Wait FW init REQ to IDLE
+    wait_dmem(waddr_sample_req, REQ_IDLE, 10000, "SAMPLE_REQ init to IDLE");
 
-    /* 4. 10 轮 RPC (k = 0..9). A-8 will add stream bit-exact checks. */
+    // 4. 10 rounds RPC + stream bit-exact
     for (int k = 0; k < 10; k++) begin
-      /* TB writes REQ = k directly via hierarchical reference */
       dut.u_data_sram.mem[waddr_sample_req] = k;
-      /* Wait FW to set DONE = k */
-      wait_dmem(waddr_sample_done, k, 5000,
+      wait_dmem(waddr_sample_done, k, 5_000_000,
                 $sformatf("SAMPLE_DONE == %0d", k));
-      /* Wait FW to clear REQ back to IDLE (it does so after echoing DONE) */
-      wait_dmem(waddr_sample_req, REQ_IDLE, 1000,
+      // Compare stream[k][r][w] vs py_stream[k][r][w]
+      begin
+        int mism;
+        mism = 0;
+        for (int r = 0; r < T_ROWS; r++) begin
+          for (int w = 0; w < WORDS_PER_ROW; w++) begin
+            logic [31:0] got = dut.u_data_sram.mem[waddr_stream + r*WORDS_PER_ROW + w];
+            if (got !== py_stream[k][r][w]) begin
+              if (mism < 4) begin
+                $display("[ERR] sample %0d row %0d word %0d: got 0x%08h exp 0x%08h",
+                         k, r, w, got, py_stream[k][r][w]);
+              end
+              mism++;
+            end
+          end
+        end
+        if (mism > 0) begin
+          $display("[ERR] sample %0d stream mismatch: %0d words of %0d",
+                   k, mism, STREAM_WORDS);
+          errors++;
+        end else begin
+          $display("[INFO] sample %0d stream bit-exact (%0d words)", k, STREAM_WORDS);
+        end
+      end
+      wait_dmem(waddr_sample_req, REQ_IDLE, 2000,
                 $sformatf("SAMPLE_REQ cleared after k=%0d", k));
     end
 
-    /* 5. Send terminator and wait ENCODER_DONE_MARK */
+    // 5. Send terminator
     dut.u_data_sram.mem[waddr_sample_req] = REQ_ALL_DONE;
-    wait_dmem(WADDR_ENCODER_DONE, V2E203_ENCODER_DONE_MARK, 5000, "ENCODER_DONE_MARK");
+    wait_dmem(WADDR_ENCODER_DONE, V2E203_ENCODER_DONE_MARK, 100_000,
+              "ENCODER_DONE_MARK");
 
     repeat (20) @(posedge clk);
-    if (errors == 0) begin
-      $display("V2_E203_ENCODER_PARITY_PASS");
-    end else begin
+    if (errors == 0) $display("V2_E203_ENCODER_PARITY_PASS");
+    else begin
       $display("V2_E203_ENCODER_PARITY_FAIL errors=%0d", errors);
       $fatal(1);
     end
@@ -169,7 +216,7 @@ module v2_e203_encoder_parity_tb;
   end
 
   initial begin
-    #5000000;
+    #100_000_000;
     $display("[ERR] global timeout"); $fatal(1);
   end
 
