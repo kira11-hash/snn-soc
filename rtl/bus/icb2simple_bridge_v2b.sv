@@ -105,6 +105,8 @@ module icb2simple_bridge_v2b (
   wire cmd_is_sram  = is_sram_addr(i_icb_cmd_addr);
   wire cmd_is_mmio  = is_mmio_addr(i_icb_cmd_addr);
   wire cmd_mapped   = cmd_is_sram || cmd_is_mmio;
+  // Current V2E203 MMIO registers are 32-bit wide. If V2B later exposes
+  // 64-bit MMIO registers, this alignment rule must be tightened.
   wire cmd_aligned  = (i_icb_cmd_addr[1:0] == 2'b00);
   // 非法：未命中白名单 或 MMIO 未 4B 对齐
   wire cmd_illegal  = !cmd_mapped || (cmd_is_mmio && !cmd_aligned);

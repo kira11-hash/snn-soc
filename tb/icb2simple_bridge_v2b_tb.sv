@@ -175,6 +175,65 @@ module icb2simple_bridge_v2b_tb;
     end
   endtask
 
+  // ── rsp_ready 反压：rsp_valid/rdata/err 必须保持到 ready 拉高 ───────
+  task automatic icb_expect_rsp_hold(input logic [31:0] addr,
+                                     input bit         is_read,
+                                     input logic [31:0] exp_rdata);
+    logic        hold_err;
+    logic [31:0] hold_rdata;
+    begin
+      watch_arm       = 1'b0;
+      watch_saw_valid = 1'b0;
+
+      @(posedge clk);
+      i_icb_rsp_ready <= 1'b0;
+      i_icb_cmd_valid <= 1'b1;
+      i_icb_cmd_addr  <= addr;
+      i_icb_cmd_read  <= is_read;
+      i_icb_cmd_wdata <= 32'hA5A5_5A5A;
+      i_icb_cmd_wmask <= 4'hF;
+
+      @(posedge clk);  // cmd_fire
+      i_icb_cmd_valid <= 1'b0;
+
+      wait (i_icb_rsp_valid === 1'b1);
+      hold_err   = i_icb_rsp_err;
+      hold_rdata = i_icb_rsp_rdata;
+
+      if (i_icb_cmd_ready !== 1'b0) begin
+        $display("[ERR] cmd_ready high while rsp_valid held");
+        errors++;
+      end
+      if (hold_err !== 1'b0) begin
+        $display("[ERR] rsp_hold expected err=0, got 1 addr=0x%08h", addr);
+        errors++;
+      end
+      if (hold_rdata !== exp_rdata) begin
+        $display("[ERR] rsp_hold rdata mismatch addr=0x%08h got=0x%08h exp=0x%08h",
+                 addr, hold_rdata, exp_rdata);
+        errors++;
+      end
+
+      repeat (3) begin
+        @(posedge clk);
+        if (i_icb_rsp_valid !== 1'b1 || i_icb_rsp_err !== hold_err ||
+            i_icb_rsp_rdata !== hold_rdata || i_icb_cmd_ready !== 1'b0) begin
+          $display("[ERR] rsp_hold outputs changed while rsp_ready=0");
+          errors++;
+        end
+      end
+
+      i_icb_rsp_ready <= 1'b1;
+      @(posedge clk);
+      i_icb_rsp_ready <= 1'b0;
+      @(posedge clk);
+      if (i_icb_rsp_valid !== 1'b0 || i_icb_cmd_ready !== 1'b1) begin
+        $display("[ERR] bridge did not return to IDLE after rsp_ready release");
+        errors++;
+      end
+    end
+  endtask
+
   // ── Init + dump ────────────────────────────────────────────────────
   initial begin
     $dumpfile("waves/icb2simple_bridge_v2b.vcd");
@@ -256,10 +315,13 @@ module icb2simple_bridge_v2b_tb;
     icb_expect_ok(ADDR_V2E203_INSTR_BASE + 32'h1, 1'b0, 32'h1234_0001, rd);
     icb_expect_ok(ADDR_V2E203_DATA_BASE  + 32'h2, 1'b1, 32'h0, rd);
 
-    // ── T6: ICB rsp_ready 反压（将合法事务的 rsp_valid 至少 hold 3 拍）
-    // 这里简化：直接在 icb_cmd 里已经能工作（rsp_valid 会保持到 rsp_ready=1）
-    // 用一笔合法写 + 一笔合法读复测一次验证 back-to-back 无回归
-    $display("[T6] back-to-back legal transactions");
+    // ── T6: ICB rsp_ready 反压（合法读/写 rsp_valid 至少 hold 3 拍）──
+    $display("[T6] rsp_ready backpressure hold");
+    icb_expect_rsp_hold(ADDR_V2B_BASE + 32'h4, 1'b0, 32'h0);
+    icb_expect_rsp_hold(ADDR_V2B_BASE + 32'h4, 1'b1, {16'h0004, 16'h5A5A});
+
+    // ── T7: back-to-back 合法事务无回归 ───────────────────────────────
+    $display("[T7] back-to-back legal transactions");
     icb_expect_ok(ADDR_V2B_BASE + 32'h8, 1'b0, 32'h7777_1111, rd);
     icb_expect_ok(ADDR_V2B_BASE + 32'h8, 1'b1, 32'h0, rd);
 
