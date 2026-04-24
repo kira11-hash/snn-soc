@@ -20,7 +20,9 @@
 //   DATA   : ADDR_V2E203_DATA_BASE ..ADDR_V2E203_DATA_END  (0x0001_0000..0x0001_1FFF,  8 KB)
 //   UART   : ADDR_V2E203_UART_BASE ..ADDR_V2E203_UART_END  (0x0200_0000..0x0200_00FF)
 //   V2B    : ADDR_V2B_BASE         ..ADDR_V2B_END          (0xA000_0000..0xA000_0FFF,  4 KB)
-//   其他地址 → decode miss，read 返回 0，write 静默。不产生 m_ready/m_rvalid。
+//   其他地址 → decode miss，不产生 m_ready/m_rvalid。合法性应由
+//   icb2simple_bridge_v2b 白名单提前拦截并返回 ICB error；fabric 这里只
+//   作为内部防线，避免误触发任一 slave。
 //
 // 【协议 & 延迟】
 //   - master (bus_simple_if style): single outstanding，m_valid 单拍发起，

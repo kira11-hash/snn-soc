@@ -144,6 +144,26 @@ module bus_interconnect_v2_e203_tb;
   assign v2b_m_rvalid = (mock_state == MOCK_RD_DONE);
   assign v2b_m_rdata  = mock_v2b_rdata_mem[mock_q_addr[3:2]];
 
+  wire tb_v1_ready  = dut.req_valid_q &&  dut.req_write_q;
+  wire tb_v1_rvalid = dut.req_valid_q && !dut.req_write_q;
+
+  always @(posedge clk) begin
+    if (rst_n) begin
+      if (tb_v1_ready && v2b_m_ready) begin
+        $display("[ERR] v1_ready && v2b_m_ready same cycle");
+        errors++;
+      end
+      if (tb_v1_rvalid && v2b_m_rvalid) begin
+        $display("[ERR] v1_rvalid && v2b_m_rvalid same cycle");
+        errors++;
+      end
+      if (m_ready && m_rvalid) begin
+        $display("[ERR] m_ready && m_rvalid same cycle");
+        errors++;
+      end
+    end
+  end
+
   // ── Master-side bus tasks ──────────────────────────────────────────
   task automatic bus_write(input logic [31:0] addr, input logic [31:0] wdata,
                            input int max_wait);
@@ -303,10 +323,12 @@ module bus_interconnect_v2_e203_tb;
     bus_read (ADDR_V2E203_DATA_BASE  + 32'h0, rd, 8);
     if (rd !== 32'hDDDD_0001) begin $display("[ERR] mix DATA readback = 0x%08h", rd); errors++; end
 
-    // ── T5: miss 地址（0x5000_0000）应无响应 ─────────────────────────
-    $display("[T5] miss address → no response (no deadlock)");
+    // ── T5: miss 地址应无 fabric 响应；A-2 bridge 负责提前返回 ICB error ──
+    $display("[T5] miss address -> no fabric response");
     bus_expect_miss(32'h5000_0000, 16);
     bus_expect_miss(32'h0003_0000, 16);  // INSTR_END+1 ~ DATA_BASE-1 的 gap
+    bus_expect_miss(ADDR_V2E203_UART_END + 32'h1, 16);
+    bus_expect_miss(ADDR_V2B_END + 32'h1, 16);
 
     // ── Summary ──────────────────────────────────────────────────────
     repeat (4) @(posedge clk);
