@@ -294,7 +294,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ **状态（2026-04-24）：已向器件老师提问，等回复** | 模拟芯片 | 决定上电后是否必须先跑数字发起的编程流程 |
+| P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ **已关闭（2026-04-24 器件老师答复）**：需要开机擦除。`fw/main.c` 已新增开机 `prog_op=100` 全阵列擦除序列（BYPASS_HANDSHAKE=0，让 FSM 真正对模拟侧施加 1 ms RESET 脉冲），随后 UART 输出 `APP erase DONE`。若检测到 `ENABLE_PROGRAM_MODE=0` 的构建（FSM 未实例化，如默认 `e203_tb.sv`），会通过 BUSY 探测自动跳过并打印 `APP erase SKIPPED`。hex 需用 RISC-V 工具链重新 build。 | 模拟芯片 | 决定上电后是否必须先跑数字发起的编程流程 |
 | P2-2 | 权重的保留时间（retention time）在工作温度下估计是多少年/月？ | 模拟芯片 | 评估权重写入后测试窗口 |
 | P2-3 | 读取操作对 RRAM 状态有无干扰（read disturb）？连续推理 N 次后权重是否退化？ | 模拟芯片 | 影响系统可靠性指标 |
 | P2-4 | V1 模拟芯片的权重写入方案：由数字芯片发起 erase/write/verify，还是仅保留 wafer 测试设备写入作为 fallback？ | 模拟芯片 + 数字芯片 | 主路径已要求支持数字发起编程；bring-up 仍建议保留外部测试写入 fallback |
