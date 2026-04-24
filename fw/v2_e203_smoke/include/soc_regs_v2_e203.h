@@ -15,9 +15,9 @@
 #include <stdint.h>
 
 /* =======================================================================
- * UART (V2E203 专用窗口，不是 V1 的 0x4000_0200)
+ * UART (V2E203 专用窗口，不是 V1 的 0x4000_0200，也避开 E203 CLINT 0x0200_0000)
  * ======================================================================= */
-#define UART_BASE_V2E203       0x02000000u
+#define UART_BASE_V2E203       0x00020000u
 #define UART_TXDATA            (*(volatile uint32_t *)(UART_BASE_V2E203 + 0x00u))
 #define UART_RXDATA            (*(volatile uint32_t *)(UART_BASE_V2E203 + 0x04u))
 #define UART_STATUS            (*(volatile uint32_t *)(UART_BASE_V2E203 + 0x08u))
@@ -69,25 +69,28 @@
 /* =======================================================================
  * DMEM layout (8 KB @ 0x0001_0000..0x0001_1FFF)
  *
- * 0x0001_0000..0x0001_07FF : .bss + scratch (firmware-managed)
- * 0x0001_0800..0x0001_0FFF : .encoder_stream_buf (NOLOAD, encoder build only)
- *                            256-bit × 64 row = 2 KB
- * 0x0001_1000..0x0001_11FF : smoke counts buffer (10 samples × 10 classes × 4 B = 400 B)
- * 0x0001_1200..0x0001_129F : smoke sample-done flags (10 × 4 B = 40 B)
- * 0x0001_12A0..0x0001_1DFF : reserved / stack region
- * 0x0001_1DFF = __stack_reserve start (stack grows down from __stack_top)
- * 0x0001_1E00..0x0001_1E0F : encoder RPC handshake (req/done/all_done)
+ * Buffer locations are linker-symbol driven. Firmware publishes runtime
+ * BUFFER_PTR_* fields in the marker block; TBs must dereference those fields
+ * instead of hard-coding DMEM addresses.
  * 0x0001_1F00..0x0001_1FFF : marker block (6 word + pad)
  * ======================================================================= */
 #define DMEM_BASE                  0x00010000u
 #define DMEM_END                   0x00011FFFu
 
-#define ENCODER_STREAM_BASE        0x00010800u     /* 2 KB, NOLOAD */
-#define SMOKE_COUNTS_BUF_BASE      0x00011000u     /* 400 B */
-#define SAMPLE_DONE_FLAGS_BASE     0x00011200u     /* 40 B */
+extern volatile uint32_t __smoke_counts_base[100];
+extern volatile uint32_t __sample_done_flags[10];
+extern volatile uint32_t __encoder_stream_base[512];
+extern volatile uint32_t __encoder_sample_req;
+extern volatile uint32_t __encoder_sample_done;
+extern volatile uint32_t __encoder_all_done;
 
-#define ENCODER_SAMPLE_REQ_ADDR    0x00011E00u     /* TB writes sample_idx; 0xFF = all done */
-#define ENCODER_SAMPLE_DONE_ADDR   0x00011E04u     /* FW writes last-completed sample_idx */
+#define V2E203_PTR32(sym)          ((uint32_t)(uintptr_t)(sym))
+#define SMOKE_COUNTS_BUF_ADDR      V2E203_PTR32(__smoke_counts_base)
+#define SAMPLE_DONE_FLAGS_ADDR     V2E203_PTR32(__sample_done_flags)
+#define ENCODER_STREAM_ADDR        V2E203_PTR32(__encoder_stream_base)
+#define ENCODER_SAMPLE_REQ_ADDR    V2E203_PTR32(&__encoder_sample_req)
+#define ENCODER_SAMPLE_DONE_ADDR   V2E203_PTR32(&__encoder_sample_done)
+#define ENCODER_ALL_DONE_ADDR      V2E203_PTR32(&__encoder_all_done)
 
 #define MARKER_BASE                0x00011F00u
 #define V2E203_BOOT_MARK_ADDR        (MARKER_BASE + 0x00u)

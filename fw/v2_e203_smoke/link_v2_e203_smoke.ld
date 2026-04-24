@@ -44,9 +44,17 @@ SECTIONS {
         _ebss = .;
     } > DMEM
 
-    /* Smoke-specific NOLOAD scratch (counts + sample_done_flags), fixed DMEM slot */
-    .smoke_bufs 0x00011000 (NOLOAD) : {
-        *(.smoke_bufs*)
+    /* Smoke-specific NOLOAD scratch follows .bss dynamically.
+       This prevents full firmware .bss growth from colliding with fixed
+       DMEM buffer addresses. Firmware publishes these linker symbols via
+       MARKER BUFFER_PTR_* fields for TB consumption. */
+    .smoke_bufs (NOLOAD) : {
+        . = ALIGN(0x40);
+        __smoke_counts_base = .;
+        . += 0x190;  /* 100 uint32 counts (400 B) + padding */
+        __sample_done_flags = .;
+        . += 0x40;   /* 10 uint32 flags (40 B) + padding */
+        __smoke_bufs_end = .;
     } > DMEM
 
     /* Smoke build does not use encoder RPC buffer; keep slot reserved for
@@ -54,6 +62,6 @@ SECTIONS {
 
     /* DMEM overflow guard: _ebss must not collide with stack reserve window.
        _ebss <= __stack_top - __stack_reserve + 1 */
-    ASSERT(_ebss <= __stack_top - __stack_reserve + 1,
-           "DMEM overflow (smoke): _ebss collides with stack reserve")
+    ASSERT(__smoke_bufs_end <= __stack_top - __stack_reserve + 1,
+           "DMEM overflow (smoke): buffers collide with stack reserve")
 }

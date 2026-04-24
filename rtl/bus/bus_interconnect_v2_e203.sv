@@ -18,7 +18,7 @@
 // 【地址窗口（来自 snn_soc_pkg.sv）】
 //   INSTR  : ADDR_V2E203_INSTR_BASE..ADDR_V2E203_INSTR_END (0x0000_0000..0x0000_FFFF, 64 KB)
 //   DATA   : ADDR_V2E203_DATA_BASE ..ADDR_V2E203_DATA_END  (0x0001_0000..0x0001_1FFF,  8 KB)
-//   UART   : ADDR_V2E203_UART_BASE ..ADDR_V2E203_UART_END  (0x0200_0000..0x0200_00FF)
+//   UART   : ADDR_V2E203_UART_BASE ..ADDR_V2E203_UART_END  (0x0002_0000..0x0002_00FF)
 //   V2B    : ADDR_V2B_BASE         ..ADDR_V2B_END          (0xA000_0000..0xA000_0FFF,  4 KB)
 //   其他地址 → decode miss，不产生 m_ready/m_rvalid。合法性应由
 //   icb2simple_bridge_v2b 白名单提前拦截并返回 ICB error；fabric 这里只

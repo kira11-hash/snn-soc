@@ -51,7 +51,7 @@ CLAUDE.md 里冻结的 **V1 tape-out params**（`NUM_INPUTS=64, ADC_BITS=8, THRE
 | **V1 frozen**（不动） | `snn_soc_top` / V1 TB / V1 固件 | `NUM_INPUTS=64`, `ADC_BITS=8`, `ADC_CHANNELS=20`, `TIMESTEPS_DEFAULT=10`, `THRESHOLD_DEFAULT=2550`, `NEURON_DATA_WIDTH=9`, `INSTR_SRAM_BYTES=0x4000`, `DATA_SRAM_BYTES=0x4000` |
 | **V2.B compile-time max**（硬件宽度，`snn_soc_pkg.sv:263-271`） | `snn_soc_v2b_top` / `stage_engine_v2` / V2 parity TB | `V2B_NUM_INPUTS=256`, `V2B_MAX_OUT_NEURONS=128`, `V2B_MAX_TIMESTEPS=256`, `V2B_ADC_BITS=10`, `V2B_PARTIAL_WIDTH=14` |
 | **V2.B Fashion-14×14 runtime**（`v2b_scheduler.c:27-38` 传参） | 本支线 10-样本 smoke | `S0_IN_DIM=196, S0_OUT_DIM=64, S0_THRESHOLD=16, S0_SUM_MAX=2940`；`S1_IN_DIM=64, S1_OUT_DIM=10, S1_THRESHOLD=8, S1_SUM_MAX=960`；`T_COUNT=64` |
-| **V2E203 FPGA 支线专用**（本支线 additive）| `snn_soc_v2b_e203_top` + 桥 + TB + 固件 | `V2E203_INSTR_BYTES=0x10000` (64 KB), `V2E203_DATA_BYTES=0x2000` (8 KB), `ADDR_V2B_BASE=0xA000_0000`, `ADDR_V2B_END=0xA000_0FFF`, `ADDR_V2E203_UART_BASE=0x0200_0000`, `ADDR_V2E203_UART_END=0x0200_00FF` |
+| **V2E203 FPGA 支线专用**（本支线 additive）| `snn_soc_v2b_e203_top` + 桥 + TB + 固件 | `V2E203_INSTR_BYTES=0x10000` (64 KB), `V2E203_DATA_BYTES=0x2000` (8 KB), `ADDR_V2B_BASE=0xA000_0000`, `ADDR_V2B_END=0xA000_0FFF`, `ADDR_V2E203_UART_BASE=0x0002_0000`, `ADDR_V2E203_UART_END=0x0002_00FF` |
 
 ### 1.4 严格纪律（grep-enforceable）
 
@@ -80,7 +80,7 @@ CLAUDE.md 里冻结的 **V1 tape-out params**（`NUM_INPUTS=64, ADC_BITS=8, THRE
 │  │  ┌──────── icb2simple_bridge_v2b ────────┐  白名单：                       │      │
 │  │  │ ICB → simple_bus                       │  V2E203_INSTR(0x0~0xFFFF)       │      │
 │  │  │ 3-state FSM                            │  V2E203_DATA (0x10000~0x11FFF)  │      │
-│  │  │ 非白名单地址 → rsp_err=1               │  V2E203_UART (0x2000000~...00FF)│      │
+│  │  │ 非白名单地址 → rsp_err=1               │  V2E203_UART (0x20000~...00FF)  │      │
 │  │  └──────────────┬──────────────────────────┘  V2B (0xA0000000~...0FFF)     │      │
 │  │                 │ simple_bus                                              │      │
 │  │                 ▼                                                          │      │
@@ -143,7 +143,7 @@ V2.B 单样本推理 ≈ 200 µs。poll BUSY 一次 100 ns，开销 < 0.1%。
 | **IMEM** | 64 KB（本支线 `V2E203_INSTR_BYTES`） | 权重表 25.8 KB + text ~6 KB + golden 2.4 KB + 余量 30 KB；V1 main 流片线 16 KB 不动（V1 权重预烧 CIM，不经 MAC_W_LOAD） |
 | **DMEM** | 8 KB（本支线 `V2E203_DATA_BYTES`） | bss 4.1 KB + stack 3 KB + marker 256 B + .smoke_bufs 464 B ≈ 7.9 KB，余 264 B（linker ASSERT 兜底）|
 | **V2B_SOC_BASE** | `0xA000_0000` | 与 arm-demo 源码对称（非 binary 可换）|
-| **UART_BASE** | `0x0200_0000`（新） | 避开 V1 0x4000_0200，让 bridge 白名单保持 3 段简洁 |
+| **UART_BASE** | `0x0002_0000`（新） | 避开 V1 0x4000_0200，同时避开 E203 CLINT `0x0200_0000..0x0200_FFFF`；必须落在 `mem_icb` 可达区 |
 | **MARKER_BASE** | `ORIGIN(DMEM)+LENGTH(DMEM)-0x100 = 0x0001_1F00`（linker `__marker_base`）| 6 word layout：BOOT/INFER_DONE/ENCODER_DONE + 3 个 BUFFER_PTR |
 | **STACK_TOP** | `__marker_base-4 = 0x0001_1EFC`（linker `__stack_top`）| 3 KB reserve (`__stack_reserve=0xC00`)，ASSERT 兜底 |
 | **Gate C 判据** | 10 × 10 = 100 spike count 全部 bit-exact | 叙事 "firmware→RTL bit-exact"，不放宽到 ±1 |

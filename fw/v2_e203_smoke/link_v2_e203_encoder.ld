@@ -1,8 +1,8 @@
 /* fw/v2_e203_smoke/link_v2_e203_encoder.ld
  *
  * V2E203 encoder-parity firmware linker script.
- * Same memory map as smoke, but reserves .encoder_bufs at 0x00010800 for
- * the 2 KB stream buffer (64 rows × 32 B). RPC slots at 0x00011E00/04.
+ * Same memory map as smoke, but .encoder_bufs is placed dynamically after
+ * .bss. The firmware publishes runtime BUFFER_PTR_* fields for TB access.
  */
 
 ENTRY(_start)
@@ -44,11 +44,20 @@ SECTIONS {
         _ebss = .;
     } > DMEM
 
-    /* Encoder stream output buffer: 2 KB, fixed slot for TB readback */
-    .encoder_bufs 0x00010800 (NOLOAD) : {
-        *(.encoder_bufs*)
+    /* Encoder stream output buffer + RPC slots, dynamically placed after .bss. */
+    .encoder_bufs (NOLOAD) : {
+        . = ALIGN(0x40);
+        __encoder_stream_base = .;
+        . += 0x800;  /* 2 KB = 64 rows x 8 words x 4 B */
+        __encoder_sample_req = .;
+        . += 4;
+        __encoder_sample_done = .;
+        . += 4;
+        __encoder_all_done = .;
+        . += 4;
+        __encoder_bufs_end = .;
     } > DMEM
 
-    ASSERT(_ebss <= __stack_top - __stack_reserve + 1,
-           "DMEM overflow (encoder): _ebss collides with stack reserve")
+    ASSERT(__encoder_bufs_end <= __stack_top - __stack_reserve + 1,
+           "DMEM overflow (encoder): buffers collide with stack reserve")
 }

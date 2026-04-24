@@ -15,7 +15,7 @@
 //       ↓
 //   bus_interconnect_v2_e203 (A-1，INSTR/DATA/UART 1-cycle + V2B wait-state)
 //       ├─ sram_simple × 2  (IMEM 64 KB @ 0x0000_0000 / DMEM 8 KB @ 0x0001_0000)
-//       ├─ uart_ctrl        (@ 0x0200_0000)
+//       ├─ uart_ctrl        (@ 0x0002_0000; mem_icb-reachable, avoids E203 CLINT)
 //       └─ simple2v2btop_adapter (A-3，0 字拷入)
 //              ↓ cmd/rsp
 //         snn_soc_v2b_top   (V2.B streamed-rate accelerator)
@@ -192,7 +192,7 @@ module snn_soc_v2b_e203_top #(
   );
 
   // ================================================================
-  // UART (@ 0x0200_0000)
+  // UART (@ 0x0002_0000)
   // ================================================================
   uart_ctrl u_uart (
     .clk(clk), .rst_n(rst_n),

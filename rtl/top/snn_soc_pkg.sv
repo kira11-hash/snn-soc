@@ -312,8 +312,10 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_V2E203_INSTR_END   = ADDR_V2E203_INSTR_BASE + V2E203_INSTR_BYTES - 1; // 0x0000_FFFF
   localparam logic [31:0] ADDR_V2E203_DATA_BASE   = 32'h0001_0000;
   localparam logic [31:0] ADDR_V2E203_DATA_END    = ADDR_V2E203_DATA_BASE  + V2E203_DATA_BYTES  - 1; // 0x0001_1FFF
-  localparam logic [31:0] ADDR_V2E203_UART_BASE   = 32'h0200_0000;
-  localparam logic [31:0] ADDR_V2E203_UART_END    = 32'h0200_00FF;
+  // Keep UART in the E203 mem_icb region. 0x0200_0000 is E203 CLINT and
+  // would be routed to clint_icb before the V2E203 bridge ever sees it.
+  localparam logic [31:0] ADDR_V2E203_UART_BASE   = 32'h0002_0000;
+  localparam logic [31:0] ADDR_V2E203_UART_END    = 32'h0002_00FF;
   // V2B adapter consumes m_addr[11:0] as local offset, so base must stay 4KB-aligned.
   localparam logic [31:0] ADDR_V2B_BASE           = 32'hA000_0000;
   localparam logic [31:0] ADDR_V2B_END            = 32'hA000_0FFF;

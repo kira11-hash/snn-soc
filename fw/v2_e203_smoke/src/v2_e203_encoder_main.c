@@ -11,11 +11,12 @@
 int main(void)
 {
     /* Init RPC slots */
-    MARKER_W(ENCODER_SAMPLE_REQ_ADDR)  = 0xFFFFFFFFu;
-    MARKER_W(ENCODER_SAMPLE_DONE_ADDR) = 0xFFFFFFFFu;
+    __encoder_sample_req  = 0xFFFFFFFFu;
+    __encoder_sample_done = 0xFFFFFFFFu;
+    __encoder_all_done    = 0u;
 
     /* Publish BUFFER_PTRs */
-    MARKER_W(BUFFER_PTR_0_ADDR) = ENCODER_STREAM_BASE;
+    MARKER_W(BUFFER_PTR_0_ADDR) = ENCODER_STREAM_ADDR;
     MARKER_W(BUFFER_PTR_1_ADDR) = ENCODER_SAMPLE_REQ_ADDR;
     MARKER_W(BUFFER_PTR_2_ADDR) = ENCODER_SAMPLE_DONE_ADDR;
 
@@ -24,14 +25,15 @@ int main(void)
 
     /* RPC loop */
     for (;;) {
-        volatile uint32_t req = MARKER_W(ENCODER_SAMPLE_REQ_ADDR);
+        volatile uint32_t req = __encoder_sample_req;
         if (req == 0xFFFFFFFFu) continue;
         if (req == 0xFFu) break;
         /* Echo (TODO Phase A-8: replace with real encoder + stream write) */
-        MARKER_W(ENCODER_SAMPLE_DONE_ADDR) = req;
-        MARKER_W(ENCODER_SAMPLE_REQ_ADDR)  = 0xFFFFFFFFu;
+        __encoder_sample_done = req;
+        __encoder_sample_req  = 0xFFFFFFFFu;
     }
 
+    __encoder_all_done = 1u;
     MARKER_W(V2E203_ENCODER_DONE_MARK_ADDR) = V2E203_ENCODER_DONE_MARK;
 
     for (;;) __asm__ volatile ("nop");

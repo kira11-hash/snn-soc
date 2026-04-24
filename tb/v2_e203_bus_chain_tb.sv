@@ -370,6 +370,7 @@ module v2_e203_bus_chain_tb;
     expect_err(32'h4000_0300, 1'b0);  // V1 SPI
     expect_err(32'h4000_0400, 1'b1);  // V1 FIFO
     expect_err(32'h0003_0000, 1'b0);  // V1 WEIGHT_SRAM
+    expect_err(32'h0200_0000, 1'b0);  // E203 CLINT; V2E203 UART must avoid it
     expect_err(32'hFFFF_0000, 1'b0);  // unmapped
     expect_err(ADDR_V2B_END + 32'h1, 1'b0);  // just past V2B window
 

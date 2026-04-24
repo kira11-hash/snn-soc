@@ -12,9 +12,8 @@
 // 【测试流程】
 //   1. 加载 v2_e203_encoder.hex 到 INSTR_SRAM
 //   2. rst 释放，等 BOOT_MARK (0xB0070001)
-//   3. 对 k = 0..4：
-//        TB hierarchical 写 dut.u_data_sram.mem[ENCODER_SAMPLE_REQ >> 2] = k
-//        等 dut.u_data_sram.mem[ENCODER_SAMPLE_DONE >> 2] == k
+//   3. 通过 MARKER BUFFER_PTR_1/2 找到 req/done linker-symbol slots
+//   4. 对 k = 0..9 做 RPC 握手（skeleton echo；A-8 升级 bit-exact stream）
 //   4. TB 写 REQ = 0xFF（终结）
 //   5. 等 ENCODER_DONE_MARK (0x31C0D001)
 //
@@ -46,18 +45,32 @@ module v2_e203_encoder_parity_tb;
   localparam int WADDR_BUF_PTR_0      = (32'h00011F0C - 32'h00010000) >> 2;
   localparam int WADDR_BUF_PTR_1      = (32'h00011F10 - 32'h00010000) >> 2;
   localparam int WADDR_BUF_PTR_2      = (32'h00011F14 - 32'h00010000) >> 2;
-  localparam int WADDR_SAMPLE_REQ     = (32'h00011E00 - 32'h00010000) >> 2;
-  localparam int WADDR_SAMPLE_DONE    = (32'h00011E04 - 32'h00010000) >> 2;
 
   localparam logic [31:0] V2E203_BOOT_MARK         = 32'hB0070001;
   localparam logic [31:0] V2E203_ENCODER_DONE_MARK = 32'h31C0D001;
   localparam logic [31:0] REQ_IDLE                 = 32'hFFFFFFFF;
   localparam logic [31:0] REQ_ALL_DONE             = 32'h000000FF;
-  localparam logic [31:0] EXP_BUF_PTR_0            = 32'h00010800;  /* ENCODER_STREAM_BASE */
-  localparam logic [31:0] EXP_BUF_PTR_1            = 32'h00011E00;  /* SAMPLE_REQ addr */
-  localparam logic [31:0] EXP_BUF_PTR_2            = 32'h00011E04;  /* SAMPLE_DONE addr */
 
   int errors;
+  int waddr_stream;
+  int waddr_sample_req;
+  int waddr_sample_done;
+
+  function automatic int dmem_waddr(input logic [31:0] addr);
+    begin
+      dmem_waddr = (addr - 32'h0001_0000) >> 2;
+    end
+  endfunction
+
+  function automatic logic ptr_in_dmem(input logic [31:0] ptr, input int bytes);
+    logic [31:0] last;
+    begin
+      last = ptr + bytes - 1;
+      ptr_in_dmem = (ptr[1:0] == 2'b00)
+                  && (ptr >= 32'h0001_0000)
+                  && (last < 32'h0001_1F00);
+    end
+  endfunction
 
   initial begin
     $dumpfile("waves/v2_e203_encoder_parity.vcd");
@@ -99,40 +112,50 @@ module v2_e203_encoder_parity_tb;
     /* 1. 等 BOOT_MARK */
     wait_dmem(WADDR_BOOT_MARK, V2E203_BOOT_MARK, 2000, "BOOT_MARK");
 
-    /* 2. 校验 BUFFER_PTR */
-    if (dut.u_data_sram.mem[WADDR_BUF_PTR_0] !== EXP_BUF_PTR_0) begin
-      $display("[ERR] BUFFER_PTR_0 = 0x%08h (exp 0x%08h)",
-               dut.u_data_sram.mem[WADDR_BUF_PTR_0], EXP_BUF_PTR_0);
-      errors++;
-    end
-    if (dut.u_data_sram.mem[WADDR_BUF_PTR_1] !== EXP_BUF_PTR_1) begin
-      $display("[ERR] BUFFER_PTR_1 = 0x%08h (exp 0x%08h)",
-               dut.u_data_sram.mem[WADDR_BUF_PTR_1], EXP_BUF_PTR_1);
-      errors++;
-    end
-    if (dut.u_data_sram.mem[WADDR_BUF_PTR_2] !== EXP_BUF_PTR_2) begin
-      $display("[ERR] BUFFER_PTR_2 = 0x%08h (exp 0x%08h)",
-               dut.u_data_sram.mem[WADDR_BUF_PTR_2], EXP_BUF_PTR_2);
-      errors++;
+    /* 2. 校验 runtime BUFFER_PTR */
+    begin
+      logic [31:0] stream_ptr;
+      logic [31:0] req_ptr;
+      logic [31:0] done_ptr;
+      stream_ptr = dut.u_data_sram.mem[WADDR_BUF_PTR_0];
+      req_ptr    = dut.u_data_sram.mem[WADDR_BUF_PTR_1];
+      done_ptr   = dut.u_data_sram.mem[WADDR_BUF_PTR_2];
+
+      if (!ptr_in_dmem(stream_ptr, 2048)) begin
+        $display("[ERR] BUFFER_PTR_0 invalid: 0x%08h", stream_ptr);
+        errors++;
+      end
+      if (!ptr_in_dmem(req_ptr, 4)) begin
+        $display("[ERR] BUFFER_PTR_1 invalid: 0x%08h", req_ptr);
+        errors++;
+      end
+      if (!ptr_in_dmem(done_ptr, 4)) begin
+        $display("[ERR] BUFFER_PTR_2 invalid: 0x%08h", done_ptr);
+        errors++;
+      end
+
+      waddr_stream      = dmem_waddr(stream_ptr);
+      waddr_sample_req  = dmem_waddr(req_ptr);
+      waddr_sample_done = dmem_waddr(done_ptr);
     end
 
     /* 3. 等 FW 把 SAMPLE_REQ_ADDR 初始化成 IDLE (0xFFFFFFFF) 再开始握手 */
-    wait_dmem(WADDR_SAMPLE_REQ, REQ_IDLE, 2000, "SAMPLE_REQ init to IDLE");
+    wait_dmem(waddr_sample_req, REQ_IDLE, 2000, "SAMPLE_REQ init to IDLE");
 
-    /* 4. 5 轮 RPC (k = 0..4) */
-    for (int k = 0; k < 5; k++) begin
+    /* 4. 10 轮 RPC (k = 0..9). A-8 will add stream bit-exact checks. */
+    for (int k = 0; k < 10; k++) begin
       /* TB writes REQ = k directly via hierarchical reference */
-      dut.u_data_sram.mem[WADDR_SAMPLE_REQ] = k;
+      dut.u_data_sram.mem[waddr_sample_req] = k;
       /* Wait FW to set DONE = k */
-      wait_dmem(WADDR_SAMPLE_DONE, k, 5000,
+      wait_dmem(waddr_sample_done, k, 5000,
                 $sformatf("SAMPLE_DONE == %0d", k));
       /* Wait FW to clear REQ back to IDLE (it does so after echoing DONE) */
-      wait_dmem(WADDR_SAMPLE_REQ, REQ_IDLE, 1000,
+      wait_dmem(waddr_sample_req, REQ_IDLE, 1000,
                 $sformatf("SAMPLE_REQ cleared after k=%0d", k));
     end
 
     /* 5. Send terminator and wait ENCODER_DONE_MARK */
-    dut.u_data_sram.mem[WADDR_SAMPLE_REQ] = REQ_ALL_DONE;
+    dut.u_data_sram.mem[waddr_sample_req] = REQ_ALL_DONE;
     wait_dmem(WADDR_ENCODER_DONE, V2E203_ENCODER_DONE_MARK, 5000, "ENCODER_DONE_MARK");
 
     repeat (20) @(posedge clk);

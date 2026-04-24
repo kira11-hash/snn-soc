@@ -296,6 +296,8 @@ module icb2simple_bridge_v2b_tb;
     icb_expect_err(32'h4000_0400, 1'b0);  // V1 FIFO
     // V1 WEIGHT_SRAM (V2B 白名单里没有)
     icb_expect_err(32'h0003_0000, 1'b0);
+    // E203 CLINT window: must not be used for V2E203 UART
+    icb_expect_err(32'h0200_0000, 1'b0);
     // 完全未映射地址
     icb_expect_err(32'h5000_0000, 1'b1);
     icb_expect_err(32'h8000_0000, 1'b0);
