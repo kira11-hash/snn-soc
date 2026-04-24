@@ -299,5 +299,23 @@ package snn_soc_pkg;
   parameter logic [7:0] V2B_STAGE_ERR_CIM_NOT_READY        = 8'h04;
   parameter logic [7:0] V2B_STAGE_ERR_DIM_OUT_OF_RANGE     = 8'h05;
 
+  // ============================================================
+  // V2E203 FPGA 支线专用（feature/v2-fpga-e203, branch-local additive）
+  // 不影响 V1 `snn_soc_top` / V2 `snn_soc_v2b_top`；仅被本支线
+  // `snn_soc_v2b_e203_top` + 新 fabric + 新 bridge + TB 消费。
+  // ============================================================
+  // SRAM 容量
+  localparam logic [31:0] V2E203_INSTR_BYTES      = 32'h0001_0000; // 64 KB IMEM
+  localparam logic [31:0] V2E203_DATA_BYTES       = 32'h0000_2000; //  8 KB DMEM
+  // 地址窗口（4 段：INSTR / DATA / UART / V2B）
+  localparam logic [31:0] ADDR_V2E203_INSTR_BASE  = 32'h0000_0000;
+  localparam logic [31:0] ADDR_V2E203_INSTR_END   = ADDR_V2E203_INSTR_BASE + V2E203_INSTR_BYTES - 1; // 0x0000_FFFF
+  localparam logic [31:0] ADDR_V2E203_DATA_BASE   = 32'h0001_0000;
+  localparam logic [31:0] ADDR_V2E203_DATA_END    = ADDR_V2E203_DATA_BASE  + V2E203_DATA_BYTES  - 1; // 0x0001_1FFF
+  localparam logic [31:0] ADDR_V2E203_UART_BASE   = 32'h0200_0000;
+  localparam logic [31:0] ADDR_V2E203_UART_END    = 32'h0200_00FF;
+  localparam logic [31:0] ADDR_V2B_BASE           = 32'hA000_0000;
+  localparam logic [31:0] ADDR_V2B_END            = 32'hA000_0FFF;
+
 endpackage
 /* verilator lint_on UNUSEDPARAM */
