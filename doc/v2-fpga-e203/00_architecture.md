@@ -170,6 +170,12 @@ V2.B 单样本推理 ≈ 200 µs。poll BUSY 一次 100 ns，开销 < 0.1%。
 - **R15/R16/R17**：grep 守卫防止新文件偷用 V1 常量或 include V1 soc_regs.h
 - **R14**（技术债）：`simple2v2btop_adapter` 忽略 `cmd_ready`/`rsp_valid`，依赖单 outstanding + 固定延迟假设。本支线不修，V2 tape-out 时再审。
 
+### 3.3 Adapter 拷入合约（Phase A-3）
+
+`rtl/bus/simple2v2btop_adapter.sv` 是从 `v2-arm-fpga-demo-passed` 0 字改拷入的原件。文件头仍保留 ARM demo/`axi2simple_bridge` 语境，这是为了保持 byte-exact，不代表本支线继续使用 ARM host 或 AXI path。本支线的实际上游是 `bus_interconnect_v2_e203` 的 V2B simple_bus 端口。
+
+使用前置条件必须写死：上游只能发 single outstanding、single-pulse `m_valid` 事务；adapter 在 `ADP_IDLE && m_valid` 同拍采样 `m_addr/m_write/m_wdata/m_wstrb`，随后靠 `q_*` 保持 `cmd_addr`，覆盖 direct-reg read 与 SBA/SBB delayed read。若未来上游改成 hold-valid 或 pipeline 多 outstanding，必须先重审 adapter FSM 和 R14 技术债。
+
 ---
 
 ## 4–9（待 Phase A/B/C/D 完成后补）
