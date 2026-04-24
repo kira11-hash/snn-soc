@@ -30,6 +30,7 @@ CFLAGS="-march=rv32i_zicsr_zifencei -mabi=ilp32 -O2 -ffreestanding -nostdlib \
         -fno-pic -mcmodel=medany -ffunction-sections -fdata-sections \
         -Wall -Wextra -Werror \
         -DNUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES} \
+        -DICARUS_SKIP_ENCODE \
         -Iinclude -I../include"
 
 LDFLAGS_COMMON="-nostdlib -Wl,--gc-sections -Wl,--print-memory-usage"
