@@ -117,7 +117,8 @@ int main(void) {
     uint32_t count = REG_OUT_COUNT;
     APP_RESULT_ADDR = count;
 
-    uint32_t hist[10] = {0};
+    uint32_t hist[10];
+    for (uint32_t d = 0; d < 10u; ++d) hist[d] = 0u;
     for (uint32_t i = 0; i < count; ++i) {
         uint32_t id = REG_OUT_DATA & 0xFu;
         if (id < 10u) {

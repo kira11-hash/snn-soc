@@ -39,7 +39,16 @@ module e203_tb;
   logic uart_busy_seen;
   logic uart_busy_d;
 
-  snn_soc_top #(.ENABLE_E203(1'b1)) dut (.*);
+  // ENABLE_PROGRAM_MODE=1: required for fw/main.c boot-time full-array erase to
+  //   actually run (otherwise reg_bank interlock latches prog_start_pending
+  //   permanently and blocks CIM_CTRL.START).
+  // ENABLE_PROGRAM_WEIGHT_MODEL=0: keep the popcount-based cim_macro_blackbox
+  //   so the E203 smoke test still produces non-zero inference output. BRAM
+  //   weight model (=1) would be zeroed by the boot erase and give count=0.
+  //   Sample-alignment / weighted regressions cover numerical BRAM path.
+  snn_soc_top #(.ENABLE_E203(1'b1),
+                .ENABLE_PROGRAM_MODE(1'b1),
+                .ENABLE_PROGRAM_WEIGHT_MODEL(1'b0)) dut (.*);
 
   spi_flash_model #(
     .INIT_HEX("../fw/out/flash_image.hex")
@@ -111,7 +120,10 @@ module e203_tb;
 
     begin : wait_boot_mark
       integer boot_polls;
-      for (boot_polls = 0; boot_polls < 300000; boot_polls = boot_polls + 1) begin
+      // Bumped from 300000 → 500000 cycles: fw/main.c grew after adding
+      // boot-time full-array erase, SPI flash payload therefore grew too
+      // (~1.9 KB with -O2). 500k cycles @ 50 MHz = 10 ms, still generous.
+      for (boot_polls = 0; boot_polls < 500000; boot_polls = boot_polls + 1) begin
         @(posedge clk);
         if (dut.u_data_sram.mem[MARKER_BASE_WORD + 0] == EXPECTED_BOOT_MARK) begin
           $display("[INFO] Bootloader load completed after %0d cycles, PC=0x%08h",

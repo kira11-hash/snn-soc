@@ -19,6 +19,8 @@
 ../rtl/snn/cim_array_ctrl.sv
 ../rtl/snn/wl_mux_wrapper.sv
 ../rtl/snn/cim_macro_blackbox.sv
+../rtl/snn/cim_program_ctrl.sv
+../rtl/snn/cim_macro_arbiter.sv
 ../rtl/periph/uart_ctrl.sv
 ../rtl/periph/spi_ctrl.sv
 ../rtl/periph/jtag_mem_loader.sv
