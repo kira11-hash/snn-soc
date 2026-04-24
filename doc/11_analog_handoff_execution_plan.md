@@ -204,7 +204,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A8-6 16-level 编码方式（2026-04-24 器件侧确认） | **通过"加 N 个 SET 脉冲"区分**，不是通过调幅度。数字侧 `cim_program_ctrl` FSM 实现：写等级 N 时发 N 个脉冲，每写完一次 verify 一次；`bl_data ∈ [N·16 ± 2]` 即 PASS，否则 retry 直到 `PROG_CTRL.RETRY_LIMIT`。 |
 | A8-7 脉宽档位确认（2026-04-24 器件老师 OK） | **单脉冲宽度档位 1 / 10 / 100 µs 已确认合理**，pkg 参数 `PROG_WRITE_PULSE_{1,10,100}US_CYC` 保持不动 |
 | A8-8 Retry 次数确认（2026-04-24 器件老师 OK） | **`PROG_CTRL.RETRY_LIMIT` 默认 3 次、上限 7 次已确认够用**，pkg 参数 `VERIFY_RETRY_MAX=7` 保持不动 |
-| A8-9 上电初始态（待老师回复） | 当前假设：流片后 RRAM 可能为随机态 → bring-up 固件第一步跑 `prog_op=100` 全阵列擦除（fail-safe）。若老师确认上电默认 HRS，可跳过该步骤节省上电时间。**等器件老师答复中** |
+| A8-9 上电初始态（2026-04-24 已关闭） | 器件老师确认 RRAM 上电初始态不保证 HRS。数字侧生产 app (`fw/main.c`) 已在推理前加入 `prog_op=100` 全阵列擦除（BYPASS_HANDSHAKE=0，真实 1 ms RESET pulse）；FPGA smoke 固件原本也已在 Phase 1 Step 1a 做全阵列擦除。 |
 
 #### 数字侧已完成的 RTL 落地（2026-04-24 全部完工）
 
@@ -326,7 +326,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A8（外部编程合同） | **已冻结（方案 α'）**：新增 `prog_op[2:0] + prog_level[3:0]` 7 个 D→A pads；verify PASS/FAIL 由数字侧自己比对 | 数字+模拟联合 | 已完成 | 本文 A8；关联 `doc/08_cim_analog_interface.md` / `doc/15_asic_pad_map.md` / `doc/02_reg_map.md` | 当前剩余的是数字侧 shared-carrier routing follow-up，不是协议 blocker |
 | P0（pin/pad/PCB布局） | 数字侧 pad 真源已冻结；待模拟芯片 pad 排列与 PCB 约束回填 | 模拟+PCB | pad 定稿前 | 数字侧真源：`doc/15_asic_pad_map.md`、`rtl/top/chip_top.sv` | 未回填前不提交最终 pad-ring/PCB 定稿 |
 | P1（供电/偏置） | 待模拟侧确认外部偏置/参考是否需要独立引脚；数字侧当前未新增相关 pad | 模拟+PCB | 电源方案评审前 | 本文 P1；数字侧现状见 `doc/15_asic_pad_map.md` | 直接影响 PCB BOM 与电源隔离方案 |
-| P2（RRAM 状态） | 待器件/模拟侧确认上电状态与写入方案；数字侧主目标已改为支持数字发起外部编程，但 bring-up 仍建议保留 fallback | 器件团队 | V1 bring-up 方案冻结前 | 本文 P2 | 未回填前不能只按“上电即推理”假设准备系统 |
+| P2（RRAM 状态） | **P2-1 已关闭**：上电初始态不保证 HRS，数字侧必须先跑全阵列擦除；retention/read-disturb 与长期写入策略仍待器件/模拟侧量化 | 器件团队 | 首轮 handoff 会后回填剩余 P2 项 | 本文 P2；P2-1 见下方已关闭记录 | 不允许按“上电即推理”准备系统；bring-up 第一动作是数字发起 `prog_op=100` |
 
 ### 收口准入条件
 

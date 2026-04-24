@@ -39,9 +39,8 @@ module e203_tb;
   logic uart_busy_seen;
   logic uart_busy_d;
 
-  // ENABLE_PROGRAM_MODE=1: required for fw/main.c boot-time full-array erase to
-  //   actually run (otherwise reg_bank interlock latches prog_start_pending
-  //   permanently and blocks CIM_CTRL.START).
+  // ENABLE_PROGRAM_MODE=1: exercise fw/main.c boot-time full-array erase in
+  //   the same configuration used by the tape-out chip_top.
   // ENABLE_PROGRAM_WEIGHT_MODEL=0: keep the popcount-based cim_macro_blackbox
   //   so the E203 smoke test still produces non-zero inference output. BRAM
   //   weight model (=1) would be zeroed by the boot erase and give count=0.

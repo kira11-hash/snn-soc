@@ -93,7 +93,11 @@
 //     - 必须 !out_fifo_empty：空 FIFO 读不应触发 pop（避免 underflow）
 //     - 必须是有效读请求（req_valid && !req_write）
 // -----------------------------------------------------------------------
-module reg_bank (
+module reg_bank #(
+  // When the programming FSM is not instantiated, PROG_CTRL.START must behave
+  // as a no-op rather than leaving a pending interlock behind.
+  parameter bit ENABLE_PROGRAM_MODE = 1'b1
+) (
   input  logic        clk,
   input  logic        rst_n,
 
@@ -239,7 +243,8 @@ module reg_bank (
   //
   // 【修复】 额外加两个 pending 位：
   //   - snn_start_pending : start_pulse 发出后置 1，直到 snn_busy 升起才清零
-  //   - prog_start_pending: 同理
+  //   - prog_start_pending: 同理；当 ENABLE_PROGRAM_MODE=0 时保持 0，
+  //     因为 PROG_CTRL.START 没有下游 FSM 可消费，必须是 no-op。
   //
   // 【互锁条件加强为】：
   //   start_pulse 允许  = !prog_busy && !prog_start_pending && !prog_start_pulse
@@ -349,7 +354,9 @@ module reg_bank (
       end else if (snn_busy) begin
         snn_start_pending <= 1'b0;
       end
-      if (prog_start_pulse) begin
+      if (!ENABLE_PROGRAM_MODE) begin
+        prog_start_pending <= 1'b0;
+      end else if (prog_start_pulse) begin
         prog_start_pending <= 1'b1;
       end else if (prog_busy) begin
         prog_start_pending <= 1'b0;
@@ -397,7 +404,9 @@ module reg_bank (
             //   - !prog_start_pending: 近期没发过 prog_start_pulse 但 prog_busy 还没升起
             //   - !prog_start_pulse  : 本拍 reg_bank 没有同时接受另一个 PROG_CTRL.START
             if (req_wstrb[0] && req_wdata[0]
-                && !prog_busy && !prog_start_pending && !prog_start_pulse) begin
+                && !prog_busy
+                && (!prog_start_pending || !ENABLE_PROGRAM_MODE)
+                && (!prog_start_pulse || !ENABLE_PROGRAM_MODE)) begin
               start_pulse <= 1'b1;
             end
             // 写 bit[1]=1 → soft_reset_pulse 被置 1，同上
@@ -414,7 +423,7 @@ module reg_bank (
             //     导致 cim_program_ctrl 与 snn_soc_top 内部状态不一致 → 莫名其妙 FAIL）
             if (req_wstrb[0] && req_wdata[0]
                 && !snn_busy && !snn_start_pending && !start_pulse
-                && !prog_busy && !prog_start_pulse) begin
+                && ENABLE_PROGRAM_MODE && !prog_busy && !prog_start_pulse) begin
               prog_start_pulse <= 1'b1;
             end
             if (req_wstrb[0]) prog_erase      <= req_wdata[1];

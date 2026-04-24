@@ -27,6 +27,7 @@
 #define BOOT_ERASE_PROBE_CYCLES 256u
 
 static uint32_t input_words[DMA_LEN_VALUE];
+static uint32_t boot_erase_last_status;
 
 // ---------------------------------------------------------------------------
 // Boot-time full-array RRAM erase.
@@ -43,6 +44,9 @@ static uint32_t input_words[DMA_LEN_VALUE];
 //   0u → FAIL or timeout
 // ---------------------------------------------------------------------------
 static uint32_t boot_full_array_erase(void) {
+    boot_erase_last_status = 0u;
+    PROG_STATUS = PROG_STATUS_DONE_MASK;   // clear any stale DONE before START
+
     PROG_ROW  = 0u;
     PROG_COL  = 0u;
     PROG_CTRL = PROG_CTRL_ERASE_MASK
@@ -51,7 +55,9 @@ static uint32_t boot_full_array_erase(void) {
 
     uint32_t fsm_present = 0u;
     for (uint32_t i = 0u; i < BOOT_ERASE_PROBE_CYCLES; ++i) {
-        if (PROG_STATUS & PROG_STATUS_BUSY_MASK) {
+        uint32_t s = PROG_STATUS;
+        boot_erase_last_status = s;
+        if (s & PROG_STATUS_BUSY_MASK) {
             fsm_present = 1u;
             break;
         }
@@ -62,6 +68,7 @@ static uint32_t boot_full_array_erase(void) {
 
     for (uint32_t cnt = 0u; cnt < BOOT_ERASE_POLL_TIMEOUT; ++cnt) {
         uint32_t s = PROG_STATUS;
+        boot_erase_last_status = s;
         if (s & PROG_STATUS_DONE_MASK) {
             PROG_STATUS = PROG_STATUS_DONE_MASK;   // W1C
             if ((s & PROG_STATUS_FAIL_MASK) || !(s & PROG_STATUS_PASS_MASK)) {
@@ -86,7 +93,8 @@ int main(void) {
     } else if (erase_r == 2u) {
         uart_printf("APP erase SKIPPED (program FSM disabled)\n");
     } else {
-        uart_printf("APP erase FAIL\n");
+        uart_printf("APP erase FAIL status=%x\n", boot_erase_last_status);
+        uart_wait_idle();
         while (1) { }
     }
 

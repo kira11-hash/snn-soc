@@ -919,7 +919,9 @@ module snn_soc_top #(
   //   - 只提供 FIFO 的 count / empty / full 等状态；
   //   - 与 reg_bank 分离，主要是为了地址分区清晰、接口更简单。
   //======================
-  reg_bank u_reg_bank (
+  reg_bank #(
+    .ENABLE_PROGRAM_MODE(ENABLE_PROGRAM_MODE)
+  ) u_reg_bank (
     .clk            (clk),
     .rst_n          (rst_n),
     // 总线访问接口
