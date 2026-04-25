@@ -270,6 +270,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | P0-3 | 模拟芯片信号 pad 的排列顺序（wl_data/bl_data 各从哪侧引出）？ | 模拟芯片 | 影响 PCB 走线对齐和信号完整性 |
 | P0-4 | 两颗芯片的供电方案：AVDD/AVSS（模拟）和 DVDD/DVSS（数字）在 PCB 上如何分区？是否需要独立 LDO？ | PCB 设计 | 影响电源完整性和噪声隔离 |
 | P0-5 | ESD 保护策略：两颗芯片的互联信号 pad 各需什么级别的 ESD 保护？（片间走线已有 PCB 布局保护，ESD 等级可能低于对外 IO） | 双方 | 影响 pad 面积和 IO 驱动能力 |
+| **P0-6** | **数字-模拟接口数字信号的 IO 电平对齐 ✅ 已确认（2026-04-25）**：两颗 die 的 PDK 一致——core 1.2V / IO 3.3V。结论：**接口处零 level shifter**，PCB BOM 不需要 TXS0108 / TXB0108 / 74LVC1T45 之类电平转换 IC，对应 ~5-10ns 双向延迟也不进 50 MHz 时序预算。chip_top pad cell 选 3.3V LVCMOS33（drive strength + slew 待 PDK 接入后定）；模拟 die IO 同 3.3V CMOS 即可直连。**RRAM SET/RESET 高电压由模拟 die 内部 charge pump 生成，不出 pad，与本接口电平无关。** | 双方 | 已锁定，无 BOM/时序冲击 |
 
 ---
 
