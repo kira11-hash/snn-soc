@@ -115,6 +115,21 @@ module sram_simple #(
   // 总线写和 DMA 写通过前置 mux 合并到单个写端口。
   // 仲裁优先级：DMA 写 > 总线写（V1 中两者互斥；mux 让 Vivado 可识别
   // 单写端口 BRAM/SRAM 推断模式，避免大容量 IMEM 被尝试拆成寄存器）。
+  //
+  // ⚠ 行为契约（V1/V2 调用者必须满足）：
+  //   总线写 (req_valid & req_write) 与 DMA 写 (dma_wr_en) **同拍互斥**。
+  //   一旦同拍同时拉高（即便 dma_word_addr ≠ word_addr 指向不同地址），
+  //   单写口 mux 只会把 DMA 那笔写下，**总线那一笔被静默丢弃**。
+  //   这是把存储推断成 single-write-port BRAM 的代价，不是 bug。
+  //
+  // 历史对比：原版用两段独立 always_ff if-block + 非阻塞赋值，
+  // 同拍跨地址写两路都会落到 mem。重构为 mux 后丢失了这种"双口式"行为。
+  // 现网 V1（main 流片）regression 与 V2.B Fashion-14×14 板上 100/100
+  // bit-exact 都已实测通过，说明上述互斥契约现网成立。
+  //
+  // 未来若引入 DMA + bus 真正可能并发的路径（例如 DMA 自服务、双 master
+  // bus_interconnect 等），必须先把 mux 改回"不冲突时两路都写"或加仲裁
+  // 状态机，并重写本注释 + 加 SVA 抓双拉高场景。
   wire                 wr_bus_en = req_valid & req_write;
   wire                 wr_en     = dma_wr_en | wr_bus_en;
   wire [ADDR_BITS-1:0] wr_addr   = dma_wr_en ? dma_word_addr : word_addr;
