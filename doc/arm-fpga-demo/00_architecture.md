@@ -4,10 +4,22 @@
 - **Phase A（仿真 + RTL wrapper）—✅ ALL GATES PASS**（commit `8301c226`）
 - **Phase B（ARM firmware cross-build）—✅ GATE B PASS**（`v2b_arm_demo.elf` linked, zero undefined refs, symbols verified）
 - **Phase C0 本地静态 sanity — ✅ OOC synth PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 via HPM0_FPD 已锁**（full bitgen + 板上 smoke 在 Qingan sign-off + 有板子时跑）
-- **Phase C0/C1 board validation（frozen v1）—✅ PASS**（tag `v2-arm-fpga-demo-passed`，2026-04-22 sign-off）
-- **Fix wave F1（WSTRB partial-write repair）—⏳ RTL/TB PASS，待 re-bitgen + re-burn**
+- **Phase C0/C1 board validation（frozen v1）—✅ PASS**（tag `v2-arm-fpga-demo-passed` @ `8e51ae27`，2026-04-22 sign-off）
+- **Fix wave F1（WSTRB partial-write repair）—✅ RTL/TB PASS + re-bitgen PASS + re-burn PASS**（候选 tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
 
-**Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。`v2-arm-fpga-demo-passed` 锁定的是 2026-04-22 的 frozen v1 板验；当前 fix wave 只修 AXI partial-write 语义，不改 V2.B datapath 算法。fix wave 的重烧证据放 `board_bringup_log_v2.txt`。
+**Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。frozen v1 与 v2 fix wave 通过双 tag 并存：
+
+| Tag | Commit | bit/elf SHA256 简述 | 时间 | 用途 |
+|---|---|---|---|---|
+| `v2-arm-fpga-demo-passed` | `8e51ae27` | bit `1215D913…`, elf `1D6D6BB3…` | 2026-04-22 | frozen v1 板验（**WSTRB 漏洞潜伏期**） |
+| `v2-arm-fpga-demo-v2-passed` | merge HEAD | bit `78A5F36C…`, elf `AEEB02A0…` | 2026-04-25 | F1 修后重烧版（partial-write 语义正确） |
+
+引用规则：
+- 论文叙事 / 简历 → 引用 **v2 tag**（语义正确版）
+- 历史复现 / 对比研究 → 引用 v1 tag（保留 evidence 不可变性）
+- 老 tag **不 move**（不把它指向新 commit），保持 git 历史可审计
+
+详见 §11 "Evidence trail (v1 vs v2)" + `board_bringup_log_c0_c1_uart.txt`（v1）+ `board_bringup_log_v2.txt`（v2）+ `build_manifest_v2.txt`（v2 工具链/路径 manifest）。
 
 关联计划：`C:\Users\24201\.claude\plans\noble-soaring-beaver.md` (REV 2)。
 
@@ -268,6 +280,37 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 |---|---|---|
 | **frozen v1（已板验）** | "The V2.B accelerator was validated on ZCU102 through ARM-hosted MMIO control with bit-exact output counts (10 Fashion-MNIST 14×14 samples)." | ✅ |
 | **当前 fix wave（F1 待重烧）** | "The frozen v1 artifact has board evidence; a follow-up fix wave for AXI partial-write semantics is under re-validation." | ✅ |
-| **fix wave re-burn PASS 之后** | "The AXI partial-write repair preserves the original board-validated behavior while restoring byte-strobe correctness on the ARM-hosted MMIO path." | ⏳ |
+| **fix wave re-burn PASS 之后** | "The AXI partial-write repair preserves the original board-validated behavior while restoring byte-strobe correctness on the ARM-hosted MMIO path." | ✅ |
 
 始终**不可写**（直到 E203-in-PL 分支跑通）："autonomous SoC-local firmware execution"、"E203 firmware already runs V2.B on FPGA"、"integrated RISC-V + CIM SoC with firmware self-orchestration"。
+
+---
+
+## 11. Evidence trail (v1 vs v2)
+
+### 11.1 为什么有两个 tag
+
+`v2-arm-fpga-demo-passed` (2026-04-22) 板验通过的 frozen bit 在 `rtl/top/snn_soc_v2b_top.sv` AXI-Lite 写路径未消费 `cmd_wstrb`，partial write 被悄悄放大成全字写。该 bug 在 v1 板验里**未被触发**（ARM firmware 全部走 32-bit 写），但流片后任何走 byte-mask 的 SW 都会触发——其中 `A_STAGE_CTRL` 的 byte0-only START W1P 在 `wstrb=4'b0010` 时仍会误触发 stage engine。
+
+**详细暴露证据**：`tb/v2b_axi_partial_write_tb.sv` 在老 RTL 上跑出 7 mismatches（T1/T2/T3/T4/T5/T6/T8），其中 T8 `STAGE wrong-byte got=0x01 exp=0x00` 直接证明误启动；同 TB 在 fix 后 RTL 上全 PASS。
+
+### 11.2 fix wave 内容
+
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| RTL byte-mask | `rtl/top/snn_soc_v2b_top.sv` | 新增 `apply_wstrb()` 函数，所有 CFG/STAGING 写做 read-modify-write byte merge；W1P/W1C 控制位（START/CLR/strobe）由 `cmd_wstrb[0]` 守门 |
+| 新单元 TB | `tb/v2b_axi_partial_write_tb.sv` | 8 个测试覆盖单字节写、混合 byte mask、错位 byte 不应触发 W1P 等场景；老 RTL FAIL（暴露 bug 基线）+ 新 RTL PASS |
+| 重 bitgen | `fpga_synth/zcu102_arm_demo/...` | Vivado v2022.2，WNS=8.358 ns @ 50 MHz，TNS=0，新 bit SHA256 `78A5F36C…` |
+| 重烧板 | `xsct scripts/program_zcu102_c0.tcl` | UART 抓 `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS`，10 sample × 10 class 与 v1 board log byte-exact 一致 |
+| 配套 doc/manifest | `board_bringup_log_v2.txt` + `build_manifest_v2.txt` | 工具链版本、resolved psu_init.tcl 路径、bit/elf/xsa SHA256 完整可复现 |
+
+### 11.3 引用规则
+
+- **新工作**：以 `v2-arm-fpga-demo-v2-passed` 为基线；引用 bit/elf 用 v2 SHA256
+- **复现 / 对照实验**：可显式引用 v1 tag 做"老 bit 表现"对比
+- **CI / regression**：永远跑新 RTL（merged HEAD），不要 checkout v1 tag 做新功能开发
+- **老 tag policy**：v1 tag **永不 move**，不打 `-f`，不删；保持 git 历史可审计
+
+### 11.4 后续 invariant 保护（建议，不阻塞 merge）
+
+`tb/v2b_axi_partial_write_tb.sv` 应纳入 main HEAD CI 的常规 gate（不只 v2-arm-fpga-demo 分支跑），防止未来其他改动回退 byte-mask 行为。可加入 `sim/run_full_regression.sh`（如果有）或 main 的 Phase A 集合。
