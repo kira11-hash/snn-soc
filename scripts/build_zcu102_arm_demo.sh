@@ -63,12 +63,22 @@ if ! grep -q "ZCU102_ARM_DEMO_BITGEN_PASS" "$LOG"; then
   exit 4
 fi
 
+MANIFEST_SCRIPT="$ROOT/scripts/gen_arm_demo_manifest.sh"
+if [ -f "$MANIFEST_SCRIPT" ]; then
+  ROOT_OVERRIDE="$ROOT" \
+  VIVADO_BIN="$VIVADO_BIN" \
+  BIT_PATH="$BIT" \
+  XSA_PATH="$XSA" \
+  bash "$MANIFEST_SCRIPT"
+fi
+
 echo ""
 echo "============================================"
 echo "[build_zcu102_arm_demo] PHASE_C0_BITGEN_PASS"
 echo "============================================"
 echo "bitstream: $BIT"
 echo "xsa:       $XSA"
+echo "manifest:  $ROOT/doc/arm-fpga-demo/build_manifest_v2.txt"
 echo ""
 echo "Next: load bitstream + ELF via xsct"
 echo "  xsct scripts/program_zcu102_c0.tcl  # or c1"

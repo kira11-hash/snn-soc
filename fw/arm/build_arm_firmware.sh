@@ -183,3 +183,12 @@ echo ""
 echo "============================================"
 echo "[build_arm_firmware] PHASE_B_GATE_PASS"
 echo "============================================"
+
+MANIFEST_SCRIPT="$ROOT/scripts/gen_arm_demo_manifest.sh"
+if [ -f "$MANIFEST_SCRIPT" ]; then
+  ROOT_OVERRIDE="$ROOT" \
+  TOOLCHAIN_BIN="$TOOLCHAIN_BIN" \
+  ELF_PATH="$ELF_UNIX" \
+  V2B_SOC_BASE_VALUE="$V2B_SOC_BASE_OVERRIDE" \
+  bash "$MANIFEST_SCRIPT"
+fi
