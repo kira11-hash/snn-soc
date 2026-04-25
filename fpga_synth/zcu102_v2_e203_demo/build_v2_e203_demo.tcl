@@ -21,12 +21,29 @@ if {[llength $argv] >= 3} {
     set out_dir [file join $repo_root fpga_synth zcu102_v2_e203_demo out]
 }
 
+proc find_vendor_e203_rtl_dir {repo_root} {
+    set alias_dir [file join $repo_root rtl vendor_e203]
+    if {[file isdirectory $alias_dir]} {
+        return $alias_dir
+    }
+
+    set preferred_dir [file join $repo_root 项目相关文件 未添加的IP的源代码 e203_hbirdv2-master rtl]
+    if {[file isdirectory $preferred_dir]} {
+        return $preferred_dir
+    }
+
+    error "Unable to locate vendor E203 RTL under $repo_root (checked rtl/vendor_e203 and 项目相关文件/.../e203_hbirdv2-master/rtl)"
+}
+
 file mkdir $out_dir
 
 puts "=== ZCU102 V2E203 FPGA Build ==="
 puts "Repo root  : $repo_root"
 puts "Firmware   : $instr_hex"
 puts "Output dir : $out_dir"
+
+set vendor_rtl [find_vendor_e203_rtl_dir $repo_root]
+puts "Vendor RTL : $vendor_rtl"
 
 if {![file exists $instr_hex]} {
     puts "ERROR: Firmware hex not found: $instr_hex"
@@ -39,7 +56,7 @@ set top_mod "snn_soc_v2b_e203_fpga_top"
 set_property verilog_define {SYNTHESIS=1 SOC_ENABLE_E203_VENDOR=1 FPGA_SOURCE=1} [current_fileset]
 set_property include_dirs [list \
     $repo_root/rtl/top \
-    $repo_root/rtl/vendor_e203/e203/core \
+    $vendor_rtl/e203/core \
 ] [current_fileset]
 
 set sv_files [list \
@@ -63,55 +80,55 @@ set sv_files [list \
 ]
 
 set e203_vendor_files [list \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_1cyc_sram_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_gnrl_bufs.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_gnrl_dffs.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_gnrl_icbs.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_gnrl_ram.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_gnrl_xchecker.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_sim_ram.v \
-    $repo_root/rtl/vendor_e203/e203/general/sirv_sram_icb_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_biu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_clk_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_clkgate.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_core.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_cpu_top.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_cpu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_dtcm_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_dtcm_ram.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_extend_csr.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu_bjp.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu_csrctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu_dpath.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu_lsuagu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu_muldiv.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu_rglr.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_alu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_branchslv.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_commit.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_csr.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_decode.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_disp.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_excp.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_longpwbck.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_nice.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_oitf.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_regfile.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_exu_wbck.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_ifu_ifetch.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_ifu_ift2icb.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_ifu_litebpu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_ifu_minidec.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_ifu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_irq_sync.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_itcm_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_itcm_ram.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_lsu_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_lsu.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_reset_ctrl.v \
-    $repo_root/rtl/vendor_e203/e203/core/e203_srams.v \
-    $repo_root/rtl/vendor_e203/e203/subsys/e203_subsys_nice_core.v \
+    $vendor_rtl/e203/general/sirv_1cyc_sram_ctrl.v \
+    $vendor_rtl/e203/general/sirv_gnrl_bufs.v \
+    $vendor_rtl/e203/general/sirv_gnrl_dffs.v \
+    $vendor_rtl/e203/general/sirv_gnrl_icbs.v \
+    $vendor_rtl/e203/general/sirv_gnrl_ram.v \
+    $vendor_rtl/e203/general/sirv_gnrl_xchecker.v \
+    $vendor_rtl/e203/general/sirv_sim_ram.v \
+    $vendor_rtl/e203/general/sirv_sram_icb_ctrl.v \
+    $vendor_rtl/e203/core/e203_biu.v \
+    $vendor_rtl/e203/core/e203_clk_ctrl.v \
+    $vendor_rtl/e203/core/e203_clkgate.v \
+    $vendor_rtl/e203/core/e203_core.v \
+    $vendor_rtl/e203/core/e203_cpu_top.v \
+    $vendor_rtl/e203/core/e203_cpu.v \
+    $vendor_rtl/e203/core/e203_dtcm_ctrl.v \
+    $vendor_rtl/e203/core/e203_dtcm_ram.v \
+    $vendor_rtl/e203/core/e203_extend_csr.v \
+    $vendor_rtl/e203/core/e203_exu_alu_bjp.v \
+    $vendor_rtl/e203/core/e203_exu_alu_csrctrl.v \
+    $vendor_rtl/e203/core/e203_exu_alu_dpath.v \
+    $vendor_rtl/e203/core/e203_exu_alu_lsuagu.v \
+    $vendor_rtl/e203/core/e203_exu_alu_muldiv.v \
+    $vendor_rtl/e203/core/e203_exu_alu_rglr.v \
+    $vendor_rtl/e203/core/e203_exu_alu.v \
+    $vendor_rtl/e203/core/e203_exu_branchslv.v \
+    $vendor_rtl/e203/core/e203_exu_commit.v \
+    $vendor_rtl/e203/core/e203_exu_csr.v \
+    $vendor_rtl/e203/core/e203_exu_decode.v \
+    $vendor_rtl/e203/core/e203_exu_disp.v \
+    $vendor_rtl/e203/core/e203_exu_excp.v \
+    $vendor_rtl/e203/core/e203_exu_longpwbck.v \
+    $vendor_rtl/e203/core/e203_exu_nice.v \
+    $vendor_rtl/e203/core/e203_exu_oitf.v \
+    $vendor_rtl/e203/core/e203_exu_regfile.v \
+    $vendor_rtl/e203/core/e203_exu.v \
+    $vendor_rtl/e203/core/e203_exu_wbck.v \
+    $vendor_rtl/e203/core/e203_ifu_ifetch.v \
+    $vendor_rtl/e203/core/e203_ifu_ift2icb.v \
+    $vendor_rtl/e203/core/e203_ifu_litebpu.v \
+    $vendor_rtl/e203/core/e203_ifu_minidec.v \
+    $vendor_rtl/e203/core/e203_ifu.v \
+    $vendor_rtl/e203/core/e203_irq_sync.v \
+    $vendor_rtl/e203/core/e203_itcm_ctrl.v \
+    $vendor_rtl/e203/core/e203_itcm_ram.v \
+    $vendor_rtl/e203/core/e203_lsu_ctrl.v \
+    $vendor_rtl/e203/core/e203_lsu.v \
+    $vendor_rtl/e203/core/e203_reset_ctrl.v \
+    $vendor_rtl/e203/core/e203_srams.v \
+    $vendor_rtl/e203/subsys/e203_subsys_nice_core.v \
 ]
 
 foreach f $sv_files {
@@ -127,7 +144,7 @@ synth_design \
     -top $top_mod \
     -part $part \
     -generic "INSTR_INIT_FILE=$instr_hex" \
-    -include_dirs [list $repo_root/rtl/top $repo_root/rtl/vendor_e203/e203/core] \
+    -include_dirs [list $repo_root/rtl/top $vendor_rtl/e203/core] \
     -verbose
 
 write_checkpoint -force $out_dir/post_synth.dcp

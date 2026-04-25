@@ -8,9 +8,17 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/common_iverilog_env.sh"
 resolve_iverilog_tools
+
+cleanup() {
+  cleanup_vendor_e203_alias
+}
+trap cleanup EXIT
+
+ensure_vendor_e203_alias "$ROOT_DIR"
 
 mkdir -p waves
 
