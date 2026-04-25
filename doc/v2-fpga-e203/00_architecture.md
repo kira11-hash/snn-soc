@@ -243,9 +243,9 @@ The final PASS string is printed only after firmware compares all 100 spike coun
 
 | 项 | 值 |
 |---|---|
-| Tag | `v2-fpga-e203-passed` |
-| Artifact-bearing commit | `1620ccda725396372c72a98a0fd3567f9cab5e86` |
-| Frozen tag commit | `e696dc39b9a835d1f89e1377156fd490ad7ccb78` |
+| Tag | `v2-fpga-e203-passed`（annotated tag → commit `e696dc39b9a835d1f89e1377156fd490ad7ccb78`） |
+| Artifact-bearing commit | `1620ccda725396372c72a98a0fd3567f9cab5e86`（bit/hex 实际产出点） |
+| Frozen tag commit | `e696dc39b9a835d1f89e1377156fd490ad7ccb78`（docs-only delta vs artifact commit；`git diff 1620ccda..e696dc39 --name-only` 仅命中 `doc/v2-fpga-e203/00_architecture.md` + `doc/v2-fpga-e203/board_bringup_log.txt`，0 RTL/0 fw 改动，与 1620ccda byte-exact 等价） |
 | Bitstream SHA256 | `e5ae7936064d299b6e427ff98252aa53f3684ef3dc12c6de6e2a9b9dae6234e5` |
 | smoke.hex SHA256 | `c2b2fb17968c45d8bc69293670d58070c917b21201370debab16337fa3a4dca7` |
 | encoder.hex SHA256 | `83fb301c81b3606b3f4b66be51265119a4537ab41ef0fcdfb4abf5e20d210513` |
