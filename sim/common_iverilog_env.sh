@@ -269,6 +269,8 @@ run_in_repo_wsl() {
   shift
   local repo_wsl
   local repo_win
+  local drive
+  local rest
 
   if [ -n "${WSL_DISTRO_NAME:-}" ]; then
     repo_wsl="$root_dir"
@@ -282,10 +284,17 @@ run_in_repo_wsl() {
   fi
 
   repo_win="$(to_windows_path "$root_dir")"
-  repo_wsl="$(wsl.exe wslpath -a "$repo_win" 2>/dev/null | tr -d '\r')"
-  if [ -z "$repo_wsl" ]; then
-    echo "[ERROR] unable to resolve WSL path for repo root: $root_dir" >&2
-    return 1
+  if [[ "$repo_win" =~ ^([A-Za-z]):\\(.*)$ ]]; then
+    drive="${BASH_REMATCH[1]}"
+    drive="${drive,,}"
+    rest="${BASH_REMATCH[2]//\\//}"
+    repo_wsl="/mnt/$drive/$rest"
+  else
+    repo_wsl="$(wsl.exe wslpath -a "$repo_win" 2>/dev/null | tr -d '\r')"
+    if [ -z "$repo_wsl" ]; then
+      echo "[ERROR] unable to resolve WSL path for repo root: $root_dir" >&2
+      return 1
+    fi
   fi
 
   wsl.exe bash -lc "cd '$repo_wsl' && $*"
