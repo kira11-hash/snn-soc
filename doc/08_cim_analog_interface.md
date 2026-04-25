@@ -883,7 +883,7 @@ cim_done                        (optional, 数字侧不依赖)
 - 噪声预算建议这样理解：
   - **RMS ≤ 1 LSB**（约 ±0.4% 满量程）时，在高斯且零均值近似下，单次 verify
     落在 `±2 LSB` 窗口内的概率约为 **95.4%**；数字侧可依赖
-    `PROG_CTRL.RETRY_LIMIT`（默认 3，可配到 7）吸收剩余 false-fail。
+    `PROG_CTRL.RETRY_LIMIT`（**默认 4**，3-bit 字段上限 7）吸收剩余 false-fail。
   - **若目标是“约 3σ 都落在 ±2 LSB 内”**，则 RMS 噪声应压到约 **≤ 0.67 LSB**。
   - 因此，对模拟/器件侧的工程建议是：**尽量做到 RMS ≤ 0.67 LSB；若只能做到
     RMS ≤ 1 LSB，系统仍可工作，但默认应保留 retry。**

@@ -153,7 +153,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 **编程 pulse / retry 预算（2026-04-24 器件老师已确认）**：
 - 单脉冲宽度档位 `1 / 10 / 100 µs`：✅ 合理
-- `PROG_CTRL.RETRY_LIMIT` 默认 3 / 上限 7：✅ 够用
+- `PROG_CTRL.RETRY_LIMIT`：**RTL 复位默认 4**（`snn_soc_pkg.sv:221` `PROG_VERIFY_RETRY_MAX = 4`），字段宽度 3-bit 故上限 7：✅ 够用
 
 | 编号 | 问题 | 需要的答案形式 |
 |---|---|---|
@@ -203,7 +203,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A8-5 编码与时序（2026-04-24 Q1/Q2/Q3 锁定） | (Q1) `cim_start` 在 programming 模式下是 LEVEL-hold gate，本次 pulse/verify 时长 = `cim_start` 高电平持续时间，模拟侧不自计时；(Q2) `prog_op` / `prog_level` 仅在同一 `cim_start=1` 窗口内稳定，write→verify 相位切换发生在 `cim_start=0` 的 ≥ 1 cycle gap 中；(Q3) verify 时 `bl_data` 必须在 `cim_start_ext` 上升沿后 ≤ 100 ns 稳定到 ±1 LSB，并保持到 `cim_start_ext` 下降沿；若要近似 3σ 落在数字侧 `±2 LSB` 判据内，建议 RMS 噪声 ≤ 0.67 LSB（RMS ≤ 1 LSB 时单次通过率约 95%，应依赖 retry）；脉宽档位 `PROG_PULSE_WIDTH` = 1/10/100 µs，擦除固定 1 ms；verify PASS/FAIL 由数字侧在 `bl_data` 读回后自己比对，无 `prog_pass` pad |
 | A8-6 16-level 编码方式（2026-04-24 器件侧确认） | **通过"加 N 个 SET 脉冲"区分**，不是通过调幅度。数字侧 `cim_program_ctrl` FSM 实现：写等级 N 时发 N 个脉冲，每写完一次 verify 一次；`bl_data ∈ [N·16 ± 2]` 即 PASS，否则 retry 直到 `PROG_CTRL.RETRY_LIMIT`。 |
 | A8-7 脉宽档位确认（2026-04-24 器件老师 OK） | **单脉冲宽度档位 1 / 10 / 100 µs 已确认合理**，pkg 参数 `PROG_WRITE_PULSE_{1,10,100}US_CYC` 保持不动 |
-| A8-8 Retry 次数确认（2026-04-24 器件老师 OK） | **`PROG_CTRL.RETRY_LIMIT` 默认 3 次、上限 7 次已确认够用**，pkg 参数 `VERIFY_RETRY_MAX=7` 保持不动 |
+| A8-8 Retry 次数确认（2026-04-24 器件老师 OK；2026-04-25 口径修正） | **`PROG_CTRL.RETRY_LIMIT` 已确认够用**：RTL 复位默认 4（`rtl/top/snn_soc_pkg.sv:221` `PROG_VERIFY_RETRY_MAX = 4`），3-bit 字段上限 7。**2026-04-25 修正**：早期文档误写为"默认 3 / pkg=7"——pkg 参数 4 是上电默认 reset 值，7 是字段宽度上限（不是 pkg 参数），SW 可在运行时通过 `PROG_CTRL[10:8]` 改写到 0–7。 |
 | A8-9 上电初始态（2026-04-24 已关闭） | 器件老师确认 RRAM 上电初始态不保证 HRS。数字侧生产 app (`fw/main.c`) 已在推理前加入 `prog_op=100` 全阵列擦除（BYPASS_HANDSHAKE=0，真实 1 ms RESET pulse）；FPGA smoke 固件原本也已在 Phase 1 Step 1a 做全阵列擦除。 |
 
 #### 数字侧已完成的 RTL 落地（2026-04-24 全部完工）
