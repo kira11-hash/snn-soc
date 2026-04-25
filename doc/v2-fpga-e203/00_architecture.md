@@ -193,8 +193,25 @@ V2.B 单样本推理 ≈ 200 µs。poll BUSY 一次 100 ns，开销 < 0.1%。
 | `run_v2_e203_soc_compile.sh` | `V2_E203_SOC_COMPILE_PASS` |
 | `run_v2_e203_encoder_parity.sh` | `V2_E203_ENCODER_PARITY_PASS` |
 | `run_v2_e203_cosim.sh` | `V2_E203_COSIM_PASS` |
+| `run_v2b_partial_write_invariant.sh` | `V2B_PARTIAL_WRITE_INVARIANT_TB_PASS` （**permanent gate**，2026-04-25 后续加入；见 §4.4）|
 
 Known deviation: `run_v2_e203_cosim.sh` proves BOOT marker, BUFFER_PTR, UART boot tag, PC entering sample/scheduler loop, and CLINT zero-activity guard. It does not complete 10-sample inference under Icarus; 100-count bit-exact is G3 board evidence.
+
+### 4.4 WSTRB byte-mask invariant（permanent regression gate）
+
+**背景**：`feature/v2-arm-fpga-demo` 审查中暴露 `snn_soc_v2b_top.sv` 的 AXI 写路径未消费 `cmd_wstrb`，partial write 被悄悄放大为整字写。`v2-fpga-e203` 在 frozen tag (e696dc39) 时也存在同一隐患（fw 全字写没踩到，但 RTL 不安全）。2026-04-25 把同一份 byte-mask fix 移植到本分支并新建直驱 cmd_* 的 `v2b_partial_write_invariant_tb`，作为本分支永久回归门禁。
+
+测试覆盖（10 sub-checks）：
+- T1 STAGE_CTRL byte1-only 不应触发 START W1P（safety bug 直接证据）
+- T2 STAGE_CTRL byte0 写应正常触发 START
+- T3 CFG1 byte0 merge 保留高位字节
+- T4 CFG0 byte2 merge 保留低/高位字节
+- T5 STREAM_BUF_CTRL byte1-only 不应触发 byte0 pulses（spurious clear）
+- T6 STREAM_BUF_CTRL byte0 写应正常触发 clear pulses
+
+**Bug 暴露 sanity check**：把 `git show e696dc39:rtl/top/snn_soc_v2b_top.sv` 替回去再跑同款 TB → 6 FAIL（含 T1 spurious START），确认 TB 真能抓回归。 -->
+
+**任何后续触碰 `snn_soc_v2b_top.sv` 的改动必须先跑此 TB**，不通过即视为回归不得 commit。
 
 ### 4.2 Phase B Gate
 

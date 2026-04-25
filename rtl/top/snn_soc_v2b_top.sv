@@ -127,6 +127,22 @@ module snn_soc_v2b_top
   localparam logic [11:0] A_READ_SBA_BASE   = 12'h400;  // 0x400 + t*4 (up to t=255)
   localparam logic [11:0] A_READ_SBB_BASE   = 12'h800;  // 0x800 + t*4
 
+  function automatic logic [31:0] apply_wstrb(
+    input logic [31:0] old_word,
+    input logic [31:0] new_word,
+    input logic [3:0]  wstrb
+  );
+    logic [31:0] merged;
+    begin
+      merged = old_word;
+      if (wstrb[0]) merged[7:0]   = new_word[7:0];
+      if (wstrb[1]) merged[15:8]  = new_word[15:8];
+      if (wstrb[2]) merged[23:16] = new_word[23:16];
+      if (wstrb[3]) merged[31:24] = new_word[31:24];
+      apply_wstrb = merged;
+    end
+  endfunction
+
   // ── Stage engine control & cfg registers (CPU-writable) ───────────
   logic        reg_start_pulse;
   logic [7:0]  reg_err_code;  // sticky mirror of err_code
@@ -283,7 +299,7 @@ module snn_soc_v2b_top
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) done_sticky <= 1'b0;
     else if (done_pulse) done_sticky <= 1'b1;
-    else if (cmd_valid && cmd_write && cmd_addr == A_STAGE_CTRL && cmd_wdata[7])
+    else if (cmd_valid && cmd_write && cmd_addr == A_STAGE_CTRL && cmd_wstrb[0] && cmd_wdata[7])
       done_sticky <= 1'b0;  // W1C bit 7
   end
 
@@ -331,49 +347,76 @@ module snn_soc_v2b_top
       if (cmd_valid && cmd_write) begin
         case (cmd_addr)
           A_STAGE_CTRL: begin
-            if (cmd_wdata[0]) reg_start_pulse <= 1'b1;   // START W1P
+            if (cmd_wstrb[0] && cmd_wdata[0]) reg_start_pulse <= 1'b1;   // START W1P
             // bit 1 = ABORT (not implemented); bit 7 = DONE W1C handled above
           end
           A_STAGE_CFG0: begin
-            reg_cfg_in_dim  <= cmd_wdata[15:0];
-            reg_cfg_out_dim <= cmd_wdata[31:16];
+            logic [31:0] cfg0_word;
+            cfg0_word = apply_wstrb({reg_cfg_out_dim, reg_cfg_in_dim}, cmd_wdata, cmd_wstrb);
+            reg_cfg_in_dim  <= cfg0_word[15:0];
+            reg_cfg_out_dim <= cfg0_word[31:16];
           end
-          A_STAGE_CFG1: reg_cfg_threshold <= cmd_wdata;
-          A_STAGE_CFG2: reg_cfg_sum_max   <= cmd_wdata;
+          A_STAGE_CFG1: reg_cfg_threshold <= apply_wstrb(reg_cfg_threshold, cmd_wdata, cmd_wstrb);
+          A_STAGE_CFG2: reg_cfg_sum_max   <= apply_wstrb(reg_cfg_sum_max, cmd_wdata, cmd_wstrb);
           A_STAGE_CFG3: begin
-            reg_cfg_input_src         <= cmd_wdata[1:0];
-            reg_cfg_output_dst        <= cmd_wdata[9:8];
-            reg_cfg_tile_mode         <= cmd_wdata[16];
-            reg_cfg_is_tile_final     <= cmd_wdata[17];
-            reg_cfg_preserve_membrane <= cmd_wdata[18];
+            logic [31:0] cfg3_word;
+            cfg3_word = apply_wstrb(
+              {13'h0, reg_cfg_preserve_membrane,
+               reg_cfg_is_tile_final, reg_cfg_tile_mode,
+               6'h0, reg_cfg_output_dst,
+               6'h0, reg_cfg_input_src},
+              cmd_wdata,
+              cmd_wstrb
+            );
+            reg_cfg_input_src         <= cfg3_word[1:0];
+            reg_cfg_output_dst        <= cfg3_word[9:8];
+            reg_cfg_tile_mode         <= cfg3_word[16];
+            reg_cfg_is_tile_final     <= cfg3_word[17];
+            reg_cfg_preserve_membrane <= cfg3_word[18];
           end
-          A_STAGE_CFG5: reg_cfg_t_count <= cmd_wdata[15:0];
+          A_STAGE_CFG5: begin
+            logic [31:0] cfg5_word;
+            cfg5_word = apply_wstrb({16'h0, reg_cfg_t_count}, cmd_wdata, cmd_wstrb);
+            reg_cfg_t_count <= cfg5_word[15:0];
+          end
 
-          A_INPUT_SRAM_ADDR: reg_isram_addr <= cmd_wdata[T_AW-1:0];
-          A_INPUT_SRAM_W0:   reg_isram_w0 <= cmd_wdata;
-          A_INPUT_SRAM_W1:   reg_isram_w1 <= cmd_wdata;
-          A_INPUT_SRAM_W2:   reg_isram_w2 <= cmd_wdata;
-          A_INPUT_SRAM_W3:   reg_isram_w3 <= cmd_wdata;
-          A_INPUT_SRAM_W4:   reg_isram_w4 <= cmd_wdata;
-          A_INPUT_SRAM_W5:   reg_isram_w5 <= cmd_wdata;
-          A_INPUT_SRAM_W6:   reg_isram_w6 <= cmd_wdata;
-          A_INPUT_SRAM_W7:   reg_isram_w7 <= cmd_wdata;
-          A_INPUT_SRAM_CTRL: if (cmd_wdata[0]) reg_isram_wstrobe <= 1'b1;
+          A_INPUT_SRAM_ADDR: begin
+            logic [31:0] isram_addr_word;
+            isram_addr_word = apply_wstrb({{32-T_AW{1'b0}}, reg_isram_addr}, cmd_wdata, cmd_wstrb);
+            reg_isram_addr <= isram_addr_word[T_AW-1:0];
+          end
+          A_INPUT_SRAM_W0:   reg_isram_w0 <= apply_wstrb(reg_isram_w0, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W1:   reg_isram_w1 <= apply_wstrb(reg_isram_w1, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W2:   reg_isram_w2 <= apply_wstrb(reg_isram_w2, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W3:   reg_isram_w3 <= apply_wstrb(reg_isram_w3, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W4:   reg_isram_w4 <= apply_wstrb(reg_isram_w4, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W5:   reg_isram_w5 <= apply_wstrb(reg_isram_w5, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W6:   reg_isram_w6 <= apply_wstrb(reg_isram_w6, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_W7:   reg_isram_w7 <= apply_wstrb(reg_isram_w7, cmd_wdata, cmd_wstrb);
+          A_INPUT_SRAM_CTRL: if (cmd_wstrb[0] && cmd_wdata[0]) reg_isram_wstrobe <= 1'b1;
 
           A_MAC_W_LOAD_ADDR: begin
-            reg_w_load_i <= cmd_wdata[I_AW-1:0];
-            reg_w_load_j <= cmd_wdata[8 +: J_AW];
+            logic [31:0] mac_addr_word;
+            mac_addr_word = apply_wstrb(
+              {{(32-(8+J_AW)){1'b0}}, reg_w_load_j, reg_w_load_i},
+              cmd_wdata,
+              cmd_wstrb
+            );
+            reg_w_load_i <= mac_addr_word[I_AW-1:0];
+            reg_w_load_j <= mac_addr_word[8 +: J_AW];
           end
           A_MAC_W_LOAD_DATA: begin
-            reg_w_load_pos <= cmd_wdata[3:0];
-            reg_w_load_neg <= cmd_wdata[7:4];
+            logic [31:0] mac_data_word;
+            mac_data_word = apply_wstrb({24'h0, reg_w_load_neg, reg_w_load_pos}, cmd_wdata, cmd_wstrb);
+            reg_w_load_pos <= mac_data_word[3:0];
+            reg_w_load_neg <= mac_data_word[7:4];
           end
-          A_MAC_W_LOAD_CTRL: if (cmd_wdata[0]) reg_w_load_strobe <= 1'b1;
+          A_MAC_W_LOAD_CTRL: if (cmd_wstrb[0] && cmd_wdata[0]) reg_w_load_strobe <= 1'b1;
 
           A_STREAM_BUF_CTRL: begin
-            if (cmd_wdata[1]) reg_buf_clear_a    <= 1'b1;
-            if (cmd_wdata[2]) reg_buf_clear_b    <= 1'b1;
-            if (cmd_wdata[3]) reg_buf_clear_tile <= 1'b1;
+            if (cmd_wstrb[0] && cmd_wdata[1]) reg_buf_clear_a    <= 1'b1;
+            if (cmd_wstrb[0] && cmd_wdata[2]) reg_buf_clear_b    <= 1'b1;
+            if (cmd_wstrb[0] && cmd_wdata[3]) reg_buf_clear_tile <= 1'b1;
           end
 
           default: ;
