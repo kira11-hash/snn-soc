@@ -1,6 +1,6 @@
 v2-arm-fpga-demo WSTRB fix reburn evidence (F1)
 
-Status: PRE-BURN TEMPLATE
+Status: RE-BURN PASS
 Base tag: v2-arm-fpga-demo-passed @ 8e51ae2708ef778fd4b63e2c4c20b55099b3f205
 Fix branch: feature/v2-arm-fpga-demo-fix-gpt
 Recommended new tag: v2-arm-fpga-demo-v2-passed
@@ -14,9 +14,15 @@ Frozen artifacts (pre-fix):
 - ELF SHA256: 1D6D6BB3E9D25A35667D65D516EE2B7A5922CFDFEB81D3D0D4FDE5B7A844CD65
 
 Post-fix artifacts:
-- Commit: <PENDING AFTER F1/F2/F3 COMMITS>
-- Bit SHA256: <PENDING USER RE-BITGEN>
-- ELF SHA256: <PENDING USER REBUILD OR REUSE CONFIRMATION>
+- Commit: 7128fbe63289f11bd64b2fff6c75b080b8abfe98
+- Bit SHA256: 78A5F36CFB241FBCD8066FED1FDE2CACDFB6087183D944FB5D5029D5F537F9BC
+- ELF SHA256: AEEB02A06A74E0BFD7C99E48F3C35F74ED96B054F9889E41B8D856A7FF0B1CC1
+- XSA SHA256: 9EAFBD3CC98671D50CD77A84F1622DB159869A95EAC579431C511BF245ECBE77
+- Bit path: D:\SoC Design\SoC Design\fpga_synth\zcu102_arm_demo\zcu102_arm_demo.runs\impl_1\v2b_arm_demo_bd_wrapper.bit
+- ELF path: D:\SoC Design\SoC Design\fw\arm\out\v2b_arm_demo.elf
+- Resolved psu_init.tcl: D:\SoC Design\SoC Design\fpga_synth\zcu102_arm_demo\zcu102_arm_demo.gen\sources_1\bd\v2b_arm_demo_bd\ip\v2b_arm_demo_bd_zynq_ultra_ps_e_0_0\psu_init.tcl
+- Vivado: v2022.2 (64-bit), SW Build 3671981, IP Build 3669848
+- AArch64 GCC: 11.2.0
 - Build manifest: doc/arm-fpga-demo/build_manifest_v2.txt
 
 Step 1: RTL delta
@@ -25,21 +31,54 @@ Step 1: RTL delta
 Step 2: New targeted TB
 - sim/run_v2b_axi_partial_write.sh
 - PASS tag: V2B_AXI_PARTIAL_WRITE_TB_PASS
-- Old RTL baseline expectation: FAIL
+- Old RTL baseline rerun result: FAIL (7 mismatches on T1/T2/T3/T4/T5/T6/T8)
 
 Step 3: Regression
-- Full Icarus regression list/result: <PENDING AFTER LOCAL RUN>
+- Full Icarus regression list/result: PASS
+- Included: AXI bridge, V2B parity, FW cosim, AXI ARM cosim, primitive contract, stage engine, tile/stream/input SRAM primitives, light smoke, multilayer smoke, multilayer scan-ext, Python tests (86 passed)
 
 Step 4: Re-bitgen
 - Command: bash scripts/build_zcu102_arm_demo.sh
-- Result: <PENDING USER RUN>
+- Result: PASS
+- Timing summary: WNS=8.358 ns, TNS=0.000
+- Bitgen tag: ZCU102_ARM_DEMO_BITGEN_PASS
 
 Step 5: Re-burn / xsct load
 - Command: xsct scripts/program_zcu102_c0.tcl
-- Result: <PENDING USER RUN>
+- Result: PASS
+- xsct tag: [program_zcu102_c0] CORE_0_RUNNING
 
 Step 6: UART evidence
-- Paste full UART log below after board run.
+- C0 accelerator/MMIO PASS and C1 full scheduler PASS on 10 Fashion-MNIST 14x14 samples.
 
 === UART Output ===
-<PENDING USER LOG>
+UART_OK
+[TB] v2b_arm_demo start — 10 Fashion 14x14 samples via AXI-Lite
+[TB] V2B_SOC_BASE=0xa0000000
+[OK] MMIO round-trip CFG1
+
+[TB] C0 loop (bypass encoder)
+[PASS] sample 0 class=0 counts=[63 0 0 34 0 0 0 0 0 0]
+[PASS] sample 1 class=1 counts=[0 63 0 0 1 0 0 0 0 0]
+[PASS] sample 2 class=2 counts=[0 0 61 0 1 0 0 0 0 0]
+[PASS] sample 3 class=3 counts=[0 0 0 63 0 0 0 4 0 0]
+[PASS] sample 4 class=4 counts=[0 0 0 0 63 0 1 0 0 0]
+[PASS] sample 5 class=5 counts=[1 1 0 0 0 63 0 63 0 0]
+[PASS] sample 6 class=5 counts=[0 0 0 0 0 11 6 0 0 0]
+[PASS] sample 7 class=7 counts=[0 0 0 0 0 0 0 63 0 0]
+[PASS] sample 8 class=8 counts=[0 0 0 0 0 6 0 0 63 0]
+[PASS] sample 9 class=5 counts=[0 0 0 0 0 63 0 0 62 7]
+ARM_FPGA_DEMO_ACCEL_FASHION10_PASS
+
+[TB] C1 loop (full scheduler, real pixel encoder)
+[PASS] sample 0 predicted=0 counts=[63 0 0 34 0 0 0 0 0 0]
+[PASS] sample 1 predicted=1 counts=[0 63 0 0 1 0 0 0 0 0]
+[PASS] sample 2 predicted=2 counts=[0 0 61 0 1 0 0 0 0 0]
+[PASS] sample 3 predicted=3 counts=[0 0 0 63 0 0 0 4 0 0]
+[PASS] sample 4 predicted=4 counts=[0 0 0 0 63 0 1 0 0 0]
+[PASS] sample 5 predicted=5 counts=[1 1 0 0 0 63 0 63 0 0]
+[PASS] sample 6 predicted=5 counts=[0 0 0 0 0 11 6 0 0 0]
+[PASS] sample 7 predicted=7 counts=[0 0 0 0 0 0 0 63 0 0]
+[PASS] sample 8 predicted=8 counts=[0 0 0 0 0 6 0 0 63 0]
+[PASS] sample 9 predicted=5 counts=[0 0 0 0 0 63 0 0 62 7]
+ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS
