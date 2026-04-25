@@ -159,7 +159,7 @@ doc/   中文说明文档
 | `doc/12_fpga_validation_guide.md` | FPGA 系统验证指南 |
 | `doc/13_fpga_paper_plan.md` | FPGA 验证平台方案 |
 | `doc/14_gemm_accelerator_plan.md` | 双模态 AI SoC（GEMM+SNN）扩展规划（V2/V3 远景） |
-| `doc/15_asic_pad_map.md` | **ASIC Pad Map（48 pad 冻结真源）** |
+| `doc/15_asic_pad_map.md` | **ASIC Pad Map（55 pad 冻结真源）** |
 | `doc/17_cim_macro_handoff_cover.md` | **发给模拟 CIM macro 同学的封面说明（先读这份）** |
 | `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
 | `eassy-prompt/17_ic_paper_prompt_shared.md` | IC 论文总控 prompt 共享模块（共性流程、真实性与门控） |

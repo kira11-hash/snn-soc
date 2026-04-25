@@ -94,7 +94,7 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 | 46 | `prog_op[0]` | External programming op bit 0 | out | signal | Driven from `snn_soc_top.prog_op_ext`. See §Programming below for encoding. | Current source: `snn_soc_top` encoder from `cim_program_ctrl` + `reg_bank`. Added 2026-04-24. |
 | 47 | `prog_op[1]` | External programming op bit 1 | out | signal | Driven from `snn_soc_top.prog_op_ext` | Same source as pad 46 |
 | 48 | `prog_op[2]` | External programming op bit 2 | out | signal | Driven from `snn_soc_top.prog_op_ext` | Same source as pad 46 |
-| 49 | `prog_level[0]` | External programming target level bit 0 | out | signal | Driven from `snn_soc_top.prog_level_ext` (directly from `reg_bank.PROG_CTRL[7:4]`). Valid only when `prog_op==010` (write). | Current source: `reg_bank` prog_level. Added 2026-04-24. |
+| 49 | `prog_level[0]` | External programming target level bit 0 | out | signal | Driven from `snn_soc_top.prog_level_ext` (sourced from `reg_bank.PROG_CTRL[7:4]` through a 10-stage shift register that phase-aligns with `cim_start_ext`; in-flight writes to `PROG_CTRL.LEVEL` while `prog_busy=1` are blocked by reg_bank — see `doc/02_reg_map.md` PROG_CTRL footnote ¹). Valid only when `prog_op==010` (write). | Current source: `reg_bank` prog_level → 10-stage pipeline in `snn_soc_top`. Added 2026-04-24. |
 | 50 | `prog_level[1]` | External programming target level bit 1 | out | signal | Same as pad 49 | Same source as pad 49 |
 | 51 | `prog_level[2]` | External programming target level bit 2 | out | signal | Same as pad 49 | Same source as pad 49 |
 | 52 | `prog_level[3]` | External programming target level bit 3 | out | signal | Same as pad 49 | Same source as pad 49 |
@@ -129,9 +129,12 @@ Contract (2026-04-24 Q1/Q2/Q3 lock-in):
 - **Q3 — verify `bl_data` timing + noise budget**: `bl_data` must settle to
   ±1 LSB within **≤ 100 ns** after `cim_start_ext` rising edge, and hold
   until `cim_start_ext` falling edge. Digital compares against
-  `prog_level * 16 ± 2`; RMS noise budget on the analog side is **≤ 1 LSB**
-  to avoid false fails. Therefore **no** analog → digital `prog_pass` pad
-  is required.
+  `prog_level * 16 ± 2`.
+  - If analog + ADC RMS noise is **≤ 1 LSB**, the fixed `±2 LSB` window still
+    works, but single-shot pass rate is only about 95%, so retry should remain enabled.
+  - For near-3σ single-shot margin inside that same `±2 LSB` window, target roughly
+    **≤ 0.67 LSB RMS**.
+  Therefore **no** analog → digital `prog_pass` pad is required.
 
 ## Totals
 

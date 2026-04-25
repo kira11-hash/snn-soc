@@ -29,7 +29,7 @@
 
 ### 1.1 芯片
 
-- [ ] 数字 die（带 48 pad，含 mask ROM 烧录了 bootloader）
+- [ ] 数字 die（按当前 `doc/15_asic_pad_map.md` 的 55-pad 冻结口径；若带 mask ROM，则需已烧录 bootloader）
 - [ ] 模拟 die（可以后来再装，Day 1/2 不需要）
 
 ### 1.2 PCB 板

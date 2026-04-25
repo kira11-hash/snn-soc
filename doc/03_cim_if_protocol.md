@@ -4,7 +4,7 @@
 **日期**：2026-03-16
 **模块**：`cim_macro_blackbox`
 **参数口径**：与时序相关的默认参数以 `rtl/top/snn_soc_pkg.sv` 为准，本文数值仅作说明，若不一致以 pkg 为准。
-**架构说明**：本文描述的是数字芯片内部的 `snn_soc_top` 与行为模型 `cim_macro_blackbox` 之间的**内部并行接口**。实际流片后，数字芯片与模拟 CIM 芯片为独立封装，通过 PCB 互联，使用 `wl_mux_wrapper` 提供的**外部复用接口**（45 个可用 pad 口径）。详见 `doc/08_cim_analog_interface.md` §1.3 与 `doc/15_asic_pad_map.md`。
+**架构说明**：本文描述的是数字芯片内部的 `snn_soc_top` 与行为模型 `cim_macro_blackbox` 之间的**内部并行接口**。实际流片后，数字芯片与模拟 CIM 芯片为独立封装，通过 PCB 互联；外部推理载体接口对应 `doc/15_asic_pad_map.md` 的 pads 19..45，完整 55-pad package 口径以 `doc/15_asic_pad_map.md` 为准。
 
 > **边界说明（2026-04-24 更新）**：本文描述的是数字芯片内部行为模型接口。
 > - **推理链路**：本文 §"接口信号" / "时序与触发" / "ADC 时分复用" 节覆盖
@@ -17,7 +17,7 @@
 | input | dac_valid | 1 | 脉冲 | 单拍触发信号；行为模型在该拍锁存 `wl_spike`（真实芯片由 `wl_latch` 时序控制） |
 | input | cim_start | 1 | 脉冲 | CIM 计算启动 |
 | output | cim_done | 1 | 脉冲 | CIM 计算完成 |
-| input | adc_start | 1 | 脉冲 | ADC 启动（**仅内部仿真接口**，不在外部 45-pad 接口中；流片后由 `snn_soc_top` 内部固定延迟生成 `adc_done`） |
+| input | adc_start | 1 | 脉冲 | ADC 启动（**仅内部仿真接口**，不在外部 ASIC pad 接口中；流片后由 `snn_soc_top` 内部固定延迟生成 `adc_done`） |
 | output | adc_done | 1 | 脉冲 | ADC 完成（**仅内部仿真接口**，同上） |
 | input | bl_sel | $clog2(ADC_CHANNELS)(=5) | 控制 | bitline 选择（0..ADC_CHANNELS-1，Scheme B: 0-9 正列, 10-19 负列） |
 | output | bl_data | ADC_BITS(=8) | 数据 | 当前通道的 8-bit ADC 输出 |

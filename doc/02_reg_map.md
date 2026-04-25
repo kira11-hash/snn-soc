@@ -86,21 +86,31 @@ pad（`prog_op[2:0]` + `prog_level[3:0]`，pads 46..52）传递给模拟 die：
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
 | 0x38 | PROG_CTRL | START | [0] | W1P | 0 | 启动一次编程/擦除序列（推理进行中被硬件 interlock 屏蔽） |
-| 0x38 | PROG_CTRL | ERASE | [1] | RW | 0 | 0=写入(SET)，1=擦除(RESET) |
-| 0x38 | PROG_CTRL | FULL_ARRAY | [2] | RW | 0 | 仅 ERASE=1 生效：1=所有 WL 同时拉高并跳过 verify |
-| 0x38 | PROG_CTRL | BYPASS_HANDSHAKE | [3] | RW | 0 | **Silicon bring-up 专用**：1=绕过 `prog_adc_done` 等待，verify 始终 PASS（用 ideal readback）；START 时随 erase/level 一起锁存，本次操作不受 busy 期间后续写入影响；用于模拟 die 缺失时的数字自检，生产固件必须保持 0 |
-| 0x38 | PROG_CTRL | LEVEL | [7:4] | RW | 0 | 目标电导等级（0~15，对应 4-bit 权重量化） |
-| 0x38 | PROG_CTRL | RETRY_LIMIT | [10:8] | RW | 4 | verify 失败最大重试次数（0~7） |
-| 0x3C | PROG_ROW | row | [5:0] | RW | 0 | 目标行（0~63，= WL/NUM_INPUTS 索引） |
-| 0x40 | PROG_COL | col | [4:0] | RW | 0 | 目标列（0~19，= ADC 通道索引） |
+| 0x38 | PROG_CTRL | ERASE | [1] | RW¹ | 0 | 0=写入(SET)，1=擦除(RESET) |
+| 0x38 | PROG_CTRL | FULL_ARRAY | [2] | RW¹ | 0 | 仅 ERASE=1 生效：1=所有 WL 同时拉高并跳过 verify |
+| 0x38 | PROG_CTRL | BYPASS_HANDSHAKE | [3] | RW¹ | 0 | **Silicon bring-up 专用**：1=绕过 `prog_adc_done` 等待，verify 始终 PASS（用 ideal readback）；用于模拟 die 缺失时的数字自检，生产固件必须保持 0 |
+| 0x38 | PROG_CTRL | LEVEL | [7:4] | RW¹ | 0 | 目标电导等级（0~15，对应 4-bit 权重量化） |
+| 0x38 | PROG_CTRL | RETRY_LIMIT | [10:8] | RW¹ | 4 | verify 失败最大重试次数（0~7）。⚠️ 整字写 PROG_CTRL 时 byte1=0 会清零此字段；fw 应使用 read-modify-write 或显式置 4u<<8 以保留默认值。 |
+| 0x3C | PROG_ROW | row | [5:0] | RW¹ | 0 | 目标行（0~63，= WL/NUM_INPUTS 索引） |
+| 0x40 | PROG_COL | col | [4:0] | RW¹ | 0 | 目标列（0~19，= ADC 通道索引） |
 | 0x44 | PROG_STATUS | BUSY | [0] | RO | 0 | 编程控制器忙（FSM 非 IDLE） |
 | 0x44 | PROG_STATUS | PASS | [1] | RO | 0 | 上次序列验证通过 |
 | 0x44 | PROG_STATUS | FAIL | [2] | RO | 0 | 上次序列重试耗尽失败 |
 | 0x44 | PROG_STATUS | RETRY_COUNT | [5:3] | RO | 0 | 上次序列实际重试次数 |
+| 0x44 | PROG_STATUS | PROG_FSM_PRESENT | [6] | RO | ENABLE_PROGRAM_MODE | 1 = `cim_program_ctrl` 已实例化（编译期常量）；0 = 编程 FSM 未实现，PROG_CTRL.START 是 no-op。fw 用此位代替 cycle-bound BUSY 探测以避免 fast-pulse race。 |
 | 0x44 | PROG_STATUS | DONE | [7] | W1C | 0 | 编程完成 sticky（软件写 1 清零） |
 | 0x90 | PROG_PULSE_WIDTH | pulse_width | [15:0] | RO | 50 | 当前写入脉冲 resolved cycles（档位解码后的值） |
-| 0x90 | PROG_PULSE_WIDTH | write_pulse_sel | [17:16] | RW | 0 | 写入脉冲档位：0=1us(50), 1=10us(500), 2=100us(5000), 3=保留（按 100us 处理，防止误写 1ms SET 脉冲） |
+| 0x90 | PROG_PULSE_WIDTH | write_pulse_sel | [17:16] | RW¹ | 0 | 写入脉冲档位：0=1us(50), 1=10us(500), 2=100us(5000), 3=保留（按 100us 处理，防止误写 1ms SET 脉冲） |
 | 0x94 | PROG_ERASE_WIDTH | erase_width | [15:0] | RO | 50000 | 擦除脉冲宽度固定 1ms @ 50MHz（逐 cell 与全阵列擦除共用，写入此寄存器被忽略） |
+
+> ¹ **In-flight 写锁（2026-04-25 CRITICAL fix）**：标记为 `RW¹` 的所有 config 字段
+> 在 `prog_busy=1 || prog_start_pending=1 || prog_start_pulse=1` 时**写入会被
+> reg_bank 静默忽略**。原因：snn_soc_top 的外部 pad 编码器（`prog_op_ext` /
+> `prog_level_ext`）使用这些寄存器的 LIVE 值 + 10-stage pipeline；若允许 in-flight
+> 改写，10 拍后 pad 上的 op/level 会与 cim_program_ctrl 内部锁存值不一致，
+> 数字侧与模拟 die 接口将出现窗口期 inconsistency。锁仅在 `ENABLE_PROGRAM_MODE=1`
+> 时生效；FSM 不实例化时所有字段均可任意 RW。`PROG_STATUS.DONE`（W1C）和
+> `PROG_CTRL.START`（W1P，已有三重守卫）不受此锁影响。覆盖：`tb/prog_inflight_lock_tb.sv`。
 
 **为什么写入是档位而不是自由脉宽？** RRAM 器件编程窗口未标定，留三档供实验标定；擦除固定 1ms 防止误写短脉冲烧伤器件。
 

@@ -77,7 +77,7 @@
 
 - 内部并行口径（当前 `snn_soc_top` / `cim_macro_blackbox`）：
   `wl_spike[63:0] + dac_valid + cim_start/done + bl_sel[4:0] + adc_start/done + bl_data[7:0]`
-- 外部复用口径（对应 45 个可用 pad 中的功能信号子集，供 chip_top/pad 使用）：
+- 外部复用口径（对应 `doc/15_asic_pad_map.md` 的推理载体 pads 19..45，供 chip_top/pad 使用）：
   `wl_data[7:0] + wl_group_sel[2:0] + wl_latch + cim_start/done + bl_sel[4:0] + bl_data[7:0] + clk + rst_n`
 
 当前 RTL 已加入协议原型：`rtl/snn/wl_mux_wrapper.sv`。
@@ -113,7 +113,7 @@
   接收 `wl_data[7:0]/wl_group_sel[2:0]/wl_latch` 并在**模拟芯片内部**完成 WL de-mux（8 组 × 8bit 锁存器，共 64 根字线驱动）；CIM MAC + ADC 转换的模拟实现，以及 `cim_done/bl_data` 返回时序。
   **简化协议**：外部接口不使用 `adc_start/adc_done` 信号（省 2 pin）。模拟芯片在收到 `cim_start` 后内部自行完成 CIM MAC 计算 + 全部 20 通道 ADC 转换，完成后拉高 `cim_done`；数字侧在 `cim_done` 后扫描 `bl_sel` 读取 `bl_data`（固定建立时间，无逐通道握手）。
   具体 de-mux 架构：模拟芯片内部有 8 个 8-bit 锁存器组，`wl_latch=1` 期间按 `wl_group_sel` 将 `wl_data` 写入对应锁存器；8 组全部写入后还原完整 64-bit WL 驱动向量。
-  **注意**：本条只覆盖推理链路。若要支持外部 erase/write/verify，模拟侧还需要一个明确冻结的“编程命令表达方式”；本文当前没有把它定义死。
+  **注意**：本条只覆盖推理链路。外部 erase/write/verify 的编程命令表达方式已经在本文 §10 冻结，不再是开放项。
 - 后端/PCB 集成负责：
   **数字芯片侧**：在 `chip_top/pad wrapper` 完成数字芯片的 pad 复用映射与约束收敛。
   **模拟芯片侧**：完成模拟芯片的 pad 布局与信号引出。
@@ -126,7 +126,7 @@
 ### 2.1 信号总表
 
 > 说明：本节表格为**内部并行接口口径**（`snn_soc_top` 与 `cim_macro_blackbox` 之间，仅用于仿真）。
-> 实际双芯片 PCB 互联使用**外部 45 个可用 pad 的复用口径**，以 §1.3 和 `doc/15_asic_pad_map.md` 为准。
+> 实际双芯片 PCB 互联使用 §1.3 定义的**外部推理载体口径**（pads 19..45）；完整 55-pad package 视图以 `doc/15_asic_pad_map.md` 为准。
 
 | 信号名 | 方向 | 位宽 | 类型 | 说明 |
 |:---|:---:|---:|:---:|:---|
@@ -142,8 +142,8 @@
 | `cim_done` | A→D | 1 | 脉冲 | CIM 计算完成，单拍脉冲 |
 | **ADC 接口** |||||
 | `bl_sel` | D→A | 5 | 控制 | 位线选择，0-19 有效（Scheme B：10 正 + 10 负） |
-| `adc_start` | D→A | 1 | 脉冲 | ADC 采样启动，单拍脉冲（**仅内部仿真，不在外部 45 个可用 pad 接口中**） |
-| `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 45 个可用 pad 接口中**） |
+| `adc_start` | D→A | 1 | 脉冲 | ADC 采样启动，单拍脉冲（**仅内部仿真，不在外部 ASIC pad 接口中**） |
+| `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 ASIC pad 接口中**） |
 | `bl_data` | A→D | 8 | 数据 | 当前通道 ADC 输出，8-bit |
 
 **注**：D→A = 数字芯片到模拟芯片（经 PCB 走线），A→D = 模拟芯片到数字芯片（经 PCB 走线）

@@ -294,7 +294,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 
 | 编号 | 问题 | 适用范围 | 说明 |
 |---|---|---|---|
-| P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ **已关闭（2026-04-24 器件老师答复 + 数字侧固件落地 + Icarus 回归通过）**：需要开机擦除。`fw/main.c` 新增开机 `prog_op=100` 全阵列擦除序列（BYPASS_HANDSHAKE=0，FSM 真正对模拟侧施加 1 ms RESET 脉冲），UART 输出 `APP erase DONE`；`ENABLE_PROGRAM_MODE=0` 构建走 BUSY 探测自动跳过。main 分支 Gate A 15/15 PASS，含 `E203_SMOKETEST_PASS`。FPGA 路径（`fw/e203_smoke/e203_fpga_smoke.c`）本来就在 Phase 1 Step 1a 做全阵列擦除，无需重跑板验——详见 [`doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md`](main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md)。 | 模拟芯片 | 决定上电后是否必须先跑数字发起的编程流程 |
+| P2-1 | 流片后 RRAM 单元的初始状态是 HRS（默认 LRS 或随机）？ **已关闭（2026-04-24 器件老师答复 + 数字侧固件落地 + Icarus 回归通过）**：需要开机擦除。`fw/main.c` 新增开机 `prog_op=100` 全阵列擦除序列（BYPASS_HANDSHAKE=0，FSM 真正对模拟侧施加 1 ms RESET 脉冲），UART 输出 `APP erase SEQ_DONE`；这里的成功语义是“控制器完成全阵列擦除时序”，不是固件逐 cell spot-verify。`ENABLE_PROGRAM_MODE=0` 构建由 fw 通过 `PROG_STATUS[6]=PROG_FSM_PRESENT` 自动探测并跳过（race-free，2026-04-25 替换早期 256-cycle BUSY 探测）。main 分支 Gate A 15/15 PASS，含 `E203_SMOKETEST_PASS`。FPGA 路径（`fw/e203_smoke/e203_fpga_smoke.c`）本来就在 Phase 1 Step 1a 做全阵列擦除，无需重跑板验——详见 [`doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md`](main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md)。 | 模拟芯片 | 决定上电后是否必须先跑数字发起的编程流程 |
 | P2-2 | 权重的保留时间（retention time）在工作温度下估计是多少年/月？ | 模拟芯片 | 评估权重写入后测试窗口 |
 | P2-3 | 读取操作对 RRAM 状态有无干扰（read disturb）？连续推理 N 次后权重是否退化？ | 模拟芯片 | 影响系统可靠性指标 |
 | P2-4 | V1 模拟芯片的权重写入方案：由数字芯片发起 erase/write/verify，还是仅保留 wafer 测试设备写入作为 fallback？ | 模拟芯片 + 数字芯片 | 主路径已要求支持数字发起编程；bring-up 仍建议保留外部测试写入 fallback |
