@@ -41,13 +41,15 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
   - `digital direct` means the current RTL already drives or receives the signal at `snn_soc_top`
   - `chip_top routed wrapper` means the signal is already exposed at [`rtl/top/chip_top.sv`](../rtl/top/chip_top.sv), but still not backed by technology pad cells
 - JTAG remains 4-wire only in the current pad freeze. There is no dedicated `TRST_n` pad.
+- `clk` and `rst_n` are **PCB-shared inputs**, not digital-to-analog forwarded outputs. The board shall fan out one 50 MHz clock source and one supervisor/reset source to both the digital die and the analog die. There is no digital-side `clk_out` / `rst_out` pad and no digital-side duty-cycle reshaper.
+- If the analog die needs an internal ~40/60 duty cycle, that duty reshape belongs inside the analog die (DCC/local clock shaping). The digital pad contract remains a conventional 50 MHz input clock.
 
 ## Full 55-Pad Table
 
 | Pad | Name | Function | Dir | Class | Default / Reset Behavior | Notes |
 |---|---|---|---|---|---|---|
-| 01 | `clk` | System reference clock | in | signal | External source drives; no internal default | Routed to `snn_soc_top.clk` |
-| 02 | `rst_n` | Active-low reset | in | signal | Hold low during reset entry, release high for normal run | Routed to `snn_soc_top.rst_n` |
+| 01 | `clk` | System reference clock | in | signal | External PCB clock source drives; no internal default | PCB shared with analog die `clk_in`; routed to `snn_soc_top.clk`; no digital-side forwarding / reshape |
+| 02 | `rst_n` | Active-low reset | in | signal | PCB supervisor/reset source holds low during reset entry, releases high for normal run | PCB shared with analog die `rst_n`; routed to `snn_soc_top.rst_n`; no digital-side reset forwarding |
 | 03 | `uart_tx` | UART TX | out | signal | `uart_ctrl` drives idle high (`1`) after reset and emits 8N1 TX frames when active | Current source: `uart_ctrl.sv` |
 | 04 | `uart_rx` | UART RX | in | signal | External source drives; current V1 mainline has RX path reserved but not yet consumed by logic | Current sink: `uart_ctrl.sv` |
 | 05 | `spi_cs_n` | SPI chip select | out | signal | `spi_ctrl` drives high (`1`) after reset; software may force low during transaction | Current source: `spi_ctrl.sv` |

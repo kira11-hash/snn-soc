@@ -19,6 +19,8 @@
 > - pad 总数从 48 扩到 **55**（46 signal + 6 power + 3 ESD；usable=52），见 `doc/15_asic_pad_map.md`。
 > - 模拟同学现在可以按本文 §2/§3/§4/§5（推理）**和** §10（外部编程）同时推进实现。
 > - **共享载体 pad 路由已于 2026-04-24 补齐**：`wl_data / wl_group_sel / wl_latch / cim_start / bl_sel` 在 `prog_busy=1` 时都会切到 programming 路径；回归 TB 为 `prog_wl_pad_route_tb.sv`（PROG_WL_PAD_ROUTE_TB_PASS）。
+>
+> **2026-04-25 clock/reset 分发冻结**：`clk` / `rst_n` 不是数字芯片转发给模拟芯片的 D→A 信号。PCB 使用同一个 50 MHz 标准时钟源和同一个 supervisor/reset 源分别扇出到数字 die 与模拟 die；数字芯片没有 `clk_out` / `rst_out` pad。模拟侧如需要约 40/60 duty cycle，应在模拟 die 内部做 DCC/本地整形，并回填 PVT 保证范围。
 
 ---
 
@@ -79,6 +81,7 @@
   `wl_spike[63:0] + dac_valid + cim_start/done + bl_sel[4:0] + adc_start/done + bl_data[7:0]`
 - 外部复用口径（对应 `doc/15_asic_pad_map.md` 的推理载体 pads 19..45，供 chip_top/pad 使用）：
   `wl_data[7:0] + wl_group_sel[2:0] + wl_latch + cim_start/done + bl_sel[4:0] + bl_data[7:0] + clk + rst_n`
+  > `clk` / `rst_n` 是 PCB shared input：同一颗板级时钟源 / reset supervisor 并行送到两颗 die，不由数字芯片转发。
 
 当前 RTL 已加入协议原型：`rtl/snn/wl_mux_wrapper.sv`。
 
@@ -118,6 +121,8 @@
   **数字芯片侧**：在 `chip_top/pad wrapper` 完成数字芯片的 pad 复用映射与约束收敛。
   **模拟芯片侧**：完成模拟芯片的 pad 布局与信号引出。
   **PCB 设计**：完成两颗芯片之间的 PCB 走线互联，保证信号完整性（特别是 `bl_data[7:0]` 等高速信号的延迟匹配与串扰控制）。
+- PCB 时钟/复位分发负责：
+  板级 50 MHz 标准晶振或低抖动 clock source 以星形/并行方式分别驱动数字 die `clk` 与模拟 die `clk_in`；板级 supervisor IC + reset 按钮分别驱动数字 die `rst_n` 与模拟 die `rst_n`。数字 die 不做 clock/reset 转发、buffer 或 duty reshape。PCB 走线目标为 chip-to-chip clock skew ≤ 0.5 ns（50 MHz 周期 20 ns 的 2.5%，作为 layout target；最终 STA/接口预算以板级提取和 IO timing model 为准）。模拟 die 若偏好约 40% high / 60% low duty cycle，应在模拟 die 内部 DCC/本地时钟整形中实现，并给出 PVT 下保证范围；数字侧只假设板级输入为常规 50 MHz 时钟。
 
 ---
 
@@ -131,8 +136,8 @@
 | 信号名 | 方向 | 位宽 | 类型 | 说明 |
 |:---|:---:|---:|:---:|:---|
 | **时钟和复位** |||||
-| `clk` | D→A | 1 | 时钟 | 系统时钟，50MHz |
-| `rst_n` | D→A | 1 | 复位 | 异步复位，低有效 |
+| `clk` | PCB shared | 1 | 时钟 | 系统时钟，50MHz；PCB clock source 并行送数字 die 与模拟 die，不由数字 die 输出 |
+| `rst_n` | PCB shared | 1 | 复位 | 异步复位，低有效；PCB supervisor / reset button 并行送两颗 die |
 | **DAC 接口** |||||
 | `wl_spike` | D→A | 64 | 数据 | 字线输入，64路并行 bit-plane |
 | `dac_valid` | D→A | 1 | 脉冲 | DAC 数据有效，单拍脉冲（行为模型锁存触发）；真实芯片侧由 `wl_latch` 时序控制 |
@@ -146,7 +151,7 @@
 | `adc_done` | A→D | 1 | 脉冲 | ADC 采样完成，单拍脉冲（**仅内部仿真，不在外部 ASIC pad 接口中**） |
 | `bl_data` | A→D | 8 | 数据 | 当前通道 ADC 输出，8-bit |
 
-**注**：D→A = 数字芯片到模拟芯片（经 PCB 走线），A→D = 模拟芯片到数字芯片（经 PCB 走线）
+**注**：D→A = 数字芯片到模拟芯片（经 PCB 走线），A→D = 模拟芯片到数字芯片（经 PCB 走线）。`clk` / `rst_n` 是例外：它们是 PCB shared source 到两颗 die 的输入，不是 D→A 转发信号。
 
 ## ADC 和 DAC 的位宽
 
@@ -414,9 +419,9 @@ bl_data    ═══════════════════════
 ## 5. 电气特性
 
 > **双芯片 PCB 互联注意**：以下信号在两颗独立封装芯片之间通过 PCB 走线传输，需额外关注：
-> - PCB 走线延迟（FR-4 上约 150-170 ps/mm，即每 cm 约 1.5-1.7 ns，需纳入时序预算）
+> - PCB 走线延迟（FR-4 典型约 60-70 ps/cm，具体以 PCB stackup / field solver 为准，需纳入时序预算）
 > - 信号串扰（特别是 `bl_data[7:0]` 8 根数据线的间距）
-> - 阻抗匹配（若时钟频率 50MHz，走线长度 < 3cm 时通常可忽略传输线效应）
+> - 阻抗匹配（按 IO 边沿速度而不只按 50MHz 频率判断；必要时在源端预留串联阻尼电阻）
 > - 两颗芯片可能使用不同工艺，需确认 IO 电平兼容性
 
 ### 5.1 数字芯片侧驱动能力
@@ -453,7 +458,8 @@ bl_data    ═══════════════════════
 # 目标时钟频率
 create_clock -name clk -period 20.0 [get_ports clk]
 
-# 时钟不确定度（留给模拟部分）
+# 初始时钟不确定度：含 source jitter、PCB 分发 skew、pad/IO 模型余量。
+# clk 是 PCB shared input，不是数字芯片输出给模拟芯片的 forwarded clock。
 set_clock_uncertainty 1.0 [get_clocks clk]
 ```
 
@@ -469,7 +475,7 @@ set_output_delay 3.0 -clock clk [get_ports {wl_data* wl_group_sel* wl_latch cim_
 set_input_delay 3.0 -clock clk [get_ports {cim_done bl_data*}]
 ```
 
-**注**：以上约束为初始估计值。实际值需纳入 PCB 走线延迟（每 cm 约 1.5-1.7 ns）和模拟芯片 IO 时序。两颗芯片分别综合时，各自使用对应的 output_delay/input_delay 约束。
+**注**：以上约束为初始估计值。实际值需纳入 PCB 走线延迟（FR-4 典型约 60-70 ps/cm，具体以 PCB stackup / field solver 为准）、板级 clock source 抖动、chip-to-chip clock skew、pad/IO timing model 和模拟芯片 IO 时序。两颗芯片分别综合时，各自使用对应的 output_delay/input_delay 约束；`clk` 本身按 PCB shared source 建模，不按 D→A output delay 建模。
 
 ---
 

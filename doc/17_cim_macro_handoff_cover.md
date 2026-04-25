@@ -43,7 +43,7 @@
 - `wl_data[7:0]`, `wl_group_sel[2:0]`, `wl_latch`
 - `cim_start`, `cim_done`
 - `bl_sel[4:0]`, `bl_data[7:0]`
-- `clk`, `rst_n`
+- `clk`, `rst_n`（PCB shared input：板级时钟/复位源分别并行送数字 die 与模拟 die，不由数字 die 转发）
 
 **B. 外部编程接口**（pads 46..52，frozen 2026-04-24，方案 α'）
 
@@ -66,6 +66,7 @@
 - `TIMESTEPS_DEFAULT = 10`
 - `THRESHOLD_DEFAULT = 2550`
 - 目标时钟：`50 MHz`
+- clock/reset 分发：PCB 一颗 50 MHz 标准时钟源 + 一颗 supervisor/reset 源分别并行送两颗 die；数字 die 没有 `clk_out` / `rst_out`
 
 最终真源以：
 
@@ -152,6 +153,7 @@
 4. `bl_sel -> bl_data` 的读出时序
 5. ADC/TIA/Vref/噪声/动态范围
 6. pad/pin/PCB 约束、电平兼容、供电/偏置方案
+7. `clk_in` / `rst_n` pad、片内 DCC（若需要 40/60 duty）、reset deassert 同步策略、clock/reset PCB SI 约束（见 `doc/11` P0-7..P0-10）
 
 ### B. 编程侧（A8 已冻结，数字侧已全部 ready，可开做到端到端）
 

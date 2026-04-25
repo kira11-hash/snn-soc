@@ -21,7 +21,7 @@
 
 ## 【数字侧 P0 阻塞项快速清单】（2026-04-24）
 
-> **🔥 这 18 项是数字侧进入后端 STA 签核前必须拿到的参数**。其他章节（A4~A7 剩余项 + P0/P1/P2 其余 + X1~X5）**可以延后回填**，不影响后端启动。
+> **🔥 下表是数字侧进入后端 STA 签核前必须拿到的参数**。其他章节（A4~A7 剩余项 + P0/P1/P2 其余 + X1~X5）**可以延后回填**，不影响后端启动。
 > **建议回填 deadline：2026-05-08（2 周）**。
 
 | 类别 | 编号 | 数字侧用它做什么 |
@@ -42,6 +42,7 @@
 | | A7-6 | worst-case cim_start→cim_done 延迟 → 数字侧 timeout 保护阈值 |
 | **P0/P1 物理** | P0-2 | 模拟 die 尺寸 + 封装 → PCB 布局 + 两 die 互联走线长度 |
 | | P0-3 | 模拟 die 各组信号 pad 引出方向 → PCB 走线对齐 |
+| | P0-7/8/9/10 | PCB shared clock/reset 分发、模拟侧 DCC、reset deassert 策略、clock SI → STA/PCB 约束 |
 | | P1-1/2/3 | 外部电源/偏置 pin 清单 → PCB BOM + 电源规划 |
 
 **填法**：直接在本文 §三 对应章节的表格里填答案，每行末尾都标了"需要的答案形式"和单位。
@@ -271,6 +272,10 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | P0-4 | 两颗芯片的供电方案：AVDD/AVSS（模拟）和 DVDD/DVSS（数字）在 PCB 上如何分区？是否需要独立 LDO？ | PCB 设计 | 影响电源完整性和噪声隔离 |
 | P0-5 | ESD 保护策略：两颗芯片的互联信号 pad 各需什么级别的 ESD 保护？（片间走线已有 PCB 布局保护，ESD 等级可能低于对外 IO） | 双方 | 影响 pad 面积和 IO 驱动能力 |
 | **P0-6** | **数字-模拟接口数字信号的 IO 电平对齐 ✅ 已确认（2026-04-25）**：两颗 die 的 PDK 一致——core 1.2V / IO 3.3V。结论：**接口处零 level shifter**，PCB BOM 不需要 TXS0108 / TXB0108 / 74LVC1T45 之类电平转换 IC，对应 ~5-10ns 双向延迟也不进 50 MHz 时序预算。chip_top pad cell 选 3.3V LVCMOS33（drive strength + slew 待 PDK 接入后定）；模拟 die IO 同 3.3V CMOS 即可直连。**RRAM SET/RESET 高电压由模拟 die 内部 charge pump 生成，不出 pad，与本接口电平无关。** | 双方 | 已锁定，无 BOM/时序冲击 |
+| **P0-7** | **请确认模拟芯片有 `clk_in` + `rst_n` pad，且与数字芯片 pad 01/02 在 PCB 上接同一组时钟/复位源。**数字芯片不提供 `clk_out` / `rst_out`，也不做 clock/reset 转发。 | 模拟芯片 + PCB | 需要模拟 pinout 明确对应 pad；避免误按 D→A forwarded clock 设计 |
+| **P0-8** | **模拟 die 内部是否需要/能够做 duty-cycle correction (DCC)**：PCB 提供标准 50 MHz、50/50 标称时钟；若模拟侧偏好约 40% high / 60% low，请给出片内 DCC/本地整形方案、目标 duty、PVT 下保证范围。数字侧暂不冻结 ±5% 为硬规格，等模拟侧回填。 | 模拟芯片 | 40/60 是模拟侧本地需求，不由数字 die 或 PCB 强行产生 |
+| **P0-9** | **reset deassert 策略**：PCB supervisor IC + reset button 并行驱动两颗 die `rst_n`。请确认模拟 die 支持异步 assert / 本地同步 deassert，给出最小 reset low time、deassert 后模拟偏置/ADC/DCC ready 时间。 | 模拟芯片 + PCB | 数字侧已有内部 reset synchronizer；模拟侧策略仍需确认 |
+| **P0-10** | **clock/reset PCB SI 约束**：50 MHz clock 建议星形/并行分发、必要时串联端接/clock buffer；目标 chip-to-chip clock skew ≤ 0.5 ns，最终以 PCB stackup/仿真提取为准。请确认 clock source fanout、走线阻抗、端接、overshoot/ringing/crosstalk 要求。 | PCB 设计 | 0.5 ns 是 layout target，不是最终 STA signoff 唯一来源 |
 
 ---
 
@@ -325,7 +330,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 | A6（噪声/动态范围） | **部分已知**（Vread=1.5 V / On-off=5000:1 / HRS≈1TΩ / LRS≈200MΩ 已从 I-V 实测拟合入；来自 `项目相关文件/器件对齐/`）；待模拟侧给出 A6-1..A6-8 的量化噪声 + 动态范围 | 模拟团队 | 首轮 handoff 会后回填 | 本文 A6；证据见 `项目相关文件/器件对齐/Python建模/summary.txt` + `memristor_plugin.py` | 未回填前不重标定 Python 噪声参数 |
 | A7（时序合同） | 部分已冻结：`dac_ready` 已删除、外部协议统一到 `cim_start/cim_done/bl_sel/bl_data`；仍待确认脉宽与 guard time | 数字+模拟联合 | 首轮联合对齐会 | 本文 A7；协议主合同见 `doc/08_cim_analog_interface.md` / `doc/03_cim_if_protocol.md` | 这是 RTL 状态机和板级 bring-up 的关键收口项 |
 | A8（外部编程合同） | **已冻结（方案 α'）**：新增 `prog_op[2:0] + prog_level[3:0]` 7 个 D→A pads；verify PASS/FAIL 由数字侧自己比对 | 数字+模拟联合 | 已完成 | 本文 A8；关联 `doc/08_cim_analog_interface.md` / `doc/15_asic_pad_map.md` / `doc/02_reg_map.md` | 当前剩余的是数字侧 shared-carrier routing follow-up，不是协议 blocker |
-| P0（pin/pad/PCB布局） | 数字侧 pad 真源已冻结；待模拟芯片 pad 排列与 PCB 约束回填 | 模拟+PCB | pad 定稿前 | 数字侧真源：`doc/15_asic_pad_map.md`、`rtl/top/chip_top.sv` | 未回填前不提交最终 pad-ring/PCB 定稿 |
+| P0（pin/pad/PCB布局） | 数字侧 pad 真源已冻结；待模拟芯片 pad 排列、PCB 约束、clock/reset shared-source 分发回填 | 模拟+PCB | pad 定稿前 | 数字侧真源：`doc/15_asic_pad_map.md`、`rtl/top/chip_top.sv`；clock/reset 见 P0-7..P0-10 | 未回填前不提交最终 pad-ring/PCB 定稿 |
 | P1（供电/偏置） | 待模拟侧确认外部偏置/参考是否需要独立引脚；数字侧当前未新增相关 pad | 模拟+PCB | 电源方案评审前 | 本文 P1；数字侧现状见 `doc/15_asic_pad_map.md` | 直接影响 PCB BOM 与电源隔离方案 |
 | P2（RRAM 状态） | **P2-1 已关闭**：上电初始态不保证 HRS，数字侧必须先跑全阵列擦除；retention/read-disturb 与长期写入策略仍待器件/模拟侧量化 | 器件团队 | 首轮 handoff 会后回填剩余 P2 项 | 本文 P2；P2-1 见下方已关闭记录 | 不允许按“上电即推理”准备系统；bring-up 第一动作是数字发起 `prog_op=100` |
 
@@ -336,7 +341,7 @@ ADC × 20：  20 × (MUX_SETTLE=2 + ADC_SAMPLE=3) = 100 cycles（待确认）
 - `A5`：每阶段延迟（ns/cycles）+ 最坏 PVT 数值。
 - `A4`：Vref 高低点、TIA 增益标称/容差、是否可调、温漂。
 - `A6`：噪声（LSB RMS / pp）、最小可检电流、ENOB、温漂影响。
-- `P0`：两颗芯片的最终 pin list（55 pad 全表，其中 52 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估。
+- `P0`：两颗芯片的最终 pin list（55 pad 全表，其中 52 个可用 pad + 3 个 ESD/保留 pad）、pad 排列、PCB 走线长度预估、clock/reset shared-source 分发与 SI 约束。
 - `P1`：AVDD/DVDD 约束、偏置来源、PCB 电源方案、是否新增外部引脚。
 - `P2`：RRAM 上电状态、retention/read-disturb、模拟芯片权重写入方案（主路径=数字发起编程；fallback=外部测试写入）。
 
