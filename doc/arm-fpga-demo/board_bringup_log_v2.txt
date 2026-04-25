@@ -1,0 +1,45 @@
+v2-arm-fpga-demo WSTRB fix reburn evidence (F1)
+
+Status: PRE-BURN TEMPLATE
+Base tag: v2-arm-fpga-demo-passed @ 8e51ae2708ef778fd4b63e2c4c20b55099b3f205
+Fix branch: feature/v2-arm-fpga-demo-fix-gpt
+Recommended new tag: v2-arm-fpga-demo-v2-passed
+
+Why reburn:
+- F1 repaired AXI-Lite WSTRB handling in rtl/top/snn_soc_v2b_top.sv.
+- Frozen v1 bit widened partial writes into full-word writes at the V2.B endpoint.
+
+Frozen artifacts (pre-fix):
+- Bit SHA256: 1215D913BCF3B436BE34FA63215DF61657D7C3591832CD34678C440478C46B67
+- ELF SHA256: 1D6D6BB3E9D25A35667D65D516EE2B7A5922CFDFEB81D3D0D4FDE5B7A844CD65
+
+Post-fix artifacts:
+- Commit: <PENDING AFTER F1/F2/F3 COMMITS>
+- Bit SHA256: <PENDING USER RE-BITGEN>
+- ELF SHA256: <PENDING USER REBUILD OR REUSE CONFIRMATION>
+- Build manifest: doc/arm-fpga-demo/build_manifest_v2.txt
+
+Step 1: RTL delta
+- snn_soc_v2b_top now honors cmd_wstrb for CFG/STAGING writes and gates byte0 W1P/W1C pulses.
+
+Step 2: New targeted TB
+- sim/run_v2b_axi_partial_write.sh
+- PASS tag: V2B_AXI_PARTIAL_WRITE_TB_PASS
+- Old RTL baseline expectation: FAIL
+
+Step 3: Regression
+- Full Icarus regression list/result: <PENDING AFTER LOCAL RUN>
+
+Step 4: Re-bitgen
+- Command: bash scripts/build_zcu102_arm_demo.sh
+- Result: <PENDING USER RUN>
+
+Step 5: Re-burn / xsct load
+- Command: xsct scripts/program_zcu102_c0.tcl
+- Result: <PENDING USER RUN>
+
+Step 6: UART evidence
+- Paste full UART log below after board run.
+
+=== UART Output ===
+<PENDING USER LOG>
