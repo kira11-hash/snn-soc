@@ -4,9 +4,10 @@
 - **Phase A（仿真 + RTL wrapper）—✅ ALL GATES PASS**（commit `8301c226`）
 - **Phase B（ARM firmware cross-build）—✅ GATE B PASS**（`v2b_arm_demo.elf` linked, zero undefined refs, symbols verified）
 - **Phase C0 本地静态 sanity — ✅ OOC synth PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 via HPM0_FPD 已锁**（full bitgen + 板上 smoke 在 Qingan sign-off + 有板子时跑）
-- Phase C0 board smoke、Phase C1 board smoke — 待上板
+- **Phase C0/C1 board validation（frozen v1）—✅ PASS**（tag `v2-arm-fpga-demo-passed`，2026-04-22 sign-off）
+- **Fix wave F1（WSTRB partial-write repair）—⏳ RTL/TB PASS，待 re-bitgen + re-burn**
 
-**Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**，**不修改 V2.B accelerator datapath / cmd-rsp 合约**。本 doc 覆盖 Phase A + Phase B + Phase C0 的静态产出（RTL wrapper、ARM C 代码、Vivado TCL、xsct 脚本）；上板日志放 `board_bringup_log_c0.md` / `_c1.md`。
+**Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。`v2-arm-fpga-demo-passed` 锁定的是 2026-04-22 的 frozen v1 板验；当前 fix wave 只修 AXI partial-write 语义，不改 V2.B datapath 算法。fix wave 的重烧证据放 `board_bringup_log_v2.txt`。
 
 关联计划：`C:\Users\24201\.claude\plans\noble-soaring-beaver.md` (REV 2)。
 
@@ -54,7 +55,7 @@
 | `simple2v2btop_adapter` | `rtl/bus/simple2v2btop_adapter.sv` | 新增（FSM 适配，~150 行） |
 | `axi2simple_bridge` | `rtl/bus/axi2simple_bridge.sv` | additive +1 行白名单（branch-local） |
 | `snn_soc_pkg` | `rtl/top/snn_soc_pkg.sv` | additive +2 localparam（branch-local） |
-| `snn_soc_v2b_top` | `rtl/top/snn_soc_v2b_top.sv` | **不动** |
+| `snn_soc_v2b_top` | `rtl/top/snn_soc_v2b_top.sv` | frozen v1 不动；fix wave F1 补 `cmd_wstrb` 语义 |
 
 ---
 
@@ -170,7 +171,7 @@ read_mux 的 case 依赖 `cmd_addr`。如果 adapter 把 cmd_addr 清零，read_
 | `fw/arm/src/crt0_aarch64.S` | 最小 AArch64 启动：设栈、清 bss、跳 arm_main |
 | `fw/arm/src/v2b_scheduler_arm.c` | 2 行薄包装：define `V2B_SOC_BASE` + include 原始 `fw/src/v2b_scheduler.c` |
 | `fw/arm/src/arm_main.c` | Phase C0 入口：UART init → MMIO self-test → C0 loop → C1 loop |
-| `fw/arm/link_arm.ld` | 独立 AArch64 linker script（DDR @ 0x100000，16 MB 区域，64 KB 栈） |
+| `fw/arm/link_arm.ld` | 独立 AArch64 linker script（OCM @ `0xFFFC0000`，256 KB 区域，64 KB 栈） |
 | `fw/arm/build_arm_firmware.sh` | 一键编译/链接/Gate B 检查 |
 | `fw/arm/scripts/gen_golden_header.py` | 从 `python_multilayer/.../fashion_multilayer_golden/` 生成 `golden_fashion10.[hc]` |
 
@@ -199,7 +200,7 @@ text    data    bss    dec     hex    filename
 
 本 Phase B/C0 的 `crt0_aarch64.S` **不做 MMU/cache 初始化**；JTAG 脚本依赖 `psu_init.tcl` 完成 PS/DDR/PL isolation bring-up。对这个 first-smoke 路线的实际含义是：
 - `0xA000_0000..0xA000_0FFF` 的 MMIO volatile load/store 不会被本 firmware 自己打开的 D-cache 缓住；地址映射错误时仍可能直接 data abort 或无响应；
-- DDR 中的 instruction fetch 和 `.rodata` 读取不走本地启用的 cache 路径 → 整体执行很慢，但足够做 10-sample PASS tag；
+- OCM 中的 instruction fetch 和 `.rodata` 读取不走本地启用的 cache 路径 → 整体执行较慢，但足够做 10-sample PASS tag；
 - 具体复位 EL / debug state 由 XSCT + `psu_init.tcl` 决定，所以 board log 里要记录实际启动脚本和 Vivado/Vitis 版本。
 
 对于 Phase C0/C1 smoke 的 10 sample × 14×14 推理，预估总运行时间 < 30 秒（uncached）。Production 部署时会切换到 Vitis BSP 路线，BSP 的 `MMUTable.c` 会把 PL MMIO window 标为 Device-nGnRnE，把 DDR 代码/数据标为 Normal cacheable，吞吐提升 50-100 倍。
@@ -245,10 +246,12 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 |---|---|---|
 | OOC synth `v2b_arm_demo_top` | `vivado -mode batch -source ooc_v2b_arm_demo.tcl` | ✅ `TIMING_STATUS : PASS` @ 50 MHz（pseudo-constraint 20 ns period，匹配项目 baseline） |
 | BD 创建 + validate + save | `vivado -mode batch -source bd_sanity_zcu102_arm_demo.tcl` | ✅ `ZCU102_BD_SANITY_PASS`；`u_v2b_wrapper/s_axi` 接口正确推断；地址段挂在 `<0xA000_0000 [ 4K ]>` |
-| Full bitgen + XSA | `scripts/build_zcu102_arm_demo.sh` | ⏳ 待在有 Vivado + 时间预算的机器上跑（~35 min） |
-| 上板 C0 smoke | `xsct scripts/program_zcu102_c0.tcl` | ⏳ 待有板子后执行 |
+| Full bitgen + XSA | `scripts/build_zcu102_arm_demo.sh` | ✅ frozen v1 已完成；fix wave F1 待 user 重跑 |
+| 上板 C0/C1 smoke | `xsct scripts/program_zcu102_c0.tcl` | ✅ frozen v1 已完成；fix wave F1 待 user 重烧 |
 
-### 9.5 已知上板风险（待 board smoke 时验证）
+> 注：`v2-arm-fpga-demo-passed` 代表 frozen v1 的板验完成；当前 fix wave 的重烧/重测证据统一写入 `doc/arm-fpga-demo/board_bringup_log_v2.txt`。
+
+### 9.5 fix wave 重烧风险（当前待验证）
 
 | # | 风险 | 严重度 | 缓解 |
 |---|---|---|---|
@@ -263,8 +266,8 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 
 | 状态 | 可写措辞 | 当前？ |
 |---|---|---|
-| **当前**（仿真 + firmware build 过，板上未验） | "V2.B has achieved Python/RTL/firmware-scheduler co-simulation parity. An ARM-hosted ZCU102 FPGA artifact is under development." | ✅ |
-| **Phase C0 board PASS 之后** | "The V2.B accelerator was validated on ZCU102 through ARM-hosted MMIO control with bit-exact output counts (10 Fashion-MNIST 14×14 samples)." | ⏳ |
-| **Phase C1 board PASS 之后** | "The board-side ARM processor executes the same scheduler flow used in co-simulation, including pixel stream encoding, stage execution, and output count verification." | ⏳ |
+| **frozen v1（已板验）** | "The V2.B accelerator was validated on ZCU102 through ARM-hosted MMIO control with bit-exact output counts (10 Fashion-MNIST 14×14 samples)." | ✅ |
+| **当前 fix wave（F1 待重烧）** | "The frozen v1 artifact has board evidence; a follow-up fix wave for AXI partial-write semantics is under re-validation." | ✅ |
+| **fix wave re-burn PASS 之后** | "The AXI partial-write repair preserves the original board-validated behavior while restoring byte-strobe correctness on the ARM-hosted MMIO path." | ⏳ |
 
 始终**不可写**（直到 E203-in-PL 分支跑通）："autonomous SoC-local firmware execution"、"E203 firmware already runs V2.B on FPGA"、"integrated RISC-V + CIM SoC with firmware self-orchestration"。
