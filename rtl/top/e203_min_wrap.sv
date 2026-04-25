@@ -15,6 +15,18 @@
 // 【编译开关】
 // - SOC_ENABLE_E203_VENDOR：启用真实 E203 IP 实例化
 //   - 无此宏时：使用行为模型（仿真用最小 CPU 替身）
+//   - 此宏打开时本文件顶部 `include "e203_defines.v"`，从而看见
+//     vendor 默认设置的 `E203_HAS_ITCM_EXTITF` / `E203_HAS_DTCM_EXTITF`，
+//     于是下方的 ext2itcm_icb_* / ext2dtcm_icb_* tie-off 块也会激活。
+//
+// 【作用域提醒（vendor adapter fix，非 v2-fpga-e203 单分支专用）】
+// `include "e203_defines.v" 与下方 ext2*_icb_* tie-off 是为了让 vendor
+// IP 在 SOC_ENABLE_E203_VENDOR=1 下能正确 elaborate（vendor 暴露的端口
+// 必须接到 driver/sink）。本仓库里 `+define+SOC_ENABLE_E203_VENDOR`
+// 在 V1 主线 (`sim/sim_e203.f`、`sim/sim_jtag_rescue_top.f`) 与本支线
+// (`sim/sim_v2_e203.f` 等) 都会打开，因此该 fix 对 V1 主线 e203 / jtag
+// rescue 也生效，不是 v2-fpga-e203 branch-local。
+// 已实测 V1 主线 `bash sim/run_e203_icarus.sh` 仍 `E203_SMOKETEST_PASS`。
 //
 // 【CPU 复位】
 // core_rst_n = rst_n & cpu_local_rst_n

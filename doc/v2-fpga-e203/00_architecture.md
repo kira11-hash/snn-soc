@@ -262,7 +262,8 @@ The final PASS string is printed only after firmware compares all 100 spike coun
 - 本支线 **不 merge 回 `v2`**；引用必须 pin 到 tag `v2-fpga-e203-passed`（frozen tag commit `e696dc39`）。
 - 若引用板验生成的 bit / hex 来源，使用 artifact-bearing commit `1620ccda`。
 - 不动 `main` / `main-fpga-e203-alpha` / `v2-arm-fpga-demo-passed`。
-- V1 流片（main）的 16 KB IMEM / V1 frozen 参数集**未受任何影响**——本支线纯 additive，硬件预算独立（FPGA BRAM）。
+- V1 流片（main）的 16 KB IMEM / V1 frozen 参数集**未受任何影响**——本支线在 RTL 层面整体属 additive（新增模块/常量/TB/固件），硬件预算独立（FPGA BRAM）。
+- **唯一非严格 branch-local 的改动**：`rtl/top/e203_min_wrap.sv` 在 `SOC_ENABLE_E203_VENDOR=1` 下补全 vendor IP 的 `ext2itcm_icb_*` / `ext2dtcm_icb_*` tie-off（`E203_HAS_ITCM_EXTITF` / `E203_HAS_DTCM_EXTITF` 由 vendor `e203_defines.v` 默认 define），属于 vendor adapter 修复。该宏在 V1 主线 (`sim/sim_e203.f`, `sim/sim_jtag_rescue_top.f`) 与 v2-fpga-e203 (`sim/sim_v2_e203.f` 等) 都打开，因此修复对 V1 主线 e203 / JTAG rescue 也生效。已实测 `bash sim/run_e203_icarus.sh → E203_SMOKETEST_PASS`，V1 回归未退化。tie-off 全部接 `1'b0`/输出端开浮，逻辑等价，bit/hex 均不需要 RE-BURN。
 
 ### Paper / 简历表述参考
 
