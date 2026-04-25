@@ -31,7 +31,7 @@ module v2_e203_encoder_parity_tb;
   always #5 clk = ~clk;
 
   initial begin
-    $readmemh("../fw/v2_e203_smoke/out/v2_e203_encoder.hex", dut.u_instr_sram.mem);
+    $readmemh("../fw/v2_e203_smoke/out_simfast/v2_e203_encoder.hex", dut.u_instr_sram.mem);
   end
 
   // DMEM word-offset helpers

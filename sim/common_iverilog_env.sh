@@ -263,3 +263,30 @@ cleanup_vendor_e203_alias() {
   alias_win="${alias_win//\//\\}"
   MSYS2_ARG_CONV_EXCL='*' cmd.exe /c rmdir "$alias_win" > /dev/null 2>&1 || true
 }
+
+run_in_repo_wsl() {
+  local root_dir="$1"
+  shift
+  local repo_wsl
+  local repo_win
+
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    repo_wsl="$root_dir"
+    bash -lc "cd '$repo_wsl' && $*"
+    return $?
+  fi
+
+  if ! command -v wsl.exe >/dev/null 2>&1; then
+    echo "[ERROR] wsl.exe not found; cannot run repo command in WSL" >&2
+    return 127
+  fi
+
+  repo_win="$(to_windows_path "$root_dir")"
+  repo_wsl="$(wsl.exe wslpath -a "$repo_win" 2>/dev/null | tr -d '\r')"
+  if [ -z "$repo_wsl" ]; then
+    echo "[ERROR] unable to resolve WSL path for repo root: $root_dir" >&2
+    return 1
+  fi
+
+  wsl.exe bash -lc "cd '$repo_wsl' && $*"
+}

@@ -9,8 +9,10 @@
 #   or from Windows git-bash if CROSS prefix resolves.
 #
 # Output:
-#   out/v2_e203_smoke.elf   + .bin + .hex
-#   out/v2_e203_encoder.elf + .bin + .hex
+#   SIM_FAST=0 -> out/v2_e203_smoke.elf   + .bin + .hex
+#                  out/v2_e203_encoder.elf + .bin + .hex
+#   SIM_FAST=1 -> out_simfast/v2_e203_smoke.elf   + .bin + .hex
+#                  out_simfast/v2_e203_encoder.elf + .bin + .hex
 
 set -euo pipefail
 
@@ -35,8 +37,10 @@ if [ "$SIM_FAST" = "1" ]; then
     NUM_COSIM_SAMPLES="${NUM_COSIM_SAMPLES:-3}"
     EXTRA_DEFS="$EXTRA_DEFS -DNUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES} -DICARUS_SKIP_ENCODE"
     echo "[INFO] SIM_FAST=1: NUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES}, encoder skip path enabled"
+    OUT_DIR="${OUT_DIR:-out_simfast}"
 else
     echo "[INFO] board-ready firmware build: GOLDEN_NUM_SAMPLES=10, real encoder path enabled"
+    OUT_DIR="${OUT_DIR:-out}"
 fi
 
 CFLAGS="-march=rv32i_zicsr_zifencei -mabi=ilp32 -O2 -ffreestanding -nostdlib \
@@ -52,16 +56,16 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 GEN_HEX_PY="$REPO_ROOT/scripts/gen_bram_init.py"
 WORDS=16384  # 64 KB / 4 = 16384 words
 
-mkdir -p out
+mkdir -p "$OUT_DIR"
 
 build_one() {
     local variant=$1      # smoke | encoder
     local main_src=$2
     local ldscript=$3
 
-    local elf="out/v2_e203_${variant}.elf"
-    local binf="out/v2_e203_${variant}.bin"
-    local hex="out/v2_e203_${variant}.hex"
+    local elf="$OUT_DIR/v2_e203_${variant}.elf"
+    local binf="$OUT_DIR/v2_e203_${variant}.bin"
+    local hex="$OUT_DIR/v2_e203_${variant}.hex"
 
     echo "=== Building $variant ==="
     $CC $CFLAGS \
@@ -72,7 +76,7 @@ build_one() {
         "$main_src" \
         -T "$ldscript" \
         $LDFLAGS_COMMON \
-        -Wl,-Map="out/v2_e203_${variant}.map" \
+        -Wl,-Map="$OUT_DIR/v2_e203_${variant}.map" \
         -o "$elf"
 
     $OBJCOPY -O binary "$elf" "$binf"
