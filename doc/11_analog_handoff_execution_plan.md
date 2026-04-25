@@ -42,7 +42,6 @@
 | | A7-6 | worst-case cim_start→cim_done 延迟 → 数字侧 timeout 保护阈值 |
 | **P0/P1 物理** | P0-2 | 模拟 die 尺寸 + 封装 → PCB 布局 + 两 die 互联走线长度 |
 | | P0-3 | 模拟 die 各组信号 pad 引出方向 → PCB 走线对齐 |
-| | P0-7/8/9/10 | PCB shared clock/reset 分发、模拟侧 DCC、reset deassert 策略、clock SI → STA/PCB 约束 |
 | | P1-1/2/3 | 外部电源/偏置 pin 清单 → PCB BOM + 电源规划 |
 
 **填法**：直接在本文 §三 对应章节的表格里填答案，每行末尾都标了"需要的答案形式"和单位。
