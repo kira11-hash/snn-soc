@@ -1,6 +1,12 @@
 `timescale 1ns/1ps
 
-module jtag_mem_loader (
+module jtag_mem_loader #(
+  // ENABLE_BOOT_ROM=1：INSTR 实际范围 0x1000..0x4FFF（含 boot ROM 0x0..0xFFF）
+  // ENABLE_BOOT_ROM=0：INSTR 实际范围 0x0..0x3FFF
+  // 桥侧根据该参数动态选择 is_sram_addr 上界，使 OOB JTAG load 立刻被本桥
+  // reject 为 mem_rsp_err_clk=1，而不是被 bus_interconnect 静默回 0。
+  parameter bit ENABLE_BOOT_ROM = 1'b0
+) (
   input  logic        rst_n,
   input  logic        clk,
 
@@ -143,14 +149,14 @@ module jtag_mem_loader (
     in_range = (addr >= base) && (addr <= last);
   endfunction
 
-  // See icb2simple_bridge.is_sram_addr for the same ENABLE_BOOT_ROM rationale:
-  // we widen the INSTR window to cover both the default layout and the boot-ROM
-  // shifted layout (INSTR 0x1000..0x4FFF) so JTAG rescue can load to the high
-  // 4 KB of INSTR_SRAM when the mask ROM is present.
+  // INSTR 上界跟随 ENABLE_BOOT_ROM（见 icb2simple_bridge 注释）。
+  localparam logic [31:0] INSTR_END_EFFECTIVE =
+      ENABLE_BOOT_ROM ? ADDR_INSTR_END_WITH_ROM : ADDR_INSTR_END;
+
   function automatic logic is_sram_addr(input logic [31:0] addr);
     is_sram_addr =
-        in_range(addr, ADDR_INSTR_BASE,  ADDR_INSTR_END_WITH_ROM) ||
-        in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)           ||
+        in_range(addr, ADDR_INSTR_BASE,  INSTR_END_EFFECTIVE) ||
+        in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)       ||
         in_range(addr, ADDR_WEIGHT_BASE, ADDR_WEIGHT_END);
   endfunction
 

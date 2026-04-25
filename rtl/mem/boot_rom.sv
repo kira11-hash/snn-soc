@@ -65,6 +65,13 @@ module boot_rom #(
   wire [ADDR_BITS-1:0] word_addr =
       (WORDS <= 1) ? '0 : req_addr[ADDR_BITS+1:2];
 
+  // 高位 sanity（2026-04-25 防御性增强）：req_addr 必须落在 [0, SIZE_BYTES) 范围。
+  // 正常情况下 bus_interconnect 在 SEL_ROM 译码前已经做了 in_range 过滤，理论上
+  // word_addr 永远落在合法范围；但若日后某条路径直连 boot_rom 绕开 bus_interconnect，
+  // 高位非零会让 word_addr wrap aliasing。这里用一个 OOB 标志在 OOB 时返回全 0
+  // 而不是任意 wrap 数据。
+  wire addr_in_range = (req_addr < SIZE_BYTES[31:0]);
+
   // 预装 ROM 内容
   initial begin
     if (INIT_FILE != "") begin
@@ -76,7 +83,8 @@ module boot_rom #(
   end
 
   // ── 组合读（0 拍延迟，与 sram_simple 对齐）──────────────────────────
-  assign rdata = rom[word_addr];
+  // OOB 时返回 0 而不是 wrap，更符合 mask ROM 物理行为
+  assign rdata = addr_in_range ? rom[word_addr] : 32'h0000_0000;
 
   // ── 写请求显式忽略 + lint 消除 ──────────────────────────────────────
   wire _unused = &{1'b0, rst_n, req_valid, req_write, req_addr,

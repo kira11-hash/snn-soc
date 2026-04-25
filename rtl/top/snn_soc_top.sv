@@ -85,7 +85,12 @@ module snn_soc_top #(
   // BOOT_ROM_INIT_FILE：ROM 预装的 $readmemh 文件（工艺 ROM compiler 会取代
   //   此参数，用 mask 数据烧入，但仿真 / FPGA 路径仍用 $readmemh）。
   parameter bit    ENABLE_BOOT_ROM    = 1'b0,
-  parameter        BOOT_ROM_INIT_FILE = ""
+  parameter        BOOT_ROM_INIT_FILE = "",
+  // INSTR_INIT_FILE（恢复 2026-04-25）：非空时 u_instr_sram 在 t=0 用 $readmemh
+  // 预加载内容。仅用于 FPGA BRAM init / 仿真预装 firmware（不走 boot ROM 的路径）。
+  // 留空时行为与无预装一致（现有所有回归不受影响）。Vivado 在综合时也会识别
+  // 该 initial+$readmemh 模式，把内容固化到 BRAM INIT_xx 属性。
+  parameter        INSTR_INIT_FILE    = ""
 ) (
   // ----------------------------------------------------------
   // 全局时钟与异步低有效复位
@@ -607,7 +612,9 @@ module snn_soc_top #(
     .mem_icb_rsp_rdata(cpu_mem_icb_rsp_rdata)
   );
 
-  icb2simple_bridge u_icb2simple (
+  icb2simple_bridge #(
+    .ENABLE_BOOT_ROM(ENABLE_BOOT_ROM)
+  ) u_icb2simple (
     .clk            (clk),
     .rst_n          (cpu_local_rst_n),
     .i_icb_cmd_valid(cpu_mem_icb_cmd_valid),
@@ -631,7 +638,9 @@ module snn_soc_top #(
     .busy_o         (cpu_bridge_busy)
   );
 
-  jtag_mem_loader u_jtag_loader (
+  jtag_mem_loader #(
+    .ENABLE_BOOT_ROM(ENABLE_BOOT_ROM)
+  ) u_jtag_loader (
     .rst_n         (rst_n),
     .clk           (clk),
     .jtag_tck      (jtag_tck),
@@ -771,7 +780,8 @@ module snn_soc_top #(
 
   // 指令 SRAM：MEM_BYTES = INSTR_SRAM_BYTES（见 pkg）
   // 新增 DMA 写端口：dma_engine 使用 DST_INSTR_SRAM 时直接写入
-  sram_simple #(.MEM_BYTES(INSTR_SRAM_BYTES)) u_instr_sram (
+  // INIT_FILE：FPGA BRAM 预装；ASIC 留空（boot_rom 路径接管）
+  sram_simple #(.MEM_BYTES(INSTR_SRAM_BYTES), .INIT_FILE(INSTR_INIT_FILE)) u_instr_sram (
     .clk         (clk),
     .rst_n       (rst_n),
     .req_valid   (instr_req_valid),

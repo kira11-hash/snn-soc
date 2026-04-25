@@ -212,7 +212,7 @@ module reg_bank #(
   localparam logic [7:0] REG_PROG_CTRL        = 8'h38; // [0]=START W1P, [1]=ERASE RW, [2]=FULL_ARRAY RW, [3]=BYPASS_HANDSHAKE RW, [7:4]=LEVEL RW, [10:8]=RETRY_LIMIT RW
   localparam logic [7:0] REG_PROG_ROW         = 8'h3C; // [5:0]=row (0~63)
   localparam logic [7:0] REG_PROG_COL         = 8'h40; // [4:0]=col (0~19)
-  localparam logic [7:0] REG_PROG_STATUS      = 8'h44; // [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [7]=DONE W1C
+  localparam logic [7:0] REG_PROG_STATUS      = 8'h44; // [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [6]=PROG_FSM_PRESENT RO, [7]=DONE W1C
   localparam logic [7:0] REG_PROG_PULSE_WIDTH = 8'h90; // [17:16]=sel RW (0=1us/1=10us/2=100us/3=reserved->100us); [15:0]=resolved cycles RO
   localparam logic [7:0] REG_PROG_ERASE_WIDTH = 8'h94; // [15:0]=erase cycles RO (fixed 50000=1ms, writes ignored)
 
@@ -258,6 +258,34 @@ module reg_bank #(
   // -----------------------------------------------------------------------
   logic snn_start_pending;
   logic prog_start_pending;
+
+  // -----------------------------------------------------------------------
+  // PROG_* in-flight 字段写锁（2026-04-25 修复 CRITICAL: pad 编码器 LIVE 信号）
+  //
+  // 【问题】 reg_bank 之前只在 `prog_busy` 期间挡 PROG_CTRL.START 的 W1P，但允许
+  //   ERASE / FULL_ARRAY / LEVEL / BYPASS / ROW / COL / PULSE_WIDTH 在 busy 期间被
+  //   重新写入。cim_program_ctrl 在 ST_IDLE START 那一拍把这些值锁存到内部
+  //   op_*/target_* 寄存器，因此 FSM 自己不会受影响；但 snn_soc_top 的 pad 编码器
+  //   （prog_op_ext / prog_level_ext）使用 reg_bank 的 LIVE 输出 + 10 级 pipeline，
+  //   一旦 CPU 在 prog_busy=1 时改写这些位，10 拍后 pad 信号就会从原 op 漂移到新值，
+  //   而 cim_program_ctrl 还在按旧 op 跑 → 数字侧与模拟 die 接口不一致。
+  //
+  // 【修复】 把 prog_busy / prog_start_pending / prog_start_pulse 任何一个为 1 都视
+  //   为 "in-flight"，期间所有 PROG_* 配置字段写入被屏蔽：
+  //     - PROG_CTRL.{ERASE, FULL_ARRAY, BYPASS_HANDSHAKE, LEVEL, RETRY_LIMIT}
+  //     - PROG_ROW / PROG_COL
+  //     - PROG_PULSE_WIDTH
+  //   仅 PROG_STATUS.DONE (W1C)、PROG_ERASE_WIDTH（已经硬编码 ignore）不受锁。
+  //   PROG_CTRL.START 本身已有三重守卫，不需重复。
+  //
+  // 【ENABLE_PROGRAM_MODE=0】 prog_busy/pending/pulse 全为 0 → prog_inflight=0 →
+  //   字段写入照常进行，与无锁版本完全等价。
+  //
+  // 【验证】 tb/prog_inflight_lock_tb.sv 直接驱动 prog_busy_stim 测三种字段在
+  //   busy 前/中/后的写入是否被正确放行/屏蔽。
+  // -----------------------------------------------------------------------
+  wire prog_inflight =
+      ENABLE_PROGRAM_MODE && (prog_busy || prog_start_pending || prog_start_pulse);
 
   // 将 sel 解码为 resolved cycles；档位 3 被视为保留，回退到最长的 100us（安全默认）。
   function automatic logic [15:0] decode_write_pulse_width(input logic [1:0] sel);
@@ -426,26 +454,31 @@ module reg_bank #(
                 && ENABLE_PROGRAM_MODE && !prog_busy && !prog_start_pulse) begin
               prog_start_pulse <= 1'b1;
             end
-            if (req_wstrb[0]) prog_erase      <= req_wdata[1];
-            if (req_wstrb[0]) prog_full_array <= req_wdata[2];
+            // 【2026-04-25 in-flight 锁】config 字段在 prog_inflight=1 期间不接受写入：
+            // 防止 pad 编码器（snn_soc_top.prog_op_ext / prog_level_ext）使用 LIVE
+            // 信号被 mid-flight 写入改写，导致 op/level pad 与 cim_program_ctrl 内部
+            // 锁存值不一致。注：prog_inflight 用 CURRENT 值评估，本拍的 START 写入
+            // 仍能同时写 config 字段（因为 prog_start_pulse 此拍尚未升起）。
+            if (req_wstrb[0] && !prog_inflight) prog_erase      <= req_wdata[1];
+            if (req_wstrb[0] && !prog_inflight) prog_full_array <= req_wdata[2];
             // bit[3] = BYPASS_HANDSHAKE — silicon bring-up ONLY
-            if (req_wstrb[0]) prog_handshake_bypass <= req_wdata[3];
-            if (req_wstrb[0]) prog_level      <= req_wdata[7:4];
-            if (req_wstrb[1]) prog_retry_limit<= req_wdata[10:8];
+            if (req_wstrb[0] && !prog_inflight) prog_handshake_bypass <= req_wdata[3];
+            if (req_wstrb[0] && !prog_inflight) prog_level      <= req_wdata[7:4];
+            if (req_wstrb[1] && !prog_inflight) prog_retry_limit<= req_wdata[10:8];
           end
           REG_PROG_ROW: begin
-            if (req_wstrb[0]) prog_row <= req_wdata[5:0];
+            if (req_wstrb[0] && !prog_inflight) prog_row <= req_wdata[5:0];
           end
           REG_PROG_COL: begin
-            if (req_wstrb[0]) prog_col <= req_wdata[4:0];
+            if (req_wstrb[0] && !prog_inflight) prog_col <= req_wdata[4:0];
           end
           REG_PROG_STATUS: begin
-            // W1C: DONE（bit[7]）— 软件确认编程完成
+            // W1C: DONE（bit[7]）— 软件确认编程完成（不受 inflight 锁影响，需要随时清）
             if (req_wstrb[0] && req_wdata[7]) prog_done_sticky <= 1'b0;
           end
           REG_PROG_PULSE_WIDTH: begin
             // 档位在 byte2（bits[17:16]），需 wstrb[2]=1
-            if (req_wstrb[2]) begin
+            if (req_wstrb[2] && !prog_inflight) begin
               // 【Q1 fix, 2026-04-22】写入 sel=3（保留档）时同时把 sel 钳到 2'd2，
               // 避免 readback 出现 (sel=3, width=5000) 这种前后矛盾的字段组合。
               // decode_write_pulse_width 已经把 width 钳到 100us，两者在此保持一致。
@@ -573,7 +606,17 @@ module reg_bank #(
                                      prog_handshake_bypass, prog_full_array, prog_erase, 1'b0};
       REG_PROG_ROW:        rdata = {26'h0, prog_row};
       REG_PROG_COL:        rdata = {27'h0, prog_col};
-      REG_PROG_STATUS:     rdata = {24'h0, prog_done_sticky, 1'b0, prog_retry_count, prog_fail, prog_pass, prog_busy};
+      // PROG_STATUS readback layout:
+      //   [0]   = BUSY (RO)
+      //   [1]   = PASS (RO)
+      //   [2]   = FAIL (RO)
+      //   [5:3] = RETRY_COUNT (RO)
+      //   [6]   = PROG_FSM_PRESENT (RO) — 1 表示 ENABLE_PROGRAM_MODE=1，cim_program_ctrl
+      //           已实例化；0 表示编程 FSM 未实现（reg_bank 仍可读写但 START 不会生效）。
+      //           固件用此位代替"探测 BUSY 升起"的 cycle-bound probe。
+      //   [7]   = DONE (W1C sticky)
+      REG_PROG_STATUS:     rdata = {24'h0, prog_done_sticky, ENABLE_PROGRAM_MODE,
+                                     prog_retry_count, prog_fail, prog_pass, prog_busy};
       REG_PROG_PULSE_WIDTH: rdata = {14'h0, prog_write_pulse_sel, prog_pulse_width};
       REG_PROG_ERASE_WIDTH: rdata = {16'h0, prog_erase_width};
       default:        rdata = 32'h0; // 未映射地址读回 0

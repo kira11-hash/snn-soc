@@ -1,6 +1,12 @@
 `timescale 1ns/1ps
 
-module icb2simple_bridge (
+module icb2simple_bridge #(
+  // ENABLE_BOOT_ROM=1（chip_top tape-out 路径）：INSTR 实际范围 0x1000..0x4FFF
+  // ENABLE_BOOT_ROM=0（默认 / Gate A 回归）：INSTR 实际范围 0x0..0x3FFF
+  // 桥侧据此动态选择 is_sram_addr 上界，确保 OOB 访问立刻被本桥 reject 为
+  // cmd_illegal（i_icb_rsp_err=1），而不是被 bus_interconnect 静默返回 rdata=0。
+  parameter bit ENABLE_BOOT_ROM = 1'b0
+) (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        i_icb_cmd_valid,
@@ -46,16 +52,19 @@ module icb2simple_bridge (
     in_range = (addr >= base) && (addr <= last);
   endfunction
 
-  // Address window accepts either the default INSTR layout
-  // (ENABLE_BOOT_ROM=0: 0x0000..0x3FFF) or the boot-ROM-shifted layout
-  // (ENABLE_BOOT_ROM=1: BOOT_ROM 0x0000..0x0FFF + INSTR 0x1000..0x4FFF).
-  // We take the union [0x0000 .. ADDR_INSTR_END_WITH_ROM] here so that CPU /
-  // JTAG access to the shifted INSTR_SRAM high 4 KB is NOT pre-rejected.
-  // bus_interconnect.sv remains the authority on real routing.
+  // INSTR 上界跟随 ENABLE_BOOT_ROM：
+  //   - ENABLE_BOOT_ROM=0: ADDR_INSTR_BASE..ADDR_INSTR_END         (0x0..0x3FFF)
+  //   - ENABLE_BOOT_ROM=1: ADDR_INSTR_BASE..ADDR_INSTR_END_WITH_ROM (0x0..0x4FFF;
+  //     涵盖 boot ROM 0x0..0xFFF + 平移后的 INSTR_SRAM 0x1000..0x4FFF)
+  // 这样 OOB 访问（如 ENABLE_BOOT_ROM=0 时访问 0x4000）会被本桥 reject 为
+  // cmd_illegal → i_icb_rsp_err=1，而不是被 bus_interconnect 静默回 0。
+  localparam logic [31:0] INSTR_END_EFFECTIVE =
+      ENABLE_BOOT_ROM ? ADDR_INSTR_END_WITH_ROM : ADDR_INSTR_END;
+
   function automatic logic is_sram_addr(input logic [31:0] addr);
     is_sram_addr =
-        in_range(addr, ADDR_INSTR_BASE,  ADDR_INSTR_END_WITH_ROM) ||
-        in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)           ||
+        in_range(addr, ADDR_INSTR_BASE,  INSTR_END_EFFECTIVE) ||
+        in_range(addr, ADDR_DATA_BASE,   ADDR_DATA_END)       ||
         in_range(addr, ADDR_WEIGHT_BASE, ADDR_WEIGHT_END);
   endfunction
 

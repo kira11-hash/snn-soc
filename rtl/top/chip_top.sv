@@ -15,12 +15,13 @@
 //
 // 设计意图:
 //   1) 以 snn_soc_top 为内核，提供 pad-facing 端口映射，不改变内部协议语义。
-//   2) 冻结外部 45 个信号 pad 相关端口，后续在此层完成 pad cell 与物理约束收口。
+//   2) 冻结当前 55-pad 方案里的 pad-facing 信号端口，后续在此层完成 pad cell
+//      与物理约束收口。
 //   3) 避免把 pad 级改动直接耦合到 snn_soc_top 内核逻辑。
 //
 // 注意:
 //   - 当前外部复用端口已与 snn_soc_top 的 _ext 端口直连，用于冻结 pad-facing 口径。
-//   - 全部 48 pad 的正式编号/名称/方向/类型/复位行为以 doc/15_asic_pad_map.md 为准。
+//   - 全部 55 pad 的正式编号/名称/方向/类型/复位行为以 doc/15_asic_pad_map.md 为准。
 //   - 后续 tapeout 前需在本模块内完成:
 //       a) pad cell 实例化
 //       b) ESD/drive strength/电平配置收敛
@@ -29,6 +30,10 @@
 module chip_top #(
   // Simulation / FPGA bring-up hook.  Tape-out replaces boot_rom.sv with a
   // foundry mask-ROM macro generated from the same boot_rom.hex content.
+  // ⚠️ 默认空字符串会让 boot_rom 内容全 0（CPU 上电从 0x0 取指 → 全 0
+  // 指令在 RV32I 上是非法 → trap）。仿真 / FPGA 必须显式传入 .hex 文件路径，
+  // tape-out 由 mask ROM macro 取代。下方 initial 块在仿真时打 WARN，避免
+  // 静默崩溃。
   parameter BOOT_ROM_INIT_FILE = ""
 ) (
   // 基础时钟复位（pad）
@@ -47,7 +52,9 @@ module chip_top #(
   input  logic jtag_tdi_pad,
   output logic jtag_tdo_pad,
 
-  // 45 信号 pad 中与模拟芯片互联相关的复用信号（pad-facing RTL 端口）
+  // 与模拟芯片互联相关的 pad-facing RTL 端口：
+  //   - 推理载体接口对应 doc/15 pads 19..45
+  //   - 外部编程 sideband 对应 pads 46..52
   //   推理接口（原有，frozen 2026-03-16）
   output logic [7:0] wl_data_pad,
   output logic [2:0] wl_group_sel_pad,
@@ -95,5 +102,21 @@ module chip_top #(
     .prog_op_ext      (prog_op_pad),
     .prog_level_ext   (prog_level_pad)
   );
+
+  // ── Bring-up sanity（仅仿真）──────────────────────────────────────────
+  // 若 BOOT_ROM_INIT_FILE 为空，boot_rom 内容全 0，CPU 上电会立刻 trap。
+  // 在仿真启动时打一行明显的 warning，避免静默挂死被误判成功能问题。
+  // (synthesis 会忽略 initial 显示，对面积/时序无影响)
+  // verilator coverage_off
+  // synopsys translate_off
+  initial begin
+    if (BOOT_ROM_INIT_FILE == "") begin
+      $display("[chip_top WARN] BOOT_ROM_INIT_FILE is empty: boot ROM will read all zeros.");
+      $display("[chip_top WARN] CPU will trap on power-up. For sim/FPGA, override with");
+      $display("[chip_top WARN] .BOOT_ROM_INIT_FILE(\"<path>/boot_rom.hex\") at instance.");
+    end
+  end
+  // synopsys translate_on
+  // verilator coverage_on
 endmodule
 

@@ -47,7 +47,13 @@
 //       并在 snn_soc_top.sv 顶层暴露 AXI-Lite slave 端口供 E203 接入。
 //======================================================================
 
-module axi2simple_bridge (
+module axi2simple_bridge #(
+  // ENABLE_BOOT_ROM=1：INSTR 实际范围 0x1000..0x4FFF（含 boot ROM 0x0..0xFFF）
+  // ENABLE_BOOT_ROM=0：INSTR 实际范围 0x0..0x3FFF
+  // 桥侧根据该参数动态选择 addr_mapped 上界，使 OOB AXI 写返回 SLVERR/DECERR
+  // 而不是被 bus_interconnect 静默吞掉。
+  parameter bit ENABLE_BOOT_ROM = 1'b0
+) (
   input  logic        clk,
   input  logic        rst_n,
 
@@ -101,20 +107,21 @@ module axi2simple_bridge (
     in_range = (addr >= base) && (addr <= last);
   endfunction
 
-  // See icb2simple_bridge.is_sram_addr for the same ENABLE_BOOT_ROM rationale:
-  // the INSTR window covers both default and boot-ROM shifted layouts so an
-  // AXI master can reach the shifted INSTR_SRAM high 4 KB when ROM is present.
+  // INSTR 上界跟随 ENABLE_BOOT_ROM（见 icb2simple_bridge 注释）。
+  localparam logic [31:0] INSTR_END_EFFECTIVE =
+      ENABLE_BOOT_ROM ? snn_soc_pkg::ADDR_INSTR_END_WITH_ROM : snn_soc_pkg::ADDR_INSTR_END;
+
   function automatic logic addr_mapped (
     input logic [31:0] addr
   );
     addr_mapped =
-      in_range(addr, snn_soc_pkg::ADDR_INSTR_BASE,  snn_soc_pkg::ADDR_INSTR_END_WITH_ROM) ||
-      in_range(addr, snn_soc_pkg::ADDR_DATA_BASE,   snn_soc_pkg::ADDR_DATA_END)           ||
-      in_range(addr, snn_soc_pkg::ADDR_WEIGHT_BASE, snn_soc_pkg::ADDR_WEIGHT_END)         ||
-      in_range(addr, snn_soc_pkg::ADDR_REG_BASE,    snn_soc_pkg::ADDR_REG_END)    ||
-      in_range(addr, snn_soc_pkg::ADDR_DMA_BASE,    snn_soc_pkg::ADDR_DMA_END)    ||
-      in_range(addr, snn_soc_pkg::ADDR_UART_BASE,   snn_soc_pkg::ADDR_UART_END)   ||
-      in_range(addr, snn_soc_pkg::ADDR_SPI_BASE,    snn_soc_pkg::ADDR_SPI_END)    ||
+      in_range(addr, snn_soc_pkg::ADDR_INSTR_BASE,  INSTR_END_EFFECTIVE)         ||
+      in_range(addr, snn_soc_pkg::ADDR_DATA_BASE,   snn_soc_pkg::ADDR_DATA_END)  ||
+      in_range(addr, snn_soc_pkg::ADDR_WEIGHT_BASE, snn_soc_pkg::ADDR_WEIGHT_END)||
+      in_range(addr, snn_soc_pkg::ADDR_REG_BASE,    snn_soc_pkg::ADDR_REG_END)   ||
+      in_range(addr, snn_soc_pkg::ADDR_DMA_BASE,    snn_soc_pkg::ADDR_DMA_END)   ||
+      in_range(addr, snn_soc_pkg::ADDR_UART_BASE,   snn_soc_pkg::ADDR_UART_END)  ||
+      in_range(addr, snn_soc_pkg::ADDR_SPI_BASE,    snn_soc_pkg::ADDR_SPI_END)   ||
       in_range(addr, snn_soc_pkg::ADDR_FIFO_BASE,   snn_soc_pkg::ADDR_FIFO_END);
   endfunction
 

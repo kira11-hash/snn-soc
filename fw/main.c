@@ -14,17 +14,21 @@
 #define PROG_CTRL_START_MASK      (1u << 0)
 #define PROG_CTRL_ERASE_MASK      (1u << 1)
 #define PROG_CTRL_FULL_ARRAY_MASK (1u << 2)
+// CTRL low byte mask: covers START/ERASE/FULL_ARRAY/BYPASS/LEVEL[3:0].
+// Used in read-modify-write so RETRY_LIMIT (bits[10:8]) is preserved.
+#define PROG_CTRL_LOW_MASK        0xFFu
 
-#define PROG_STATUS_BUSY_MASK (1u << 0)
-#define PROG_STATUS_PASS_MASK (1u << 1)
-#define PROG_STATUS_FAIL_MASK (1u << 2)
-#define PROG_STATUS_DONE_MASK (1u << 7)
+#define PROG_STATUS_BUSY_MASK         (1u << 0)
+#define PROG_STATUS_PASS_MASK         (1u << 1)
+#define PROG_STATUS_FAIL_MASK         (1u << 2)
+// 2026-04-25: PROG_STATUS[6] is RO PROG_FSM_PRESENT — high if cim_program_ctrl
+// is instantiated (ENABLE_PROGRAM_MODE=1 build). Lets fw skip the cycle-bound
+// probe and avoid races where a fast op completes before BUSY is observed.
+#define PROG_STATUS_FSM_PRESENT_MASK  (1u << 6)
+#define PROG_STATUS_DONE_MASK         (1u << 7)
 
 // Long enough to cover one 1 ms erase pulse @ 50 MHz plus generous slack.
 #define BOOT_ERASE_POLL_TIMEOUT 0x02000000u
-// Short window to check whether the programming FSM is instantiated at all.
-// ENABLE_PROGRAM_MODE=0 builds tie PROG_STATUS to zero, so BUSY never rises.
-#define BOOT_ERASE_PROBE_CYCLES 256u
 
 static uint32_t input_words[DMA_LEN_VALUE];
 static uint32_t boot_erase_last_status;
@@ -32,39 +36,49 @@ static uint32_t boot_erase_last_status;
 // ---------------------------------------------------------------------------
 // Boot-time full-array RRAM erase.
 // Device team confirmation (2026-04-24): RRAM cells after tape-out are not
-// guaranteed to start in HRS, so the production boot flow must run a
+// guaranteed to start in HRS, so the production boot flow must issue a
 // full-array erase before any inference or weight programming that depends on
 // the analog array.  Path in cim_program_ctrl: SETUP → PULSE → PULSE_HOLD
-// (1 ms @ 50 MHz erase pulse) → PASS → DONE (full-array erase skips verify).
-// BYPASS_HANDSHAKE=0 so the real analog die receives the erase pulse.
+// (1 ms @ 50 MHz erase pulse) → PASS → DONE.
+//
+// Important semantic note:
+//   full-array erase is a fire-and-forget controller path in current RTL:
+//   it intentionally skips per-cell readback verify.  A successful return
+//   therefore means "the programming FSM accepted and completed the 1 ms erase
+//   sequence", not "firmware has independently spot-verified array state".
+//   BYPASS_HANDSHAKE stays 0 so the real analog die receives the actual pulse.
 //
 // Return codes:
-//   1u → FSM reported PASS
+//   1u → erase sequence completed (controller PASS/DONE)
 //   2u → programming FSM not instantiated (ENABLE_PROGRAM_MODE=0); skipped
-//   0u → FAIL or timeout
+//   0u → controller timeout or unexpected status
 // ---------------------------------------------------------------------------
 static uint32_t boot_full_array_erase(void) {
     boot_erase_last_status = 0u;
+
+    // 2026-04-25: deterministically detect whether the programming FSM is
+    // present via PROG_STATUS[6] (RO, driven by ENABLE_PROGRAM_MODE).  This
+    // replaces the old 256-cycle BUSY probe, which was fragile against future
+    // short-pulse ops that might complete before CPU observes BUSY=1.
+    uint32_t s_pre = PROG_STATUS;
+    boot_erase_last_status = s_pre;
+    if ((s_pre & PROG_STATUS_FSM_PRESENT_MASK) == 0u) {
+        return 2u;
+    }
+
     PROG_STATUS = PROG_STATUS_DONE_MASK;   // clear any stale DONE before START
 
     PROG_ROW  = 0u;
     PROG_COL  = 0u;
-    PROG_CTRL = PROG_CTRL_ERASE_MASK
+    // 2026-04-25 read-modify-write: byte0 controls START/ERASE/FULL_ARRAY/BYPASS/
+    // LEVEL only.  RETRY_LIMIT (bits[10:8]) MUST stay at the reset default (4)
+    // for any later non-bypass write/verify ops.  The previous full-word write
+    // silently zeroed RETRY_LIMIT.
+    uint32_t pc = PROG_CTRL;
+    PROG_CTRL = (pc & ~PROG_CTRL_LOW_MASK)
+              | PROG_CTRL_ERASE_MASK
               | PROG_CTRL_FULL_ARRAY_MASK
               | PROG_CTRL_START_MASK;
-
-    uint32_t fsm_present = 0u;
-    for (uint32_t i = 0u; i < BOOT_ERASE_PROBE_CYCLES; ++i) {
-        uint32_t s = PROG_STATUS;
-        boot_erase_last_status = s;
-        if (s & PROG_STATUS_BUSY_MASK) {
-            fsm_present = 1u;
-            break;
-        }
-    }
-    if (!fsm_present) {
-        return 2u;
-    }
 
     for (uint32_t cnt = 0u; cnt < BOOT_ERASE_POLL_TIMEOUT; ++cnt) {
         uint32_t s = PROG_STATUS;
@@ -89,7 +103,7 @@ int main(void) {
     uart_printf("APP erase begin\n");
     uint32_t erase_r = boot_full_array_erase();
     if (erase_r == 1u) {
-        uart_printf("APP erase DONE\n");
+        uart_printf("APP erase SEQ_DONE\n");
     } else if (erase_r == 2u) {
         uart_printf("APP erase SKIPPED (program FSM disabled)\n");
     } else {

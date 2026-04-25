@@ -56,7 +56,12 @@
 module sram_simple #(
   // 存储容量（字节数），必须是 4 的倍数（按 32-bit word 组织）
   // 默认 16KB = 4096 words
-  parameter int MEM_BYTES = 16384
+  parameter int    MEM_BYTES = 16384,
+  // INIT_FILE: 非空时仿真或 Vivado FPGA 综合时用 $readmemh 预加载内容。
+  //   - 仿真：initial 块在 t=0 加载内容
+  //   - Vivado FPGA：synth 工具识别 initial+$readmemh，把内容写入 BRAM INIT_xx 属性
+  //   - ASIC：留空（synth 时 SRAM macro 取代 reg 数组，initial 块被 ifndef SYNTHESIS 屏蔽）
+  parameter        INIT_FILE = ""
 ) (
   input  logic        clk,       // 系统时钟（写操作在上升沿执行）
   input  logic        rst_n,     // 复位（当前未使用，保留端口；见"注意：无复位"）
@@ -95,26 +100,36 @@ module sram_simple #(
   wire _unused = &{1'b0, rst_n, req_addr, req_wdata, req_wstrb,
                    dma_wr_addr, dma_wr_data, dma_wr_strb};
 
+  // ── BRAM/SRAM 预装（FPGA + 仿真）─────────────────────────────────────────
+  // Vivado 识别 initial + $readmemh 模式，把内容写到 BRAM INIT_xx 属性中；
+  // ASIC 综合时 SRAM macro 取代 reg 数组，本 initial 块通常被 `ifndef SYNTHESIS`
+  // 等宏屏蔽（综合工具默认忽略 initial），不影响 macro 行为。
+  initial begin
+    if (INIT_FILE != "") begin
+      $readmemh(INIT_FILE, mem);
+    end
+  end
+
   // ── 组合读（零延迟）──────────────────────────────────────────────────────
   assign rdata = mem[word_addr];
 
   // ── 同步写（字节使能）────────────────────────────────────────────────────
-  // 总线写和 DMA 写均在同一 always_ff 中处理。
-  // DMA 写在后，同拍冲突时 DMA 覆盖总线写（V1 中两者互斥，不会同时发生）。
+  // 总线写和 DMA 写通过前置 mux 合并到单个写端口。
+  // 仲裁优先级：DMA 写 > 总线写（V1 中两者互斥，不会同时发生；mux 仅用于
+  // 让 Vivado/ASIC 综合工具可以识别单写端口 BRAM/SRAM 推断模式 — 避免被
+  // 推成 dual-port macro 而平白占用面积）。
+  wire                 wr_bus_en = req_valid && req_write;
+  wire                 wr_en     = dma_wr_en | wr_bus_en;
+  wire [ADDR_BITS-1:0] wr_addr   = dma_wr_en ? dma_word_addr : word_addr;
+  wire [31:0]          wr_data   = dma_wr_en ? dma_wr_data   : req_wdata;
+  wire [3:0]           wr_strb   = dma_wr_en ? dma_wr_strb   : req_wstrb;
+
   always_ff @(posedge clk) begin
-    // 总线写
-    if (req_valid && req_write) begin
-      if (req_wstrb[0]) mem[word_addr][7:0]   <= req_wdata[7:0];
-      if (req_wstrb[1]) mem[word_addr][15:8]  <= req_wdata[15:8];
-      if (req_wstrb[2]) mem[word_addr][23:16] <= req_wdata[23:16];
-      if (req_wstrb[3]) mem[word_addr][31:24] <= req_wdata[31:24];
-    end
-    // DMA 写（DMA 复制路径：dma_engine → instr_sram / weight_sram）
-    if (dma_wr_en) begin
-      if (dma_wr_strb[0]) mem[dma_word_addr][7:0]   <= dma_wr_data[7:0];
-      if (dma_wr_strb[1]) mem[dma_word_addr][15:8]  <= dma_wr_data[15:8];
-      if (dma_wr_strb[2]) mem[dma_word_addr][23:16] <= dma_wr_data[23:16];
-      if (dma_wr_strb[3]) mem[dma_word_addr][31:24] <= dma_wr_data[31:24];
+    if (wr_en) begin
+      if (wr_strb[0]) mem[wr_addr][7:0]   <= wr_data[7:0];
+      if (wr_strb[1]) mem[wr_addr][15:8]  <= wr_data[15:8];
+      if (wr_strb[2]) mem[wr_addr][23:16] <= wr_data[23:16];
+      if (wr_strb[3]) mem[wr_addr][31:24] <= wr_data[31:24];
     end
   end
 endmodule
