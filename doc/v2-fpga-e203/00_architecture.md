@@ -250,7 +250,7 @@ The final PASS string is printed only after firmware compares all 100 spike coun
 | encoder.hex SHA256 | `83fb301c81b3606b3f4b66be51265119a4537ab41ef0fcdfb4abf5e20d210513` |
 | Vivado | v2022.2 (win64) Build 3671981 |
 | FW toolchain | riscv64-unknown-elf-gcc 13.2.0 |
-| Gate G1 sim | 9/9 PASS（含 SIM_FAST=1 下的 encoder parity bit-exact） |
+| Gate G1 sim | 9/9 PASS（其中 `run_v2_e203_encoder_parity.sh` 在 `SIM_FAST=1` 下验证 RPC/marker parity；stream bit-exact deferred to G3 board evidence） |
 | Gate G2 synth | WNS 4.837 ns @ 50 MHz, LUT 21.59%, BRAM 10.53%, DSP 0.08%, DRC 0 error |
 | Gate G3 board | 100/100 spike count bit-exact，单次烧板即得 `MULTILAYER_INFER_PASS` |
 

@@ -2,15 +2,16 @@
 //======================================================================
 // 文件名: tb/v2_e203_encoder_parity_tb.sv (Phase A-8)
 //
-// Real encoder-parity TB. Firmware runs v2b_encode_pixel_even_rate on
-// golden_fashion10[k].pixel_196 and writes 64×8 uint32 stream to
-// __encoder_stream_base (runtime address from BUFFER_PTR_0). TB compares
-// each sample's stream bytes to
-// python_multilayer/results_multilayer/fashion_multilayer_golden/sample_kk_wl_stream.hex
-// (Python pre-encoded WL stream).
+// SIM_FAST=1 下的 encoder RPC/marker parity TB。
+// Firmware 在 `ICARUS_SKIP_ENCODE` 路径里只回写 stream marker
+// (`0xE10DE10D` + sample id)，TB 重点验证：
+//   - REQ -> DONE -> IDLE 的 RPC 往返
+//   - BUFFER_PTR_* / NOLOAD / marker block 协议
+//   - REQ=0xFF 后 ENCODER_DONE_MARK 收敛
 //
-// RPC 协议：TB writes REQ=k, polls DONE==k, compares stream, REQ=IDLE.
-// 10 rounds + REQ=0xFF终结 → ENCODER_DONE_MARK.
+// Python `sample_kk_wl_stream.hex` 仍会被加载到 TB 侧作为参考上下文，但
+// 在 SIM_FAST=1 模式下 **不宣称 stream bit-exact**；完整 bit-exact 已
+// deferred 到 FPGA G3 / 非-ICARUS 路径。
 //
 // PASS tag: V2_E203_ENCODER_PARITY_PASS
 //======================================================================
