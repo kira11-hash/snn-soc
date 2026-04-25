@@ -28,10 +28,14 @@
 //   当前 V2 baseline：53 pad 已用（44 signal + 6 power + 3 ESD），19 pad 富余
 //   权威来源：doc/15_asic_pad_map.md
 //
-// 【流片前待完成】
-//   a) pad cell 实例化（替换裸 port）
-//   b) ESD 保护 / drive strength / 电平配置收敛
-//   c) package / pad-ring / IO 约束收敛
+// 【流片前待完成】（claude-fix F8：明确标记为 P&R / signoff 硬 blocker）
+//   a) pad cell 实例化（替换裸 port）              ← P&R 启动前必须落地
+//   b) ESD 保护 / drive strength / 电平配置收敛    ← 同 a)；流片前 STA/DRC 必过
+//   c) package / pad-ring / IO 约束收敛            ← 同 a)；packaging 启动前必过
+//   说明：上述 3 项不是建议项，是流片签核（DRC/LVS/STA）启动的硬前置条件；
+//        在工艺 PDK / pad library 接入之前，本 wrapper 不能进 P&R。
+//        跟踪文档：doc/19_phase_d_synthesis_readiness.md（如未列入需补登）。
+//        本 fix 仅注释升级，不动接口/不动逻辑；alpha-passed bitstream 不变。
 //======================================================================
 module chip_top (
   // ── 基础时钟复位（Pad 01-02）────────────────────────────────────────
