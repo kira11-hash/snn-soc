@@ -75,6 +75,27 @@ sim/ucli.key
 sim/verdi_config_file
 项目进展报告.md
 
+# scratch / test artifacts not part of main HEAD (V2 worktree leftovers, etc.)
+# Match both directory and file form (Icarus drops bare-named binaries here).
+sim/v2_e203_*
+sim/bus_ic_v2e203_test
+sim/icb_br_v2b_test
+sim/v2e203_chain_test
+sim/adapter_test
+sim/v2e203_*
+sim/*v2*_compile.log
+sim/*v2*_sim.log
+fw/v2_e203_smoke/
+fpga_synth/
+.Xil/
+tmp/
+# keep fw/silicon_bringup/out/silicon_bringup.hex tracked (golden artifact)
+fw/boot_rom/out/
+fw/out/
+eassy-prompt/
+scripts/_patch_paper.py
+iter_*_CongestedCLBsAndNets.txt
+
 # Python modeling generated artifacts
 项目相关文件/器件对齐/Python建模/results/*
 !项目相关文件/器件对齐/Python建模/results/exports/
