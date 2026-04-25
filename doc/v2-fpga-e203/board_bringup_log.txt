@@ -1,0 +1,116 @@
+========================================================================
+feature/v2-fpga-e203 — Phase G3 Board Bring-up Log
+========================================================================
+
+Date          : 2026-04-25
+Branch        : feature/v2-fpga-e203
+Commit (HEAD) : 1620ccda725396372c72a98a0fd3567f9cab5e86
+                "rtl(v2-fpga-e203): phase B board-ready — synth/bitgen + Vivado fixes"
+Board         : Xilinx ZCU102 (XCZU9EG-FFVB1156-2-e)
+Tool          : Vivado v2022.2 (win64) Build 3671981
+RISC-V FW gcc : riscv64-unknown-elf-gcc 13.2.0 (-march=rv32i_zicsr_zifencei -mabi=ilp32)
+
+------------------------------------------------------------------------
+Bitstream
+------------------------------------------------------------------------
+File   : fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit
+SHA256 : e5ae7936064d299b6e427ff98252aa53f3684ef3dc12c6de6e2a9b9dae6234e5
+Size   : 26,510,910 bytes
+Top    : snn_soc_v2b_e203_fpga_top  (board wrapper around snn_soc_v2b_e203_top)
+
+Vivado synth/impl results
+  Timing : WNS = 4.837 ns, TNS = 0.000, WHS = 0.012 ns, all user constraints met
+  Route  : Fully routed, 0 routing errors
+  Util   : CLB-LUT  21.59%
+           CLB-FF    2.51%
+           BRAM     10.53%
+           DSP       0.08%
+  DRC    : 7 warnings (DSP pipeline suggestions + E203 internal no-load nets)
+           0 errors
+  Clock  : 50 MHz (ZCU102 USER_SI570 300 MHz diff -> MMCME4_ADV -> BUFG)
+
+------------------------------------------------------------------------
+Firmware (BRAM-init source for the bit above)
+------------------------------------------------------------------------
+Build flag : SIM_FAST=0  (board-ready: 10 samples, real Bresenham encoder)
+
+smoke ELF  text=31,308  data=0  bss=4,560
+   hex   : fw/v2_e203_smoke/out/v2_e203_smoke.hex
+   SHA256: c2b2fb17968c45d8bc69293670d58070c917b21201370debab16337fa3a4dca7
+
+encoder ELF text=3,156  data=0  bss=4,108
+   hex   : fw/v2_e203_smoke/out/v2_e203_encoder.hex
+   SHA256: 83fb301c81b3606b3f4b66be51265119a4537ab41ef0fcdfb4abf5e20d210513
+
+------------------------------------------------------------------------
+Programming
+------------------------------------------------------------------------
+Command :
+  xsct scripts/program_zcu102_v2_e203.tcl \
+       fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit
+
+UART    : ZCU102 J83 CP2108 Interface 2 (F13 TX / E13 RX, LVCMOS18)
+Serial  : 115200 8N1, no flow control
+
+------------------------------------------------------------------------
+UART output observed (verbatim, captured in PuTTY)
+------------------------------------------------------------------------
+FPGA_V2_E203_BOOT_UART_PASS
+sample 00 counts=[63 0 0 34 0 0 0 0 0 0]
+sample 01 counts=[0 63 0 0 1 0 0 0 0 0]
+sample 02 counts=[0 0 61 0 1 0 0 0 0 0]
+sample 03 counts=[0 0 0 63 0 0 0 4 0 0]
+sample 04 counts=[0 0 0 0 63 0 1 0 0 0]
+sample 05 counts=[1 1 0 0 0 63 0 63 0 0]
+sample 06 counts=[0 0 0 0 0 11 6 0 0 0]
+sample 07 counts=[0 0 0 0 0 0 0 63 0 0]
+sample 08 counts=[0 0 0 0 0 6 0 0 63 0]
+sample 09 counts=[0 0 0 0 0 63 0 0 62 7]
+FPGA_V2_E203_MULTILAYER_INFER_PASS
+
+------------------------------------------------------------------------
+Verification — board counts vs Python golden (bit-exact)
+Source: python_multilayer/results_multilayer/fashion_multilayer_golden/sample_XX_counts.txt
+------------------------------------------------------------------------
+sample  board                              golden                            match
+------ ------------------------------------ ---------------------------------- -----
+  00   [63  0  0 34  0  0  0  0  0  0]    [63  0  0 34  0  0  0  0  0  0]    OK
+  01   [ 0 63  0  0  1  0  0  0  0  0]    [ 0 63  0  0  1  0  0  0  0  0]    OK
+  02   [ 0  0 61  0  1  0  0  0  0  0]    [ 0  0 61  0  1  0  0  0  0  0]    OK
+  03   [ 0  0  0 63  0  0  0  4  0  0]    [ 0  0  0 63  0  0  0  4  0  0]    OK
+  04   [ 0  0  0  0 63  0  1  0  0  0]    [ 0  0  0  0 63  0  1  0  0  0]    OK
+  05   [ 1  1  0  0  0 63  0 63  0  0]    [ 1  1  0  0  0 63  0 63  0  0]    OK
+  06   [ 0  0  0  0  0 11  6  0  0  0]    [ 0  0  0  0  0 11  6  0  0  0]    OK
+  07   [ 0  0  0  0  0  0  0 63  0  0]    [ 0  0  0  0  0  0  0 63  0  0]    OK
+  08   [ 0  0  0  0  0  6  0  0 63  0]    [ 0  0  0  0  0  6  0  0 63  0]    OK
+  09   [ 0  0  0  0  0 63  0  0 62  7]    [ 0  0  0  0  0 63  0  0 62  7]    OK
+
+Result : 100/100 spike counts bit-exact across all 10 Fashion-14x14 samples.
+Tag    : FPGA_V2_E203_MULTILAYER_INFER_PASS  (firmware emits PASS only when
+         every per-class count matches golden_fashion10[k].expected_counts;
+         any mismatch would have produced FPGA_V2_E203_COUNT_MISMATCH +
+         FPGA_V2_E203_MULTILAYER_INFER_FAIL instead).
+
+------------------------------------------------------------------------
+Conclusion
+------------------------------------------------------------------------
+Phase G3 (board) PASS. End-to-end firmware -> RTL -> 50 MHz silicon path
+reproduces the Python multi-layer SNN reference bit-exact, validating:
+
+  - E203 RISC-V soft-core integration (bare-metal, BRAM-resident image)
+  - Custom ICB -> simple_bus -> v2b_bus two-stage bridge stack
+    (icb2simple_bridge_v2b + bus_interconnect_v2_e203 + simple2v2btop_adapter)
+  - V2.B streamed-rate accelerator (cim_mac_behavioral_v2 + stage_engine_v2 +
+    stream_buffer_v2 + tile_partial_buf + lif_neuron_alu) under real
+    firmware control
+  - CPU-side Bresenham encoder + per-sample weight install + run_stage +
+    SBB count read + UART reporting
+
+This closes the deferred "100-count bit-exact" gap from Phase A (which
+under Icarus would have required hours of wall-clock per sample) by
+running the same firmware/bit on real 50 MHz silicon and checking 100
+counts in milliseconds.
+
+Branch v2-fpga-e203 is closed and tagged as v2-fpga-e203-passed. Per
+plan v11 scope rule, this branch is NOT merged into v2; future
+references should pin to commit 1620ccda or tag v2-fpga-e203-passed.

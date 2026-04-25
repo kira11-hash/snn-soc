@@ -1,6 +1,6 @@
 # `feature/v2-fpga-e203` — Architecture
 
-**Status**：Phase B PASS（2026-04-25）— ZCU102 bitstream 已生成；Phase A Icarus 快速门禁 PASS，100-count bit-exact deferred to FPGA G3
+**Status**：Phase G3 PASS（2026-04-25）— ZCU102 UART capture shows 10 samples × 10 counts bit-exact and final PASS
 **Branch**：`feature/v2-fpga-e203`（起点 `v2` @ `17693e4f`）
 **Sibling**：平行线 `main-fpga-e203-alpha`（V1 E203 on ZCU102，已上板 PASS）+ `v2-arm-fpga-demo-passed`（V2.B + ARM host）
 **Scope rule**：evidence branch，**不 merge 回 v2，不动 `main*` / `v2-arm-fpga-demo-passed`**。Gate 全绿后 tag `v2-fpga-e203-passed` 封存。
@@ -40,7 +40,7 @@ Plan v11 Phase 0 原文列了 6 个蓝本文件要 cherry-pick 到本分支。�
 |---|---|
 | G1（仿真） | Icarus 快速门禁 9/9 PASS；完整 SoC 100 spike count bit-exact 因 Icarus wall-clock 过长 deferred to G3。保留 `run_fw_cosim_resident_14x14.sh` 作为直接驱动 V2B baseline bit-exact 证据。 |
 | G2（综合） | **PASS**：ZCU102 @ 50 MHz WNS `4.837 ns`，LUT/FF/BRAM < 50%，bitgen OK。bitstream: `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit` |
-| G3（上板） | CP2108 J83 COM 抓 `FPGA_V2_E203_BOOT_UART_PASS` + 10 样本 counts + `FPGA_V2_E203_MULTILAYER_INFER_PASS`；10 × 10 = 100 个 spike count 与 Python golden bit-exact |
+| G3（上板） | **PASS**：CP2108 J83 PuTTY capture shows `FPGA_V2_E203_BOOT_UART_PASS`, 10 sample count lines, and `FPGA_V2_E203_MULTILAYER_INFER_PASS`; firmware self-checks 100 spike counts against Python golden before printing final PASS. |
 
 ### 1.3 参数口径分离（CLAUDE.md 硬约束的正确解读）
 
@@ -214,11 +214,63 @@ Results:
 | Utilization | CLB LUTs `21.59%`, CLB registers `2.51%`, BRAM tile `10.53%`, DSP `0.08%` |
 | DRC | 0 errors; warnings are DSP pipeline suggestions and E203 internal no-load nets |
 
-## 5–9（待 Phase C/D 完成后补）
+### 4.3 Phase G3 Board Evidence
 
-- §4 地址窗口
-- §5 Adapter 时序（含 R14 技术债记录）
-- §6 Phase A/B/C Gate 结果（待填）
-- §7 与 `main-fpga-e203-alpha` / `v2-arm-fpga-demo-passed` 的差异对照
-- §8 Phase B 实施细节（Vivado flow + 双 bitstream 产物策略）
-- §9 Phase C 实施细节（xsct + CP2108 UART 抓取）
+Full UART log is recorded in `doc/v2-fpga-e203/board_bringup_log.txt`.
+
+Observed result:
+
+```text
+FPGA_V2_E203_BOOT_UART_PASS
+sample 00 counts=[63 0 0 34 0 0 0 0 0 0]
+sample 01 counts=[0 63 0 0 1 0 0 0 0 0]
+sample 02 counts=[0 0 61 0 1 0 0 0 0 0]
+sample 03 counts=[0 0 0 63 0 0 0 4 0 0]
+sample 04 counts=[0 0 0 0 63 0 1 0 0 0]
+sample 05 counts=[1 1 0 0 0 63 0 63 0 0]
+sample 06 counts=[0 0 0 0 0 11 6 0 0 0]
+sample 07 counts=[0 0 0 0 0 0 0 63 0 0]
+sample 08 counts=[0 0 0 0 0 6 0 0 63 0]
+sample 09 counts=[0 0 0 0 0 63 0 0 62 7]
+FPGA_V2_E203_MULTILAYER_INFER_PASS
+```
+
+The final PASS string is printed only after firmware compares all 100 spike counts with `golden_fashion10.expected_counts`.
+
+## 5. Phase D — 封存
+
+**状态：CLOSED 2026-04-25**
+
+| 项 | 值 |
+|---|---|
+| Tag | `v2-fpga-e203-passed` |
+| 封存 commit | `1620ccda725396372c72a98a0fd3567f9cab5e86` |
+| Bitstream SHA256 | `e5ae7936064d299b6e427ff98252aa53f3684ef3dc12c6de6e2a9b9dae6234e5` |
+| smoke.hex SHA256 | `c2b2fb17968c45d8bc69293670d58070c917b21201370debab16337fa3a4dca7` |
+| encoder.hex SHA256 | `83fb301c81b3606b3f4b66be51265119a4537ab41ef0fcdfb4abf5e20d210513` |
+| Vivado | v2022.2 (win64) Build 3671981 |
+| FW toolchain | riscv64-unknown-elf-gcc 13.2.0 |
+| Gate G1 sim | 9/9 PASS（含 SIM_FAST=1 下的 encoder parity bit-exact） |
+| Gate G2 synth | WNS 4.837 ns @ 50 MHz, LUT 21.59%, BRAM 10.53%, DSP 0.08%, DRC 0 error |
+| Gate G3 board | 100/100 spike count bit-exact，单次烧板即得 `MULTILAYER_INFER_PASS` |
+
+完整 UART log + 板上 vs Python golden 逐样本比对 → `doc/v2-fpga-e203/board_bringup_log.txt`。
+
+### Scope rule 复述（不变）
+
+- 本支线 **不 merge 回 `v2`**；引用必须 pin 到 tag `v2-fpga-e203-passed` 或 commit `1620ccda`。
+- 不动 `main` / `main-fpga-e203-alpha` / `v2-arm-fpga-demo-passed`。
+- V1 流片（main）的 16 KB IMEM / V1 frozen 参数集**未受任何影响**——本支线纯 additive，硬件预算独立（FPGA BRAM）。
+
+### Paper / 简历表述参考
+
+> An E203 RISC-V soft-core was integrated into the V2.B multi-layer SNN
+> SoC (`snn_soc_v2b_top`) on a ZCU102 (XCZU9EG @ 50 MHz). Firmware compiled
+> from `fw/v2_e203_smoke/` was preloaded into 64 KB BRAM IMEM via Vivado
+> `$readmemh`. The CPU drove on-PL CIM-array inference end-to-end
+> (per-sample Bresenham encoder, weight install via MMIO, two-stage CIM
+> MAC dispatch, stream-buffer ping-pong, LIF neuron firing, count read
+> back). UART captured the 10-sample Fashion-14×14 result on a single
+> programming pass; **all 100 per-class spike counts matched the Python
+> golden bit-exactly**. This validates the firmware-to-RTL integration
+> path that the future tape-out version will reuse.
