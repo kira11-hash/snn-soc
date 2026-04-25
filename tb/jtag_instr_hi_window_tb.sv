@@ -17,7 +17,8 @@ module jtag_instr_hi_window_tb;
 
   logic [31:0] stored_word;
 
-  jtag_mem_loader dut (
+  // ENABLE_BOOT_ROM=1：测试 boot-rom-shifted INSTR layout，桥应放行 0x1000..0x4FFF
+  jtag_mem_loader #(.ENABLE_BOOT_ROM(1'b1)) dut (
     .rst_n, .clk,
     .jtag_tck, .jtag_tms, .jtag_tdi, .jtag_tdo,
     .mem_req_pending, .mem_req_grant,

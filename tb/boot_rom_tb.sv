@@ -157,11 +157,13 @@ module boot_rom_tb;
     @(posedge clk); #1;
     expect_word(rdata_4b, 32'h0BAD_C0DE, "T4 size4 addr0");
 
-    // SIZE_BYTES=4 has exactly one word.  Higher addresses alias to word 0
-    // in this simple local ROM aperture instead of indexing rom[1] out of range.
+    // SIZE_BYTES=4 has exactly one word.  Addresses >= SIZE_BYTES are out of
+    // range — boot_rom returns 0 (defensive sanity, 2026-04-25 hardening).
+    // Previously these would wrap to rom[0]; the new behavior is more
+    // predictable and matches typical mask-ROM macro semantics.
     req_addr = 32'h4;
     @(posedge clk); #1;
-    expect_word(rdata_4b, 32'h0BAD_C0DE, "T4 size4 addr4 clamps");
+    expect_word(rdata_4b, 32'h0000_0000, "T4 size4 addr4 OOB returns 0");
 
     req_addr = 32'h0;
     @(posedge clk); #1;

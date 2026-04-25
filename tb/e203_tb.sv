@@ -1,5 +1,15 @@
 `timescale 1ns/1ps
 
+// Override at compile time:
+//   iverilog ... -DBOOT_POLLS_MAX=<value> -DSIGN_POLLS_MAX=<value>
+// Useful when fw 体积变化或 boot 链增加阶段时调整轮询上限。
+`ifndef BOOT_POLLS_MAX
+  `define BOOT_POLLS_MAX 500000
+`endif
+`ifndef SIGN_POLLS_MAX
+  `define SIGN_POLLS_MAX 200000
+`endif
+
 module e203_tb;
   import snn_soc_pkg::*;
 
@@ -119,10 +129,10 @@ module e203_tb;
 
     begin : wait_boot_mark
       integer boot_polls;
-      // Bumped from 300000 → 500000 cycles: fw/main.c grew after adding
-      // boot-time full-array erase, SPI flash payload therefore grew too
-      // (~1.9 KB with -O2). 500k cycles @ 50 MHz = 10 ms, still generous.
-      for (boot_polls = 0; boot_polls < 500000; boot_polls = boot_polls + 1) begin
+      // 上限通过 `BOOT_POLLS_MAX 控制（默认 500000，10 ms @ 50 MHz）。
+      // 历史变化：300000 → 500000（fw/main.c 加入 boot-time full-array erase
+      // 后 SPI flash payload 增大到 ~1.9 KB with -O2）。
+      for (boot_polls = 0; boot_polls < `BOOT_POLLS_MAX; boot_polls = boot_polls + 1) begin
         @(posedge clk);
         if (dut.u_data_sram.mem[MARKER_BASE_WORD + 0] == EXPECTED_BOOT_MARK) begin
           $display("[INFO] Bootloader load completed after %0d cycles, PC=0x%08h",
@@ -136,7 +146,8 @@ module e203_tb;
 
     begin : wait_signature
       integer sign_polls;
-      for (sign_polls = 0; sign_polls < 200000; sign_polls = sign_polls + 1) begin
+      // 上限通过 `SIGN_POLLS_MAX 控制（默认 200000，4 ms @ 50 MHz）
+      for (sign_polls = 0; sign_polls < `SIGN_POLLS_MAX; sign_polls = sign_polls + 1) begin
         @(posedge clk);
         if (dut.u_data_sram.mem[MARKER_BASE_WORD + 1] == EXPECTED_SIGNATURE) begin
           $display("[INFO] Signature observed after %0d cycles, PC=0x%08h",

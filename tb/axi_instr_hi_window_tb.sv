@@ -20,7 +20,8 @@ module axi_instr_hi_window_tb;
   logic m_ready, m_rvalid;
   logic [31:0] m_rdata;
 
-  axi2simple_bridge dut (
+  // ENABLE_BOOT_ROM=1：测试 boot-rom-shifted INSTR layout，桥应放行 0x1000..0x4FFF
+  axi2simple_bridge #(.ENABLE_BOOT_ROM(1'b1)) dut (
     .clk, .rst_n,
     .s_awvalid, .s_awready, .s_awaddr,
     .s_wvalid, .s_wready, .s_wdata, .s_wstrb,
