@@ -85,6 +85,78 @@ PCB supervisor IC (例如带 /MR 的 MAX809-class / TPS3839-class 器件)
 3. 不要在 PCB 上做"数字 die → 模拟 die 的 clock buffer / reset 同步链"（这种拓扑会引入额外 skew + jitter，且和当前 pad 表不一致——数字 die 没有这种 output pad）
 4. 占空比/duty 整形不在 PCB 上做（除非未来要切到带可编程时钟管理 IC 的方案，需重新评估 BOM）
 
+---
+
+## PCB 混合信号集成提醒（给画板同学的 best-practice 清单，2026-04-25）
+
+> **核心警示**：数字 + 模拟两颗芯片各自流片 sign-off **不等于**系统 sign-off。最终板上能不能复现 FPGA 板验（`main-fpga-e203-alpha-passed @ 2adc327b`）的 bit-exact 结果，**很大程度取决于 PCB 集成质量**。下面列出关键风险点和缓解措施，画板同学应在 layout 阶段全部纳入考虑。
+
+### 1. 电源域分隔（最大隐患）
+- **AVDD/AVSS（模拟）与 DVDD/DVSS（数字）必须独立 LDO**（不能共一颗 LDO）
+- 两域之间通过 **ferrite bead** 隔离（如 BLM18AG / BLM21AG 类，~600 Ω@100 MHz），抑制数字侧 supply ripple 窜入模拟域
+- 每颗 die 的每对 VDD/VSS pin 旁边放 **decoupling 电容组合**：0.1 µF（高频 bypass）+ 1 µF / 10 µF（中低频储能），距离 pin **≤ 5 mm**
+- 板级 bulk 电容（10-100 µF）放 LDO 输出端
+- 详细问题归口：[`doc/11`](11_analog_handoff_execution_plan.md) **P0-4**
+
+### 2. 地平面策略
+- 推荐：**单一连续 ground plane**（modern best practice）
+- 如果用 split ground（数字地 + 模拟地分开），**只能在一点用 0 Ω 电阻 / ferrite bead 连接**，避免 ground loop
+- 关键：每颗 die 的 VSS pin 通过最短路径到 ground plane，via 越多越好
+- 互联信号（数字 → 模拟 / 模拟 → 数字）的回流路径要清晰，**避免跨地平面 split**
+
+### 3. Clock trace 处理（防止时钟噪声"翻墙"）
+- 50 MHz oscillator **靠近数字 die 摆放**（< 2 cm），避免长走线辐射
+- clock trace 走 **controlled impedance**（一般 50 Ω），必要时**串联端接电阻**（22-33 Ω 在 driver 端）抑制 ringing
+- clock trace **远离 analog 敏感线**（特别是 `bl_data[7:0]` 模拟 die → 数字 die 的 ADC 读回值）——平行布线距离至少 **3W 规则**（线距 ≥ 3 倍线宽）
+- 必要时给 clock trace 加 **shield trace（接地）** 或走在 ground plane 之间的内层
+- 详细问题归口：[`doc/11`](11_analog_handoff_execution_plan.md) **P0-10**
+
+### 4. 互联信号串扰
+- 数字快速翻转信号（`cim_start`, `wl_data[7:0]`, `prog_op[2:0]` 等）的 dV/dt 大，会通过 PCB 寄生耦合到旁边走线
+- 关键互联走线（特别是 `bl_data[7:0]` 这种 8-bit ADC 读回值）建议：
+  - 走 controlled impedance
+  - 与数字翻转信号保持 3W 间距
+  - 必要时差分对 / shield 处理
+
+### 5. Layer stackup
+- 推荐 **≥ 4 层板**（top signal / GND / PWR / bottom signal）
+- 关键信号走在内层，外层做 ground / power flood
+- 2 层板做不出受控阻抗 + 干净 ground plane，**强烈不建议**
+
+### 6. ESD 保护
+- 互联信号 pad 走 PCB 走线，比对外 IO 暴露面更小，ESD 等级可适度放宽
+- 但仍需 TVS 二极管 / RC snubber 等保护，特别是接外部接口（UART / SPI / JTAG）的 pad
+- 详细问题归口：[`doc/11`](11_analog_handoff_execution_plan.md) **P0-5**
+
+### 7. 元件摆放
+- 50 MHz oscillator → 靠近数字 die clk pad
+- supervisor IC → 在数字+模拟 die 之间（两条 reset trace 等长）
+- decoupling caps → 紧贴每颗 die 的 VDD/VSS pin
+- 模拟 die 的 bias / Vref 旁边走线尽量短，远离任何数字翻转源
+
+### 8. EMI / SI 仿真（强烈建议，可选但能避免重 spin）
+- HyperLynx / Sigrity / Cadence Allegro 类工具
+- 至少做以下三个仿真：
+  - clock trace 到 `bl_data[7:0]` 的 crosstalk
+  - DVDD ripple 到 AVDD 的 power-domain 隔离效果
+  - 数字 IO 边沿（`cim_start` 等）的 overshoot / undershoot
+- 仿真结果与 PCB stackup / 走线完成后的提取一起进入数字侧 STA 签核（`doc/11` P0-10）
+
+### 9. PCB Pre-fab Review（必做，不要省）
+PCB 投板前组织一次三方 review：
+- **数字代表（你）**：检查 pad 映射、走线长度匹配、关键互联走线是否符合 SI 要求
+- **模拟代表（模拟老师）**：检查 AVDD/AVSS 走线、bias / Vref pad 处理、噪声敏感线布局
+- **PCB 设计师**：解释 layer stackup、ground plane 策略、关键 trace 屏蔽
+
+PCB 投板后改不了，pre-fab review **不能省**。
+
+### 10. Bring-up 阶段的 golden reference
+- **`main-fpga-e203-alpha-passed @ 2adc327b`** 是 FPGA 板验通过的证据快照
+- 实际 PCB 跑出来的 spike count / ADC 读数 vs alpha tag 的 FPGA 数据 → **任何偏差都首先怀疑 PCB 集成问题**，不是 RTL 问题
+- 这是你证明"问题在 PCB 不在 chip"的最强武器，bring-up debug 时优先比对
+
+---
+
 ## Full 55-Pad Table
 
 | Pad | Name | Function | Dir | Class | Default / Reset Behavior | Notes |
