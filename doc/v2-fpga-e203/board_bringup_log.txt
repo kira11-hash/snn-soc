@@ -4,8 +4,10 @@ feature/v2-fpga-e203 — Phase G3 Board Bring-up Log
 
 Date          : 2026-04-25
 Branch        : feature/v2-fpga-e203
-Commit (HEAD) : 1620ccda725396372c72a98a0fd3567f9cab5e86
-                "rtl(v2-fpga-e203): phase B board-ready — synth/bitgen + Vivado fixes"
+Artifact commit: 1620ccda725396372c72a98a0fd3567f9cab5e86
+                 "rtl(v2-fpga-e203): phase B board-ready — synth/bitgen + Vivado fixes"
+Frozen tag     : v2-fpga-e203-passed @ e696dc39b9a835d1f89e1377156fd490ad7ccb78
+                 "docs(v2-fpga-e203): phase G3 PASS — close branch with full evidence"
 Board         : Xilinx ZCU102 (XCZU9EG-FFVB1156-2-e)
 Tool          : Vivado v2022.2 (win64) Build 3671981
 RISC-V FW gcc : riscv64-unknown-elf-gcc 13.2.0 (-march=rv32i_zicsr_zifencei -mabi=ilp32)
@@ -113,4 +115,6 @@ counts in milliseconds.
 
 Branch v2-fpga-e203 is closed and tagged as v2-fpga-e203-passed. Per
 plan v11 scope rule, this branch is NOT merged into v2; future
-references should pin to commit 1620ccda or tag v2-fpga-e203-passed.
+references should pin to tag v2-fpga-e203-passed (frozen tag commit
+e696dc39). When citing the board-generated bit/hex provenance, use
+artifact commit 1620ccda.

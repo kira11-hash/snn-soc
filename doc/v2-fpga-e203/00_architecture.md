@@ -244,7 +244,8 @@ The final PASS string is printed only after firmware compares all 100 spike coun
 | 项 | 值 |
 |---|---|
 | Tag | `v2-fpga-e203-passed` |
-| 封存 commit | `1620ccda725396372c72a98a0fd3567f9cab5e86` |
+| Artifact-bearing commit | `1620ccda725396372c72a98a0fd3567f9cab5e86` |
+| Frozen tag commit | `e696dc39b9a835d1f89e1377156fd490ad7ccb78` |
 | Bitstream SHA256 | `e5ae7936064d299b6e427ff98252aa53f3684ef3dc12c6de6e2a9b9dae6234e5` |
 | smoke.hex SHA256 | `c2b2fb17968c45d8bc69293670d58070c917b21201370debab16337fa3a4dca7` |
 | encoder.hex SHA256 | `83fb301c81b3606b3f4b66be51265119a4537ab41ef0fcdfb4abf5e20d210513` |
@@ -258,7 +259,8 @@ The final PASS string is printed only after firmware compares all 100 spike coun
 
 ### Scope rule 复述（不变）
 
-- 本支线 **不 merge 回 `v2`**；引用必须 pin 到 tag `v2-fpga-e203-passed` 或 commit `1620ccda`。
+- 本支线 **不 merge 回 `v2`**；引用必须 pin 到 tag `v2-fpga-e203-passed`（frozen tag commit `e696dc39`）。
+- 若引用板验生成的 bit / hex 来源，使用 artifact-bearing commit `1620ccda`。
 - 不动 `main` / `main-fpga-e203-alpha` / `v2-arm-fpga-demo-passed`。
 - V1 流片（main）的 16 KB IMEM / V1 frozen 参数集**未受任何影响**——本支线纯 additive，硬件预算独立（FPGA BRAM）。
 
