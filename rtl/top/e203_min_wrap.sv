@@ -1,4 +1,7 @@
 `timescale 1ns/1ps
+`ifdef SOC_ENABLE_E203_VENDOR
+`include "e203_defines.v"
+`endif
 //======================================================================
 // 文件名: e203_min_wrap.sv
 // 模块名: e203_min_wrap
@@ -185,6 +188,30 @@ module e203_min_wrap (
     .tmr_irq_a            (1'b0),
     .tcm_sd               (1'b0),
     .tcm_ds               (1'b0),
+`ifdef E203_HAS_ITCM_EXTITF
+    .ext2itcm_icb_cmd_valid(1'b0),
+    .ext2itcm_icb_cmd_ready(),
+    .ext2itcm_icb_cmd_addr ({`E203_ITCM_ADDR_WIDTH{1'b0}}),
+    .ext2itcm_icb_cmd_read (1'b0),
+    .ext2itcm_icb_cmd_wdata({`E203_XLEN{1'b0}}),
+    .ext2itcm_icb_cmd_wmask({`E203_XLEN_MW{1'b0}}),
+    .ext2itcm_icb_rsp_valid(),
+    .ext2itcm_icb_rsp_ready(1'b1),
+    .ext2itcm_icb_rsp_err  (),
+    .ext2itcm_icb_rsp_rdata(),
+`endif
+`ifdef E203_HAS_DTCM_EXTITF
+    .ext2dtcm_icb_cmd_valid(1'b0),
+    .ext2dtcm_icb_cmd_ready(),
+    .ext2dtcm_icb_cmd_addr ({`E203_DTCM_ADDR_WIDTH{1'b0}}),
+    .ext2dtcm_icb_cmd_read (1'b0),
+    .ext2dtcm_icb_cmd_wdata({`E203_XLEN{1'b0}}),
+    .ext2dtcm_icb_cmd_wmask({`E203_XLEN_MW{1'b0}}),
+    .ext2dtcm_icb_rsp_valid(),
+    .ext2dtcm_icb_rsp_ready(1'b1),
+    .ext2dtcm_icb_rsp_err  (),
+    .ext2dtcm_icb_rsp_rdata(),
+`endif
     .ppi_icb_cmd_valid    (ppi_icb_cmd_valid),
     .ppi_icb_cmd_ready    (ppi_icb_cmd_ready),
     .ppi_icb_cmd_addr     (ppi_icb_cmd_addr),

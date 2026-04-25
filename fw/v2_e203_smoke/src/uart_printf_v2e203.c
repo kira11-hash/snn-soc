@@ -51,15 +51,26 @@ void uart_put_hex32(uint32_t v)
 
 void uart_put_dec(uint32_t v)
 {
-    char buf[12];
-    int n = 0;
+    static const uint32_t pow10[] = {
+        1000000000u, 100000000u, 10000000u, 1000000u, 100000u,
+        10000u, 1000u, 100u, 10u, 1u
+    };
+    uint32_t started = 0u;
+
     if (v == 0) {
         uart_tx_byte('0');
         return;
     }
-    while (v && n < 11) {
-        buf[n++] = (char)('0' + (v % 10));
-        v /= 10;
+
+    for (uint32_t i = 0; i < (sizeof(pow10) / sizeof(pow10[0])); i++) {
+        uint8_t digit = 0u;
+        while (v >= pow10[i]) {
+            v -= pow10[i];
+            digit++;
+        }
+        if (digit != 0u || started) {
+            uart_tx_byte((uint8_t)('0' + digit));
+            started = 1u;
+        }
     }
-    while (n--) uart_tx_byte((uint8_t)buf[n]);
 }

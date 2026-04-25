@@ -18,19 +18,31 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
 CROSS="${CROSS:-riscv64-unknown-elf-}"
+case "$CROSS" in
+    *-) ;;
+    *) CROSS="${CROSS}-" ;;
+esac
 CC="${CROSS}gcc"
 OBJCOPY="${CROSS}objcopy"
 SIZE="${CROSS}size"
 
-# NUM_COSIM_SAMPLES can be overridden from env to bound Icarus wall-clock;
-# default 3 is enough to prove firmware→RTL bit-exact (FPGA G3 ups this to 10).
-NUM_COSIM_SAMPLES="${NUM_COSIM_SAMPLES:-3}"
+# Default build is board-ready: full 10 samples and real encoder.
+# Set SIM_FAST=1 for Icarus-only smoke runs; that mode bounds the sample
+# loop and replaces the slow encoder body with an RPC marker path.
+SIM_FAST="${SIM_FAST:-0}"
+EXTRA_DEFS=""
+if [ "$SIM_FAST" = "1" ]; then
+    NUM_COSIM_SAMPLES="${NUM_COSIM_SAMPLES:-3}"
+    EXTRA_DEFS="$EXTRA_DEFS -DNUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES} -DICARUS_SKIP_ENCODE"
+    echo "[INFO] SIM_FAST=1: NUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES}, encoder skip path enabled"
+else
+    echo "[INFO] board-ready firmware build: GOLDEN_NUM_SAMPLES=10, real encoder path enabled"
+fi
 
 CFLAGS="-march=rv32i_zicsr_zifencei -mabi=ilp32 -O2 -ffreestanding -nostdlib \
         -fno-pic -mcmodel=medany -ffunction-sections -fdata-sections \
         -Wall -Wextra -Werror \
-        -DNUM_COSIM_SAMPLES=${NUM_COSIM_SAMPLES} \
-        -DICARUS_SKIP_ENCODE \
+        ${EXTRA_DEFS} \
         -Iinclude -I../include"
 
 LDFLAGS_COMMON="-nostdlib -Wl,--gc-sections -Wl,--print-memory-usage"

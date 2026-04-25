@@ -155,10 +155,17 @@ module snn_soc_v2b_e203_top #(
 
   // ================================================================
   // INSTR_SRAM (64 KB @ 0x0000_0000)
-  // Synth 时通过 $readmemh(INSTR_INIT_FILE, mem) 预加载；功能仿真 TB
-  // 用分层引用 `u_instr_sram.mem` 直接预装。
+  // Phase B synth passes INSTR_INIT_FILE through to sram_simple.INIT_FILE
+  // so Vivado infers BRAM INIT from the firmware hex. Functional TBs keep
+  // INSTR_INIT_FILE="" and load u_instr_sram.mem hierarchically.
   // ================================================================
-  sram_simple #(.MEM_BYTES(int'(V2E203_INSTR_BYTES))) u_instr_sram (
+  sram_simple #(
+    .MEM_BYTES(int'(V2E203_INSTR_BYTES))
+`ifdef SYNTHESIS
+    ,
+    .INIT_FILE(INSTR_INIT_FILE)
+`endif
+  ) u_instr_sram (
     .clk(clk), .rst_n(rst_n),
     .req_valid(instr_req_valid),
     .req_write(instr_req_write),
@@ -168,14 +175,6 @@ module snn_soc_v2b_e203_top #(
     .rdata    (instr_rdata),
     .dma_wr_en(1'b0), .dma_wr_addr(32'h0), .dma_wr_data(32'h0), .dma_wr_strb(4'h0)
   );
-
-  // Synth-time $readmemh preload hook（FPGA_SOURCE 下生效，功能仿真也会跑
-  // 但 INSTR_INIT_FILE="" 时跳过 $readmemh，由 TB hierarchical load）
-  initial begin
-    if (INSTR_INIT_FILE != "") begin
-      $readmemh(INSTR_INIT_FILE, u_instr_sram.mem);
-    end
-  end
 
   // ================================================================
   // DATA_SRAM (8 KB @ 0x0001_0000)

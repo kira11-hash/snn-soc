@@ -3,8 +3,8 @@
 # Phase A-7 cosim: full-top + DMEM marker + PC check.
 # PASS tag: V2_E203_COSIM_PASS
 #
-# 前置：必须先构建固件 hex：
-#   wsl bash -c "cd '/mnt/d/SoC Design/SoC Design/fw/v2_e203_smoke' && bash build_v2_e203_smoke.sh"
+# 前置：Icarus 快速模式 hex（board build 默认会跑 10 样本，太慢）：
+#   wsl bash -c "cd '/mnt/d/SoC Design/SoC Design/fw/v2_e203_smoke' && SIM_FAST=1 NUM_COSIM_SAMPLES=3 bash build_v2_e203_smoke.sh"
 
 set -euo pipefail
 
@@ -18,7 +18,7 @@ mkdir -p waves
 HEX="../fw/v2_e203_smoke/out/v2_e203_smoke.hex"
 if [ ! -f "$HEX" ]; then
   echo "[ERR] firmware hex not found: $HEX"
-  echo "      run: wsl bash -c \"cd '/mnt/d/SoC Design/SoC Design/fw/v2_e203_smoke' && bash build_v2_e203_smoke.sh\""
+  echo "      run: wsl bash -c \"cd '/mnt/d/SoC Design/SoC Design/fw/v2_e203_smoke' && SIM_FAST=1 NUM_COSIM_SAMPLES=3 bash build_v2_e203_smoke.sh\""
   exit 1
 fi
 

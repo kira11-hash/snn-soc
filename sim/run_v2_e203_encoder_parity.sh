@@ -3,7 +3,8 @@
 # Phase A-7 encoder-parity: CPU ↔ TB RPC handshake skeleton + marker flow.
 # PASS tag: V2_E203_ENCODER_PARITY_PASS
 #
-# 前置：wsl bash -c "cd '/mnt/d/SoC Design/SoC Design/fw/v2_e203_smoke' && bash build_v2_e203_smoke.sh"
+# 前置：Icarus 快速模式 hex（真实 encoder 留给 board/Verilator）：
+#   wsl bash -c "cd '/mnt/d/SoC Design/SoC Design/fw/v2_e203_smoke' && SIM_FAST=1 bash build_v2_e203_smoke.sh"
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)

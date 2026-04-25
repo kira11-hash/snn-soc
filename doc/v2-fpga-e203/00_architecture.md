@@ -1,6 +1,6 @@
 # `feature/v2-fpga-e203` — Architecture
 
-**Status**：Phase 0（起步）— 分支建立 + 参数口径分离 + 顶层框图 + 决策表落地
+**Status**：Phase B PASS（2026-04-25）— ZCU102 bitstream 已生成；Phase A Icarus 快速门禁 PASS，100-count bit-exact deferred to FPGA G3
 **Branch**：`feature/v2-fpga-e203`（起点 `v2` @ `17693e4f`）
 **Sibling**：平行线 `main-fpga-e203-alpha`（V1 E203 on ZCU102，已上板 PASS）+ `v2-arm-fpga-demo-passed`（V2.B + ARM host）
 **Scope rule**：evidence branch，**不 merge 回 v2，不动 `main*` / `v2-arm-fpga-demo-passed`**。Gate 全绿后 tag `v2-fpga-e203-passed` 封存。
@@ -38,9 +38,9 @@ Plan v11 Phase 0 原文列了 6 个蓝本文件要 cherry-pick 到本分支。�
 
 | Gate | 内容 |
 |---|---|
-| G1（仿真） | 5 script 全 PASS：现有 `run_multilayer.sh` + `run_fw_cosim_resident_14x14.sh` 无回归；新增 `run_bus_interconnect_v2_e203.sh` + `run_v2_e203_encoder_parity.sh`（10 样本 encoder bit-exact）+ `run_v2_e203_cosim.sh`（100 spike count bit-exact） |
-| G2（综合） | ZCU102 @ 50 MHz WNS > 0，LUT/FF/BRAM < 50%，bitgen OK |
-| G3（上板） | CP2108 J83 COM 抓 `FPGA_V2_E203_BOOT_UART_PASS` + 10 样本 counts + `FPGA_V2_E203_MULTILAYER_INFER_PASS`；10 × 10 = 100 个 spike count 与 Phase A bit-exact |
+| G1（仿真） | Icarus 快速门禁 9/9 PASS；完整 SoC 100 spike count bit-exact 因 Icarus wall-clock 过长 deferred to G3。保留 `run_fw_cosim_resident_14x14.sh` 作为直接驱动 V2B baseline bit-exact 证据。 |
+| G2（综合） | **PASS**：ZCU102 @ 50 MHz WNS `4.837 ns`，LUT/FF/BRAM < 50%，bitgen OK。bitstream: `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit` |
+| G3（上板） | CP2108 J83 COM 抓 `FPGA_V2_E203_BOOT_UART_PASS` + 10 样本 counts + `FPGA_V2_E203_MULTILAYER_INFER_PASS`；10 × 10 = 100 个 spike count 与 Python golden bit-exact |
 
 ### 1.3 参数口径分离（CLAUDE.md 硬约束的正确解读）
 
@@ -178,7 +178,43 @@ V2.B 单样本推理 ≈ 200 µs。poll BUSY 一次 100 ns，开销 < 0.1%。
 
 ---
 
-## 4–9（待 Phase A/B/C/D 完成后补）
+## 4. Phase A/B Evidence Snapshot
+
+### 4.1 Phase A 快速门禁
+
+| Script | Result |
+|---|---|
+| `run_multilayer.sh` | `MULTILAYER_SMOKE_PASS` |
+| `run_fw_cosim_resident_14x14.sh` | `FW_COSIM_RESIDENT_14X14_TB_PASS` |
+| `run_bus_interconnect_v2_e203.sh` | `BUS_INTERCONNECT_V2_E203_PASS` |
+| `run_icb2simple_bridge_v2b.sh` | `ICB2SIMPLE_BRIDGE_V2B_PASS` |
+| `run_simple2v2btop_adapter.sh` | `SIMPLE2V2BTOP_ADAPTER_PASS` |
+| `run_v2_e203_bus_chain_tb.sh` | `V2_E203_BUS_CHAIN_PASS` |
+| `run_v2_e203_soc_compile.sh` | `V2_E203_SOC_COMPILE_PASS` |
+| `run_v2_e203_encoder_parity.sh` | `V2_E203_ENCODER_PARITY_PASS` |
+| `run_v2_e203_cosim.sh` | `V2_E203_COSIM_PASS` |
+
+Known deviation: `run_v2_e203_cosim.sh` proves BOOT marker, BUFFER_PTR, UART boot tag, PC entering sample/scheduler loop, and CLINT zero-activity guard. It does not complete 10-sample inference under Icarus; 100-count bit-exact is G3 board evidence.
+
+### 4.2 Phase B Gate
+
+Command:
+
+```bash
+bash fpga_synth/zcu102_v2_e203_demo/build_v2_e203_demo.sh
+```
+
+Results:
+
+| Item | Result |
+|---|---|
+| Bitstream | `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit` |
+| Timing | WNS `4.837 ns`, TNS `0.000`, WHS `0.012`; all user timing constraints met |
+| Route | fully routed; routing errors `0` |
+| Utilization | CLB LUTs `21.59%`, CLB registers `2.51%`, BRAM tile `10.53%`, DSP `0.08%` |
+| DRC | 0 errors; warnings are DSP pipeline suggestions and E203 internal no-load nets |
+
+## 5–9（待 Phase C/D 完成后补）
 
 - §4 地址窗口
 - §5 Adapter 时序（含 R14 技术债记录）

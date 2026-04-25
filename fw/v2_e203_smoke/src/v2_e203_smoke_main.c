@@ -22,11 +22,40 @@
 
 void uart_init(void);
 void uart_puts(const char *s);
+void uart_put_dec(uint32_t v);
 
 extern int v2b_infer_resident_14x14(const uint8_t *pixel_196,
                                     const uint8_t *s0_w_pos, const uint8_t *s0_w_neg,
                                     const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,
                                     int32_t *counts_out_10);
+
+static void uart_put_sample_idx(uint32_t k)
+{
+    if (k < 10u) uart_puts("0");
+    uart_put_dec(k);
+}
+
+static void uart_put_count_value(int32_t v)
+{
+    if (v < 0) {
+        uart_puts("-");
+        uart_put_dec((uint32_t)(-v));
+    } else {
+        uart_put_dec((uint32_t)v);
+    }
+}
+
+static void uart_put_counts_line(uint32_t k, const int32_t *counts)
+{
+    uart_puts("sample ");
+    uart_put_sample_idx(k);
+    uart_puts(" counts=[");
+    for (uint32_t j = 0; j < 10u; j++) {
+        if (j != 0u) uart_puts(" ");
+        uart_put_count_value(counts[j]);
+    }
+    uart_puts("]\n");
+}
 
 int main(void)
 {
@@ -51,6 +80,7 @@ int main(void)
 #ifndef NUM_COSIM_SAMPLES
 #define NUM_COSIM_SAMPLES GOLDEN_NUM_SAMPLES
 #endif
+    uint32_t mismatch = 0u;
     for (uint32_t k = 0; k < NUM_COSIM_SAMPLES; k++) {
         int32_t counts[10];
         (void)v2b_infer_resident_14x14(
@@ -63,8 +93,26 @@ int main(void)
          * raise the sample-done flag so TB can poll in order. */
         for (uint32_t j = 0; j < 10u; j++) {
             __smoke_counts_base[k * 10u + j] = (uint32_t)counts[j];
+            if (counts[j] != golden_fashion10[k].expected_counts[j]) {
+                mismatch = 1u;
+                uart_puts("FPGA_V2_E203_COUNT_MISMATCH sample=");
+                uart_put_sample_idx(k);
+                uart_puts(" class=");
+                uart_put_dec(j);
+                uart_puts(" got=");
+                uart_put_count_value(counts[j]);
+                uart_puts(" exp=");
+                uart_put_count_value(golden_fashion10[k].expected_counts[j]);
+                uart_puts("\n");
+            }
         }
         __sample_done_flags[k] = 1u;
+        uart_put_counts_line(k, counts);
+    }
+
+    if (mismatch) {
+        uart_puts("FPGA_V2_E203_MULTILAYER_INFER_FAIL\n");
+        for (;;) __asm__ volatile ("nop");
     }
 
     /* INFER_DONE marker + UART tag. */
