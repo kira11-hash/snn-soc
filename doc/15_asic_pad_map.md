@@ -44,6 +44,47 @@ This document is the canonical in-repo source of truth for the current ASIC pad 
 - `clk` and `rst_n` are **PCB-shared inputs**, not digital-to-analog forwarded outputs. The board shall fan out one 50 MHz clock source and one supervisor/reset source to both the digital die and the analog die. There is no digital-side `clk_out` / `rst_out` pad and no digital-side duty-cycle reshaper.
 - If the analog die needs an internal ~40/60 duty cycle, that duty reshape belongs inside the analog die (DCC/local clock shaping). The digital pad contract remains a conventional 50 MHz input clock.
 
+## PCB Reference BOM（PCB 设计提醒，2026-04-25）
+
+> 这条是给后续画 PCB 的同学的硬提醒，画板时直接照下面的拓扑放器件即可。最终 SI / 端接策略仍以 `doc/11` P0-10 的 PCB stackup + field solver 提取为准。
+
+**时钟分发**：
+
+```
+PCB 板上 50 MHz 标准晶振 / oscillator (标称 50/50 占空比)
+        │
+        ├──走线──→ 数字 die  pad 01  `clk`     (方向 in)
+        └──走线──→ 模拟 die        `clk_in`   (方向 in)
+```
+
+- 推荐器件：50 MHz CMOS oscillator（如 SiT8008 / ASEMB / 等通用型号）
+- 输出**并行驱动**两 die，**不经过数字 die 转发**
+- 数字 die 不提供 `clk_out`，不做 buffer / reshape
+- 走线 layout target：chip-to-chip skew ≤ 0.5 ns（FR-4 典型 60-70 ps/cm，约 7 cm 量级走线差）；最终以 PCB stackup + 仿真签核
+- 如模拟 die 需要 ~40/60 占空比，由模拟 die 内部 DCC 自行 shape（见 `doc/11` P0-8）
+
+**复位分发**：
+
+```
+PCB supervisor IC (例如 MAX809 / LM809)
+        │  +  PCB 手动复位按钮 (并联到 supervisor 输出，可选)
+        │
+        ├──走线──→ 数字 die  pad 02  `rst_n`   (方向 in，低有效)
+        └──走线──→ 模拟 die        `rst_n`    (方向 in，低有效)
+```
+
+- 推荐器件：MAX809 / LM809 / TPS3839 等 power-on reset supervisor，监测 VDD 上电 + 提供 ≥ 100 ms 的 reset hold time
+- 手动按钮（可选）：按钮一端接 supervisor reset 输入或直接拉低 rst_n 总线，另一端接地
+- 输出**并行驱动**两 die，**不经过数字 die 转发**
+- 数字 die 不提供 `rst_out`
+- 模拟 die 自己负责 reset deassert 同步与 bias / ADC / DCC ready time（见 `doc/11` P0-9）
+
+**关键不变量（画板时不要违反）**：
+1. 数字 die `clk` (pad 01) 与模拟 die `clk_in` 必须接同一组 PCB clock source 输出
+2. 数字 die `rst_n` (pad 02) 与模拟 die `rst_n` 必须接同一组 supervisor 输出
+3. 不要在 PCB 上做"数字 die → 模拟 die 的 clock buffer / reset 同步链"（这种拓扑会引入额外 skew + jitter，且和当前 pad 表不一致——数字 die 没有这种 output pad）
+4. 占空比/duty 整形不在 PCB 上做（除非未来要切到带可编程时钟管理 IC 的方案，需重新评估 BOM）
+
 ## Full 55-Pad Table
 
 | Pad | Name | Function | Dir | Class | Default / Reset Behavior | Notes |
