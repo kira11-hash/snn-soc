@@ -66,15 +66,15 @@ PCB 板上 50 MHz 标准晶振 / oscillator (标称 50/50 占空比)
 **复位分发**：
 
 ```
-PCB supervisor IC (例如 MAX809 / LM809)
-        │  +  PCB 手动复位按钮 (并联到 supervisor 输出，可选)
+PCB supervisor IC (例如带 /MR 的 MAX809-class / TPS3839-class 器件)
+        │  +  PCB 手动复位按钮 (优先接 supervisor /MR；或采用 open-drain / wired-OR reset)
         │
         ├──走线──→ 数字 die  pad 02  `rst_n`   (方向 in，低有效)
         └──走线──→ 模拟 die        `rst_n`    (方向 in，低有效)
 ```
 
-- 推荐器件：MAX809 / LM809 / TPS3839 等 power-on reset supervisor，监测 VDD 上电 + 提供 ≥ 100 ms 的 reset hold time
-- 手动按钮（可选）：按钮一端接 supervisor reset 输入或直接拉低 rst_n 总线，另一端接地
+- 推荐器件：MAX809-class / LM809-class / TPS3839-class 等 power-on reset supervisor，监测 VDD 上电 + 提供 ≥ 100 ms 的 reset hold time；优先选择带 manual-reset input (`/MR`) 或 open-drain reset 输出的型号
+- 手动按钮（可选）：优先接 supervisor `/MR` 输入；若必须直接拉低 `rst_n` 总线，应使用 open-drain / wired-OR 拓扑。不要用按钮硬拉一个 push-pull supervisor 输出，否则按键时可能与 supervisor 高电平驱动短暂冲突
 - 输出**并行驱动**两 die，**不经过数字 die 转发**
 - 数字 die 不提供 `rst_out`
 - 模拟 die 自己负责 reset deassert 同步与 bias / ADC / DCC ready time（见 `doc/11` P0-9）
