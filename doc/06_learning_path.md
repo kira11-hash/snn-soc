@@ -1609,7 +1609,7 @@ main HEAD 相对于 alpha 冻结点的所有改动，按此判定都属于"防�
 |------|------|
 | `bash sim/run_silicon_bringup.sh` | 跑 silicon_bringup 固件的 Icarus 仿真，验证 4 个 phase 的 UART 输出 |
 | `bash scripts/fpga_bringup_capture.sh`（在 alpha 分支）| 板上 UART capture 自动化 |
-| `python scripts/program_zcu102_e203.tcl`（Vivado）| 烧 bitstream + BRAM init |
+| `xsct scripts/program_zcu102_e203.tcl`（在 alpha 分支）| 烧 bitstream + BRAM init |
 
 ### 检验标准
 
