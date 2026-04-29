@@ -279,17 +279,33 @@ package snn_soc_pkg;
   //   mode 1 = ACTIVE_WL: SUM_MAX = stage.in_dim × 15      (per-tile, firmware-supplied)
   parameter int V2B_SUM_MAX_ARRAY      = V2B_NUM_INPUTS * 15; // = 3840
 
+  // V2.B CONV extension constants (REV 5, M3.A).
+  parameter int V2B_CONV_FMAP_BANK_KIB         = 256;       // ping-pong A/B each
+  parameter int V2B_CONV_MAX_K                 = 5;
+  parameter int V2B_CONV_MAX_C_IN              = 128;
+  parameter int V2B_CONV_MAX_KKC               = 1152;      // K*K*C_in <= this
+  parameter int V2B_CONV_MAX_H                 = 64;
+  parameter int V2B_CONV_MAX_W                 = 64;
+  parameter int V2B_FMAP_WORDS_PER_STREAM_MAX  = 8;         // T<=256 => ceil(T/32)
+  parameter int V2B_CONV_WEIGHT_TIMEOUT_CYCLES = 1_000_000;
+
   // Stream buffer ownership encoding (REV 3.3 D14 state machine)
   parameter logic [1:0] V2B_BUF_STATE_FREE    = 2'd0;
   parameter logic [1:0] V2B_BUF_STATE_WRITING = 2'd1;
   parameter logic [1:0] V2B_BUF_STATE_READY   = 2'd2;
   parameter logic [1:0] V2B_BUF_STATE_READING = 2'd3;
 
-  // INPUT_SRC / OUTPUT_DST encoding for STAGE_CFG3
-  parameter logic [1:0] V2B_BUF_SEL_INPUT_SRAM = 2'd0;
-  parameter logic [1:0] V2B_BUF_SEL_STREAM_A   = 2'd1;
-  parameter logic [1:0] V2B_BUF_SEL_STREAM_B   = 2'd2;
-  parameter logic [1:0] V2B_BUF_SEL_OUTPUT_FIFO = 2'd3; // OUTPUT_DST only
+  // INPUT_SRC / OUTPUT_DST encoding for STAGE_CFG3.
+  // REV 5 MINOR-6 widens input source IDs to 3 bits for dynamic CONV
+  // sources. The legacy values keep the original low 2-bit encoding, so
+  // existing FC paths with selector[2]=0 remain byte-compatible.
+  parameter int V2B_BUF_SEL_W = 3;
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_INPUT_SRAM     = 3'b000; // was 2'b00
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_STREAM_A       = 3'b001; // was 2'b01
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_STREAM_B       = 3'b010; // was 2'b10
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_OUTPUT_FIFO    = 3'b011; // OUTPUT_DST only
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_PATCH_UNROLLER = 3'b100;
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_FMAP_FLATTEN   = 3'b101;
 
   // Stage error codes (STAGE_STATUS.ERR[23:16])
   parameter logic [7:0] V2B_STAGE_ERR_OK                   = 8'h00;
