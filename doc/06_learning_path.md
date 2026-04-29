@@ -2,9 +2,24 @@
 
 **适用对象**: 研一新生，首次接触系统级数字 IC 设计
 **前置知识**: Verilog/SystemVerilog 基础语法，数字电路基础
-**学习目标**: 完全理解 MVP 主链路与当前 V1 主线扩展，能独立修改、排查并为 tapeout 前收口做准备
+**学习目标**: 完全理解 MVP 主链路、V1 主线扩展、V1.1 tape-out 加固层（boot_rom + CIM 编程 + 方案 α' 外部编程），能独立修改、排查并为 tapeout 前收口做准备
 
 **参数口径**：本文涉及的默认参数与时序数值以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
+
+## 当前版本对应的 main 分支基线（2026-04-29 复核）
+
+| 维度 | 状态 |
+|------|------|
+| RTL 总行数 | ~8,700 行（rtl/ 全树） |
+| ASIC pad 冻结 | 55-pad（48 推理 + 7 外部编程；详见 `doc/15_asic_pad_map.md`） |
+| TO-intent 顶层 | `rtl/top/chip_top.sv`（ENABLE_E203=1 + ENABLE_BOOT_ROM=1 + ENABLE_PROGRAM_MODE=1 + ENABLE_EXT_CIM_IF=1） |
+| Boot 路径 | mask ROM @ 0x0 → bootloader → SPI 加载 app → INSTR_SRAM @ 0x1000 |
+| CIM 编程能力 | `cim_program_ctrl` + `cim_macro_arbiter`（写 / 擦除 / 全阵列擦 / verify retry） |
+| 外部编程接口 | 方案 α'（pads 46..52：`prog_op[2:0]` + `prog_level[3:0]`），10-stage shift register 与 cim_start 相位对齐 |
+| FPGA 验证状态 | `main-fpga-e203-alpha-passed` tag 已板级冻结（2026-04-24，UART 三段 PASS） |
+| 主回归全绿 | LIGHT / WEIGHTED / SAMPLE_ALIGN(100/100) / E203_SMOKE / JTAG / UART / SPI / DMA / AXI bridge / CIM_PROGRAM_CTRL / PROG_PULSE_CFG / PROG_INFLIGHT_LOCK / BOOT_ERASE_E2E / CHIP_TOP_ROM_SMOKE / SILICON_BRINGUP |
+
+> **本文阅读顺序建议**：先按 Part A 把 MVP 主链路读懂；再按 Part B 把 UART/SPI/AXI/E203/JTAG 读懂；最后按 **Part C（V1.1 tape-out 加固层）** 学 boot_rom / CIM 编程 / 方案 α' / chip_top / silicon bringup。Part C 是 2026-04 后追加，是 main 流片前最后一段需要吃透的内容。
 
 ## 2026-03-31 审核后的建议入口
 
@@ -902,7 +917,7 @@ pop = popcount(wl_latched)  // 0-64（在 dac_valid 单拍触发后锁存）
 **前置条件**: Part A 检验清单全部通过
 
 > **注意**：Part B 的阶段 9–14 既介绍协议原理，也会指引你去读当前 `main` 分支上已完成的 V1 实现。每个阶段的"实际实现参考"小节列出了对应的 RTL/TB/脚本文件，建议结合代码阅读。
-> 迭代变更详情见 `doc/16_iteration_log.md`（Iteration 1–7）。
+> 迭代变更详情见 `doc/16_iteration_log.md`（Iteration 1–7 = V1 主线；Iteration 10–11 = V1.1 boot_rom + 方案 α'，对应本文 Part C）。
 
 ---
 
@@ -1255,6 +1270,348 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 
 ---
 
+# Part C: V1.1 Tape-out 加固层
+
+完成 Part B 后，你已经掌握了 V1 的全部数字主链路。Part C 是 **2026-04 月之后追加** 的内容，覆盖了流片前最后一段必须吃透的特性：mask boot ROM、片上 CIM 编程通路、方案 α' 外部编程接口、`chip_top` pad-facing 包装、silicon bring-up 固件与板级 FPGA 验证证据链。
+
+**前置条件**：Part B 全部检验清单通过；能完整描述 E203 启动链。
+
+> **为什么独立成 Part C？** 这部分内容是 Iteration 10、11 之后才并入 main，目的是为 6 月底 V1 流片做最后一公里收口。不学这一段，直接读 `chip_top.sv` 会看不懂 `ENABLE_BOOT_ROM` / `ENABLE_PROGRAM_MODE` / 方案 α' 那些 generate 块在做什么。
+
+---
+
+## 阶段 15：Boot ROM 与 chip_top tape-out 包装（Day 33-34）
+
+**目标**：理解 V1.1 引入的 mask boot ROM 与 `chip_top` 顶层 wrapper，能解释三套地址映射在 `ENABLE_BOOT_ROM` 不同取值下的差异。
+
+### 15.1 为什么需要 boot ROM
+
+| 问题 | 原因 |
+|------|------|
+| ASIC 上电时 INSTR_SRAM 是 X | SRAM 没有上电态，CPU 取指会得到不可预期的指令 |
+| 不能依赖 JTAG 装载 | 流片后量产板上不一定有 JTAG 调试器 |
+| 不能依赖 SPI 直 boot | E203 本身是 RV32I 通用核，无 boot-from-SPI 硬件，需要 bootloader |
+
+**解决方案**：实例化一个工艺 mask ROM（4KB @ 0x0），上电立刻跑 bootloader（`fw/boot_main.c`）→ 配置 SPI → 把 app（`fw/main.c`）从 SPI flash 搬到 INSTR_SRAM @ 0x1000 → fence.i → 跳转。
+
+### 15.2 三套地址映射
+
+| 配置 | 0x0 处映射 | INSTR_SRAM 起点 | 适用场景 |
+|------|-----------|----------------|---------|
+| `ENABLE_BOOT_ROM=0`（默认） | INSTR_SRAM 直接 | `0x0000_0000` | Gate A 旧回归、`top_tb` 直灌 hex |
+| `chip_top.ENABLE_BOOT_ROM=1` | boot_rom 4KB | `0x0000_1000`（平移后）| ASIC tape-out 路径、`chip_top_rom_smoke_tb` |
+| `snn_soc_fpga_top`（FPGA）| INSTR_SRAM + INSTR_INIT_FILE | `0x0000_0000` | FPGA 板级 demo（BRAM 预装 firmware） |
+
+地址常量真源：[rtl/top/snn_soc_pkg.sv](../rtl/top/snn_soc_pkg.sv) 中
+`ADDR_BOOT_ROM_BASE / ADDR_BOOT_ROM_END / ADDR_INSTR_BASE_WITH_ROM / ADDR_INSTR_END_WITH_ROM`。
+
+### 15.3 关键 RTL 文件
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/mem/boot_rom.sv](../rtl/mem/boot_rom.sv) | 同步 ROM 行为模型（仿真+FPGA），ASIC 由 ROM compiler 取代；OOB 返回 0（防御性，2026-04-25 收紧） |
+| [rtl/bus/bus_interconnect.sv](../rtl/bus/bus_interconnect.sv) | `ENABLE_BOOT_ROM=1` 时低 4KB 路由到 boot_rom，INSTR_SRAM 平移；`=0` 时 boot_rom 路径整个 generate-out |
+| [rtl/bus/icb2simple_bridge.sv](../rtl/bus/icb2simple_bridge.sv) | 同样新增 `ENABLE_BOOT_ROM` 参数选择 INSTR 窗口 |
+| [rtl/periph/jtag_mem_loader.sv](../rtl/periph/jtag_mem_loader.sv) | 同上 |
+| [rtl/top/snn_soc_top.sv](../rtl/top/snn_soc_top.sv) | 透传 `ENABLE_BOOT_ROM` + `BOOT_ROM_INIT_FILE` + `INSTR_INIT_FILE` 参数 |
+| [rtl/top/chip_top.sv](../rtl/top/chip_top.sv) | tape-out 顶层：默认打开 `ENABLE_BOOT_ROM=1` + ENABLE_E203=1 + ENABLE_PROGRAM_MODE=1 + ENABLE_EXT_CIM_IF=1 |
+
+### 15.4 启动链全貌（chip_top tape-out 路径）
+
+```
+1. 上电复位（rst_n_pad 释放）
+2. CPU 从 0x0 取指 → boot_rom（mask ROM，4KB）
+3. boot_main.c：
+   - 配置 UART (115200) 输出 "BL start"
+   - 配置 SPI (Mode 0)、读 SPI flash header
+   - 把 app payload 搬到 INSTR_SRAM @ 0x1000
+   - fence.i → jal x0, 0x1000
+4. main.c (app)：
+   - UART 输出 "APP start"
+   - **新：开机全阵列擦除 RRAM**（详见阶段 16）
+   - 主循环：DMA + SNN 推理 → UART 输出 spike id
+```
+
+### 15.5 关键回归
+
+| 命令 | PASS 标记 |
+|------|----------|
+| `bash sim/run_chip_top_rom_smoke.sh` | `CHIP_TOP_ROM_SMOKE_PASS` — 用 chip_top 顶层 + 真 boot_rom hex 跑端到端 |
+| `bash sim/run_chip_top_rom_hi_smoke.sh` | 验证 0x1000 平移后 INSTR_SRAM 仍然可读写 |
+| `bash sim/run_axi_instr_hi_window.sh` | AXI bridge 在 INSTR 平移窗口下的访问语义 |
+| `bash sim/run_jtag_instr_hi_window.sh` | JTAG rescue 在 INSTR 平移窗口下的语义 |
+| `bash sim/run_boot_rom.sh` | `BOOT_ROM_TB_PASS`（含 OOB 返回 0 检验） |
+
+### 检验标准
+
+- [ ] 能解释为什么 boot_rom 的 OOB 必须返回 0 而不能 wrap
+- [ ] 能解释 `ENABLE_BOOT_ROM=0` 与 `=1` 时 `bus_interconnect` 译码差异
+- [ ] 能解释为什么 `BOOT_ROM_INIT_FILE` 留空时 `chip_top` 仿真会打 WARN（CPU trap）
+- [ ] 能解释 INSTR_INIT_FILE（FPGA 用）和 BOOT_ROM_INIT_FILE（ASIC 用）的不同适用场景
+
+---
+
+## 阶段 16：CIM 编程模式与 boot-time 全阵列擦除（Day 35-37）
+
+**目标**：理解 V1 单层 CIM 写 / 擦 / verify 的硬件控制器与寄存器接口；理解 fw/main.c 开机为什么必须做一次全阵列擦除。
+
+### 16.1 为什么 V1 也要支持编程
+
+V1 原本只做"推理"，把权重通过 `weight_pos.hex` / `weight_neg.hex` 离线注入 macro。但器件老师在 2026-04-22 / 2026-04-24 反复确认两件事：
+
+1. **流片后 RRAM 单元初始状态不保证是 HRS**（高阻），可能是 LRS 或随机态。
+2. **开机必须先做一次全阵列擦除**，否则推理结果不可预期。
+
+因此 V1 从 V2 移植了 `cim_program_ctrl` + `cim_macro_arbiter` 这一套编程通路，封装在 `ENABLE_PROGRAM_MODE=1` generate 块下，默认行为对旧回归零影响。
+
+### 16.2 编程寄存器（PROG_*，0x4000_0038~0x4000_0094）
+
+| 偏移 | 名称 | 关键位 | 说明 |
+|------|------|--------|------|
+| 0x38 | PROG_CTRL | [0]=START W1P, [1]=ERASE RW^1, [2]=FULL_ARRAY RW^1, [3]=BYPASS_HANDSHAKE RW^1, [7:4]=LEVEL RW^1, [10:8]=RETRY_LIMIT RW^1 | 启动一次编程操作；BYPASS=1 跳过 handshake（仿真用），生产固件保持 0 |
+| 0x3C | PROG_ROW | [5:0]=row | 目标行（0~63） |
+| 0x40 | PROG_COL | [4:0]=col | 目标列（0~19） |
+| 0x44 | PROG_STATUS | [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [6]=PROG_FSM_PRESENT RO, [7]=DONE W1C | 状态/完成位；bit[6] 表示 ENABLE_PROGRAM_MODE 是否在硬件上启用，固件用此位代替 BUSY 探测 |
+| 0x90 | PROG_PULSE_WIDTH | [17:16]=sel RW（0=1us/1=10us/2=100us/3→100us）, [15:0]=cycles RO | 写入脉冲宽度档位 |
+| 0x94 | PROG_ERASE_WIDTH | [15:0]=50000 RO（1ms@50MHz）| 擦除脉冲宽度，固定，写入忽略 |
+
+**RW^1 的含义**：寄存器在 `prog_busy=1 / prog_start_pending=1 / prog_start_pulse=1` 任一为 1 时被锁，不接受新写入。这是 2026-04-25 加的 in-flight lock，目的是防止 10-stage pad 编码器 pipeline 与 `cim_program_ctrl` 内部锁存值漂移。
+覆盖：[`tb/prog_inflight_lock_tb.sv`](../tb/prog_inflight_lock_tb.sv)。
+
+### 16.3 PROG_FSM_PRESENT 与 race-free 探测
+
+旧固件用 "256-cycle BUSY 探测" 判断编程 FSM 是否真的存在；这种方式在快速脉冲（例如 BYPASS=1 + 短脉冲）下会被 BUSY 升起→落下越过，假阳性。新方式：
+
+```c
+uint32_t s_pre = PROG_STATUS;
+if ((s_pre & PROG_STATUS_FSM_PRESENT_MASK) == 0u) {
+    return 2u;   // ENABLE_PROGRAM_MODE=0 build, no-op
+}
+// 编程 FSM 存在 → 安全发起 START
+```
+
+PROG_STATUS[6] 是组合逻辑直接驱动 `ENABLE_PROGRAM_MODE`，编译期常量级别的可信度。
+
+### 16.4 boot-time 全阵列擦除（fw/main.c, 2026-04-24）
+
+```c
+// 1. 探测 FSM 是否存在
+if ((PROG_STATUS & FSM_PRESENT_MASK) == 0) goto skip;
+
+// 2. 清掉旧 DONE
+PROG_STATUS = DONE_MASK;
+
+// 3. read-modify-write，保留 RETRY_LIMIT 默认值 4
+PROG_ROW = 0;
+PROG_COL = 0;
+PROG_CTRL = (PROG_CTRL & ~LOW_MASK) | ERASE_MASK | FULL_ARRAY_MASK | START_MASK;
+
+// 4. 轮询 DONE，超时回 0
+while (poll < BOOT_ERASE_POLL_TIMEOUT) {
+    s = PROG_STATUS;
+    if (s & DONE_MASK) break;
+}
+
+// 5. UART 输出 "APP erase SEQ_DONE"
+```
+
+**注意语义**：返回 1 表示"controller 完成 1 ms 擦除时序"，**不**表示固件已经逐 cell verify。逐 cell verify 由 `cim_program_ctrl` 在 `prog_op=write` 时做，开机擦除是 fire-and-forget。
+
+### 16.5 cim_program_ctrl 状态机（高层）
+
+```
+ST_IDLE
+  └─ start → ST_SETUP (锁存 op/row/col/level)
+       └─ ST_PULSE (脉冲发出，宽度由 PROG_PULSE_WIDTH 或 PROG_ERASE_WIDTH 决定)
+            └─ ST_PULSE_HOLD
+                 ├─ FULL_ARRAY=1 或 op=erase 单 cell → ST_PASS（不做 verify）
+                 └─ op=write → ST_VERIFY → ST_RB_WAIT → 比对 bl_data
+                      ├─ 匹配 → ST_PASS
+                      └─ 不匹配 → 重试，直到 RETRY_COUNT == RETRY_LIMIT → ST_FAIL
+                           ↓
+                          ST_DONE (DONE sticky=1，PASS/FAIL 二选一)
+```
+
+详细状态：[rtl/snn/cim_program_ctrl.sv](../rtl/snn/cim_program_ctrl.sv)（335 行，注释详细）。
+
+### 16.6 cim_macro_arbiter（推理 vs 编程仲裁）
+
+| 状态 | 行为 |
+|------|------|
+| `prog_busy=0`（默认）| arbiter 透传推理侧信号；prog_* 全部 tie 0 |
+| `prog_busy=1` | arbiter 屏蔽推理侧 done/data，把 cim_program_ctrl 的 wl/dac/cim 信号送到 cim_macro_blackbox |
+
+互斥保证：在 `reg_bank` 的写入门控里，SNN START 与 PROG START 互锁，不会同时发起。
+
+### 16.7 关键回归
+
+| 命令 | PASS 标记 |
+|------|----------|
+| `bash sim/run_cim_program_ctrl.sh` | `CIM_PROGRAM_CTRL_PASS`（8 个子测试：写、擦、verify、retry、DONE、互锁等） |
+| `bash sim/run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS`（4 档预设 + erase 固定） |
+| `bash sim/run_prog_inflight_lock.sh` | `PROG_INFLIGHT_LOCK_TB_PASS`（18 个子测试） |
+| `bash sim/run_prog_disabled_no_pending.sh` | ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
+| `bash sim/run_boot_erase_e2e.sh` | 完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
+| `bash sim/run_prog_start_interlock.sh` | SNN/PROG 互锁正向 |
+| `bash sim/run_prog_pad_encoder.sh` | prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
+| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 路由 |
+| `bash sim/run_prog_bypass_latch.sh` | BYPASS_HANDSHAKE 在 START 拍锁存 |
+
+### 检验标准
+
+- [ ] 能说出 PROG_CTRL 七个字段以及每个字段的 RW 类型
+- [ ] 能解释 in-flight lock 的目的（防 pad encoder pipeline 与 FSM 锁存值漂移）
+- [ ] 能解释 PROG_STATUS[6] 替换 256-cycle BUSY 探测的动机
+- [ ] 能写出 fw 开机全阵列擦除的 5 步序列
+- [ ] 能区分 "controller SEQ_DONE" 与 "fw 逐 cell verify" 两种语义
+
+---
+
+## 阶段 17：方案 α' 外部编程接口（Day 38）
+
+**目标**：理解 2026-04-24 冻结的方案 α'（α-prime）外部编程合同：为什么把 pad 数从 48 扩到 55，以及 7 个新增 pad 各自的语义。
+
+### 17.1 背景
+
+V1 数字芯片与模拟芯片是两个独立 die 通过 PCB 互联。模拟侧 RRAM 阵列需要外部 stimulate "写入电压 / 擦除电压 / verify 时序"。早期方案 α 是把 prog_op 直接驱动模拟管脚，但缺少"目标电导级数 / verify 通路"，方案 α' 在此基础上增补：
+
+| 新增 pad | 数量 | 含义 |
+|---------|------|------|
+| `prog_op[2:0]` | 3 | op 编码：000=inference / 100=full_array_erase / 101=erase_single / 110=write / 111=verify |
+| `prog_level[3:0]` | 4 | 目标电导等级（write 时有效，0~15） |
+| 总计 | 7 | 对应 doc/15 pads 46..52 |
+
+**移除的旧 pad**：原计划的 `prog_pass` 被去掉——verify PASS/FAIL 由数字侧根据 `bl_data` 自己算，不需要从模拟侧 strobe 出来。
+
+### 17.2 pad 编码器 + 10-stage 相位对齐
+
+`snn_soc_top.sv` 的 `prog_op_ext` / `prog_level_ext` 编码器把 `cim_program_ctrl` 当前操作翻译成 prog_op[2:0] + prog_level[3:0]，再过一个 10 拍 shift register 与 `cim_start_ext` 相位对齐：
+
+```
+cim_start_ext       :     ___/‾‾‾\__________________
+prog_op_ext  (10st) :  ----<op>--<op>--<op>--<op>...
+prog_level_ext (10st):  ----<lvl>--<lvl>--<lvl>...
+                                    ↑
+                       与 cim_start 同时到达模拟侧 pad
+```
+
+10 拍延迟来自 wl_mux_wrapper 的 8 cycle SEND + 1 cycle 锁存 + 1 cycle DONE，目的是让模拟侧"看到 cim_start 的同时已经看到稳定的 op/level"，避免相位失配。
+
+### 17.3 in-flight lock 与编码器的关系
+
+阶段 16.2 提到的 in-flight lock 直接服务于这个编码器：如果在 `prog_busy=1` 期间 CPU 改了 PROG_CTRL.LEVEL，10 拍后 prog_level_ext pad 就会从 op=A 漂到 op=B，但 `cim_program_ctrl` 还在按 op=A 的 ROW/COL 跑——数字侧与模拟 die 接口不一致直接会让一次写入定位错。
+
+锁住的字段：ERASE / FULL_ARRAY / BYPASS / LEVEL / RETRY_LIMIT / ROW / COL / PULSE_WIDTH。
+
+### 17.4 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/top/snn_soc_top.sv](../rtl/top/snn_soc_top.sv) | `prog_op_ext` / `prog_level_ext` 编码器 + 10-stage shift register |
+| [rtl/top/chip_top.sv](../rtl/top/chip_top.sv) | pad 路由：`prog_op_pad[2:0]` / `prog_level_pad[3:0]` 直连 ext 端口 |
+| [doc/08_cim_analog_interface.md](08_cim_analog_interface.md) §10 | 外部编程协议正文 |
+| [doc/03_cim_if_protocol.md](03_cim_if_protocol.md) 末节 | 时序细节 |
+| [doc/15_asic_pad_map.md](15_asic_pad_map.md) | 55-pad 全表（pads 46..52 标注 α' 新增） |
+
+### 17.5 关键回归
+
+| 命令 | PASS 标记 |
+|------|----------|
+| `bash sim/run_prog_pad_encoder.sh` | 验证编码器对每个 op/level 的 pad 输出 |
+| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 仍能正确路由（推理通路不被破坏） |
+
+### 检验标准
+
+- [ ] 能说出方案 α' 7 个新 pad 的位宽与含义
+- [ ] 能解释为什么 verify PASS/FAIL 不需要单独的 pad
+- [ ] 能解释 10-stage shift register 与 `cim_start_ext` 相位对齐的目的
+- [ ] 能解释 in-flight lock 失效会怎样让 prog_op/prog_level pad 漂移
+
+---
+
+## 阶段 18：Silicon bring-up 固件与 FPGA 板级证据链（Day 39-40）
+
+**目标**：理解流片回片后的 day-1 / day-2 / day-3 上板流程，以及 ZCU102 FPGA 板级验证作为 tape-out 前的最后一道护栏。
+
+### 18.1 silicon bring-up 固件
+
+[fw/silicon_bringup/silicon_bringup.c](../fw/silicon_bringup/silicon_bringup.c) 是流片后第一段在真芯片上跑的代码，分四个阶段：
+
+| 阶段 | 目的 | UART 输出 |
+|------|------|---------|
+| Phase 0 | 上电 self-print，确认 UART/CPU 活着 | `BRINGUP_PHASE_0_UART_OK` |
+| Phase 1 | BYPASS_HANDSHAKE=1 → 全阵列擦除（不依赖模拟 die） | `BRINGUP_PHASE_1_BYPASS_ERASE_OK` |
+| Phase 2 | BYPASS=0 → 真模拟擦除（依赖模拟 die 已上电） | `BRINGUP_PHASE_2_REAL_ERASE_OK` |
+| Phase 3 | 真模拟写一个目标 cell + verify | `BRINGUP_PHASE_3_REAL_WRITE_VERIFY_OK` |
+
+设计意图：在不确定模拟 die 是否真的工作时，先用 BYPASS 模式确认数字 die 自己是好的；再逐步把模拟 die 拉进来。详见 [doc/silicon_bringup_guide.md](silicon_bringup_guide.md) Day 1/2/3 SOP。
+
+### 18.2 ZCU102 FPGA 板级证据链（main-fpga-e203 alpha）
+
+**位置**：`feature/main-fpga-e203` 系列分支（最新冻结点：`main-fpga-e203-alpha-passed` tag）。
+
+**FPGA wrapper**：`fpga/boards/zcu102/snn_soc_fpga_top.sv`
+- 时钟：USER_SI570 300MHz 差分 → MMCM → 50MHz
+- 复位：btn_rst (AM13) | !mmcm_locked → 2-FF 同步释放
+- UART：on-board CP2108 J83 (F13/E13) 115200 8N1
+- BRAM 预装固件：`fw/e203_smoke/e203_fpga_smoke.c` → `e203_smoke.hex` (2268 bytes)
+
+**板级 PASS marker**（UART log 有真实抓取）：
+```
+FPGA_E203_BOOT_UART_PASS
+[PROG] full-array erase DONE
+[PROG] write subset rows=0..9 cols=0..9 PASS
+FPGA_E203_PROGRAM_ERASE_WRITE_PASS
+FPGA_E203_PROGRAMMED_INFERENCE_PASS
+```
+
+**为什么 FPGA 可以代替 silicon**：FPGA 上 `cim_macro_blackbox` 是行为模型 + behavioral popcount 公式（Scheme B 差分），数字逻辑路径与流片 RTL 完全一致；时钟约束 50MHz 与 ASIC 目标一致；E203 + UART + bus interconnect + reg_bank + dma + cim_program_ctrl 全部综合到 PL fabric。所以"数字侧端到端启动 → 编程 → 推理"在 FPGA 板上跑过即等价于数字 die 的端到端验证。
+
+### 18.3 不需要重烧 FPGA 的判定标准
+
+由 [doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md](main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md) 给出的四条触发条件：
+
+1. 改动 `fw/e203_smoke/e203_fpga_smoke.c`（FPGA BRAM init 固件）
+2. 改动 `snn_soc_top` / `cim_program_ctrl` / `cim_macro_arbiter` / `wl_mux_wrapper` / `cim_macro_blackbox` 的**功能性**逻辑
+3. 改动 ZCU102 wrapper 或 XDC
+4. `fw/main.c` 引入到 FPGA pre-init（目前没有这个计划）
+
+判定逻辑：
+- **纯文档 / 纯注释 / TB-only / 防御性 OOB / 默认参数追加** → 不需要重烧
+- **行为可见的 RTL 修改 / FPGA wrapper 改动 / FPGA 固件改动** → 必须重烧
+
+main HEAD 相对于 alpha 冻结点的所有改动，按此判定都属于"防御性 + 默认参数 + TB-only"，**不触发重烧**。
+
+### 18.4 关键回归与脚本
+
+| 命令 | 用途 |
+|------|------|
+| `bash sim/run_silicon_bringup.sh` | 跑 silicon_bringup 固件的 Icarus 仿真，验证 4 个 phase 的 UART 输出 |
+| `bash scripts/fpga_bringup_capture.sh`（在 alpha 分支）| 板上 UART capture 自动化 |
+| `python scripts/program_zcu102_e203.tcl`（Vivado）| 烧 bitstream + BRAM init |
+
+### 检验标准
+
+- [ ] 能说出 silicon_bringup 固件的 4 个 Phase 与每个 Phase 的 UART 标记
+- [ ] 能解释为什么 Phase 1 用 BYPASS_HANDSHAKE=1 而 Phase 2/3 不用
+- [ ] 能复述"是否触发 FPGA reburn"的 4 条判定标准
+- [ ] 能解释 FPGA 板上验证为什么可以代替 silicon 的端到端启动→编程→推理验证
+
+---
+
+## Part C 时间规划
+
+| 天数 | 内容 | 时长 |
+|------|------|------|
+| Day 33-34 | 阶段 15：boot ROM + chip_top | 5-6h |
+| Day 35-37 | 阶段 16：CIM 编程模式 + boot-time erase | 8-10h |
+| Day 38 | 阶段 17：方案 α' 外部编程接口 | 3-4h |
+| Day 39-40 | 阶段 18：silicon bring-up + FPGA 证据链 | 4-6h |
+
+**Part C 总计约 1 周**，每天投入 3-4 小时。
+
+---
+
 ## 学习资源汇总
 
 ### MVP 基础
@@ -1268,13 +1625,21 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 - E203：https://github.com/SI-RISCV/e200_opensource
 - RISC-V：《手把手教你设计 CPU——RISC-V 处理器篇》
 
+### V1.1 Tape-out 加固（Part C）
+- mask ROM 设计：foundry ROM compiler 用户手册（每家工艺都不同）
+- RRAM 编程电压 / 时序：项目 `doc/08_cim_analog_interface.md` §10
+- 方案 α' 外部编程合同：项目 `doc/03_cim_if_protocol.md` 末节 + `doc/15_asic_pad_map.md`
+- silicon bring-up SOP：项目 `doc/silicon_bringup_guide.md`（Day 1/2/3）
+- FPGA 板级证据链：`doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md`
+
 ### 工具
 - VCS/Verdi：Synopsys 官方文档
 - Design Compiler：综合工具
 - OpenOCD/GDB：调试工具
+- Vivado 2022.2（FPGA 综合 + 板上烧写）
 
 ---
 
-*最后更新：2026-03-31*
+*最后更新：2026-04-29（main 分支 V1 + V1.1 全量复核 + Part C 增补）*
 
-**学习建议**：Part A 必须完全掌握后再开始 Part B。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。
+**学习建议**：Part A 必须完全掌握后再开始 Part B；Part B 通了再读 Part C，不要跳读。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。

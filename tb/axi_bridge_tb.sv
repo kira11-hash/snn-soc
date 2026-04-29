@@ -428,7 +428,7 @@ module axi_bridge_tb;
     end
 
     // ── T3: 写 reg[4]（offset 0x10，类 THRESHOLD 地址），读回验证 ─────────
-    axi_write(TB_ADDR_REG_BASE + 32'h10, 32'h0000_0BF4, 4'hF);  // 3060 = 0x0BF4 (T=3 default)
+    axi_write(TB_ADDR_REG_BASE + 32'h10, 32'h0000_0BF4, 4'hF);  // 0x0BF4=3060：本 TB 仅做寄存器读写桩验证，写入值为任意常数，与当前默认 T=10/threshold=2550 无关
     axi_read (TB_ADDR_REG_BASE + 32'h10, rd_data);
     if (rd_data === 32'h0000_0BF4) begin
       $display("[PASS] T3 reg[4] THRESHOLD addr : 0x%08X (=%0d)", rd_data, rd_data);
