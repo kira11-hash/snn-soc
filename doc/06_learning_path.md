@@ -1330,7 +1330,7 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 
 | 文件 | 说明 |
 |------|------|
-| [rtl/mem/boot_rom.sv](../rtl/mem/boot_rom.sv) | 同步 ROM 行为模型（仿真+FPGA），ASIC 由 ROM compiler 取代；OOB 返回 0（防御性，2026-04-25 收紧） |
+| `main: rtl/mem/boot_rom.sv` | 同步 ROM 行为模型（仿真+FPGA），ASIC 由 ROM compiler 取代；OOB 返回 0（防御性，2026-04-25 收紧） |
 | [rtl/bus/bus_interconnect.sv](../rtl/bus/bus_interconnect.sv) | `ENABLE_BOOT_ROM=1` 时低 4KB 路由到 boot_rom，INSTR_SRAM 平移；`=0` 时 boot_rom 路径整个 generate-out |
 | [rtl/bus/icb2simple_bridge.sv](../rtl/bus/icb2simple_bridge.sv) | 同样新增 `ENABLE_BOOT_ROM` 参数选择 INSTR 窗口 |
 | [rtl/periph/jtag_mem_loader.sv](../rtl/periph/jtag_mem_loader.sv) | 同上 |
@@ -1397,7 +1397,7 @@ V1 原本只做"推理"，把权重通过 `weight_pos.hex` / `weight_neg.hex` �
 | 0x94 | PROG_ERASE_WIDTH | [15:0]=50000 RO（1ms@50MHz）| 擦除脉冲宽度，固定，写入忽略 |
 
 **RW^1 的含义**：寄存器在 `prog_busy=1 / prog_start_pending=1 / prog_start_pulse=1` 任一为 1 时被锁，不接受新写入。这是 2026-04-25 加的 in-flight lock，目的是防止 10-stage pad 编码器 pipeline 与 `cim_program_ctrl` 内部锁存值漂移。
-覆盖：[`tb/prog_inflight_lock_tb.sv`](../tb/prog_inflight_lock_tb.sv)。
+覆盖：main 分支的 `tb/prog_inflight_lock_tb.sv`。
 
 ### 16.3 PROG_FSM_PRESENT 与 race-free 探测
 
@@ -1556,7 +1556,7 @@ prog_level_ext (10st):  ----<lvl>--<lvl>--<lvl>...
 
 ### 18.1 silicon bring-up 固件
 
-[fw/silicon_bringup/silicon_bringup.c](../fw/silicon_bringup/silicon_bringup.c) 是流片后第一段在真芯片上跑的代码，分四个阶段：
+main 分支的 `fw/silicon_bringup/silicon_bringup.c` 是流片后第一段在真芯片上跑的代码，分四个阶段：
 
 | 阶段 | 目的 | UART 输出 |
 |------|------|---------|
@@ -1565,7 +1565,7 @@ prog_level_ext (10st):  ----<lvl>--<lvl>--<lvl>...
 | Phase 2 | BYPASS=0 → 真模拟擦除（依赖模拟 die 已上电） | `BRINGUP_PHASE_2_REAL_ERASE_OK` |
 | Phase 3 | 真模拟写一个目标 cell + verify | `BRINGUP_PHASE_3_REAL_WRITE_VERIFY_OK` |
 
-设计意图：在不确定模拟 die 是否真的工作时，先用 BYPASS 模式确认数字 die 自己是好的；再逐步把模拟 die 拉进来。详见 [doc/silicon_bringup_guide.md](silicon_bringup_guide.md) Day 1/2/3 SOP。
+设计意图：在不确定模拟 die 是否真的工作时，先用 BYPASS 模式确认数字 die 自己是好的；再逐步把模拟 die 拉进来。详见 main 分支文档 `doc/silicon_bringup_guide.md` 的 Day 1/2/3 SOP。
 
 ### 18.2 ZCU102 FPGA 板级证据链（main-fpga-e203 alpha）
 
@@ -1590,7 +1590,7 @@ FPGA_E203_PROGRAMMED_INFERENCE_PASS
 
 ### 18.3 不需要重烧 FPGA 的判定标准
 
-由 [doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md](main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md) 给出的四条触发条件：
+由 main 分支文档 `doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md` 给出的四条触发条件：
 
 1. 改动 `fw/e203_smoke/e203_fpga_smoke.c`（FPGA BRAM init 固件）
 2. 改动 `snn_soc_top` / `cim_program_ctrl` / `cim_macro_arbiter` / `wl_mux_wrapper` / `cim_macro_blackbox` 的**功能性**逻辑
