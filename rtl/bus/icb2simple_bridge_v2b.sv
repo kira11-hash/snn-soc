@@ -173,6 +173,12 @@ module icb2simple_bridge_v2b (
   // 64-bit MMIO registers, this alignment rule must be tightened.
   wire cmd_aligned  = (i_icb_cmd_addr[1:0] == 2'b00);
   // 非法：未命中白名单 或 MMIO 未 4B 对齐
+  // 【面试讲解】这一条 wire 是"地址防护"的核心：它在 ST_IDLE 收到 cmd
+  // 那拍组合判定，如果非法直接走 ST_IDLE → ST_RSP 短路径，**绝不**经过
+  // ST_WAIT（也就永不让 m_valid 出去给 fabric）。这条不变量很关键，
+  // Icarus TB 里挂了 watchdog 时刻监测它：非法地址下整个事务期间 m_valid
+  // 必须恒为 0。如果改 cmd_aligned 规则（比如未来 V2B 暴露 8-byte 寄存器
+  // 要改成 [2:0]==3'b000），同步要改 TB watchdog 的 cmd_aligned 推算。
   wire cmd_illegal  = !cmd_mapped || (cmd_is_mmio && !cmd_aligned);
   wire cmd_fire     = i_icb_cmd_valid && i_icb_cmd_ready;
   wire bus_rsp_fire = pending_read_q ? m_rvalid : m_ready;

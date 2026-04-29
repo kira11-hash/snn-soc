@@ -14,7 +14,8 @@
 //
 // 二、面试最容易被深问的 2 个点（这是踩过坑修过的真实 bug）
 //   1) 为什么是 spike_latched |= spike_mask（OR 累积）而不是直接赋值？
-//      这是 FP-009 修过的真实 bug，面试可以拿来讲。
+//      这是开发过程中真实修过的 bug（见本文件 always_ff 块内注释，已经
+//      详细记录修复前后的语义差别）：
 //      cim_array_ctrl 在每个 bit-plane × timestep 都会触发一次
 //      lif_neuron_alu 遍历，并产生 spike_mask_valid。一层推理总共产生
 //      T × PIXEL_BITS 次（T=10, PIXEL_BITS=8 → 80 次）spike_mask_valid。
@@ -23,8 +24,9 @@
 //      最后一拍几乎全 0 → 下一层输入永远 0 → 模型永远预测 class 0。
 //      正确语义："本层内任一次 fire 的 neuron"都算 spike，所以必须
 //      OR 累积；只有 feedback_en（层间）拉高时才把累积器清零，准备
-//      下一层。这是个典型的"语义和直觉不一致"的 bug，silicon 上抓到
-//      过，FP-009 模式记录在 CLAUDE.md 里。
+//      下一层。这是个典型的"语义和直觉不一致"的 bug：硬件上每条
+//      spike_mask_valid 看着像独立事件，但层级语义上它们要"或起来"才
+//      正确。
 //
 //   2) feedback_en && latched_flag 这个双重 gate 的作用？
 //      - feedback_en 是 layer_sequencer 在层间发出的"现在可以回注了"。
@@ -120,7 +122,10 @@ module spike_feedback #(
       // 累积 spike_mask：cim_array_ctrl 每个 bit-plane × timestep 都会触发
       // 一次 lif_neuron_alu 遍历并产生 spike_mask_valid 脉冲。若直接赋值会
       // 只保留最后一次（= bit 0 of timestep T-1），对于稀疏 MNIST-like 输入
-      // 几乎永远是全零，导致下一层输入为 0 → 永远预测 class 0（FP-009）。
+      // 几乎永远是全零，导致下一层输入为 0 → 永远预测 class 0。
+      // （注：原 commit 注释里此处引用了"FP-009"误报编号，但 CLAUDE.md
+      // 误报库实际只到 FP-005，FP-009 是笔误；此 bug 是开发过程中真实
+      // 抓到并修复的，行为分析见本文件顶部 cheat sheet。）
       // 正确语义：OR 累积本层内所有 sub-step 的 spike（"本层内任一次 fire
       // 的神经元" = 1），直到 feedback_en 取走后清零准备下一层。
       if (spike_mask_valid) begin
