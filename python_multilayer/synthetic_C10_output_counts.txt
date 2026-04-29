@@ -1,0 +1,1 @@
+# illegal config: ERR_BAD_GEOMETRY; no output fmap generated

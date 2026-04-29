@@ -224,3 +224,74 @@ topologies:
     sum_max: 960
     weight_pos_hex: results_multilayer/mnist_196_64_10/weights/L1_pos.hex
     weight_neg_hex: results_multilayer/mnist_196_64_10/weights/L1_neg.hex
+
+# ═══════════════════════════════════════════════════════════════════════
+# V2.B CONV Extension M1 placeholders.
+# Kept under a separate root key so the existing FC-only TopologyFile loader
+# remains backward-compatible until M3/M4 schema consumers are updated.
+# stage_type is frozen as: fc | conv | flatten.
+# ═══════════════════════════════════════════════════════════════════════
+
+conv_synthetic_topologies:
+- name: lenet5_synthetic
+  role: v2_demo
+  dataset: mnist
+  input_encoding: streamed_rate
+  stream_timesteps: 10
+  stages:
+  - stage_type: conv
+    K: 5
+    stride: 1
+    pad: 2
+    H: 28
+    W: 28
+    C_in: 1
+    C_out: 6
+    T: 10
+  - stage_type: conv
+    K: 5
+    stride: 2
+    pad: 0
+    H: 28
+    W: 28
+    C_in: 6
+    C_out: 16
+    T: 10
+  - stage_type: flatten
+    H: 12
+    W: 12
+    C_in: 16
+    C_out: 120
+    T: 10
+  - stage_type: fc
+    in_dim: 120
+    out_dim: 84
+    T: 10
+  - stage_type: fc
+    in_dim: 84
+    out_dim: 10
+    T: 10
+- name: synthetic_conv_C1
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 1, C_in: 4, C_out: 8, H: 8, W: 8, T: 10}]
+- name: synthetic_conv_C2
+  stages: [{stage_type: conv, K: 3, stride: 2, pad: 1, C_in: 16, C_out: 16, H: 16, W: 16, T: 32}]
+- name: synthetic_conv_C3
+  stages: [{stage_type: conv, K: 5, stride: 1, pad: 2, C_in: 6, C_out: 16, H: 14, W: 14, T: 10}]
+- name: synthetic_conv_C4
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 1, C_in: 32, C_out: 32, H: 8, W: 8, T: 64}]
+- name: synthetic_conv_C5
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 1, C_in: 64, C_out: 64, H: 8, W: 8, T: 64}]
+- name: synthetic_conv_C6
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 1, C_in: 128, C_out: 32, H: 4, W: 4, T: 64}]
+- name: synthetic_conv_C7
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 0, C_in: 8, C_out: 16, H: 5, W: 5, T: 16}]
+- name: synthetic_conv_C8
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 1, C_in: 8, C_out: 16, H: 33, W: 33, T: 33}]
+- name: synthetic_conv_C9
+  expected_err_code: 1
+  expected_err_name: ERR_ILLEGAL_KKC
+  stages: [{stage_type: conv, K: 5, stride: 1, pad: 0, C_in: 128, C_out: 16, H: 8, W: 8, T: 10}]
+- name: synthetic_conv_C10
+  expected_err_code: 3
+  expected_err_name: ERR_BAD_GEOMETRY
+  stages: [{stage_type: conv, K: 3, stride: 1, pad: 0, C_in: 16, C_out: 16, H: 65, W: 65, T: 10}]
