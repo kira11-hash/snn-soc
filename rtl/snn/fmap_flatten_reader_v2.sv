@@ -71,6 +71,13 @@ module fmap_flatten_reader_v2
   assign fmap_rd_en              = (state == S_ISSUE_READ);
   assign fmap_rd_word_addr       = read_addr_q;
 
+`ifndef SYNTHESIS
+  logic [31:0] lane_word_cache [0:P_N_IN-1];
+  logic        cache_valid;
+  logic [3:0]  cache_word_idx;
+  integer      cache_lane;
+`endif
+
   function automatic [8:0] calc_valid_count(input [31:0] full_dim,
                                             input [31:0] tile_base);
     logic [31:0] remaining;
@@ -107,6 +114,114 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
+`ifndef SYNTHESIS
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      state <= S_IDLE;
+      flat_tile_idx_q <= '0;
+      cfg_H_q <= '0; cfg_W_q <= '0; cfg_C_q <= '0;
+      cfg_fmap_base_word_q <= '0; cfg_stream_words_q <= '0;
+      flat_dim_q <= '0; tile_base_q <= '0; valid_count_q <= '0;
+      req_timestep_q <= '0; lane_idx <= '0; read_lane_q <= '0; read_bit_idx_q <= '0;
+      read_addr_q <= '0; resp_data_q <= '0;
+      cache_valid <= 1'b0;
+      cache_word_idx <= '0;
+      for (cache_lane = 0; cache_lane < P_N_IN; cache_lane = cache_lane + 1) begin
+        lane_word_cache[cache_lane] <= 32'h0;
+      end
+    end else begin
+      case (state)
+        S_IDLE: begin
+          if (ctx_valid) begin
+            flat_tile_idx_q <= flat_tile_idx;
+            cfg_H_q <= cfg_H;
+            cfg_W_q <= cfg_W;
+            cfg_C_q <= cfg_C;
+            cfg_fmap_base_word_q <= cfg_fmap_base_word;
+            cfg_stream_words_q <= cfg_stream_words;
+            flat_dim_q <= cfg_H * cfg_W * cfg_C;
+            tile_base_q <= flat_tile_idx * P_N_IN;
+            valid_count_q <= calc_valid_count(cfg_H * cfg_W * cfg_C,
+                                              flat_tile_idx * P_N_IN);
+            cache_valid <= 1'b0;
+            state <= S_CTX_LATCH;
+          end
+        end
+
+        S_CTX_LATCH: begin
+          state <= S_WAIT_REQ;
+        end
+
+        S_WAIT_REQ: begin
+          if (ctx_valid) begin
+            flat_tile_idx_q <= flat_tile_idx;
+            cfg_H_q <= cfg_H;
+            cfg_W_q <= cfg_W;
+            cfg_C_q <= cfg_C;
+            cfg_fmap_base_word_q <= cfg_fmap_base_word;
+            cfg_stream_words_q <= cfg_stream_words;
+            flat_dim_q <= cfg_H * cfg_W * cfg_C;
+            tile_base_q <= flat_tile_idx * P_N_IN;
+            valid_count_q <= calc_valid_count(cfg_H * cfg_W * cfg_C,
+                                              flat_tile_idx * P_N_IN);
+            cache_valid <= 1'b0;
+          end
+          if (dyn_wl_req_valid) begin
+            req_timestep_q <= dyn_wl_req_timestep;
+            lane_idx <= '0;
+            resp_data_q <= '0;
+            state <= S_PREP_LANE;
+          end
+        end
+
+        S_PREP_LANE: begin
+          if (cache_valid && cache_word_idx == req_timestep_q[8:5]) begin
+            for (cache_lane = 0; cache_lane < P_N_IN; cache_lane = cache_lane + 1) begin
+              if (cache_lane < valid_count_q) begin
+                resp_data_q[cache_lane] <= lane_word_cache[cache_lane][req_timestep_q[4:0]];
+              end else begin
+                resp_data_q[cache_lane] <= 1'b0;
+              end
+            end
+            state <= S_RESPOND;
+          end else if (lane_idx == 9'd256) begin
+            cache_valid <= 1'b1;
+            cache_word_idx <= req_timestep_q[8:5];
+            state <= S_RESPOND;
+          end else if (lane_idx >= valid_count_q) begin
+            lane_word_cache[lane_idx[7:0]] <= 32'h0;
+            resp_data_q[lane_idx[7:0]] <= 1'b0;
+            lane_idx <= lane_idx + 9'd1;
+          end else begin
+            read_addr_q <= calc_word_addr(tile_base_q + lane_idx, req_timestep_q);
+            read_lane_q <= lane_idx[7:0];
+            read_bit_idx_q <= req_timestep_q[4:0];
+            state <= S_ISSUE_READ;
+          end
+        end
+
+        S_ISSUE_READ: begin
+          state <= S_WAIT_READ;
+        end
+
+        S_WAIT_READ: begin
+          lane_word_cache[read_lane_q] <= fmap_rd_data;
+          resp_data_q[read_lane_q] <= fmap_rd_data[read_bit_idx_q];
+          lane_idx <= lane_idx + 9'd1;
+          state <= S_PREP_LANE;
+        end
+
+        S_RESPOND: begin
+          if (dyn_wl_resp_ready) begin
+            state <= S_WAIT_REQ;
+          end
+        end
+
+        default: state <= S_IDLE;
+      endcase
+    end
+  end
+`else
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state <= S_IDLE;
@@ -193,6 +308,7 @@ module fmap_flatten_reader_v2
       endcase
     end
   end
+`endif
 
 `ifndef SYNTHESIS
 `ifdef VCS

@@ -112,6 +112,12 @@ module conv_ctrl_v2
   localparam logic [3:0] ERR_FMAP_WRITE_WHILE_BUSY = 4'd7;
   localparam logic [3:0] ERR_WEIGHT_TIMEOUT        = 4'd8;
   localparam logic [3:0] ERR_FMAP_WR_OOB           = 4'd9;
+`ifndef SYNTHESIS
+  localparam int P_WEIGHT_TIMEOUT_CYCLES_EFF =
+      (P_WEIGHT_TIMEOUT_CYCLES > 1024) ? 1024 : P_WEIGHT_TIMEOUT_CYCLES;
+`else
+  localparam int P_WEIGHT_TIMEOUT_CYCLES_EFF = P_WEIGHT_TIMEOUT_CYCLES;
+`endif
 
   typedef enum logic [3:0] {
     S_IDLE         = 4'd0,
@@ -350,7 +356,7 @@ module conv_ctrl_v2
           end else begin
             wait_ctr <= wait_ctr + 32'd1;
             if (cfg_weight_timeout_en &&
-                wait_ctr >= P_WEIGHT_TIMEOUT_CYCLES) begin
+                wait_ctr >= P_WEIGHT_TIMEOUT_CYCLES_EFF) begin
               err_code <= ERR_WEIGHT_TIMEOUT;
               state <= S_DONE;
             end
