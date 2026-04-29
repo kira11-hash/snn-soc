@@ -1920,7 +1920,7 @@ firmware 侧 cycle counter 或 logic analyzer/ILA 证据。
 
 ### 检验标准
 
-- [ ] 能列出 6 个 partial_write invariant 的具体含义
+- [ ] 能列出 8 个 partial_write invariant case 的具体含义
 - [ ] 能说出哪些后续改动会触发 reburn，哪些不会
 - [ ] 能解释为什么这个 TB 是"never-removable"
 
