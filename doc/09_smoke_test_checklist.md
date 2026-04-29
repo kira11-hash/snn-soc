@@ -1,6 +1,6 @@
 # Smoke Test 完整操作手册
 
-最后更新：2026-03-31
+最后更新：2026-04-29
 
 ---
 
@@ -59,6 +59,28 @@ VERDI_HOME=/opt/Synopsys/verdi_green/verdi-2021.09-sp2
 | Shell 语法检查 | `bash -n sim/*.sh fw/*.sh` | 全部通过 |
 | Python 语法检查 | `python -m py_compile scripts\\jtag_rescue.py scripts\\test_jtag_rescue.py fw\\bin_to_readmemh.py fw\\build_flash_image.py doc\\threshold_recommend.py` | 全部通过 |
 | Markdown 本地链接检查 | `python scripts\\check_markdown_links.py` | `MARKDOWN_LINK_CHECK_PASS` |
+
+### 2026-04-29 V1.1 tape-out 加固回归补充
+
+以下门禁覆盖 2026-04 之后追加的 boot ROM、CIM 编程模式、方案 alpha' 外部编程 pad、in-flight lock 与 silicon bring-up 路径。它们不替代 2026-03-31 基线，而是在 tape-out / bring-up 复核时叠加执行。
+
+| 类别 | 命令 | 结果 |
+|------|------|------|
+| CIM 编程 FSM 单测 | `cd sim && bash run_cim_program_ctrl.sh` | `CIM_PROGRAM_CTRL_PASS` |
+| 编程脉冲档位 | `cd sim && bash run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS` |
+| SNN/PROG START 互锁 | `cd sim && bash run_prog_start_interlock.sh` | `PROG_START_INTERLOCK_TB_PASS` |
+| alpha' pad 编码 | `cd sim && bash run_prog_pad_encoder.sh` | `PROG_PAD_ENCODER_TB_PASS` |
+| 编程 WL pad 路由 | `cd sim && bash run_prog_wl_pad_route.sh` | `PROG_WL_PAD_ROUTE_TB_PASS` |
+| BYPASS_HANDSHAKE 锁存 | `cd sim && bash run_prog_bypass_latch.sh` | `PROG_BYPASS_LATCH_TB_PASS` |
+| PROG in-flight 写锁 | `cd sim && bash run_prog_inflight_lock.sh` | `PROG_INFLIGHT_LOCK_TB_PASS` |
+| PROGRAM_MODE=0 no-pending | `cd sim && bash run_prog_disabled_no_pending.sh` | `PROG_DISABLED_NO_PENDING_TB_PASS` |
+| boot_rom 单体 | `cd sim && bash run_boot_rom.sh` | `BOOT_ROM_TB_PASS` |
+| chip_top ROM smoke | `cd sim && bash run_chip_top_rom_smoke.sh` | `CHIP_TOP_ROM_SMOKE_PASS` |
+| chip_top high-window ROM smoke | `cd sim && bash run_chip_top_rom_hi_smoke.sh` | `CHIP_TOP_ROM_HI_SMOKE_PASS` |
+| AXI high instruction window | `cd sim && bash run_axi_instr_hi_window.sh` | `AXI_INSTR_HI_WINDOW_TB_PASS` |
+| JTAG high instruction window | `cd sim && bash run_jtag_instr_hi_window.sh` | `JTAG_INSTR_HI_WINDOW_TB_PASS` |
+| silicon bring-up 固件链 | `cd sim && bash run_silicon_bringup.sh` | `SILICON_BRINGUP_TB_PASS` |
+| boot-time full-array erase e2e | `cd sim && bash run_boot_erase_e2e.sh` | `BOOT_ERASE_E2E_TB_PASS` |
 
 ### 参数覆盖说明
 

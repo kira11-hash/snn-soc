@@ -85,7 +85,7 @@ pad（`prog_op[2:0]` + `prog_level[3:0]`，pads 46..52）传递给模拟 die：
 
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
 |---:|---|---|---|---|---|---|
-| 0x38 | PROG_CTRL | START | [0] | W1P | 0 | 启动一次编程/擦除序列（推理进行中被硬件 interlock 屏蔽） |
+| 0x38 | PROG_CTRL | START | [0] | W1P | 0 | 启动一次编程/擦除序列；仅 `ENABLE_PROGRAM_MODE=1` 时生效，推理 busy/pending 或编程自 busy 期间被硬件 interlock 屏蔽 |
 | 0x38 | PROG_CTRL | ERASE | [1] | RW¹ | 0 | 0=写入(SET)，1=擦除(RESET) |
 | 0x38 | PROG_CTRL | FULL_ARRAY | [2] | RW¹ | 0 | 仅 ERASE=1 生效：1=所有 WL 同时拉高并跳过 verify |
 | 0x38 | PROG_CTRL | BYPASS_HANDSHAKE | [3] | RW¹ | 0 | **Silicon bring-up 专用**：1=绕过 `prog_adc_done` 等待，verify 始终 PASS（用 ideal readback）；用于模拟 die 缺失时的数字自检，生产固件必须保持 0 |
@@ -123,8 +123,13 @@ pad（`prog_op[2:0]` + `prog_level[3:0]`，pads 46..52）传递给模拟 die：
 - `!{peer}_start_pulse`：本拍 reg_bank 同时在接受对侧的 START W1P（最激进的 back-to-back 情形）
 
 即：
-- 写 `CIM_CTRL.START=1` 要求 `!prog_busy && !prog_start_pending && !prog_start_pulse`
-- 写 `PROG_CTRL.START=1` 要求 `!snn_busy && !snn_start_pending && !start_pulse`
+- 写 `CIM_CTRL.START=1` 在 `ENABLE_PROGRAM_MODE=1` 时要求
+  `!prog_busy && !prog_start_pending && !prog_start_pulse`；在
+  `ENABLE_PROGRAM_MODE=0` 时编程侧不存在，`prog_*` 守卫等价旁路。
+- 写 `PROG_CTRL.START=1` 要求
+  `ENABLE_PROGRAM_MODE && !snn_busy && !snn_start_pending && !start_pulse
+  && !prog_busy && !prog_start_pulse`。其中 `ENABLE_PROGRAM_MODE=0` 时
+  START 是 no-op，不会留下 `prog_start_pending`。
 
 仅用 `!busy` 单重守卫**无法封堵 back-to-back race**（start_pulse W1P 发出后下游 FSM 要
 下一拍才把 busy 拉高，这一拍的空窗足以让对侧 START 绕过互锁）。三重守卫 + `cim_macro_arbiter`

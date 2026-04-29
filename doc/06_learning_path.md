@@ -1337,9 +1337,9 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 | 命令 | PASS 标记 |
 |------|----------|
 | `bash sim/run_chip_top_rom_smoke.sh` | `CHIP_TOP_ROM_SMOKE_PASS` — 用 chip_top 顶层 + 真 boot_rom hex 跑端到端 |
-| `bash sim/run_chip_top_rom_hi_smoke.sh` | 验证 0x1000 平移后 INSTR_SRAM 仍然可读写 |
-| `bash sim/run_axi_instr_hi_window.sh` | AXI bridge 在 INSTR 平移窗口下的访问语义 |
-| `bash sim/run_jtag_instr_hi_window.sh` | JTAG rescue 在 INSTR 平移窗口下的语义 |
+| `bash sim/run_chip_top_rom_hi_smoke.sh` | `CHIP_TOP_ROM_HI_SMOKE_PASS`：验证 0x1000 平移后 INSTR_SRAM 仍然可读写 |
+| `bash sim/run_axi_instr_hi_window.sh` | `AXI_INSTR_HI_WINDOW_TB_PASS`：AXI bridge 在 INSTR 平移窗口下的访问语义 |
+| `bash sim/run_jtag_instr_hi_window.sh` | `JTAG_INSTR_HI_WINDOW_TB_PASS`：JTAG rescue 在 INSTR 平移窗口下的语义 |
 | `bash sim/run_boot_rom.sh` | `BOOT_ROM_TB_PASS`（含 OOB 返回 0 检验） |
 
 ### 检验标准
@@ -1450,12 +1450,12 @@ ST_IDLE
 | `bash sim/run_cim_program_ctrl.sh` | `CIM_PROGRAM_CTRL_PASS`（8 个子测试：写、擦、verify、retry、DONE、互锁等） |
 | `bash sim/run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS`（4 档预设 + erase 固定） |
 | `bash sim/run_prog_inflight_lock.sh` | `PROG_INFLIGHT_LOCK_TB_PASS`（18 个子测试） |
-| `bash sim/run_prog_disabled_no_pending.sh` | ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
-| `bash sim/run_boot_erase_e2e.sh` | 完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
-| `bash sim/run_prog_start_interlock.sh` | SNN/PROG 互锁正向 |
-| `bash sim/run_prog_pad_encoder.sh` | prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
-| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 路由 |
-| `bash sim/run_prog_bypass_latch.sh` | BYPASS_HANDSHAKE 在 START 拍锁存 |
+| `bash sim/run_prog_disabled_no_pending.sh` | `PROG_DISABLED_NO_PENDING_TB_PASS`：ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
+| `bash sim/run_boot_erase_e2e.sh` | `BOOT_ERASE_E2E_TB_PASS`：完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
+| `bash sim/run_prog_start_interlock.sh` | `PROG_START_INTERLOCK_TB_PASS`：SNN/PROG 互锁正向 |
+| `bash sim/run_prog_pad_encoder.sh` | `PROG_PAD_ENCODER_TB_PASS`：prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
+| `bash sim/run_prog_wl_pad_route.sh` | `PROG_WL_PAD_ROUTE_TB_PASS`：编程模式下 WL pad 路由 |
+| `bash sim/run_prog_bypass_latch.sh` | `PROG_BYPASS_LATCH_TB_PASS`：BYPASS_HANDSHAKE 在 START 拍锁存 |
 
 ### 检验标准
 
@@ -1586,9 +1586,9 @@ main HEAD 相对于 alpha 冻结点的所有改动，按此判定都属于"防�
 
 | 命令 | 用途 |
 |------|------|
-| `bash sim/run_silicon_bringup.sh` | 跑 silicon_bringup 固件的 Icarus 仿真，验证 4 个 phase 的 UART 输出 |
+| `bash sim/run_silicon_bringup.sh` | `SILICON_BRINGUP_TB_PASS`：跑 silicon_bringup 固件的 Icarus 仿真，验证 4 个 phase 的 UART 输出 |
 | `bash scripts/fpga_bringup_capture.sh`（在 alpha 分支）| 板上 UART capture 自动化 |
-| `python scripts/program_zcu102_e203.tcl`（Vivado）| 烧 bitstream + BRAM init |
+| `xsct scripts/program_zcu102_e203.tcl`（在 alpha 分支）| 烧 bitstream + BRAM init |
 
 ### 检验标准
 

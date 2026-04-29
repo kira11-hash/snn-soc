@@ -805,7 +805,7 @@ module cim_macro_blackbox #(
 - 推理模式下（`prog_busy=0`）`cim_start` 退化为原来的 1-cycle strobe
   (`cim_start_pulse`)，不受本节 level-gate 语义约束。
 
-| 档位 (`PROG_CTRL[17:16]`) | 写入脉宽 (cycles @ 50 MHz) | 实际时间 |
+| 档位 (`PROG_PULSE_WIDTH[17:16]`) | 写入脉宽 (cycles @ 50 MHz) | 实际时间 |
 |:---:|:---:|:---:|
 | `00` | 50 | 1 µs |
 | `01` | 500 | 10 µs |
@@ -961,9 +961,13 @@ cim_start __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾�
   tag `PROG_PULSE_CFG_TB_PASS`。
 - 启动互锁：`tb/prog_start_interlock_tb.sv`，通过 tag
   `PROG_START_INTERLOCK_TB_PASS`。
-- FPGA：Phase C 的 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` tag 证明数字侧编程
-  FSM 与 arbiter 已跑通；对 α' pad 编码 + gate 语义的 FPGA 端独立回归将在
-  `main-fpga-e203-alpha` 分支的 Phase C 里补。
+- FPGA：`main-fpga-e203-alpha-passed @ 2adc327b` 已记录
+  `FPGA_E203_BOOT_UART_PASS` / `FPGA_E203_PROGRAM_ERASE_WRITE_PASS` /
+  `FPGA_E203_PROGRAMMED_INFERENCE_PASS`。数字侧编程 FSM、arbiter 与
+  α' pad 编码 / gate 语义的 RTL 回归分别由
+  `PROG_PAD_ENCODER_TB_PASS`、`PROG_WL_PAD_ROUTE_TB_PASS`、
+  `PROG_BYPASS_LATCH_TB_PASS` 覆盖；板级 UART 原始证据见
+  `doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`。
 
 ### 10.10 已知 follow-up
 
@@ -980,6 +984,6 @@ cim_start __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾�
 - **剩余 TODO**：
   - 模拟侧回填 §5 的电气参数 + 芯片 pinout 后，应与本节 §10.8 合并成最终
     电气合同。
-  - Phase C FPGA 上板端到端验证（`FPGA_E203_PROGRAM_ERASE_WRITE_PASS` +
-    `FPGA_E203_PROGRAMMED_INFERENCE_PASS`），用 `main-fpga-e203-alpha`
-    分支跑，证明 Q1/Q2/Q3 在实际综合路径上仍然成立。
+  - 若后续修改 `fw/e203_smoke/e203_fpga_smoke.c`、ZCU102 wrapper/TCL、
+    约束或任何影响综合的 α' pad 路由 RTL，必须重新跑
+    `main-fpga-e203-alpha` 板级验证；当前已冻结证据不应被 silently 复用。
