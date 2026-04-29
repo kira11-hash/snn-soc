@@ -272,6 +272,12 @@ module lif_neurons (
             signed_in = $signed(neuron_in_data[i]);  // 9-bit 有符号提取
             addend = (MEM_W'(signed_in)) <<< bitplane_shift; // 符号扩展后算术左移
             // 注：MEM_W'(signed_in) 按 SV LRM §6.24.1 保留符号（sign-extending cast）
+            // 【面试 / review 留意】这行曾被静态分析工具 / reviewer 误报为
+            // "<<<" 对有符号数处理有误（CLAUDE.md 误报库 FP-001）。本写法
+            // 严格走"先 $signed → 显式宽度 cast → <<< "三步，符合 SV LRM
+            // §6.24.1 算术左移规范，符号扩展由编译器正确处理；如果今后
+            // 改成 `$signed(neuron_in_data[i]) <<< bitplane_shift` 一行写
+            // 完，类型推断会按表达式宽度而非 MEM_W 推，反而可能丢精度。
             new_mem = membrane[i] + addend; // 膜电位累积（有符号加法）
 
             // ── 阈值比较（有符号比较）────────────────────────────────────

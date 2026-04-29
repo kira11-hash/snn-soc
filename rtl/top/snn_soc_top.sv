@@ -1125,12 +1125,16 @@ module snn_soc_top #(
   //     这一行的 64-bit one-hot vector，复用同一条 WL pad 通路把 row 信息送到
   //     模拟侧。如果不复用，要再加 6 根 prog_row pad（编程时专用），太奢侈。
   //
-  // Q3: 为什么 wrapper 输出 wl_valid_pulse_wrapped 比输入 wl_valid_pulse 晚 10 拍？
-  //     8 cycle SEND（8 组依次发出）+ 1 cycle 锁存 latch + 1 cycle DONE 收尾
-  //     = 10 cycle latency。这 10 拍是 cim_start_ext 必须等待的"WL 已稳定"
-  //     窗口，否则模拟侧会在 wl_data 还没扫到目标 group 时拉起 cim_start，导致
-  //     电流注入到错误的 row。所以 cim_array_ctrl 收到 wl_valid_pulse_wrapped
-  //     才允许进入 dac_valid 阶段——这是 wrapper 对外暴露的"握手契约"。
+  // Q3: 为什么 wrapper 输出 wl_valid_pulse_wrapped 比输入 wl_valid_pulse 晚约 10 拍？
+  //     wl_mux_wrapper 的 FSM 路径：IDLE 拍收 wl_valid_pulse_in → 锁存 bitmap
+  //     并切到 SEND（1 拍） → SEND 内 grp_idx 0..7 逐组发出（8 拍）→ DONE
+  //     拉 wl_valid_pulse_out（1 拍）→ 回 IDLE。从 wl_valid_pulse_in 升起到
+  //     wl_valid_pulse_out 升起总共约 10 个 clk。这段时间是 cim_start_ext 必须
+  //     等待的"WL 已稳定"窗口，否则模拟侧会在 wl_data 还没扫到目标 group 时
+  //     拉起 cim_start，导致电流注入到错误的 row。所以 cim_array_ctrl 收到
+  //     wl_valid_pulse_wrapped 才允许进入 dac_valid 阶段——这是 wrapper 对外
+  //     暴露的"握手契约"。具体 FSM 时序见 rtl/snn/wl_mux_wrapper.sv 的
+  //     ST_IDLE / ST_SEND / ST_DONE 三态实现。
   //
   // Q4: 如果删掉 wl_mux_busy → dbg_wl_stall_cnt 这条线会怎样？
   //     不会有功能错误（FSM 已经用 wl_valid_pulse_wrapped 等回 ack）。但失去

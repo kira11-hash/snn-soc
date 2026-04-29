@@ -405,6 +405,16 @@ module dma_engine (
   //         = addr_ptr - 4（即刚才读出 word0_reg 的位置）。
   // 写数据：word0_reg（ST_RD0 捕获）。
   // 字节使能：全字写（4'hF）。
+  //
+  // 【面试 / review 留意】"addr_ptr - 4" 这种"看着像负向修正"的表达式
+  // 容易被 reviewer 误报为 off-by-one bug（CLAUDE.md 误报库 FP-003）。
+  // 这里的 -4 不是 bug，而是阻塞/非阻塞赋值的时序补偿：
+  //   - ST_RD0 内 addr_ptr 用 <= 自增 4（非阻塞），下一拍才生效；
+  //   - ST_WR 同拍读 addr_ptr 拿到的是"已经自增过"的值；
+  //   - 但要写的是上一拍 RD0 抓回 word0_reg 时对应的 SRAM 偏移；
+  //   - 所以 -4 把 addr_ptr 还原到那一笔读地址。
+  // 改 RTL 时不要轻易动这个 -4：如果改 ST_RD0 的 addr_ptr 自增时机或
+  // 阻塞性，必须同步改这里的常量；只改一边就会让 dst SRAM 写到错误偏移。
   // -----------------------------------------------------------------------
   always_comb begin
     weight_wr_en   = 1'b0;

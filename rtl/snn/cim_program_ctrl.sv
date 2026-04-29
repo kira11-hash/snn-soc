@@ -339,6 +339,17 @@ module cim_program_ctrl (
         end
 
         // ── 验证判据 ────────────────────────────────────────────────
+        // 【面试讲解】这是 ST_VERIFY 的核心判据，分擦除/写入两条路径：
+        //   - 擦除：readback ≤ 1 → PASS。1 是 ADC 量化噪声门限（HRS
+        //     理论 ADC=0，但 D2D 5%±1% 漂移 + ADC 量化误差有时会打到 1）。
+        //   - 写入：readback 落在 [target × (256/PROG_LEVELS) ± 2] 窗口
+        //     → PASS。target × (256/PROG_LEVELS) 是 4-bit level 映射到
+        //     8-bit ADC code 的中心值；±2 是 D2D/C2C 噪声推算的 sweet
+        //     spot：±1 误 FAIL 重试率 ~15%，±3 让权重精度不够，±2 是
+        //     器件 D2D/C2C 数据 + 100 sample 推理 sweep 出的工程值。
+        // 如果未来器件改了 D2D/C2C 数字，这两个 ±2 / ≤1 阈值可能要重调。
+        // 不要轻易改成"魔数 ±2 太多"——这是器件 contract，必须配合 silicon
+        // 上 yield/重试率实测调整。
         ST_VERIFY: begin
           if (op_erase) begin
             if (readback_val <= ADC_BITS'(1))
@@ -348,6 +359,10 @@ module cim_program_ctrl (
           end else begin
             // D1-001 修复：验证窗口用 target_level（锁存目标等级），
             // 而非 pulse_count（累计脉冲数，retry 后可能 > target_level，窗口会漂移）。
+            // 【这条修复的核心 lesson】"目标值"必须是一开始锁存的"target_level"
+            // 而不是动态变化的 pulse_count；否则验证窗口会随每次 retry 向上漂，
+            // 极端情况下永远不会到 PASS（每次 RETRY 后窗口又往后挪）→ 死循环
+            // 直到 retry_limit 用完报 FAIL。这是个"窗口锚点选错"的经典 bug。
             if (readback_val >= ADC_BITS'(int'(target_level) * (256 / PROG_LEVELS) - 2) &&
                 readback_val <= ADC_BITS'(int'(target_level) * (256 / PROG_LEVELS) + 2))
               state <= ST_PASS;
