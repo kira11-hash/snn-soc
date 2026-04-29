@@ -2,9 +2,45 @@
 
 **适用对象**: 研一新生，首次接触系统级数字 IC 设计
 **前置知识**: Verilog/SystemVerilog 基础语法，数字电路基础
-**学习目标**: 完全理解 MVP 主链路、V1 外设集成与 V2 SNN 扩展（CIM 编程 + 多层推理），能独立修改、排查并为 tapeout 前收口做准备
+**学习目标**: 完全理解 MVP 主链路、V1 主线扩展、V1.1 tape-out 加固层（boot_rom + CIM 编程 + 方案 α' 外部编程），能独立修改、排查并为 tapeout 前收口做准备
 
 **参数口径**：本文涉及的默认参数与时序数值以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
+
+## 当前分支特别说明（feature/v2-fpga-e203）
+
+**本文件是 main 分支 doc/06 的克隆版**，在保留 Part A/B/C 全部内容的基础上，在末尾追加了 **Part E：V2 E203 + V2.B FPGA SoC 集成**，用于本分支特有的 E203 RISC-V (PL fabric) + V2.B streamed-stage 加速器演示路径。
+
+| 元数据 | 值 |
+|------|------|
+| 当前分支 | `feature/v2-fpga-e203` |
+| 板级冻结 tag | `v2-fpga-e203-passed @ e696dc39`（2026-04-25） |
+| HEAD | `ae377d3c`（WSTRB byte-mask 加固 + 永久 invariant TB） |
+| 是否需要 reburn | **否** — HEAD 改动均为后向兼容（fw 全字写不触发 partial WSTRB） |
+| 板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_MULTILAYER_INFER_PASS` |
+| Bitstream SHA256 | `e5ae7936...`（Vivado 2022.2 build 3671981） |
+| Timing | 50 MHz @ WNS 4.837 ns，0 routing errors |
+| Util | LUT 21.59% / FF 2.51% / BRAM 10.53% / DSP 0.08% |
+
+**学习时请按照"先 Part A → Part B → Part C（如需了解 ASIC 主线）→ Part E（本分支特有）"的顺序**。Part E 假设你已经熟悉 V1 主线 + V1.1 加固层 + E203 集成（Part B 阶段 12）。
+
+> **本分支独立性**：feature/v2-fpga-e203 是 evidence branch，目标是验证 "E203 RISC-V 软核（PL fabric） + V2.B 多层 streamed-stage 加速器" 端到端可板上跑通。它把 V1 main 的 E203 启动链 + V2.B 的多层推理流水线缝合在一起，形成第二条与 ARM PS 路径平行的演示。
+
+---
+
+## 当前版本对应的 main 分支基线（2026-04-29 复核）
+
+| 维度 | 状态 |
+|------|------|
+| RTL 总行数 | ~8,700 行（rtl/ 全树） |
+| ASIC pad 冻结 | 55-pad（48 推理 + 7 外部编程；详见 `doc/15_asic_pad_map.md`） |
+| TO-intent 顶层 | `rtl/top/chip_top.sv`（ENABLE_E203=1 + ENABLE_BOOT_ROM=1 + ENABLE_PROGRAM_MODE=1 + ENABLE_EXT_CIM_IF=1） |
+| Boot 路径 | mask ROM @ 0x0 → bootloader → SPI 加载 app → INSTR_SRAM @ 0x1000 |
+| CIM 编程能力 | `cim_program_ctrl` + `cim_macro_arbiter`（写 / 擦除 / 全阵列擦 / verify retry） |
+| 外部编程接口 | 方案 α'（pads 46..52：`prog_op[2:0]` + `prog_level[3:0]`），10-stage shift register 与 cim_start 相位对齐 |
+| FPGA 验证状态 | `main-fpga-e203-alpha-passed` tag 已板级冻结（2026-04-24，UART 三段 PASS） |
+| 主回归全绿 | LIGHT / WEIGHTED / SAMPLE_ALIGN(100/100) / E203_SMOKE / JTAG / UART / SPI / DMA / AXI bridge / CIM_PROGRAM_CTRL / PROG_PULSE_CFG / PROG_INFLIGHT_LOCK / BOOT_ERASE_E2E / CHIP_TOP_ROM_SMOKE / SILICON_BRINGUP |
+
+> **本文阅读顺序建议**：先按 Part A 把 MVP 主链路读懂；再按 Part B 把 UART/SPI/AXI/E203/JTAG 读懂；最后按 **Part C（V1.1 tape-out 加固层）** 学 boot_rom / CIM 编程 / 方案 α' / chip_top / silicon bringup。Part C 是 2026-04 后追加，是 main 流片前最后一段需要吃透的内容。
 
 ## 2026-03-31 审核后的建议入口
 
@@ -317,15 +353,13 @@ ST_IDLE ──start_pulse──> ST_SETUP
 
 > **注**：以下描述 `adc_ctrl.sv` 内部仿真行为（`snn_soc_top` ↔ `cim_macro_blackbox` 并行接口）。外部简化协议使用 `cim_start`/`cim_done`，详见 `doc/08` §1.3。
 
-#### V1 路径（默认 20 通道 Scheme B）
-
 ```
 20 个通道输出（Scheme B: 10 正 + 10 负），只用 1 个 8-bit ADC：
 
 bl_sel: 0 → 1 → 2 → ... → 19（前 10 正列，后 10 负列）
 
 每个通道的采样流程:
-1. 设置 bl_sel（V1 只用低 5 位，高 2 位恒 0）
+1. 设置 bl_sel (5-bit)
 2. 等待 settle（稳定）
 3. adc_start 脉冲
 4. 等待 adc_done 脉冲
@@ -337,24 +371,6 @@ bl_sel: 0 → 1 → 2 → ... → 19（前 10 正列，后 10 负列）
 - neuron_in_valid 拉高一拍
 - neuron_in_data = 10 路 signed 9-bit 差分结果
 ```
-
-#### V2 路径（可配扫描偶数 2~128 通道）
-
-V2 把 `bl_sel` 从 5-bit 扩宽到 **7-bit**（`$clog2(MAX_BL_SCAN)=$clog2(128)=7`），
-支持多层网络每层不同的 `bl_count`（例如 64→32→16→10 网络每层分别扫 64/32/20/20 路）：
-
-```
-扫描通道数 = bl_scan_count（来自 layer_sequencer，偶数 2~128 范围）
-差分切分点 = bl_scan_count / 2（前半正列，后半负列）
-
-bl_sel: 0 → 1 → ... → (bl_scan_count-1)
-diff[i] = raw_data[i] - raw_data[i + bl_scan_count/2]，i = 0..(bl_scan_count/2 - 1)
-
-输出到 neuron_in_data_wide（128 宽数组），未使用位补 0
-```
-
-切换开关：`use_scan_cfg` 信号。0 走 V1（固定 20 路），1 走 V2。
-默认 V1 完全向后兼容，不影响原有 100/100 SAMPLE_ALIGN 回归。
 
 ### LIF 神经元算法（核心！）
 
@@ -915,18 +931,14 @@ pop = popcount(wl_latched)  // 0-64（在 dac_valid 单拍触发后锁存）
 
 ---
 
-# Part B: V1 进阶学习（外设集成）
+# Part B: V1 进阶学习
 
-完成 Part A 后，你已经掌握了 MVP。接下来可以选择：
-- **Part B**（本章）：学习 V1 外设集成（UART / SPI / AXI / E203 / JTAG）
-- **Part C**：学习 V2 SNN 扩展（CIM 编程 + 多层推理）
-
-**Part B 和 Part C 没有前置依赖**，可以根据需要先学任意一个。如果你的工作重心在 SNN 核心链路（如准备跑多层仿真或和器件老师对接编程方案），建议先跳到 Part C。
+完成 Part A 后，你已经掌握了 MVP。接下来学习 V1 版本需要的新知识。
 
 **前置条件**: Part A 检验清单全部通过
 
 > **注意**：Part B 的阶段 9–14 既介绍协议原理，也会指引你去读当前 `main` 分支上已完成的 V1 实现。每个阶段的"实际实现参考"小节列出了对应的 RTL/TB/脚本文件，建议结合代码阅读。
-> 迭代变更详情见 `doc/16_iteration_log.md`（Iteration 1–7）。
+> 迭代变更详情见 `doc/16_iteration_log.md`（Iteration 1–7 = V1 主线；Iteration 10–11 = V1.1 boot_rom + 方案 α'，对应本文 Part C）。
 
 ---
 
@@ -1279,6 +1291,348 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 
 ---
 
+# Part C: V1.1 Tape-out 加固层
+
+完成 Part B 后，你已经掌握了 V1 的全部数字主链路。Part C 是 **2026-04 月之后追加** 的内容，覆盖了流片前最后一段必须吃透的特性：mask boot ROM、片上 CIM 编程通路、方案 α' 外部编程接口、`chip_top` pad-facing 包装、silicon bring-up 固件与板级 FPGA 验证证据链。
+
+**前置条件**：Part B 全部检验清单通过；能完整描述 E203 启动链。
+
+> **为什么独立成 Part C？** 这部分内容是 Iteration 10、11 之后才并入 main，目的是为 6 月底 V1 流片做最后一公里收口。不学这一段，直接读 `chip_top.sv` 会看不懂 `ENABLE_BOOT_ROM` / `ENABLE_PROGRAM_MODE` / 方案 α' 那些 generate 块在做什么。
+
+---
+
+## 阶段 15：Boot ROM 与 chip_top tape-out 包装（Day 33-34）
+
+**目标**：理解 V1.1 引入的 mask boot ROM 与 `chip_top` 顶层 wrapper，能解释三套地址映射在 `ENABLE_BOOT_ROM` 不同取值下的差异。
+
+### 15.1 为什么需要 boot ROM
+
+| 问题 | 原因 |
+|------|------|
+| ASIC 上电时 INSTR_SRAM 是 X | SRAM 没有上电态，CPU 取指会得到不可预期的指令 |
+| 不能依赖 JTAG 装载 | 流片后量产板上不一定有 JTAG 调试器 |
+| 不能依赖 SPI 直 boot | E203 本身是 RV32I 通用核，无 boot-from-SPI 硬件，需要 bootloader |
+
+**解决方案**：实例化一个工艺 mask ROM（4KB @ 0x0），上电立刻跑 bootloader（`fw/boot_main.c`）→ 配置 SPI → 把 app（`fw/main.c`）从 SPI flash 搬到 INSTR_SRAM @ 0x1000 → fence.i → 跳转。
+
+### 15.2 三套地址映射
+
+| 配置 | 0x0 处映射 | INSTR_SRAM 起点 | 适用场景 |
+|------|-----------|----------------|---------|
+| `ENABLE_BOOT_ROM=0`（默认） | INSTR_SRAM 直接 | `0x0000_0000` | Gate A 旧回归、`top_tb` 直灌 hex |
+| `chip_top.ENABLE_BOOT_ROM=1` | boot_rom 4KB | `0x0000_1000`（平移后）| ASIC tape-out 路径、`chip_top_rom_smoke_tb` |
+| `snn_soc_fpga_top`（FPGA）| INSTR_SRAM + INSTR_INIT_FILE | `0x0000_0000` | FPGA 板级 demo（BRAM 预装 firmware） |
+
+地址常量真源：[rtl/top/snn_soc_pkg.sv](../rtl/top/snn_soc_pkg.sv) 中
+`ADDR_BOOT_ROM_BASE / ADDR_BOOT_ROM_END / ADDR_INSTR_BASE_WITH_ROM / ADDR_INSTR_END_WITH_ROM`。
+
+### 15.3 关键 RTL 文件
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/mem/boot_rom.sv](../rtl/mem/boot_rom.sv) | 同步 ROM 行为模型（仿真+FPGA），ASIC 由 ROM compiler 取代；OOB 返回 0（防御性，2026-04-25 收紧） |
+| [rtl/bus/bus_interconnect.sv](../rtl/bus/bus_interconnect.sv) | `ENABLE_BOOT_ROM=1` 时低 4KB 路由到 boot_rom，INSTR_SRAM 平移；`=0` 时 boot_rom 路径整个 generate-out |
+| [rtl/bus/icb2simple_bridge.sv](../rtl/bus/icb2simple_bridge.sv) | 同样新增 `ENABLE_BOOT_ROM` 参数选择 INSTR 窗口 |
+| [rtl/periph/jtag_mem_loader.sv](../rtl/periph/jtag_mem_loader.sv) | 同上 |
+| [rtl/top/snn_soc_top.sv](../rtl/top/snn_soc_top.sv) | 透传 `ENABLE_BOOT_ROM` + `BOOT_ROM_INIT_FILE` + `INSTR_INIT_FILE` 参数 |
+| [rtl/top/chip_top.sv](../rtl/top/chip_top.sv) | tape-out 顶层：默认打开 `ENABLE_BOOT_ROM=1` + ENABLE_E203=1 + ENABLE_PROGRAM_MODE=1 + ENABLE_EXT_CIM_IF=1 |
+
+### 15.4 启动链全貌（chip_top tape-out 路径）
+
+```
+1. 上电复位（rst_n_pad 释放）
+2. CPU 从 0x0 取指 → boot_rom（mask ROM，4KB）
+3. boot_main.c：
+   - 配置 UART (115200) 输出 "BL start"
+   - 配置 SPI (Mode 0)、读 SPI flash header
+   - 把 app payload 搬到 INSTR_SRAM @ 0x1000
+   - fence.i → jal x0, 0x1000
+4. main.c (app)：
+   - UART 输出 "APP start"
+   - **新：开机全阵列擦除 RRAM**（详见阶段 16）
+   - 主循环：DMA + SNN 推理 → UART 输出 spike id
+```
+
+### 15.5 关键回归
+
+| 命令 | PASS 标记 |
+|------|----------|
+| `bash sim/run_chip_top_rom_smoke.sh` | `CHIP_TOP_ROM_SMOKE_PASS` — 用 chip_top 顶层 + 真 boot_rom hex 跑端到端 |
+| `bash sim/run_chip_top_rom_hi_smoke.sh` | 验证 0x1000 平移后 INSTR_SRAM 仍然可读写 |
+| `bash sim/run_axi_instr_hi_window.sh` | AXI bridge 在 INSTR 平移窗口下的访问语义 |
+| `bash sim/run_jtag_instr_hi_window.sh` | JTAG rescue 在 INSTR 平移窗口下的语义 |
+| `bash sim/run_boot_rom.sh` | `BOOT_ROM_TB_PASS`（含 OOB 返回 0 检验） |
+
+### 检验标准
+
+- [ ] 能解释为什么 boot_rom 的 OOB 必须返回 0 而不能 wrap
+- [ ] 能解释 `ENABLE_BOOT_ROM=0` 与 `=1` 时 `bus_interconnect` 译码差异
+- [ ] 能解释为什么 `BOOT_ROM_INIT_FILE` 留空时 `chip_top` 仿真会打 WARN（CPU trap）
+- [ ] 能解释 INSTR_INIT_FILE（FPGA 用）和 BOOT_ROM_INIT_FILE（ASIC 用）的不同适用场景
+
+---
+
+## 阶段 16：CIM 编程模式与 boot-time 全阵列擦除（Day 35-37）
+
+**目标**：理解 V1 单层 CIM 写 / 擦 / verify 的硬件控制器与寄存器接口；理解 fw/main.c 开机为什么必须做一次全阵列擦除。
+
+### 16.1 为什么 V1 也要支持编程
+
+V1 原本只做"推理"，把权重通过 `weight_pos.hex` / `weight_neg.hex` 离线注入 macro。但器件老师在 2026-04-22 / 2026-04-24 反复确认两件事：
+
+1. **流片后 RRAM 单元初始状态不保证是 HRS**（高阻），可能是 LRS 或随机态。
+2. **开机必须先做一次全阵列擦除**，否则推理结果不可预期。
+
+因此 V1 从 V2 移植了 `cim_program_ctrl` + `cim_macro_arbiter` 这一套编程通路，封装在 `ENABLE_PROGRAM_MODE=1` generate 块下，默认行为对旧回归零影响。
+
+### 16.2 编程寄存器（PROG_*，0x4000_0038~0x4000_0094）
+
+| 偏移 | 名称 | 关键位 | 说明 |
+|------|------|--------|------|
+| 0x38 | PROG_CTRL | [0]=START W1P, [1]=ERASE RW^1, [2]=FULL_ARRAY RW^1, [3]=BYPASS_HANDSHAKE RW^1, [7:4]=LEVEL RW^1, [10:8]=RETRY_LIMIT RW^1 | 启动一次编程操作；BYPASS=1 跳过 handshake（仿真用），生产固件保持 0 |
+| 0x3C | PROG_ROW | [5:0]=row | 目标行（0~63） |
+| 0x40 | PROG_COL | [4:0]=col | 目标列（0~19） |
+| 0x44 | PROG_STATUS | [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [6]=PROG_FSM_PRESENT RO, [7]=DONE W1C | 状态/完成位；bit[6] 表示 ENABLE_PROGRAM_MODE 是否在硬件上启用，固件用此位代替 BUSY 探测 |
+| 0x90 | PROG_PULSE_WIDTH | [17:16]=sel RW（0=1us/1=10us/2=100us/3→100us）, [15:0]=cycles RO | 写入脉冲宽度档位 |
+| 0x94 | PROG_ERASE_WIDTH | [15:0]=50000 RO（1ms@50MHz）| 擦除脉冲宽度，固定，写入忽略 |
+
+**RW^1 的含义**：寄存器在 `prog_busy=1 / prog_start_pending=1 / prog_start_pulse=1` 任一为 1 时被锁，不接受新写入。这是 2026-04-25 加的 in-flight lock，目的是防止 10-stage pad 编码器 pipeline 与 `cim_program_ctrl` 内部锁存值漂移。
+覆盖：[`tb/prog_inflight_lock_tb.sv`](../tb/prog_inflight_lock_tb.sv)。
+
+### 16.3 PROG_FSM_PRESENT 与 race-free 探测
+
+旧固件用 "256-cycle BUSY 探测" 判断编程 FSM 是否真的存在；这种方式在快速脉冲（例如 BYPASS=1 + 短脉冲）下会被 BUSY 升起→落下越过，假阳性。新方式：
+
+```c
+uint32_t s_pre = PROG_STATUS;
+if ((s_pre & PROG_STATUS_FSM_PRESENT_MASK) == 0u) {
+    return 2u;   // ENABLE_PROGRAM_MODE=0 build, no-op
+}
+// 编程 FSM 存在 → 安全发起 START
+```
+
+PROG_STATUS[6] 是组合逻辑直接驱动 `ENABLE_PROGRAM_MODE`，编译期常量级别的可信度。
+
+### 16.4 boot-time 全阵列擦除（fw/main.c, 2026-04-24）
+
+```c
+// 1. 探测 FSM 是否存在
+if ((PROG_STATUS & FSM_PRESENT_MASK) == 0) goto skip;
+
+// 2. 清掉旧 DONE
+PROG_STATUS = DONE_MASK;
+
+// 3. read-modify-write，保留 RETRY_LIMIT 默认值 4
+PROG_ROW = 0;
+PROG_COL = 0;
+PROG_CTRL = (PROG_CTRL & ~LOW_MASK) | ERASE_MASK | FULL_ARRAY_MASK | START_MASK;
+
+// 4. 轮询 DONE，超时回 0
+while (poll < BOOT_ERASE_POLL_TIMEOUT) {
+    s = PROG_STATUS;
+    if (s & DONE_MASK) break;
+}
+
+// 5. UART 输出 "APP erase SEQ_DONE"
+```
+
+**注意语义**：返回 1 表示"controller 完成 1 ms 擦除时序"，**不**表示固件已经逐 cell verify。逐 cell verify 由 `cim_program_ctrl` 在 `prog_op=write` 时做，开机擦除是 fire-and-forget。
+
+### 16.5 cim_program_ctrl 状态机（高层）
+
+```
+ST_IDLE
+  └─ start → ST_SETUP (锁存 op/row/col/level)
+       └─ ST_PULSE (脉冲发出，宽度由 PROG_PULSE_WIDTH 或 PROG_ERASE_WIDTH 决定)
+            └─ ST_PULSE_HOLD
+                 ├─ FULL_ARRAY=1 或 op=erase 单 cell → ST_PASS（不做 verify）
+                 └─ op=write → ST_VERIFY → ST_RB_WAIT → 比对 bl_data
+                      ├─ 匹配 → ST_PASS
+                      └─ 不匹配 → 重试，直到 RETRY_COUNT == RETRY_LIMIT → ST_FAIL
+                           ↓
+                          ST_DONE (DONE sticky=1，PASS/FAIL 二选一)
+```
+
+详细状态：[rtl/snn/cim_program_ctrl.sv](../rtl/snn/cim_program_ctrl.sv)（335 行，注释详细）。
+
+### 16.6 cim_macro_arbiter（推理 vs 编程仲裁）
+
+| 状态 | 行为 |
+|------|------|
+| `prog_busy=0`（默认）| arbiter 透传推理侧信号；prog_* 全部 tie 0 |
+| `prog_busy=1` | arbiter 屏蔽推理侧 done/data，把 cim_program_ctrl 的 wl/dac/cim 信号送到 cim_macro_blackbox |
+
+互斥保证：在 `reg_bank` 的写入门控里，SNN START 与 PROG START 互锁，不会同时发起。
+
+### 16.7 关键回归
+
+| 命令 | PASS 标记 |
+|------|----------|
+| `bash sim/run_cim_program_ctrl.sh` | `CIM_PROGRAM_CTRL_PASS`（8 个子测试：写、擦、verify、retry、DONE、互锁等） |
+| `bash sim/run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS`（4 档预设 + erase 固定） |
+| `bash sim/run_prog_inflight_lock.sh` | `PROG_INFLIGHT_LOCK_TB_PASS`（18 个子测试） |
+| `bash sim/run_prog_disabled_no_pending.sh` | ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
+| `bash sim/run_boot_erase_e2e.sh` | 完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
+| `bash sim/run_prog_start_interlock.sh` | SNN/PROG 互锁正向 |
+| `bash sim/run_prog_pad_encoder.sh` | prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
+| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 路由 |
+| `bash sim/run_prog_bypass_latch.sh` | BYPASS_HANDSHAKE 在 START 拍锁存 |
+
+### 检验标准
+
+- [ ] 能说出 PROG_CTRL 七个字段以及每个字段的 RW 类型
+- [ ] 能解释 in-flight lock 的目的（防 pad encoder pipeline 与 FSM 锁存值漂移）
+- [ ] 能解释 PROG_STATUS[6] 替换 256-cycle BUSY 探测的动机
+- [ ] 能写出 fw 开机全阵列擦除的 5 步序列
+- [ ] 能区分 "controller SEQ_DONE" 与 "fw 逐 cell verify" 两种语义
+
+---
+
+## 阶段 17：方案 α' 外部编程接口（Day 38）
+
+**目标**：理解 2026-04-24 冻结的方案 α'（α-prime）外部编程合同：为什么把 pad 数从 48 扩到 55，以及 7 个新增 pad 各自的语义。
+
+### 17.1 背景
+
+V1 数字芯片与模拟芯片是两个独立 die 通过 PCB 互联。模拟侧 RRAM 阵列需要外部 stimulate "写入电压 / 擦除电压 / verify 时序"。早期方案 α 是把 prog_op 直接驱动模拟管脚，但缺少"目标电导级数 / verify 通路"，方案 α' 在此基础上增补：
+
+| 新增 pad | 数量 | 含义 |
+|---------|------|------|
+| `prog_op[2:0]` | 3 | op 编码：000=inference / 100=full_array_erase / 101=erase_single / 110=write / 111=verify |
+| `prog_level[3:0]` | 4 | 目标电导等级（write 时有效，0~15） |
+| 总计 | 7 | 对应 doc/15 pads 46..52 |
+
+**移除的旧 pad**：原计划的 `prog_pass` 被去掉——verify PASS/FAIL 由数字侧根据 `bl_data` 自己算，不需要从模拟侧 strobe 出来。
+
+### 17.2 pad 编码器 + 10-stage 相位对齐
+
+`snn_soc_top.sv` 的 `prog_op_ext` / `prog_level_ext` 编码器把 `cim_program_ctrl` 当前操作翻译成 prog_op[2:0] + prog_level[3:0]，再过一个 10 拍 shift register 与 `cim_start_ext` 相位对齐：
+
+```
+cim_start_ext       :     ___/‾‾‾\__________________
+prog_op_ext  (10st) :  ----<op>--<op>--<op>--<op>...
+prog_level_ext (10st):  ----<lvl>--<lvl>--<lvl>...
+                                    ↑
+                       与 cim_start 同时到达模拟侧 pad
+```
+
+10 拍延迟来自 wl_mux_wrapper 的 8 cycle SEND + 1 cycle 锁存 + 1 cycle DONE，目的是让模拟侧"看到 cim_start 的同时已经看到稳定的 op/level"，避免相位失配。
+
+### 17.3 in-flight lock 与编码器的关系
+
+阶段 16.2 提到的 in-flight lock 直接服务于这个编码器：如果在 `prog_busy=1` 期间 CPU 改了 PROG_CTRL.LEVEL，10 拍后 prog_level_ext pad 就会从 op=A 漂到 op=B，但 `cim_program_ctrl` 还在按 op=A 的 ROW/COL 跑——数字侧与模拟 die 接口不一致直接会让一次写入定位错。
+
+锁住的字段：ERASE / FULL_ARRAY / BYPASS / LEVEL / RETRY_LIMIT / ROW / COL / PULSE_WIDTH。
+
+### 17.4 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| [rtl/top/snn_soc_top.sv](../rtl/top/snn_soc_top.sv) | `prog_op_ext` / `prog_level_ext` 编码器 + 10-stage shift register |
+| [rtl/top/chip_top.sv](../rtl/top/chip_top.sv) | pad 路由：`prog_op_pad[2:0]` / `prog_level_pad[3:0]` 直连 ext 端口 |
+| [doc/08_cim_analog_interface.md](08_cim_analog_interface.md) §10 | 外部编程协议正文 |
+| [doc/03_cim_if_protocol.md](03_cim_if_protocol.md) 末节 | 时序细节 |
+| [doc/15_asic_pad_map.md](15_asic_pad_map.md) | 55-pad 全表（pads 46..52 标注 α' 新增） |
+
+### 17.5 关键回归
+
+| 命令 | PASS 标记 |
+|------|----------|
+| `bash sim/run_prog_pad_encoder.sh` | 验证编码器对每个 op/level 的 pad 输出 |
+| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 仍能正确路由（推理通路不被破坏） |
+
+### 检验标准
+
+- [ ] 能说出方案 α' 7 个新 pad 的位宽与含义
+- [ ] 能解释为什么 verify PASS/FAIL 不需要单独的 pad
+- [ ] 能解释 10-stage shift register 与 `cim_start_ext` 相位对齐的目的
+- [ ] 能解释 in-flight lock 失效会怎样让 prog_op/prog_level pad 漂移
+
+---
+
+## 阶段 18：Silicon bring-up 固件与 FPGA 板级证据链（Day 39-40）
+
+**目标**：理解流片回片后的 day-1 / day-2 / day-3 上板流程，以及 ZCU102 FPGA 板级验证作为 tape-out 前的最后一道护栏。
+
+### 18.1 silicon bring-up 固件
+
+[fw/silicon_bringup/silicon_bringup.c](../fw/silicon_bringup/silicon_bringup.c) 是流片后第一段在真芯片上跑的代码，分四个阶段：
+
+| 阶段 | 目的 | UART 输出 |
+|------|------|---------|
+| Phase 0 | 上电 self-print，确认 UART/CPU 活着 | `BRINGUP_PHASE_0_UART_OK` |
+| Phase 1 | BYPASS_HANDSHAKE=1 → 全阵列擦除（不依赖模拟 die） | `BRINGUP_PHASE_1_BYPASS_ERASE_OK` |
+| Phase 2 | BYPASS=0 → 真模拟擦除（依赖模拟 die 已上电） | `BRINGUP_PHASE_2_REAL_ERASE_OK` |
+| Phase 3 | 真模拟写一个目标 cell + verify | `BRINGUP_PHASE_3_REAL_WRITE_VERIFY_OK` |
+
+设计意图：在不确定模拟 die 是否真的工作时，先用 BYPASS 模式确认数字 die 自己是好的；再逐步把模拟 die 拉进来。详见 [doc/silicon_bringup_guide.md](silicon_bringup_guide.md) Day 1/2/3 SOP。
+
+### 18.2 ZCU102 FPGA 板级证据链（main-fpga-e203 alpha）
+
+**位置**：`feature/main-fpga-e203` 系列分支（最新冻结点：`main-fpga-e203-alpha-passed` tag）。
+
+**FPGA wrapper**：`fpga/boards/zcu102/snn_soc_fpga_top.sv`
+- 时钟：USER_SI570 300MHz 差分 → MMCM → 50MHz
+- 复位：btn_rst (AM13) | !mmcm_locked → 2-FF 同步释放
+- UART：on-board CP2108 J83 (F13/E13) 115200 8N1
+- BRAM 预装固件：`fw/e203_smoke/e203_fpga_smoke.c` → `e203_smoke.hex` (2268 bytes)
+
+**板级 PASS marker**（UART log 有真实抓取）：
+```
+FPGA_E203_BOOT_UART_PASS
+[PROG] full-array erase DONE
+[PROG] write subset rows=0..9 cols=0..9 PASS
+FPGA_E203_PROGRAM_ERASE_WRITE_PASS
+FPGA_E203_PROGRAMMED_INFERENCE_PASS
+```
+
+**为什么 FPGA 可以代替 silicon**：FPGA 上 `cim_macro_blackbox` 是行为模型 + behavioral popcount 公式（Scheme B 差分），数字逻辑路径与流片 RTL 完全一致；时钟约束 50MHz 与 ASIC 目标一致；E203 + UART + bus interconnect + reg_bank + dma + cim_program_ctrl 全部综合到 PL fabric。所以"数字侧端到端启动 → 编程 → 推理"在 FPGA 板上跑过即等价于数字 die 的端到端验证。
+
+### 18.3 不需要重烧 FPGA 的判定标准
+
+由 [doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md](main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md) 给出的四条触发条件：
+
+1. 改动 `fw/e203_smoke/e203_fpga_smoke.c`（FPGA BRAM init 固件）
+2. 改动 `snn_soc_top` / `cim_program_ctrl` / `cim_macro_arbiter` / `wl_mux_wrapper` / `cim_macro_blackbox` 的**功能性**逻辑
+3. 改动 ZCU102 wrapper 或 XDC
+4. `fw/main.c` 引入到 FPGA pre-init（目前没有这个计划）
+
+判定逻辑：
+- **纯文档 / 纯注释 / TB-only / 防御性 OOB / 默认参数追加** → 不需要重烧
+- **行为可见的 RTL 修改 / FPGA wrapper 改动 / FPGA 固件改动** → 必须重烧
+
+main HEAD 相对于 alpha 冻结点的所有改动，按此判定都属于"防御性 + 默认参数 + TB-only"，**不触发重烧**。
+
+### 18.4 关键回归与脚本
+
+| 命令 | 用途 |
+|------|------|
+| `bash sim/run_silicon_bringup.sh` | 跑 silicon_bringup 固件的 Icarus 仿真，验证 4 个 phase 的 UART 输出 |
+| `bash scripts/fpga_bringup_capture.sh`（在 alpha 分支）| 板上 UART capture 自动化 |
+| `python scripts/program_zcu102_e203.tcl`（Vivado）| 烧 bitstream + BRAM init |
+
+### 检验标准
+
+- [ ] 能说出 silicon_bringup 固件的 4 个 Phase 与每个 Phase 的 UART 标记
+- [ ] 能解释为什么 Phase 1 用 BYPASS_HANDSHAKE=1 而 Phase 2/3 不用
+- [ ] 能复述"是否触发 FPGA reburn"的 4 条判定标准
+- [ ] 能解释 FPGA 板上验证为什么可以代替 silicon 的端到端启动→编程→推理验证
+
+---
+
+## Part C 时间规划
+
+| 天数 | 内容 | 时长 |
+|------|------|------|
+| Day 33-34 | 阶段 15：boot ROM + chip_top | 5-6h |
+| Day 35-37 | 阶段 16：CIM 编程模式 + boot-time erase | 8-10h |
+| Day 38 | 阶段 17：方案 α' 外部编程接口 | 3-4h |
+| Day 39-40 | 阶段 18：silicon bring-up + FPGA 证据链 | 4-6h |
+
+**Part C 总计约 1 周**，每天投入 3-4 小时。
+
+---
+
 ## 学习资源汇总
 
 ### MVP 基础
@@ -1292,586 +1646,286 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 - E203：https://github.com/SI-RISCV/e200_opensource
 - RISC-V：《手把手教你设计 CPU——RISC-V 处理器篇》
 
+### V1.1 Tape-out 加固（Part C）
+- mask ROM 设计：foundry ROM compiler 用户手册（每家工艺都不同）
+- RRAM 编程电压 / 时序：项目 `doc/08_cim_analog_interface.md` §10
+- 方案 α' 外部编程合同：项目 `doc/03_cim_if_protocol.md` 末节 + `doc/15_asic_pad_map.md`
+- silicon bring-up SOP：项目 `doc/silicon_bringup_guide.md`（Day 1/2/3）
+- FPGA 板级证据链：`doc/main-fpga-e203/fw_main_c_boot_erase_board_validation_analysis.md`
+
 ### 工具
 - VCS/Verdi：Synopsys 官方文档
 - Design Compiler：综合工具
 - OpenOCD/GDB：调试工具
+- Vivado 2022.2（FPGA 综合 + 板上烧写）
 
 ---
 
----
+*最后更新：2026-04-29（main 分支 V1 + V1.1 全量复核 + Part C 增补）*
 
-# Part C: V2 进阶学习
-
-完成 Part A 后即可开始 Part C。**Part C 不依赖 Part B**——V2 的两大功能（CIM 编程、多层推理）都是 SNN 核心链路的扩展，和 Part B 的外设（UART/SPI/AXI/E203/JTAG）没有前置依赖关系。
-
-**前置条件**: Part A 检验清单全部通过（尤其是阶段 C 的 SNN 核心流水线理解）
-
-> **V1 vs V2 的区别**：
-> - **V1**：单层推理（`ENABLE_MULTI_LAYER=0`），使用 `lif_neurons.sv`（10 个神经元并行计算），推理链路为 `input_fifo → cim_array_ctrl → adc_ctrl → lif_neurons → output_fifo`，ADC 扫描固定 20 路
-> - **V2**：三大扩展
->   1. **多层推理**（`ENABLE_MULTI_LAYER=1`）：使用 `layer_sequencer` + `spike_feedback` + `lif_neuron_alu`（128 个神经元时分复用），支持最多 4 层级联推理
->   2. **CIM 编程通路**（`ENABLE_PROGRAM_MODE=1`）：`cim_program_ctrl` + `cim_macro_arbiter`，固件可以通过 MMIO 寄存器给 RRAM 写入/擦除/验证权重
->   3. **ADC 扫描参数化**（2026-04 新增）：`bl_sel` 从 5-bit 扩到 7-bit，扫描通道数 `bl_scan_count` 可配偶数 2~128，支持多层不同 bl_count
-> - 两者是 `generate if/else` 分支，**只有一个会被综合**，不会同时占面积
-> - V2 的 `cim_array_ctrl` / `adc_ctrl` 等核心模块与 V1 共享，只是增加了层间调度、编程仲裁、可配扫描
->
-> **流片配置**：
-> - `chip_top.sv` 实例化时设 `ENABLE_E203=1, ENABLE_EXT_CIM_IF=1, ENABLE_PROGRAM_MODE=1`
-> - `ENABLE_MULTI_LAYER` 是 package 参数（默认 0），**流片版不带硬件 layer_sequencer**
-> - V2 时间多层由 **CPU 固件逐层调度**，硬件只提供原子的"单层推理" + "编程"能力
+**学习建议**：Part A 必须完全掌握后再开始 Part B；Part B 通了再读 Part C，不要跳读。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。
 
 ---
 
-## 阶段 15：CIM 编程通路（Day 15-18）
+# Part E: V2 E203 + V2.B FPGA SoC 集成（本分支特有）
 
-**目标**: 理解 RRAM cell 编程的完整流程（写入/擦除/验证），理解编程与推理的互斥仲裁
+**目标**：理解 ZCU102 上 E203 RISC-V 软核（PL fabric）驱动 V2.B 多层 streamed-stage 加速器的完整链路，能解释 ICB → simple_bus → v2b_bus 三层桥、v2b 加速器内部时序、E203 固件 BRAM 烧录流程，以及 phase G3 PASS 证据链。
 
-### 15.1 为什么需要编程通路
+**前置条件**：
+- Part A/B/C 全部检验清单通过（特别是 Part B 阶段 12：E203 集成）
+- 至少看过 [doc/v2-fpga-e203/00_architecture.md](v2-fpga-e203/00_architecture.md)（本分支根目录的架构正文，~650 行）
+
+> **本分支独立性**：feature/v2-fpga-e203 是 evidence branch，永久保留不合并。目的是把 V1 main 的"E203 RISC-V + UART/SPI 启动链" 和 V2.B 的"streamed-stage multilayer 加速器"组合到一起，演示一颗"全软核 + 多层 SNN"在 FPGA 上的可行性，作为与 ARM PS 路径并行的证据。
+
+---
+
+## 阶段 19：V2 E203 + V2.B 系统架构（Day 41-43）
+
+### 19.1 三层总线架构
 
 ```
-流片后 RRAM 阵列是空白的（高阻态 HRS），必须通过编程写入权重。
-编程 = 向 RRAM cell 施加特定电压脉冲改变电阻：
-- SET（写入）：正向电压 → 导电丝形成 → 电阻降低（HRS → LRS）
-- RESET（擦除）：反向电压 → 导电丝断裂 → 电阻升高（LRS → HRS）
-- Verify（验证）：小幅读取电压 → ADC 读回电阻值 → 判断是否达到目标
+E203 mem_icb (ICB protocol)
+   │
+   ▼
+icb2simple_bridge_v2b   ← 白名单地址空间划分（INSTR / DATA / UART / V2B-MMIO）
+   │
+   ▼ simple_bus
+bus_interconnect_v2_e203 ← 固定 1-cycle 路径 (INSTR/DATA/UART) + 透传路径 (V2B)
+   │
+   ├──► instr_sram (64 KB BRAM) - E203 取指
+   ├──► data_sram (16 KB BRAM)  - 栈/堆/全局变量
+   ├──► uart_ctrl                - 调试输出
+   └──► simple2v2btop_adapter   ← 4-state FSM 适配
+            │
+            ▼ v2b_bus
+       snn_soc_v2b_top           ← V2.B 加速器内核
 ```
 
-### 15.2 新增模块一览
+**核心要点**：E203 LSU 发起 → 5-cycle round-trip @ 50 MHz，走的是 ICB → simple_bus → v2b_bus 三跳桥；其中前两跳是固定 1-cycle，第三跳走 4-state FSM（ADDR_LATCH → CMD → RSP_WAIT → DATA），cmd_addr 在 RSP_WAIT 期间需要保持稳定。
 
-| 模块 | 文件 | 作用 |
-|------|------|------|
-| `cim_program_ctrl` | [rtl/snn/cim_program_ctrl.sv](../rtl/snn/cim_program_ctrl.sv) | 编程 FSM：SET/RESET/Verify 全流程 |
-| `cim_macro_arbiter` | [rtl/snn/cim_macro_arbiter.sv](../rtl/snn/cim_macro_arbiter.sv) | 推理/编程互斥 MUX |
+### 19.2 与 V1 main / v2-arm-fpga-demo 的关键区别
 
-### 15.3 编程寄存器
+| 维度 | V1 main (ASIC TO) | v2-arm-fpga-demo (FPGA) | **本分支 (v2-fpga-e203)** |
+|------|-----------------|----------------------|------------------------|
+| CPU | E203 RV32I (PL) | ARM A53 ×4 (PS) | **E203 RV32I (PL)** |
+| 启动 | mask ROM → SPI → INSTR_SRAM | DDR ELF | **BRAM 预装 firmware** |
+| 总线 | ICB → simple | AXI HPM0 → simple → v2b | **ICB → simple → v2b** |
+| 加速器 | V1 单层 64×20 | V2.B multilayer | **V2.B multilayer** |
+| 数据集 | MNIST 8×8 | Fashion-MNIST 14×14 | **Fashion-MNIST 14×14** |
+| FW 工具链 | riscv64-elf-gcc | aarch64-elf-gcc | **riscv64-elf-gcc 13.2.0** |
+| 烧写 | bitstream + BRAM init | bitstream + ELF | **bitstream + BRAM init** |
+| Bus 桥 | icb2simple | v2b_axi_wrapper | **icb2simple_bridge_v2b** |
 
-| 地址（绝对） | offset | 名称 | 说明 |
-|------------|--------|------|------|
-| 0x4000_0038 | 0x38 | REG_PROG_CTRL | [0]=START(W1P), [1]=ERASE, [2]=FULL_ARRAY, [7:4]=LEVEL(0~15), [10:8]=RETRY_LIMIT |
-| 0x4000_003C | 0x3C | REG_PROG_ROW | [5:0]=目标行(0~63) |
-| 0x4000_0040 | 0x40 | REG_PROG_COL | [4:0]=目标列(0~19) |
-| 0x4000_0044 | 0x44 | REG_PROG_STATUS | [0]=BUSY, [1]=PASS, [2]=FAIL, [5:3]=RETRY_COUNT, [7]=DONE(W1C) |
-| 0x4000_0090 | 0x90 | REG_PROG_PULSE_WIDTH | [17:16]=写入脉冲档位（0=1us, 1=10us, 2=100us），[15:0]=resolved cycles 读回 |
-| 0x4000_0094 | 0x94 | REG_PROG_ERASE_WIDTH | [15:0]=擦除脉冲宽度（固定 50000=1ms@50MHz，写入忽略） |
+### 19.3 关键 RTL 文件（本分支独有）
 
-### 15.4 编程控制信号（数字→模拟）
-
-| 信号 | 含义 |
+| 文件 | 用途 |
 |------|------|
-| `prog_en` | =1 时模拟侧施加正向编程电压（SET） |
-| `erase_en` | =1 时模拟侧施加反向擦除电压（RESET） |
-| `verify_en` | =1 时模拟侧施加小幅读取电压（Verify） |
-
-**同一时刻最多只有一个为高**，由 FSM 保证互斥。
-
-### 15.5 cim_program_ctrl 状态机（11 状态，必须手画！）
-
-```
-                  prog_start
-                      │
-                      ▼
-                ┌─ ST_IDLE ◄──────────────────── ST_DONE
-                │     │                              ↑
-                │     ├─ full_array+erase? ──┐       │
-                │     ├─ level==0? ──► ST_PASS ──────┘
-                │     │                              │
-                │     ▼                              │
-                │  ST_SETUP ──► prog_en/erase_en=1  │
-                │     │                              │
-                │     ▼                              │
-                ├► ST_PULSE ──► cim_start ↑         │
-                │     │    加载 pulse_width_cnt      │
-                │     ▼    (full_array?erase_width   │
-                │     │     :pulse_width)            │
-                │  ST_PULSE_HOLD ──► 自计时倒计时    │
-                │     │  (dac_valid持续拉高)          │
-                │     ├─ 全阵列擦除 → ST_PASS ───────┘
-                │     ├─ 擦除 → ST_READBACK          │
-                │     ├─ 脉冲够了 → ST_READBACK      │
-                │     └─ 脉冲不够 → 回ST_PULSE       │
-                │     │                              │
-                │     ▼                              │
-                │  ST_READBACK ──► verify_en=1      │
-                │     │            adc_start ↑       │
-                │     ▼                              │
-                │  ST_RB_WAIT ──► adc_done?         │
-                │     │                              │
-                │     ▼                              │
-                │  ST_VERIFY ──► 比较readback        │
-                │     ├─ PASS → ST_PASS ─────────────┘
-                │     └─ FAIL → ST_RETRY
-                │                 ├─ 次数用尽 → ST_FAIL ──► ST_DONE
-                │                 └─ 重试 → ST_SETUP ◄──┘
-                │
-```
-
-**关键变化（相对于早期版本）**：
-- `ST_PULSE_WAIT` 已被替换为 `ST_PULSE_HOLD`（自计时模式，不等 `cim_done`）
-- 脉冲宽度由 `pulse_width_cnt` 倒计时控制：写入来自 `PROG_PULSE_WIDTH.write_pulse_sel`（1us/10us/100us），擦除来自固定 `PROG_ERASE_WIDTH`（1ms）
-- 全阵列擦除路径：`ST_PULSE_HOLD` → `ST_PASS`（跳过 verify）
-- `dac_valid` 在 `ST_SETUP` → `ST_PULSE` → `ST_PULSE_HOLD` 期间持续拉高（不是单拍脉冲）
-
-### 15.6 写入流程详解（SET，16 档自计时脉冲编程）
-
-```
-目标：将 cell[row][col] 编程到第 N 档（N = 0~15）
-
-1. 软件配置：
-   写 REG_PROG_ROW  = row
-   写 REG_PROG_COL  = col
-   写 REG_PROG_PULSE_WIDTH[17:16] = 写入脉冲档位（0=1us, 1=10us, 2=100us）
-   写 REG_PROG_CTRL = {retry_limit[10:8], level[7:4], erase=0, start=1}
-
-2. 硬件执行：
-   a) 锁定目标 cell：wl_spike = one-hot(row), bl_sel = col
-   b) prog_en = 1, dac_valid = 1（告知模拟侧施加正向编程电压）
-   c) 逐个发送 N 个编程脉冲（自计时模式）：
-      每个脉冲：cim_start ↑ → pulse_width_cnt 倒计时到 0 → pulse_count++
-      （不等 cim_done！数字控制器是计时主控）
-   d) N 个脉冲全部发完后，进入验证：
-      prog_en = 0, dac_valid = 0, verify_en = 1 → adc_start ↑ → 读 bl_data
-   e) 比较：期望值 = N × (256/16) = N × 16，允许 ±2 LSB
-      PASS → 完成
-      FAIL → 回到步骤 b 再补脉冲（最多重试 prog_retry_limit 次）
-```
-
-**写入 3 档的时序示意（自计时模式）**：
-```
-          ┌──────────────────────────────────────────────┐
- prog_en  │██████████████████████████████████████████████│
-          └──────────────────────────────────────────────┘
-          ┌──────────────────────────────────────────────┐
-dac_valid │██████████████████████████████████████████████│  (SETUP~PULSE_HOLD 持续)
-          └──────────────────────────────────────────────┘
-          ┌──┐         ┌──┐         ┌──┐
-cim_start │  │         │  │         │  │                    (3 个脉冲)
-          └──┘         └──┘         └──┘
-          ├───pw_cnt───┤───pw_cnt───┤───pw_cnt───┤
-          (PULSE_HOLD   (PULSE_HOLD   (PULSE_HOLD
-           倒计时)       倒计时)       倒计时)
-
-pulse_cnt   0→1          1→2          2→3
-                                               ┌──────────┐
-verify_en                                      │██████████│
-                                               └──────────┘
-                                               ┌──┐
-adc_start                                      │  │
-                                               └──┘
-                                                ┌──┐
- adc_done                                       │  │ → 读 bl_data，比对
-                                                └──┘
-```
-
-### 15.7 擦除流程（RESET）
-
-#### 逐 cell 擦除
-
-```
-- 软件配置：写 REG_PROG_CTRL = {retry_limit, level=0, erase=1, full_array=0, start=1}
-- 硬件执行：
-  1. 锁定 cell：wl_spike = one-hot(row), bl_sel = col
-  2. erase_en = 1, dac_valid = 1 → cim_start ↑ → 自计时 pulse_width_cnt 个周期
-  3. erase_en = 0, verify_en = 1 → adc_start → 读 bl_data
-  4. 期望 readback ≤ 1（接近全擦除）
-  5. 不合格则重试（再发一个擦除脉冲），最多 retry_limit 次
-```
-
-#### 全阵列擦除（层间大擦除）
-
-```
-- 软件配置：
-  REG_PROG_ERASE_WIDTH 固定读回 50000（1ms @ 50MHz），无需写入
-  写 REG_PROG_CTRL = {retry_limit=0, level=0, erase=1, full_array=1, start=1}
-- 硬件执行：
-  1. 所有 64 WL 同时拉高：wl_spike = {NUM_INPUTS{1'b1}}
-  2. erase_en = 1, dac_valid = 1 → cim_start ↑ → 自计时 erase_width 个周期
-  3. 跳过 verify → 直接 PASS → DONE
-- 用途：时间多层推理的层切换（推理完一层 → 全阵列擦除 → 写入下一层权重）
-```
-
-### 15.8 cim_macro_arbiter（推理/编程互斥）
-
-```
-这是一个纯组合逻辑 MUX：
-
-当 prog_busy = 1（编程中）：
-  → CIM macro 的输入信号全部来自 cim_program_ctrl
-  → 推理侧收到的 cim_done / adc_done 全部为 0（被屏蔽）
-
-当 prog_busy = 0（空闲）：
-  → CIM macro 的输入信号全部来自推理链路（cim_array_ctrl / adc_ctrl）
-  → 编程侧收到的 cim_done / adc_done 全部为 0
-```
-
-这意味着**编程和推理不会同时访问 CIM macro**，硬件保证互斥。
-
-### 15.9 关键参数
-
-| 参数 | 值 | 说明 |
-|------|------|------|
-| PROG_LEVELS | 16 | 16 档电阻级别（0~15） |
-| PROG_PULSE_WIDTH | 档位可配（默认 1us） | 写入脉冲档位：1us / 10us / 100us @ 50MHz |
-| PROG_ERASE_WIDTH | 固定 50000 | 逐 cell / 全阵列擦除脉冲宽度固定 1ms @ 50MHz |
-| Verify 容差 | ±2 LSB | readback ∈ [N×16-2, N×16+2] 为 PASS |
-| 最大重试 | 由软件配置 | prog_retry_limit（0~7） |
-
-### 15.10 时间多层推理（固件驱动，非硬件自动化）
-
-```
-固件编排的多层推理循环：
-
-for (layer = 0; layer < num_layers; layer++) {
-    // 1. 逐 cell 写入本层权重
-    for (row, col) program_cell(row, col, weight[layer][row][col]);
-
-    // 2. 分 tile 推理（若图像 > 128 则多 tile）
-    for (tile = 0; tile < num_tiles; tile++) {
-        dma_load_tile(tile);
-        start_inference();  // 膜电位跨 tile 累加
-        wait_done();
-    }
-    read_spike_output();
-
-    // 3. 全阵列擦除（最后一层不擦）
-    if (layer < num_layers - 1)
-        full_array_erase();  // PROG_CTRL.FULL_ARRAY=1, ERASE=1
-}
-```
-
-**为什么不硬件自动化**：编程 1280 个 cell 需要 O(毫秒)，CPU 空闲可以驱动；固件灵活性高（跳过零权重、自适应重试）；调试容易。
+| [rtl/bus/bus_interconnect_v2_e203.sv](../rtl/bus/bus_interconnect_v2_e203.sv) | v2-fpga-e203 专用 fabric（INSTR/DATA/UART 1-cycle，V2B 透传） |
+| [rtl/bus/icb2simple_bridge_v2b.sv](../rtl/bus/icb2simple_bridge_v2b.sv) | ICB → simple_bus 白名单转换（非白名单地址回 err） |
+| [rtl/bus/simple2v2btop_adapter.sv](../rtl/bus/simple2v2btop_adapter.sv) | simple_bus → v2b_bus 4-state FSM |
+| [rtl/top/snn_soc_v2b_e203_top.sv](../rtl/top/snn_soc_v2b_e203_top.sv) | SoC core: bridge + fabric + adapter + V2B top |
+| [rtl/top/snn_soc_v2b_top.sv](../rtl/top/snn_soc_v2b_top.sv) | V2.B accelerator wrapper（WSTRB 已修复） |
 
 ### 检验标准
 
-- [ ] 能画出 `cim_program_ctrl` 的完整状态转移图（11 个状态）
-- [ ] 能解释 SET 和 RESET 在电压极性上有什么区别
-- [ ] 能说出写入第 N 档需要多少个脉冲
-- [ ] 能解释 `ST_PULSE_HOLD` 自计时模式为什么不等 `cim_done`
-- [ ] 能解释逐 cell 擦除和全阵列擦除的区别（WL 驱动、脉冲宽度来源、是否 verify）
-- [ ] 能解释 verify 阶段为什么要关闭 prog_en/erase_en 再拉 verify_en
-- [ ] 能解释 `cim_macro_arbiter` 如何保证编程和推理互斥
-- [ ] 能写出软件操作序列：编程 cell[5][3] 到第 10 档
-- [ ] 能写出全阵列擦除的软件操作序列
+- [ ] 能画出 E203 mem_icb 到 V2.B MMIO 的三层桥层级
+- [ ] 能解释 INSTR/DATA/UART 1-cycle 路径与 V2B 透传路径的取舍
+- [ ] 能说出与 v2-arm-fpga-demo 在 CPU/启动/总线层面的差异
+- [ ] 能解释 simple2v2btop_adapter 4-state FSM 各状态的作用
 
 ---
 
-## 阶段 16：多层推理（Day 19-24）
+## 阶段 20：V2.B streamed-stage MAC pipeline（Day 44-47）
 
-**目标**: 理解多层 SNN 推理的调度机制、层间 spike 传递和时分复用神经元计算
+> **本阶段与 v2-arm-fpga-demo Part D 阶段 21 内容高度重合**（V2.B 加速器内核两边共用），可以快速浏览。
 
-### 16.1 为什么需要多层
+### 20.1 V2.B 核心模块
 
-```
-V1 单层：64 输入 → 10 输出（一次矩阵乘 + LIF）
-  → 只能做最简单的线性分类，网络表达能力有限
-
-V2 多层：Layer0 (64→10) → Layer1 (10→10) → ... → Layer3
-  → 可以构建更复杂的网络结构（隐藏层 + 输出层）
-  → 上一层的 spike 输出作为下一层的 WL 输入
-  → 支持最多 4 层级联
-```
-
-### 16.2 新增模块一览
-
-| 模块 | 文件 | 作用 |
+| 文件 | 行数 | 说明 |
 |------|------|------|
-| `layer_sequencer` | [rtl/snn/layer_sequencer.sv](../rtl/snn/layer_sequencer.sv) | 层调度 FSM：按顺序驱动每层推理 |
-| `spike_feedback` | [rtl/snn/spike_feedback.sv](../rtl/snn/spike_feedback.sv) | 层间 spike 路由：上层输出 → 下层输入 |
-| `lif_neuron_alu` | [rtl/snn/lif_neuron_alu.sv](../rtl/snn/lif_neuron_alu.sv) | 时分复用 ALU：128 神经元共享 1 个计算单元 |
+| [rtl/snn/cim_mac_behavioral_v2.sv](../rtl/snn/cim_mac_behavioral_v2.sv) | ~150 | WL-serial j-parallel MAC（FPGA-friendly） |
+| [rtl/snn/stage_engine_v2.sv](../rtl/snn/stage_engine_v2.sv) | ~250 | tile-mode FSM |
+| [rtl/snn/stream_buffer_v2.sv](../rtl/snn/stream_buffer_v2.sv) | ~100 | A/B 缓冲对 |
+| [rtl/snn/tile_partial_buf.sv](../rtl/snn/tile_partial_buf.sv) | ~80 | flat 1D BRAM, ram_style distributed |
+| [rtl/snn/input_stream_sram.sv](../rtl/snn/input_stream_sram.sv) | ~100 | 流式输入 SRAM |
+| [rtl/snn/layer_sequencer.sv](../rtl/snn/layer_sequencer.sv) | ~120 | 多层串流控制 |
+| [rtl/snn/lif_neuron_alu.sv](../rtl/snn/lif_neuron_alu.sv) | ~80 | LIF spike 算子 |
+| [rtl/snn/spike_feedback.sv](../rtl/snn/spike_feedback.sv) | ~80 | 跨层反馈 |
 
-### 16.3 V1 vs V2 的神经元模块对比
+### 20.2 数据流（10 Fashion-14×14 样本）
 
-| | V1: `lif_neurons` | V2: `lif_neuron_alu` |
-|---|---|---|
-| 神经元数 | 10（NUM_OUTPUTS，固定） | 最多 128（MAX_NEURONS，可配） |
-| 计算方式 | 10 路并行 generate | 时分复用，2 级流水 |
-| 膜电位存储 | `membrane[0:9]` 寄存器 | `mem_array[0:127]` SRAM/寄存器 |
-| spike 输出 | 直接写 output FIFO | spike_queue（32 深）→ output FIFO |
-| 层间清零 | 不需要（只有一层） | `clearing_busy` 逐个清零膜电位 |
-| output_fifo 控制 | 每层都写 | `output_fifo_en` 只有最后一层写 |
+1. E203 firmware 把权重 + 输入像素通过 V2.B MMIO 装载
+2. 写 V2B_CTRL.START，accelerator 启动一次推理：
+   - `stage_engine_v2` 拆 tile → `stream_buffer_v2` 取输入 → `cim_mac_behavioral_v2` 算 MAC → 累加到 `tile_partial_buf`
+   - 所有 tile 跑完 → `lif_neuron_alu` 算 spike → `spike_feedback` 给下一层
+   - `layer_sequencer` 控制层切换
+3. 推理完成后 V2B_STATUS.DONE 拉高，E203 读取 spike count
+4. UART 输出 `[V2_E203] sample i count=k` 与 golden 对比
 
-### 16.4 多层寄存器
+### 20.3 关键回归
 
-| 地址范围 | 名称 | 说明 |
-|---------|------|------|
-| 0x4000_0048 | REG_ML_CTRL | [1:0]=num_layers(0=1层,1=2层,...), [8]=enable |
-| 0x4000_0050 ~ 0x4000_005F | Layer 0 描述符 | cfg / timing / threshold / neuron_cfg（各 32-bit） |
-| 0x4000_0060 ~ 0x4000_006F | Layer 1 描述符 | 同上 |
-| 0x4000_0070 ~ 0x4000_007F | Layer 2 描述符 | 同上 |
-| 0x4000_0080 ~ 0x4000_008F | Layer 3 描述符 | 同上 |
-
-**每层描述符格式（4 个 32-bit 寄存器）**：
-
-```
-layer_cfg (offset +0x00):
-  [7:0]   wl_offset   — WL 起始行偏移
-  [15:8]  wl_count    — WL 行数（该层输入维度）
-  [23:16] bl_offset   — BL 起始列偏移
-  [31:24] bl_count    — BL 列数（ADC 扫描通道数）
-
-layer_timing (offset +0x04):
-  [7:0]   timesteps   — 该层时间步数
-  [8]     use_bitplane — =1 使用 bit-plane 编码, =0 二值直通
-
-layer_threshold (offset +0x08):
-  [31:0]  threshold   — 该层 LIF 阈值
-
-layer_neuron_cfg (offset +0x0C):
-  [7:0]   neuron_count — 该层活跃神经元数量
-```
-
-### 16.5 layer_sequencer 状态机（必须手画！）
-
-```
-              start_pulse
-                  │
-                  ▼
-            ┌─ ST_IDLE
-            │     │
-            │     ▼
-            │  ST_LOAD_DESC ──► 加载当前层描述符
-            │     │
-            │     ▼
-            │  ST_RUN_LAYER ──► 配置参数 + ctrl_start_pulse ↑
-            │     │
-            │     ▼
-            │  ST_WAIT_DONE ──► 等 ctrl_done_pulse
-            │     │
-            │     ├─ 最后一层? ──► ST_ALL_DONE ──► done_pulse + 回 IDLE
-            │     │
-            │     ▼
-            │  ST_WAIT_ALU ──► 等 alu_busy=0（神经元计算完毕）
-            │     │
-            │     ▼
-            │  ST_FEEDBACK ──► feedback_en=1，等 feedback_valid
-            │     │
-            │     ▼
-            │  ST_CLEAR_MEM ──► alu_clear_pulse，等 clearing 完成
-            │     │
-            │     ▼
-            └── 回到 ST_LOAD_DESC（下一层）
-```
-
-### 16.6 2 层推理完整数据流
-
-以 TB 中的配置为例：Layer0 (64→10) → Layer1 (10→10)
-
-```
-=== Layer 0（第一层）===
-
-1. layer_sequencer 加载 Layer0 描述符：
-   wl_count=64, bl_count=20, timesteps=10, use_bitplane=1, threshold=2550
-
-2. ctrl_start_pulse → cim_array_ctrl 开始推理
-   - input_fifo 中的 bit-plane 数据 → WL 驱动 CIM
-   - ADC 20 路扫描 → 差分 → neuron_in_valid
-   - lif_neuron_alu 对 10 个神经元做膜电位累加（active_neuron_count=10）
-   - 10 帧 × 8 子步 = 80 个子时间步
-
-3. cim_array_ctrl 完成 → ctrl_done_pulse
-
-4. layer_sequencer 等 alu_busy=0（最后一个神经元计算完毕）
-
-5. feedback_en = 1 → spike_feedback 将 spike_mask 裁剪为下一层的 WL 输入
-   （spike_mask[9:0] → feedback_wl_data[9:0]，其余填 0）
-
-6. alu_clear_pulse → lif_neuron_alu 逐个清零 128 个膜电位
-
-=== Layer 1（第二层）===
-
-7. 加载 Layer1 描述符：
-   wl_count=10, bl_count=20, timesteps=1, use_bitplane=0(binary), threshold=100
-
-8. ctrl_use_feedback = 1 → cim_array_ctrl 使用 feedback_wl_data 而非 input_fifo
-   （上一层的 spike 直接作为 WL 输入，不经过 bit-plane 编码）
-
-9. 1 帧 × 1 子步 = 1 个子时间步完成推理
-
-10. ctrl_is_last_layer = 1 → output_fifo_en = 1 → spike 写入 output FIFO
-
-11. layer_sequencer → ST_ALL_DONE → done_pulse
-```
-
-### 16.7 spike_feedback 详解
-
-```
-作用：把上一层的 spike 输出组装成下一层的 WL 输入
-
-接口：
-  输入：spike_mask[127:0]     — lif_neuron_alu 每轮计算完毕后输出的 spike 掩码
-        spike_mask_valid      — 单拍有效脉冲
-        feedback_en           — 由 layer_sequencer 在层间过渡时拉高
-        next_wl_count[7:0]    — 下一层的 WL 行数
-
-  输出：feedback_wl_data[127:0] — 裁剪后的 WL 输入向量
-        feedback_valid          — 单拍有效
-
-工作原理（两步）：
-  1. 锁存：spike_mask_valid ↑ 时把 spike_mask 存到 spike_latched
-  2. 输出：feedback_en ↑ 时，只取 spike_latched[0:next_wl_count-1]，高位填 0
-```
-
-### 16.8 lif_neuron_alu 详解
-
-```
-和 V1 的 lif_neurons 最大的区别：128 个神经元时分复用 1 个 ALU
-
-流水线结构（2 级）：
-  Stage 0: 从 mem_array 读出 membrane[neuron_idx]，同时取对应的 neuron_in_data
-  Stage 1: 计算 addend = input <<< bitplane_shift，new_mem = old + addend，
-           比较阈值 → spike → 写回 mem_array
-
-关键控制信号：
-  active_neuron_count  — 当前层实际使用的神经元数（由 layer_sequencer 配置）
-  output_fifo_en       — 只有最后一层 =1，中间层不写 output FIFO
-  clearing_busy        — 层间清零时为 1，逐个将 mem_array[0:127] 清零
-
-内部 spike queue（32 深）：
-  spike 产生后先入 spike_queue，每时钟弹出一个写入 output FIFO
-  解决了"时分复用可能在很短时间内产生多个 spike"和"FIFO 只接受单拍 push"之间的速率匹配
-  如果 queue 满了，拉高 spike_q_overflow（不丢数据，但标记异常）
-```
-
-### 16.9 重点理解
-
-```
-Q: 为什么 V2 用时分复用而不是 128 路并行？
-A: 128 路并行需要 128 份膜电位寄存器 + 128 个比较器，面积太大。
-   时分复用只需要 1 个 ALU + 1 块 SRAM/寄存器阵列，面积和 V1 的 10 路并行差不多。
-
-Q: 层间为什么要清零膜电位？
-A: 每层有独立的阈值和参数。如果不清零，上一层残留的膜电位会干扰下一层计算。
-   清零需要 128 拍（逐个写 0），由 clearing_busy 信号告知 layer_sequencer 何时完成。
-
-Q: 第一层和后续层的数据来源有什么不同？
-A: 第一层：从 input_fifo 读 bit-plane 数据（和 V1 完全相同）
-   后续层：从 spike_feedback 读上一层的 spike 掩码（ctrl_use_feedback=1）
-
-Q: use_bitplane=0（binary 模式）是什么意思？
-A: 不做 bit-plane 展开，spike 直接作为 WL 输入。
-   适用于后续层——上一层输出的已经是二值 spike，不需要再做 MSB-first 编码。
-   此时只需要 1 个子时间步（不是 8 个）。
-
-Q: output_fifo_en 怎么保证只有最后一层的 spike 写入 FIFO？
-A: layer_sequencer 输出 ctrl_is_last_layer = (layer_idx == layer_max)，
-   snn_soc_top 中将它连到 lif_neuron_alu 的 output_fifo_en 端口。
-   中间层产生的 spike 只用于 spike_mask（反馈给下一层），不进 FIFO。
-```
+| 命令 | 标记 |
+|------|------|
+| `bash sim/run_v2b_partial_write_invariant.sh` | `V2B_PARTIAL_WRITE_INVARIANT_PASS`（永久 invariant gate） |
+| `bash sim/run_v2_e203_cosim.sh` | E203 + V2.B cosim PASS（bit-exact 与 Python 对齐） |
+| `bash sim/run_v2_e203_encoder_parity.sh` | encoder parity PASS |
 
 ### 检验标准
 
-- [ ] 能画出 `layer_sequencer` 的 8 个状态及转换条件
-- [ ] 能解释 V1 `lif_neurons` 和 V2 `lif_neuron_alu` 的区别（并行 vs 时分复用）
-- [ ] 能说出 2 层推理的完整数据流（从 input_fifo 到 output_fifo）
-- [ ] 能解释 `spike_feedback` 的"锁存 + 裁剪"两步工作原理
-- [ ] 能解释为什么 Layer1 的 timesteps=1 且 use_bitplane=0
-- [ ] 能说出 `clearing_busy` 信号的作用和持续时长（128 拍）
-- [ ] 能解释 spike_queue 解决什么问题
-- [ ] 能写出完整的软件操作序列：配置 2 层推理并启动
+- [ ] 能画出 cim_mac_behavioral_v2 的 WL-serial j-parallel 数据流
+- [ ] 能解释 tile-mode 如何降低 BRAM 面积同时保持流水线不空闲
+- [ ] 能说出 layer_sequencer 与 spike_feedback 的协作关系
+- [ ] 能解释 partial_write invariant 在 wstrb=4'hF 时绕过 check 的设计意图
 
 ---
 
-## 阶段 17：V2 仿真实战（Day 25-27）
+## 阶段 21：E203 固件与 V2.B MMIO 驱动（Day 48-49）
 
-**目标**: 跑通 V2 仿真，理解 V2 的验证方法
+### 21.1 工具链与构建
 
-### 17.1 多层推理仿真
-
-**运行命令**：
 ```bash
-cd sim
-bash run_multilayer.sh
+# 编译器（与 V1 main 一致）
+riscv64-unknown-elf-gcc 13.2.0
+riscv64-unknown-elf-objcopy 13.2.0
+
+# Firmware 构建
+cd fw/v2_e203_smoke
+bash build_v2_e203_smoke.sh             # 默认 SIM_FAST=0（board hex）
+# 输出：v2_e203_smoke.hex（用于 BRAM 预装）
+
+# Vivado 工程构建
+cd fpga_synth/zcu102_v2_e203_demo
+bash build_v2_e203_demo.sh
+vivado -mode batch -source build_v2_e203_demo.tcl
+# 输出：snn_soc_v2b_e203_fpga_top.bit
 ```
 
-**编译参数**: `-DSIM_MULTI_LAYER`（使得 `snn_soc_pkg.sv` 中 `ENABLE_MULTI_LAYER=1`）
+### 21.2 Firmware 关键函数（v2_e203_smoke_main.c）
 
-**PASS 标准**: 输出 `MULTILAYER_SMOKE_PASS`
+```c
+// 1. 等待 V2.B 内核就绪
+while ((V2B_STATUS & STATUS_READY_MASK) == 0);
 
-**TB 流程分解**（[tb/multilayer_tb.sv](../tb/multilayer_tb.sv)）：
+// 2. 装载权重（多层）
+for (uint32_t l = 0; l < NUM_LAYERS; l++) {
+    V2B_LAYER_SEL = l;
+    for (uint32_t i = 0; i < layer_size[l]; i++) {
+        V2B_WEIGHT_DATA = weights[l][i];   // 全字写，不触发 WSTRB partial
+    }
+}
 
-```
-Step 1: 使能 CIM test mode（pos=100, neg=0 → diff=100）
-        bus_write(REG_CIM_TEST, 32'h0000_6401)
+// 3. Bresenham encoder 在线计算（vs arm-demo 的离线编码）
+encode_bresenham(image, encoded);
 
-Step 2: 配置多层控制
-        bus_write(REG_ML_CTRL, 32'h0000_0101)  // num_layers=1(即2层), enable=1
-
-Step 3: 配置 Layer 0 描述符
-        cfg:         {bl_count=20, bl_off=0, wl_count=64, wl_off=0}
-        timing:      {use_bitplane=1, timesteps=10}
-        threshold:   2550
-        neuron_cfg:  10
-
-Step 4: 配置 Layer 1 描述符
-        cfg:         {bl_count=20, bl_off=0, wl_count=10, wl_off=0}
-        timing:      {use_bitplane=0, timesteps=1}
-        threshold:   100
-        neuron_cfg:  10
-
-Step 5: DMA 搬运 80 个 word 到 input_fifo（全 1 测试模式）
-
-Step 6: 启动推理 → 等 CIM_CTRL.DONE
-
-Step 7: 检查 OUT_FIFO_COUNT > 0 → PASS
+// 4. 装载输入 + 启动 + 等待 + 读 spike
+V2B_INPUT_BASE = (uintptr_t)encoded;
+V2B_CTRL = CTRL_START_MASK;
+while ((V2B_STATUS & STATUS_DONE_MASK) == 0);
+uint32_t count = V2B_SPIKE_COUNT;
+uart_puts_dec(count);
 ```
 
-### 17.2 波形观察要点（V2 特有）
+**关键约束**（与 V1 main fw 不同）：
+- 禁止 include V1 的 `soc_regs.h`（V1 常量与 v2-fpga-e203 地址映射不一致）
+- 必须用 v2-fpga-e203 专用的寄存器宏（在 fw/v2_e203_smoke/include/ 下）
+- 全字 MMIO 写（避免 partial WSTRB 路径）
 
-```
-Verdi/VCD 重点信号：
+### 21.3 phase G3 PASS 证据链
 
-1. layer_sequencer.state          — 观察层调度 FSM 流转
-2. layer_sequencer.layer_idx      — 当前执行到第几层
-3. lif_neuron_alu.running         — ALU 是否在遍历神经元
-4. lif_neuron_alu.neuron_idx      — 当前处理到第几个神经元
-5. lif_neuron_alu.clearing_busy   — 层间清零进行中
-6. spike_feedback.feedback_valid  — 层间 spike 反馈完成
-7. spike_feedback.spike_latched   — 上一层锁存的 spike 掩码
-8. ctrl_is_last_layer             — 最后一层标志
-```
+[doc/v2-fpga-e203/00_architecture.md](v2-fpga-e203/00_architecture.md) §4 列出完整链：
 
-### 17.3 参数修改实验（推荐）
+| 项 | 值 |
+|------|------|
+| 板级 commit | `e696dc39`（2026-04-25 13:22）|
+| 冻结 tag | `v2-fpga-e203-passed` |
+| Bitstream SHA256 | `e5ae7936...` |
+| Smoke hex SHA256 | `c2b2fb17...`（board-ready, SIM_FAST=0） |
+| Encoder hex SHA256 | `83fb301c...` |
+| UART log | `board_bringup_log.txt`（10 sample count + golden 对比） |
+| Golden match | 100/100 spike counts bit-exact |
 
-**实验 1**: 改为 3 层推理
-```
-在 multilayer_tb.sv 中添加 Layer 2 描述符，修改 REG_ML_CTRL 为 num_layers=2
-观察 layer_sequencer.layer_idx 从 0→1→2
-```
+### 21.4 HEAD vs 冻结 commit 改动分析
 
-**实验 2**: 修改中间层阈值
-```
-降低 Layer 0 的 threshold（如改为 500）
-预期：Layer 0 产生更多 spike → Layer 1 收到更多 WL 输入 → 最终输出更多
-```
+| 改动 | 类型 | 触发 reburn？ |
+|------|------|--------------|
+| `rtl/top/snn_soc_v2b_top.sv` (+105) | RTL：WSTRB byte-mask + W1P/W1C/W1S 门控 | **后向兼容** — fw 全字写不触发 |
+| `rtl/mem/sram_simple.sv` (+15) | 注释（V1/V2 互斥写契约说明） | 否 |
+| `rtl/top/e203_min_wrap.sv` (+12) | E203 vendor include 显式 + ifdef 保护 | 否（不影响综合 bit） |
+| `tb/v2b_partial_write_invariant_tb.sv` | 新 TB（永久 invariant gate） | TB-only |
+| `sim/run_v2b_partial_write_invariant.{sh,f}` | 新 sim 脚本 | TB-only |
+| `doc/v2-fpga-e203/00_architecture.md` | doc 升级（§4.1 / §4.4） | 否 |
+| `doc/v2-fpga-e203/board_bringup_log.txt` | UART log + golden 表 | 否 |
+| `fpga_synth/zcu102_v2_e203_demo/build_v2_e203_demo.tcl` | Vivado 参数微调 | 否（参考脚本，不替换 bitstream） |
+| `fw/v2_e203_smoke/build_v2_e203_smoke.sh` | 默认 SIM_FAST=0 | 仅影响新 build，已有 board hex 已固化 |
+| `sim/common_iverilog_env.sh` 等 | Icarus 环境与 vendor 路径 | 仿真环境，不影响 bit |
 
-**实验 3**: 故意把 Layer 1 的 use_bitplane 改成 1
-```
-预期：由于 spike 是二值的，bit-plane 展开 8 步但每步内容相同，
-      浪费 8 倍时间但结果与 use_bitplane=0 不同（权重不同）
-```
+**结论**：HEAD `ae377d3c` 与冻结 commit `e696dc39` 的所有 RTL 改动都是 **backward-compatible**，已有 firmware 不会暴露任何 partial WSTRB 路径。**不需要 reburn**。
 
 ### 检验标准
 
-- [ ] 能独立跑通 `run_multilayer.sh` 并看到 `MULTILAYER_SMOKE_PASS`
-- [ ] 能在波形中定位 Layer 0 → Layer 1 的切换时刻
-- [ ] 能观察到 `clearing_busy` 在两层之间持续 128 拍
-- [ ] 能修改 TB 添加第 3 层并跑通
-- [ ] 能解释 TB 中为什么 DMA 搬 80 个 word（= 10帧 × 8子步 × 每子步 1 个 64-bit = 80 个 32-bit word，每两个拼成 64-bit）
+- [ ] 能写出 v2_e203_smoke_main.c 的 4 步推理调用流程
+- [ ] 能解释为什么 fw 必须全字 MMIO 写（避免 partial WSTRB）
+- [ ] 能复述 phase G3 PASS 证据链的 5 个关键 SHA / 标记
+- [ ] 能列举 HEAD 后改动里不触发 reburn 的判定依据
 
 ---
 
-## Part C 时间规划
+## 阶段 22：致命风险扫描与永久 invariant gate（Day 50）
 
-| 天数 | 内容 | 时长 | 关键交付物 |
-|------|------|------|------------|
-| Day 15-18 | 阶段 15：CIM 编程通路 | 8-10h | 手画 cim_program_ctrl 状态图、编程操作序列 |
-| Day 19-24 | 阶段 16：多层推理 | 12-16h | 手画 layer_sequencer 状态图、2层数据流图 |
-| Day 25-27 | 阶段 17：V2 仿真实战 | 6-8h | 波形截图、参数修改实验记录 |
+### 22.1 已闭环风险
 
-**Part C 总计约 2 周**，每天投入 3-4 小时。
+| 风险 | 状态 | 证据 |
+|------|------|------|
+| **WSTRB byte-mask 未处理** | ✅ FIXED | commit `ae377d3c`：`apply_wstrb()` + 15 处寄存器写改用该函数 |
+| **V2.B 永久 invariant gate** | ✅ DEFINED | `v2b_partial_write_invariant_tb.sv`（10 PASS）；wstrb=4'hF 时绕过 check，wstrb≠4'hF 时直接验证应用 |
+| **vendor E203 RTL 路径解析** | ✅ ROBUST | commit `04e4822c` / `069bc022`：`sim/common_iverilog_env.sh` 自动探测路径；ifdef SOC_ENABLE_E203_VENDOR guard |
+| **综合 hang / 不收敛** | ✅ RESOLVED | Phase B bitgen WNS 4.837 ns，0 errors；历史反模式都在 phase-B refactor 修过 |
+| **manifest / tag 对应关系** | ✅ LOCKED | tag `v2-fpga-e203-passed → e696dc39`（board log + arch doc + bitstream SHA 全记） |
+
+### 22.2 永久 invariant gate（`v2b_partial_write_invariant`）
+
+这是 commit `ae377d3c` 引入的 **never-removable** TB，作为 V2.B WSTRB 行为的护栏：
+
+```
+6 个 invariant：
+  1. wstrb=4'hF 时所有字节都被写入（与原行为一致）
+  2. wstrb=4'b0001 时只低字节被写入，高 24 位保持
+  3. wstrb=4'b1000 时只高字节被写入，低 24 位保持
+  4. wstrb=4'b0011 / 4'b1100 / 4'b0110 跨字节写也正确
+  5. W1P 字段（START / SOFT_RESET）仅在对应字节 wstrb=1 时触发脉冲
+  6. W1C 字段（DONE）仅在对应字节 wstrb=1 + bit=1 时清 sticky
+```
+
+10 个 sub-test 全 PASS。任何后续 RTL 改动若让该 TB FAIL，必须修复 RTL 而不是改 TB。
+
+### 22.3 后续注意事项
+
+1. **fw 改动**：如果未来 fw 改成字节写，必须重跑 `run_v2_e203_cosim.sh` 确认行为一致；即使 Icarus 通过，**可能也要重烧 bitstream** 验证板上行为。
+2. **V2.B RTL 改动**：cim_mac / stage_engine / stream_buffer / tile_partial_buf / layer_sequencer 任一改动都触发 reburn（修改这些会变更 bitstream 综合结果）。
+3. **总线桥改动**：icb2simple_bridge_v2b / bus_interconnect_v2_e203 / simple2v2btop_adapter 任一改动都触发 reburn。
+4. **TB-only / 文档 / 注释 / 仿真环境** → 不触发 reburn。
+
+### 检验标准
+
+- [ ] 能列出 6 个 partial_write invariant 的具体含义
+- [ ] 能说出哪些后续改动会触发 reburn，哪些不会
+- [ ] 能解释为什么这个 TB 是"never-removable"
 
 ---
 
-*最后更新：2026-04-18*
+## Part E 时间规划
 
-**学习建议**：Part A 必须完全掌握后再开始 Part B 或 Part C。Part B（外设）和 Part C（V2 SNN 扩展）之间没有前置依赖，可以根据兴趣或工作需要选择先学哪个。每个阶段学完后，尝试写一段代码或画一个图来验证理解。遇到问题及时记录，积极讨论。
+| 天数 | 内容 | 时长 |
+|------|------|------|
+| Day 41-43 | 阶段 19：V2 E203 + V2.B 系统架构 | 6-8h |
+| Day 44-47 | 阶段 20：V2.B streamed-stage MAC（与 v2-arm 共用，可加速） | 6-8h |
+| Day 48-49 | 阶段 21：E203 固件 + V2.B MMIO 驱动 | 5-6h |
+| Day 50 | 阶段 22：风险扫描 + invariant gate | 3-4h |
+
+**Part E 总计约 1-1.5 周**，每天投入 3-4 小时。
+
+---
+
+*Part E 最后更新：2026-04-29（基于 v2-fpga-e203 HEAD = ae377d3c）*
+
+**学习建议**：本分支是"evidence branch"，优先看 `doc/v2-fpga-e203/00_architecture.md`（650+ 行，Phase 0 → Phase G3 完整叙事）与板级证据日志，再回到 RTL 看实现。如果你已经看过 v2-arm-fpga-demo 分支的 Part D，那么阶段 20（V2.B 加速器）可以快速浏览，重点放在阶段 19（三层桥） + 阶段 21（E203 固件）这两块本分支特有内容上。

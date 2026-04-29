@@ -27,8 +27,8 @@
 // 系统背景：
 //
 //   SNN 的 CIM 阵列有 NUM_INPUTS=64 根 Word Line（WL）。
-//   受限于 IO pad 数量（1x1mm 芯片，48 pad 预算），不可能将 64 根 WL
-//   全部引出为独立引脚。
+//   受限于 IO pad 数量（1x1mm 芯片，55-pad 冻结口径，详见 doc/15_asic_pad_map.md），
+//   不可能将 64 根 WL 全部引出为独立引脚。
 //
 //   解决方案：时分复用（TDM）
 //     - 将 64-bit WL bitmap 分为 8 组，每组 8-bit（WL_GROUP_WIDTH=8）
