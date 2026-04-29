@@ -15,7 +15,7 @@
 | 当前分支 | `feature/v2-arm-fpga-demo` |
 | 板级冻结 tag (v1) | `v2-arm-fpga-demo-passed @ 8e51ae27`（2026-04-22） |
 | 板级冻结 commit (v2 reburn) | `ea31be22`（WSTRB byte-mask 修复后重烧 PASS） |
-| HEAD | `03a39a61`（仅文档/注释收口，零 RTL 改动） |
+| Claude 复核基线 HEAD | `eed19406`（在 `03a39a61` v2 tag 之后仅 doc/注释收口） |
 | 是否需要 reburn | **否** — HEAD vs reburn commit 的差异均为纯文档/注释 |
 | 板级 PASS 标记 | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 
@@ -1467,12 +1467,12 @@ ST_IDLE
 | `bash sim/run_cim_program_ctrl.sh` | `CIM_PROGRAM_CTRL_PASS`（8 个子测试：写、擦、verify、retry、DONE、互锁等） |
 | `bash sim/run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS`（4 档预设 + erase 固定） |
 | `bash sim/run_prog_inflight_lock.sh` | `PROG_INFLIGHT_LOCK_TB_PASS`（18 个子测试） |
-| `bash sim/run_prog_disabled_no_pending.sh` | ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
-| `bash sim/run_boot_erase_e2e.sh` | 完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
-| `bash sim/run_prog_start_interlock.sh` | SNN/PROG 互锁正向 |
-| `bash sim/run_prog_pad_encoder.sh` | prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
-| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 路由 |
-| `bash sim/run_prog_bypass_latch.sh` | BYPASS_HANDSHAKE 在 START 拍锁存 |
+| `bash sim/run_prog_disabled_no_pending.sh` | `PROG_DISABLED_NO_PENDING_TB_PASS`：ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
+| `bash sim/run_boot_erase_e2e.sh` | `BOOT_ERASE_E2E_TB_PASS`：完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
+| `bash sim/run_prog_start_interlock.sh` | `PROG_START_INTERLOCK_TB_PASS`：SNN/PROG 互锁正向 |
+| `bash sim/run_prog_pad_encoder.sh` | `PROG_PAD_ENCODER_TB_PASS`：prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
+| `bash sim/run_prog_wl_pad_route.sh` | `PROG_WL_PAD_ROUTE_TB_PASS`：编程模式下 WL pad 路由 |
+| `bash sim/run_prog_bypass_latch.sh` | `PROG_BYPASS_LATCH_TB_PASS`：BYPASS_HANDSHAKE 在 START 拍锁存 |
 
 ### 检验标准
 
@@ -1767,7 +1767,7 @@ function automatic logic [31:0] apply_wstrb(
 endfunction
 ```
 
-15 处寄存器写改用 `apply_wstrb(old, new, wstrb)`。新 TB [tb/v2b_partial_write_invariant_tb.sv](../tb/v2b_partial_write_invariant_tb.sv) 直驱 V2B top（不经过 AXI 栈），10 个 sub-test 全 PASS。
+15 处寄存器写改用 `apply_wstrb(old, new, wstrb)`。AXI 栈级 TB [tb/v2b_axi_partial_write_tb.sv](../tb/v2b_axi_partial_write_tb.sv) 通过 `sim/run_v2b_axi_partial_write.sh` 验证，8 个 case 全 PASS；本分支另补一个 direct-top permanent gate [tb/v2b_partial_write_invariant_tb.sv](../tb/v2b_partial_write_invariant_tb.sv)，专门守住 `snn_soc_v2b_top.cmd_wstrb` 的 W1P/W1C invariant。
 
 ### 20.3 重烧 (reburn) 决策与证据
 
@@ -1823,7 +1823,7 @@ V2.B 把整个推理拆成多个 **tile**（小子矩阵），每个 tile：
 3. 所有 tile 跑完后 → `lif_neuron_alu` 算 spike → `spike_feedback` 发给下一层
 4. `layer_sequencer` 控制层间切换
 
-详见 [tb/v2b_partial_write_invariant_tb.sv](../tb/v2b_partial_write_invariant_tb.sv) 的子 invariants 与 [doc/arm-fpga-demo/00_architecture.md](arm-fpga-demo/00_architecture.md) §3 数据流。
+详见 [tb/v2b_axi_partial_write_tb.sv](../tb/v2b_axi_partial_write_tb.sv) / [tb/v2b_partial_write_invariant_tb.sv](../tb/v2b_partial_write_invariant_tb.sv) 的子 invariants 与 [doc/arm-fpga-demo/00_architecture.md](arm-fpga-demo/00_architecture.md) §3 数据流。
 
 ### 21.3 关键 RTL 文件
 
@@ -1886,7 +1886,7 @@ xsct program_zcu102_arm_demo.tcl
 | Tag | 指向 | 状态 |
 |-----|------|------|
 | `v2-arm-fpga-demo-passed` | `8e51ae27` (v1 frozen) | 永久保留，论文/简历可引用 |
-| `v2-arm-fpga-demo-v2-passed`（候选）| `ea31be22` 之后某个稳定点 | 待 main merge-ready 后定案 |
+| `v2-arm-fpga-demo-v2-passed` | `03a39a61`（annotated tag；artifact-bearing reburn log 从 `ea31be22` 开始） | F1 修复后重烧 PASS 基线 |
 
 **复现优先用 v2 tag**：因为 v1 有 partial WSTRB 协议问题（虽然不触发，但讲解时容易让评审困惑）。**对比研究可用 v1 tag**：保留早期版本不可变性。
 
@@ -1894,8 +1894,9 @@ xsct program_zcu102_arm_demo.tcl
 
 | 命令 | 标记 |
 |------|------|
-| `cd sim && bash run_v2b_partial_write_invariant.sh` | `V2B_PARTIAL_WRITE_INVARIANT_PASS`（10 sub-test） |
-| `cd sim && bash run_v2b_arm_demo_cosim.sh` | RTL 仿真级 cosim PASS |
+| `cd sim && bash run_v2b_axi_partial_write.sh` | `V2B_AXI_PARTIAL_WRITE_TB_PASS`（AXI 栈级 partial-write 回归） |
+| `cd sim && bash run_v2b_partial_write_invariant.sh` | `V2B_PARTIAL_WRITE_INVARIANT_TB_PASS`（direct-top permanent invariant gate） |
+| `cd sim && bash run_axi_arm_cosim_resident_14x14.sh` | `AXI_ARM_COSIM_RESIDENT_14X14_TB_PASS` |
 | 板上 UART log | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 
 ### 22.4 致命风险与已闭环项
@@ -1931,6 +1932,6 @@ xsct program_zcu102_arm_demo.tcl
 
 ---
 
-*Part D 最后更新：2026-04-29（基于 v2-arm-fpga-demo HEAD = 03a39a61）*
+*Part D 最后更新：2026-04-29（基于 v2-arm-fpga-demo Claude 复核基线 HEAD = eed19406；本次 GPT 仅补 doc/TB gate，不影响 FPGA bitstream）*
 
 **学习建议**：本分支是"evidence branch"，优先看 `doc/arm-fpga-demo/00_architecture.md` 与板级证据日志，再回到 RTL 看实现。建议在阅读 cim_mac_behavioral_v2 / stage_engine_v2 之前先把 V1 的 cim_macro_blackbox / cim_array_ctrl 看懂，这样能看出 V2.B 重构的关键演进点。

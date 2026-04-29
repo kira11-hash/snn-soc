@@ -5,14 +5,14 @@
 - **Phase B（ARM firmware cross-build）—✅ GATE B PASS**（`v2b_arm_demo.elf` linked, zero undefined refs, symbols verified）
 - **Phase C0 本地静态 sanity — ✅ OOC synth PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 via HPM0_FPD 已锁**（full bitgen + 板上 smoke 在 Qingan sign-off + 有板子时跑）
 - **Phase C0/C1 board validation（frozen v1）—✅ PASS**（tag `v2-arm-fpga-demo-passed` @ `8e51ae27`，2026-04-22 sign-off）
-- **Fix wave F1（WSTRB partial-write repair）—✅ RTL/TB PASS + re-bitgen PASS + re-burn PASS**（候选 tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
+- **Fix wave F1（WSTRB partial-write repair）—✅ RTL/TB PASS + re-bitgen PASS + re-burn PASS**（tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
 
 **Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。frozen v1 与 v2 fix wave 通过双 tag 并存：
 
 | Tag | Commit | bit/elf SHA256 简述 | 时间 | 用途 |
 |---|---|---|---|---|
 | `v2-arm-fpga-demo-passed` | `8e51ae27` | bit `1215D913…`, elf `1D6D6BB3…` | 2026-04-22 | frozen v1 板验（**WSTRB 漏洞潜伏期**） |
-| `v2-arm-fpga-demo-v2-passed` | merge HEAD | bit `78A5F36C…`, elf `AEEB02A0…` | 2026-04-25 | F1 修后重烧版（partial-write 语义正确） |
+| `v2-arm-fpga-demo-v2-passed` | `03a39a61` | bit `78A5F36C…`, elf `AEEB02A0…` | 2026-04-25 | F1 修后重烧版（partial-write 语义正确） |
 
 引用规则：
 - 论文叙事 / 简历 → 引用 **v2 tag**（语义正确版）
@@ -138,6 +138,8 @@ read_mux 的 case 依赖 `cmd_addr`。如果 adapter 把 cmd_addr 清零，read_
 | `sim/run_v2b_soc_top_parity.sh` | V2B_SOC_TOP_PARITY_TB_PASS | ✅ PASS |
 | `sim/run_fw_cosim_resident_14x14.sh` | FW_COSIM_RESIDENT_14X14_TB_PASS | ✅ PASS |
 | **`sim/run_axi_arm_cosim_resident_14x14.sh`** | **AXI_ARM_COSIM_RESIDENT_14X14_TB_PASS** | ✅ **PASS**（本分支新增） |
+| **`sim/run_v2b_axi_partial_write.sh`** | **V2B_AXI_PARTIAL_WRITE_TB_PASS** | ✅ **PASS**（AXI 栈级 WSTRB gate） |
+| **`sim/run_v2b_partial_write_invariant.sh`** | **V2B_PARTIAL_WRITE_INVARIANT_TB_PASS** | ✅ **PASS**（direct-top permanent W1P/W1C gate） |
 | `sim/run_tile_partial_buf.sh` | TILE_PARTIAL_BUF_TB_PASS | ✅ PASS |
 | `sim/run_stream_buffer_v2.sh` | STREAM_BUFFER_V2_TB_PASS | ✅ PASS |
 | `sim/run_input_stream_sram.sh` | INPUT_STREAM_SRAM_TB_PASS | ✅ PASS |
@@ -258,8 +260,8 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 |---|---|---|
 | OOC synth `v2b_arm_demo_top` | `vivado -mode batch -source ooc_v2b_arm_demo.tcl` | ✅ `TIMING_STATUS : PASS` @ 50 MHz（pseudo-constraint 20 ns period，匹配项目 baseline） |
 | BD 创建 + validate + save | `vivado -mode batch -source bd_sanity_zcu102_arm_demo.tcl` | ✅ `ZCU102_BD_SANITY_PASS`；`u_v2b_wrapper/s_axi` 接口正确推断；地址段挂在 `<0xA000_0000 [ 4K ]>` |
-| Full bitgen + XSA | `scripts/build_zcu102_arm_demo.sh` | ✅ frozen v1 已完成；fix wave F1 待 user 重跑 |
-| 上板 C0/C1 smoke | `xsct scripts/program_zcu102_c0.tcl` | ✅ frozen v1 已完成；fix wave F1 待 user 重烧 |
+| Full bitgen + XSA | `scripts/build_zcu102_arm_demo.sh` | ✅ frozen v1 + F1 fix wave v2 均已完成；v2 bit/XSA SHA 见 `build_manifest_v2.txt` |
+| 上板 C0/C1 smoke | `xsct scripts/program_zcu102_c0.tcl` | ✅ frozen v1 + F1 fix wave v2 均已完成；v2 UART log 见 `board_bringup_log_v2.txt` |
 
 > 注：`v2-arm-fpga-demo-passed` 代表 frozen v1 的板验完成；当前 fix wave 的重烧/重测证据统一写入 `doc/arm-fpga-demo/board_bringup_log_v2.txt`。
 
@@ -279,7 +281,7 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 | 状态 | 可写措辞 | 当前？ |
 |---|---|---|
 | **frozen v1（已板验）** | "The V2.B accelerator was validated on ZCU102 through ARM-hosted MMIO control with bit-exact output counts (10 Fashion-MNIST 14×14 samples)." | ✅ |
-| **当前 fix wave（F1 待重烧）** | "The frozen v1 artifact has board evidence; a follow-up fix wave for AXI partial-write semantics is under re-validation." | ✅ |
+| **F1 修复后 v2 tag（已重烧）** | "The AXI partial-write repair has board evidence and preserves the original full-word firmware behavior while restoring byte-strobe correctness." | ✅ |
 | **fix wave re-burn PASS 之后** | "The AXI partial-write repair preserves the original board-validated behavior while restoring byte-strobe correctness on the ARM-hosted MMIO path." | ✅ |
 
 始终**不可写**（直到 E203-in-PL 分支跑通）："autonomous SoC-local firmware execution"、"E203 firmware already runs V2.B on FPGA"、"integrated RISC-V + CIM SoC with firmware self-orchestration"。
@@ -311,6 +313,13 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 - **CI / regression**：永远跑新 RTL（merged HEAD），不要 checkout v1 tag 做新功能开发
 - **老 tag policy**：v1 tag **永不 move**，不打 `-f`，不删；保持 git 历史可审计
 
-### 11.4 后续 invariant 保护（建议，不阻塞 merge）
+### 11.4 后续 invariant 保护
 
-`tb/v2b_axi_partial_write_tb.sv` 应纳入 main HEAD CI 的常规 gate（不只 v2-arm-fpga-demo 分支跑），防止未来其他改动回退 byte-mask 行为。可加入 `sim/run_full_regression.sh`（如果有）或 main 的 Phase A 集合。
+当前分支保留两层 WSTRB gate：
+
+| 层级 | 命令 | 目的 |
+|---|---|---|
+| AXI 栈级 | `sim/run_v2b_axi_partial_write.sh` | 证明 ARM PS-facing AXI WSTRB 经 `v2b_axi_wrapper` 传到 V2.B core，8 个 case 全 PASS |
+| direct-top | `sim/run_v2b_partial_write_invariant.sh` | 直驱 `snn_soc_v2b_top.cmd_*`，守住 START W1P / DONE W1C / clear pulses 的 byte0 invariant |
+
+后续任何触碰 `rtl/top/snn_soc_v2b_top.sv`、`rtl/top/v2b_axi_wrapper.sv` 或 `rtl/bus/simple2v2btop_adapter.sv` 的改动，都应同时跑这两条 gate。
