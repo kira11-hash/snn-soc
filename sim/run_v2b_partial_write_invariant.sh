@@ -6,16 +6,17 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+. "$SCRIPT_DIR/common_iverilog_env.sh"
+resolve_iverilog_tools
 
-iverilog -g2012 -gno-assertions \
+run_iverilog -g2012 -gno-assertions \
   -o v2b_partial_write_invariant_test \
   -f sim_v2b_partial_write_invariant.f
 
-echo "[RESULT_BEGIN]"
-vvp v2b_partial_write_invariant_test
-echo "[RESULT_END]"
+LOG="v2b_partial_write_invariant.log"
+run_vvp v2b_partial_write_invariant_test | tee "$LOG"
 
-if grep -q "V2B_PARTIAL_WRITE_INVARIANT_TB_PASS" <(vvp v2b_partial_write_invariant_test 2>&1); then
+if grep -q "V2B_PARTIAL_WRITE_INVARIANT_TB_PASS" "$LOG"; then
   echo "============================================"
   echo "[RESULT] V2B_PARTIAL_WRITE_INVARIANT_TB_PASS"
   echo "============================================"

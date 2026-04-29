@@ -22,9 +22,11 @@
 //   T4 STAGE_CFG0 byte-mask preserves the unwritten half-word
 //   T5 STREAM_BUF_CTRL byte1-only write does NOT fire byte0 pulses
 //   T6 STREAM_BUF_CTRL byte0 write with wdata[1..3]=1 fires the pulses
+//   T7 STAGE_CTRL byte1-only write must NOT clear DONE W1C
+//   T8 STAGE_CTRL byte0 write with wdata[7]=1 MUST clear DONE W1C
 //
 // On the pre-fix RTL (v2-arm-fpga-demo-passed @ 8e51ae27), T1/T3/T4/T5
-// fail; on the post-fix RTL all six PASS.
+// fail; on the post-fix RTL all invariant checks PASS.
 //======================================================================
 module v2b_partial_write_invariant_tb;
 
@@ -206,6 +208,25 @@ module v2b_partial_write_invariant_tb;
     check_int("T6 STREAM byte0 wdata[1] fires clear_a", clear_a_count, 1);
     check_int("T6 STREAM byte0 wdata[2] fires clear_b", clear_b_count, 1);
     check_int("T6 STREAM byte0 wdata[3] fires clear_tile", clear_tile_count, 1);
+
+    // ─── T7/T8 STAGE_CTRL DONE W1C must obey byte0 wstrb ───────────
+    dut.done_sticky = 1'b1;
+    repeat (1) @(posedge clk);
+    do_write(O_STAGE_CTRL, 32'h0000_0080, 4'b0010);
+    begin : t7_check
+      logic [31:0] rd;
+      do_read(O_STAGE_CTRL, rd);
+      check32("T7 STAGE_CTRL byte1-only must not clear DONE",
+              rd & 32'h0000_0080, 32'h0000_0080);
+    end
+
+    do_write(O_STAGE_CTRL, 32'h0000_0080, 4'b0001);
+    begin : t8_check
+      logic [31:0] rd;
+      do_read(O_STAGE_CTRL, rd);
+      check32("T8 STAGE_CTRL byte0 DONE W1C clears",
+              rd & 32'h0000_0080, 32'h0000_0000);
+    end
 
     // ─── Result ────────────────────────────────────────────────────
     repeat (5) @(posedge clk);

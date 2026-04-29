@@ -14,7 +14,7 @@
 |------|------|
 | 当前分支 | `feature/v2-fpga-e203` |
 | 板级冻结 tag | `v2-fpga-e203-passed @ e696dc39`（2026-04-25） |
-| HEAD | `ae377d3c`（WSTRB byte-mask 加固 + 永久 invariant TB） |
+| Claude 复核基线 HEAD | `6b0d7378`（在 `ae377d3c` WSTRB gate 后追加 doc/注释收口） |
 | 是否需要 reburn | **否** — HEAD 改动均为后向兼容（fw 全字写不触发 partial WSTRB） |
 | 板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_MULTILAYER_INFER_PASS` |
 | Bitstream SHA256 | `e5ae7936...`（Vivado 2022.2 build 3671981） |
@@ -1471,12 +1471,12 @@ ST_IDLE
 | `bash sim/run_cim_program_ctrl.sh` | `CIM_PROGRAM_CTRL_PASS`（8 个子测试：写、擦、verify、retry、DONE、互锁等） |
 | `bash sim/run_prog_pulse_cfg.sh` | `PROG_PULSE_CFG_TB_PASS`（4 档预设 + erase 固定） |
 | `bash sim/run_prog_inflight_lock.sh` | `PROG_INFLIGHT_LOCK_TB_PASS`（18 个子测试） |
-| `bash sim/run_prog_disabled_no_pending.sh` | ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
-| `bash sim/run_boot_erase_e2e.sh` | 完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
-| `bash sim/run_prog_start_interlock.sh` | SNN/PROG 互锁正向 |
-| `bash sim/run_prog_pad_encoder.sh` | prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
-| `bash sim/run_prog_wl_pad_route.sh` | 编程模式下 WL pad 路由 |
-| `bash sim/run_prog_bypass_latch.sh` | BYPASS_HANDSHAKE 在 START 拍锁存 |
+| `bash sim/run_prog_disabled_no_pending.sh` | `PROG_DISABLED_NO_PENDING_TB_PASS`：ENABLE_PROGRAM_MODE=0 时 PROG_CTRL.START 不留 pending |
+| `bash sim/run_boot_erase_e2e.sh` | `BOOT_ERASE_E2E_TB_PASS`：完整 fw 开机擦除 → 控制器 SEQ_DONE → 1280 cells 全 0 readback |
+| `bash sim/run_prog_start_interlock.sh` | `PROG_START_INTERLOCK_TB_PASS`：SNN/PROG 互锁正向 |
+| `bash sim/run_prog_pad_encoder.sh` | `PROG_PAD_ENCODER_TB_PASS`：prog_op_ext / prog_level_ext pad 编码（详见阶段 17） |
+| `bash sim/run_prog_wl_pad_route.sh` | `PROG_WL_PAD_ROUTE_TB_PASS`：编程模式下 WL pad 路由 |
+| `bash sim/run_prog_bypass_latch.sh` | `PROG_BYPASS_LATCH_TB_PASS`：BYPASS_HANDSHAKE 在 START 拍锁存 |
 
 ### 检验标准
 
@@ -1701,7 +1701,7 @@ bus_interconnect_v2_e203 ← 固定 1-cycle 路径 (INSTR/DATA/UART) + 透传路
        snn_soc_v2b_top           ← V2.B 加速器内核
 ```
 
-**核心要点**：E203 LSU 发起 → 5-cycle round-trip @ 50 MHz，走的是 ICB → simple_bus → v2b_bus 三跳桥；其中前两跳是固定 1-cycle，第三跳走 4-state FSM（ADDR_LATCH → CMD → RSP_WAIT → DATA），cmd_addr 在 RSP_WAIT 期间需要保持稳定。
+**核心要点**：E203 LSU 发起 → RTL/TB 推导约 5-cycle read round-trip @ 50 MHz，走的是 ICB → simple_bus → v2b_bus 三跳桥；其中 INSTR/DATA/UART 是固定 1-cycle，V2B 路径由 `bus_interconnect_v2_e203` 透传到 `simple2v2btop_adapter`，adapter 读路径固定 2 cycle 并在等待期间保持 `cmd_addr` 稳定。G3 board log 证明端到端功能 bit-exact，但未直接测量这条 latency。
 
 ### 19.2 与 V1 main / v2-arm-fpga-demo 的关键区别
 
@@ -1755,27 +1755,27 @@ bus_interconnect_v2_e203 ← 固定 1-cycle 路径 (INSTR/DATA/UART) + 透传路
 ### 20.2 数据流（10 Fashion-14×14 样本）
 
 1. E203 firmware 把权重 + 输入像素通过 V2.B MMIO 装载
-2. 写 V2B_CTRL.START，accelerator 启动一次推理：
+2. 写 `V2B_SOC_STAGE_CTRL.START`，accelerator 启动一次 stage：
    - `stage_engine_v2` 拆 tile → `stream_buffer_v2` 取输入 → `cim_mac_behavioral_v2` 算 MAC → 累加到 `tile_partial_buf`
    - 所有 tile 跑完 → `lif_neuron_alu` 算 spike → `spike_feedback` 给下一层
    - `layer_sequencer` 控制层切换
-3. 推理完成后 V2B_STATUS.DONE 拉高，E203 读取 spike count
+3. `V2B_SOC_STAGE_STATUS.BUSY` 清零后，firmware 写 `V2B_SOC_STAGE_CTRL.DONE` W1C 清 sticky，并从 `V2B_SOC_READ_SBB(t)` 读取 spike count
 4. UART 输出 `[V2_E203] sample i count=k` 与 golden 对比
 
 ### 20.3 关键回归
 
 | 命令 | 标记 |
 |------|------|
-| `bash sim/run_v2b_partial_write_invariant.sh` | `V2B_PARTIAL_WRITE_INVARIANT_PASS`（永久 invariant gate） |
-| `bash sim/run_v2_e203_cosim.sh` | E203 + V2.B cosim PASS（bit-exact 与 Python 对齐） |
-| `bash sim/run_v2_e203_encoder_parity.sh` | encoder parity PASS |
+| `cd sim && bash run_v2b_partial_write_invariant.sh` | `V2B_PARTIAL_WRITE_INVARIANT_TB_PASS`（永久 invariant gate） |
+| `cd sim && bash run_v2_e203_cosim.sh` | `V2_E203_COSIM_PASS`（BOOT/BUFFER_PTR/UART boot tag + sample loop 进入；完整 100-count bit-exact 由 G3 board evidence 覆盖） |
+| `cd sim && bash run_v2_e203_encoder_parity.sh` | `V2_E203_ENCODER_PARITY_PASS` |
 
 ### 检验标准
 
 - [ ] 能画出 cim_mac_behavioral_v2 的 WL-serial j-parallel 数据流
 - [ ] 能解释 tile-mode 如何降低 BRAM 面积同时保持流水线不空闲
 - [ ] 能说出 layer_sequencer 与 spike_feedback 的协作关系
-- [ ] 能解释 partial_write invariant 在 wstrb=4'hF 时绕过 check 的设计意图
+- [ ] 能解释 full-word `wstrb=4'hF` 为何必须保持原行为，以及 partial WSTRB 为何不能放大成全字写
 
 ---
 
@@ -1803,31 +1803,36 @@ vivado -mode batch -source build_v2_e203_demo.tcl
 ### 21.2 Firmware 关键函数（v2_e203_smoke_main.c）
 
 ```c
-// 1. 等待 V2.B 内核就绪
-while ((V2B_STATUS & STATUS_READY_MASK) == 0);
+// 1. Bresenham encoder 在线计算（与 arm-demo 使用同一 portable C 逻辑）
+v2b_encode_pixel_even_rate(pixel_196, S0_IN_DIM, T_COUNT, stream_bits);
 
-// 2. 装载权重（多层）
-for (uint32_t l = 0; l < NUM_LAYERS; l++) {
-    V2B_LAYER_SEL = l;
-    for (uint32_t i = 0; i < layer_size[l]; i++) {
-        V2B_WEIGHT_DATA = weights[l][i];   // 全字写，不触发 WSTRB partial
-    }
-}
+// 2. 通过 V2.B MMIO 全字写装载 input stream 与 MAC weights
+V2B_SOC_INPUT_SRAM_ADDR = t;
+V2B_SOC_INPUT_SRAM_W0   = row[0];
+V2B_SOC_INPUT_SRAM_CTRL = 1u;
+V2B_SOC_MAC_W_LOAD_ADDR = V2B_SOC_MAC_W_LOAD_PACK(i, j);
+V2B_SOC_MAC_W_LOAD_DATA = V2B_SOC_MAC_W_DATA_PACK(w_pos[k], w_neg[k]);
+V2B_SOC_MAC_W_LOAD_CTRL = 1u;
 
-// 3. Bresenham encoder 在线计算（vs arm-demo 的离线编码）
-encode_bresenham(image, encoded);
+// 3. 配置并启动 stage；BUSY 清零后读 err_code，再 W1C 清 DONE
+V2B_SOC_STAGE_CFG0 = (in_dim & 0xFFFFu) | ((out_dim & 0xFFFFu) << 16);
+V2B_SOC_STAGE_CFG1 = threshold;
+V2B_SOC_STAGE_CFG2 = sum_max;
+V2B_SOC_STAGE_CFG3 = cfg3;
+V2B_SOC_STAGE_CFG5 = T_COUNT;
+V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_START;
+while (V2B_SOC_STAGE_BUSY(V2B_SOC_STAGE_STATUS)) { /* spin */ }
+uint8_t err = (uint8_t)V2B_SOC_STAGE_ERR(V2B_SOC_STAGE_STATUS);
+V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
 
-// 4. 装载输入 + 启动 + 等待 + 读 spike
-V2B_INPUT_BASE = (uintptr_t)encoded;
-V2B_CTRL = CTRL_START_MASK;
-while ((V2B_STATUS & STATUS_DONE_MASK) == 0);
-uint32_t count = V2B_SPIKE_COUNT;
-uart_puts_dec(count);
+// 4. 从 stream_buf_B 读回每个 t 的 spike bitmap 并累计 10 类 count
+uint32_t row_bits = V2B_SOC_READ_SBB(t);
+if (row_bits & (1u << j)) counts_out[j] += 1;
 ```
 
 **关键约束**（与 V1 main fw 不同）：
 - 禁止 include V1 的 `soc_regs.h`（V1 常量与 v2-fpga-e203 地址映射不一致）
-- 必须用 v2-fpga-e203 专用的寄存器宏（在 fw/v2_e203_smoke/include/ 下）
+- 必须用本分支地址映射：`fw/v2_e203_smoke/src/v2b_scheduler_e203.c` 定义 `V2B_SOC_BASE=0xA0000000u`，再 include 公共 `fw/src/v2b_scheduler.c` / `fw/include/v2b_soc_regs.h`
 - 全字 MMIO 写（避免 partial WSTRB 路径）
 
 ### 21.3 phase G3 PASS 证据链
@@ -1850,7 +1855,7 @@ uart_puts_dec(count);
 |------|------|--------------|
 | `rtl/top/snn_soc_v2b_top.sv` (+105) | RTL：WSTRB byte-mask + W1P/W1C/W1S 门控 | **后向兼容** — fw 全字写不触发 |
 | `rtl/mem/sram_simple.sv` (+15) | 注释（V1/V2 互斥写契约说明） | 否 |
-| `rtl/top/e203_min_wrap.sv` (+12) | E203 vendor include 显式 + ifdef 保护 | 否（不影响综合 bit） |
+| `rtl/top/e203_min_wrap.sv` (+12) | 注释说明 vendor adapter fix 作用域（V1/V2 共用） | 否（注释-only） |
 | `tb/v2b_partial_write_invariant_tb.sv` | 新 TB（永久 invariant gate） | TB-only |
 | `sim/run_v2b_partial_write_invariant.{sh,f}` | 新 sim 脚本 | TB-only |
 | `doc/v2-fpga-e203/00_architecture.md` | doc 升级（§4.1 / §4.4） | 否 |
@@ -1859,7 +1864,7 @@ uart_puts_dec(count);
 | `fw/v2_e203_smoke/build_v2_e203_smoke.sh` | 默认 SIM_FAST=0 | 仅影响新 build，已有 board hex 已固化 |
 | `sim/common_iverilog_env.sh` 等 | Icarus 环境与 vendor 路径 | 仿真环境，不影响 bit |
 
-**结论**：HEAD `ae377d3c` 与冻结 commit `e696dc39` 的所有 RTL 改动都是 **backward-compatible**，已有 firmware 不会暴露任何 partial WSTRB 路径。**不需要 reburn**。
+**结论**：Claude 复核基线 HEAD `6b0d7378` 与冻结 commit `e696dc39` 之间，唯一会进综合的行为性 RTL 改动是 `snn_soc_v2b_top.sv` 的 WSTRB byte-mask 修复；已有 firmware 全部 32-bit MMIO 写，不暴露 partial WSTRB 路径。其余为注释 / TB / 仿真脚本 / build 路径解析。**不需要 reburn**。
 
 ### 检验标准
 
@@ -1877,8 +1882,8 @@ uart_puts_dec(count);
 | 风险 | 状态 | 证据 |
 |------|------|------|
 | **WSTRB byte-mask 未处理** | ✅ FIXED | commit `ae377d3c`：`apply_wstrb()` + 15 处寄存器写改用该函数 |
-| **V2.B 永久 invariant gate** | ✅ DEFINED | `v2b_partial_write_invariant_tb.sv`（10 PASS）；wstrb=4'hF 时绕过 check，wstrb≠4'hF 时直接验证应用 |
-| **vendor E203 RTL 路径解析** | ✅ ROBUST | commit `04e4822c` / `069bc022`：`sim/common_iverilog_env.sh` 自动探测路径；ifdef SOC_ENABLE_E203_VENDOR guard |
+| **V2.B 永久 invariant gate** | ✅ DEFINED | `v2b_partial_write_invariant_tb.sv`（8 个 invariant case / 12 个 check，覆盖 W1P + W1C 的 byte0 gate） |
+| **vendor E203 RTL 路径解析** | ⚠ 需实测 | commit `04e4822c` / `069bc022`：`sim/common_iverilog_env.sh` 自动探测路径并支持含空格 repo；当前 Windows 路径含空格已覆盖，中文路径仍建议在用户本机 Git Bash + Icarus 组合下复跑确认 |
 | **综合 hang / 不收敛** | ✅ RESOLVED | Phase B bitgen WNS 4.837 ns，0 errors；历史反模式都在 phase-B refactor 修过 |
 | **manifest / tag 对应关系** | ✅ LOCKED | tag `v2-fpga-e203-passed → e696dc39`（board log + arch doc + bitstream SHA 全记） |
 
@@ -1887,16 +1892,24 @@ uart_puts_dec(count);
 这是 commit `ae377d3c` 引入的 **never-removable** TB，作为 V2.B WSTRB 行为的护栏：
 
 ```
-6 个 invariant：
-  1. wstrb=4'hF 时所有字节都被写入（与原行为一致）
-  2. wstrb=4'b0001 时只低字节被写入，高 24 位保持
-  3. wstrb=4'b1000 时只高字节被写入，低 24 位保持
-  4. wstrb=4'b0011 / 4'b1100 / 4'b0110 跨字节写也正确
-  5. W1P 字段（START / SOFT_RESET）仅在对应字节 wstrb=1 时触发脉冲
-  6. W1C 字段（DONE）仅在对应字节 wstrb=1 + bit=1 时清 sticky
+8 个 representative invariant case：
+  T1/T2: START W1P 只在 byte0 wstrb=1 时触发
+  T3:   STAGE_CFG1 byte0 merge 保留高 24 位
+  T4:   STAGE_CFG0 byte2 merge 保留未写 byte
+  T5/T6: STREAM_BUF_CTRL clear pulses 只在 byte0 wstrb=1 时触发
+  T7/T8: DONE W1C 只在 byte0 wstrb=1 且 bit[7]=1 时清 sticky
 ```
 
-10 个 sub-test 全 PASS。任何后续 RTL 改动若让该 TB FAIL，必须修复 RTL 而不是改 TB。
+8 个 invariant case（12 个具体 check）全 PASS。任何后续 RTL 改动若让该 TB FAIL，必须修复 RTL 而不是改 TB。
+
+### 22.2.1 bridge latency 证据边界
+
+`doc/v2-fpga-e203/00_architecture.md` 中的 ICB → simple → V2B 读
+round-trip `~5 cycle @ 50 MHz` 来自 RTL 时序分解与
+`bus_interconnect_v2_e203` / `simple2v2btop_adapter` TB；G3 board log 证明
+10 样本 × 10 类 spike count bit-exact，但没有板上 cycle-counter 直接测量
+这条 MMIO round-trip latency。若后续论文/答辩要写“实测 5-cycle”，需要先补
+firmware 侧 cycle counter 或 logic analyzer/ILA 证据。
 
 ### 22.3 后续注意事项
 
@@ -1926,6 +1939,6 @@ uart_puts_dec(count);
 
 ---
 
-*Part E 最后更新：2026-04-29（基于 v2-fpga-e203 HEAD = ae377d3c）*
+*Part E 最后更新：2026-04-29（基于 v2-fpga-e203 Claude 复核基线 HEAD = 6b0d7378；本次 GPT 仅补 doc/TB gate，不影响 FPGA bitstream）*
 
 **学习建议**：本分支是"evidence branch"，优先看 `doc/v2-fpga-e203/00_architecture.md`（650+ 行，Phase 0 → Phase G3 完整叙事）与板级证据日志，再回到 RTL 看实现。如果你已经看过 v2-arm-fpga-demo 分支的 Part D，那么阶段 20（V2.B 加速器）可以快速浏览，重点放在阶段 19（三层桥） + 阶段 21（E203 固件）这两块本分支特有内容上。

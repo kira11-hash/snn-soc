@@ -127,7 +127,7 @@ CLAUDE.md 里冻结的 **V1 tape-out params**（`NUM_INPUTS=64, ADC_BITS=8, THRE
 | fabric 透传 | 0（组合）|
 | `simple2v2btop_adapter` IDLE→RD_WAIT→RD_DONE | 2 |
 | 回传 rsp | 1 |
-| **读 round-trip** | **~5 cycle @ 50 MHz = 100 ns** |
+| **读 round-trip** | **RTL/TB 推导约 ~5 cycle @ 50 MHz = 100 ns；board log 目前证明功能 bit-exact，未含 cycle-counter 实测** |
 
 V2.B 单样本推理 ≈ 200 µs。poll BUSY 一次 100 ns，开销 < 0.1%。
 
@@ -137,7 +137,7 @@ V2.B 单样本推理 ≈ 200 µs。poll BUSY 一次 100 ns，开销 < 0.1%。
 
 | ID | 决策 | 理由摘要 |
 |---|---|---|
-| **D1** | 方案 α：两段桥串联（ICB → simple_bus → v2b_bus） | V2B bus 本质是 simple_bus+12-bit addr；adapter 已修 3 个时序坑（rsp_valid 语义、SBA/SBB 2 拍、cmd_addr 保持）；总读 RT ~5 cycle |
+| **D1** | 方案 α：两段桥串联（ICB → simple_bus → v2b_bus） | V2B bus 本质是 simple_bus+12-bit addr；adapter 已修 3 个时序坑（rsp_valid 语义、SBA/SBB 2 拍、cmd_addr 保持）；总读 RT 约 ~5 cycle（RTL/TB 推导，非板上 cycle-counter 实测） |
 | **D3** | Option A-full：port `v2b_scheduler.c` 到 E203，一次跑 10 样本 | 最大复用 portable C；CPU 在线跑 Bresenham 和 arm-demo 一致 |
 | **UART** | CP2108 J83 Ch2（F13/E13, LVCMOS18） | alpha 已调通，无需外接 USB-TTL |
 | **IMEM** | 64 KB（本支线 `V2E203_INSTR_BYTES`） | 权重表 25.8 KB + text ~6 KB + golden 2.4 KB + 余量 30 KB；V1 main 流片线 16 KB 不动（V1 权重预烧 CIM，不经 MAC_W_LOAD） |
@@ -201,15 +201,17 @@ Known deviation: `run_v2_e203_cosim.sh` proves BOOT marker, BUFFER_PTR, UART boo
 
 **背景**：`feature/v2-arm-fpga-demo` 审查中暴露 `snn_soc_v2b_top.sv` 的 AXI 写路径未消费 `cmd_wstrb`，partial write 被悄悄放大为整字写。`v2-fpga-e203` 在 frozen tag (e696dc39) 时也存在同一隐患（fw 全字写没踩到，但 RTL 不安全）。2026-04-25 把同一份 byte-mask fix 移植到本分支并新建直驱 cmd_* 的 `v2b_partial_write_invariant_tb`，作为本分支永久回归门禁。
 
-测试覆盖（10 sub-checks）：
+测试覆盖（8 representative cases / 12 sub-checks）：
 - T1 STAGE_CTRL byte1-only 不应触发 START W1P（safety bug 直接证据）
 - T2 STAGE_CTRL byte0 写应正常触发 START
 - T3 CFG1 byte0 merge 保留高位字节
 - T4 CFG0 byte2 merge 保留低/高位字节
 - T5 STREAM_BUF_CTRL byte1-only 不应触发 byte0 pulses（spurious clear）
 - T6 STREAM_BUF_CTRL byte0 写应正常触发 clear pulses
+- T7 STAGE_CTRL byte1-only 不应清 DONE W1C
+- T8 STAGE_CTRL byte0 写应正常清 DONE W1C
 
-**Bug 暴露 sanity check**：把 `git show e696dc39:rtl/top/snn_soc_v2b_top.sv` 替回去再跑同款 TB → 6 FAIL（含 T1 spurious START），确认 TB 真能抓回归。 -->
+**Bug 暴露 sanity check**：把 `git show e696dc39:rtl/top/snn_soc_v2b_top.sv` 替回去再跑同款 TB → 会在 partial-write / W1P/W1C gate 上 FAIL（含 T1 spurious START），确认 TB 真能抓回归。
 
 **任何后续触碰 `snn_soc_v2b_top.sv` 的改动必须先跑此 TB**，不通过即视为回归不得 commit。
 
