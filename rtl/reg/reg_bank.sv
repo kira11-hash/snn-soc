@@ -1,3 +1,58 @@
+// =============================================================================
+// 【面试讲解 cheat sheet · reg_bank.sv】 —— 设计者视角，能直接拿去答辩
+//
+// 一、它在 SoC 里的位置
+//   软件 (TB master / E203) → bus_interconnect → reg_bank slave。
+//   它是"软件控制 SNN 数据通路"的唯一窗口；同时把 SNN/PROG FSM 的状态
+//   sticky-latch 给软件轮询。可以理解成"软-硬之间的 contract surface"。
+//
+// 二、面试最容易被问到的 3 个点
+//   1) START 怎么是 W1P（write-1-to-pulse）？为什么不用 RW？
+//      用 RW 的话软件必须自己清 0，否则 FSM 会重复触发。W1P 让硬件自动
+//      只产生 1 拍 start_pulse，软件写 1 即"扣扳机"，不需要再写 0 复位。
+//      实现上靠 always_ff 块的"先默认 0，case 内赋 1"——SV 后赋值覆盖
+//      语义保证只在写入那拍输出 1 cycle 高电平。这是 RTL 设计经典套路。
+//
+//   2) DONE 怎么是 W1C？为什么不直接镜像 snn_done_pulse？
+//      snn_done_pulse 只持续 1 拍，软件不可能保证那一拍正在 polling。
+//      所以我用 done_sticky 把它锁存住，软件读 DONE=1 就知道完成了，
+//      然后写 1 主动清——既能轮询也不会丢事件。如果 sticky 改成"软件
+//      读自动清"会怎样？容易和 fifo_sync 的 first-word fall-through
+//      合谋出竞争窗口；W1C 把"清"权交给软件，行为最确定。
+//
+//   3) PROG_* 字段为什么要 in-flight lock（V1.1, 2026-04-25 加的硬保护）？
+//      这是这个文件最值得讲的设计点：
+//      - cim_program_ctrl 在 ST_IDLE→START 那一拍把 ERASE/FULL_ARRAY/
+//        LEVEL/BYPASS/ROW/COL 锁存到 FSM 内部寄存器；
+//      - 但 snn_soc_top 的 pad 编码器 (prog_op_ext / prog_level_ext)
+//        用的是 reg_bank LIVE 输出 + 10-stage shift register；
+//      - 如果 CPU 在 prog_busy=1 期间改了这些字段，10 拍后 pad 信号就会
+//        漂到新值，而 cim_program_ctrl 还在按旧 op 跑——数字侧 FSM 与
+//        模拟 die 的 op/level pad 不一致，写到错误 cell。
+//      解决：定义 wire prog_inflight = ENABLE_PROGRAM_MODE && (prog_busy
+//        || prog_start_pending || prog_start_pulse)；inflight 期间所有
+//        config 字段写入被屏蔽。注意 PROG_STATUS.DONE (W1C) 与 PROG_CTRL.
+//        START (已有三重守卫) 不受 inflight 锁影响——前者要随时清，
+//        后者本身有 !prog_busy && !prog_start_pulse 守卫已足够。
+//      ENABLE_PROGRAM_MODE=0 时 prog_inflight 恒 0，无锁版本完全等价
+//        ——保持 build 矩阵里"不实例化 FSM"的 zero-cost 路径不被打扰。
+//
+// 三、关键设计指标
+//   - simple_bus 1-cycle 响应（写 0、读组合输出）；不做 wait-state。
+//   - 只读寄存器 (NUM_INPUTS / NUM_OUTPUTS / OUT_COUNT / DBG_CNT) 在
+//     bus 读组合输出，不占额外寄存器拍。
+//   - OUT_FIFO 读路径用 2-cycle pop_pending 把"读"和"实际 pop"分开拍——
+//     这是面试容易考的"FIFO + bus 时序"经典坑。
+//
+// 四、不做的事 / trade-off
+//   - 没接中断控制器：V1 全程轮询，DONE/STATUS 是 sticky；面试如果被问
+//     "为什么不上中断"，答："MVP 阶段 SW 跑在 TB / 单线程裸机上，轮询
+//     成本可忽略；中断控制器留到 V2 多任务 OS 上来加。"
+//   - DBG 计数器只随 rst_n 清零，不随 soft_reset_pulse 清零：故意的——
+//     soft reset 之后我还想看到累计 dma frame / cim cycle 数，便于对比
+//     "重置前后" 是不是同一行为。
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 // AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
 // File: rtl/reg/reg_bank.sv

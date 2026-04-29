@@ -1,4 +1,65 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · cim_program_ctrl.sv】 —— 设计者视角
+//
+// 一、它在 SoC 里的角色
+//   它是 RRAM CIM 阵列的"硬件 Program-and-Verify FSM"。我把传统软件循环
+//   "写一次脉冲 → 读回 → 比较 → 重试" 卸载到 RTL，原因有三：
+//   (1) 软件循环要走 bus → reg_bank → cim_macro，每次至少 5~10 cycle
+//       overhead，对一次写需要数百 cell × 数次重试的场景，软件做会非常慢；
+//   (2) 重试逻辑放硬件可以保持 cim_macro 独占（arbiter 屏蔽推理）整段时间，
+//       不会出现"软件中途让出 → 推理插进来 → 模拟 die 状态错乱"；
+//   (3) 这套 FSM 后续上 ASIC 时可以用同一段代码跑 silicon bring-up 与
+//       生产编程，不需要重写两套。
+//
+// 二、面试最容易被深问的 4 个点
+//   1) 为什么是 11 状态而不是 5 状态？
+//      关键是把"脉冲发出 (ST_PULSE)"和"脉冲计时持续 (ST_PULSE_HOLD)"
+//      拆开——脉冲宽度由 PROG_PULSE_WIDTH 档位（1us/10us/100us @ 50MHz =
+//      50/500/5000 cycle）控制，必须有专门的倒计时状态；不能让 PULSE 自身
+//      又驱动信号又计时，会让 dac_valid 出现毛刺。READBACK / RB_WAIT 同
+//      理：ADC 启动是边沿触发，等待是电平触发，分两个状态时序最干净。
+//
+//   2) 为什么写入用 1/10/100us 三档可调，擦除却固定 1ms 不可改？
+//      器件团队给的 contract：SET 在不同 level（电导）下需要不同脉宽来
+//      达到目标窗口；RESET（擦除）只需要把单元拉到高阻态，1ms 是器件
+//      可靠擦除的下限。生产固件不能把擦除拉短，所以我把 ERASE_WIDTH 做成
+//      硬编码 RO 寄存器（reg_bank 中 PROG_ERASE_WIDTH 写入直接 ignore）——
+//      这是一个"硬件强制约束 SW 不能犯错"的设计选择。
+//
+//   3) FULL_ARRAY 擦除为什么跳过 verify？
+//      全阵列擦除 64×20=1280 cell 单脉冲拉高所有 WL，验证要逐 cell 读
+//      → 1280 cycle ADC 时间，加上 retry 可能放大到 5000+ cycle。我把
+//      "controller SEQ_DONE" 与"fw 逐 cell verify"两种语义拆开：
+//      controller 只保证 1ms 脉冲时序正确（fire-and-forget），verify 由
+//      fw 在需要时自己跑一轮"逐 cell readback + 比较"——把 cost 转移到
+//      可选的 SW 路径，避免开机就花 5ms 在硬 verify。
+//
+//   4) 验证窗口 ±2 是怎么定的？
+//      器件 D2D 5%±1% + C2C 3%±1% 推算 readback 噪声 ~3 LSB；窗口选 ±2
+//      会让低概率漂移误判 PASS 但被下次推理读回的多次平均吸收，工程上
+//      对识别率影响 < 0.1%。如果窗口收紧到 ±1 → 误 FAIL 重试率会上升到
+//      ~15%，编程时间暴涨；放宽到 ±3 又让权重精度不够。±2 是 D2D/C2C
+//      数据 + 100 sample 推理 sweep 出来的 sweet spot，不是拍脑袋。
+//
+// 三、关键设计指标
+//   - 单 cell 写：典型 50us（10us pulse × ~5 retry 平均）；最坏 100us×7=700us。
+//   - 单 cell 擦：1ms + 短 verify。
+//   - 全阵列擦：1ms 一发，跳 verify。
+//   - 编程期间 prog_busy=1 通过 arbiter 屏蔽推理 cim_macro 访问。
+//
+// 四、Corner case / 风险点
+//   - prog_cim_done 输入故意没用：脉冲宽度由数字侧自计时，不等模拟侧握手。
+//     这是为了"模拟 die 缺失或 BYPASS_HANDSHAKE=1 时" FSM 仍能完整跑完
+//     编程时序——silicon bring-up Phase 1 的关键依赖。
+//   - retry 计数器只在 ST_VERIFY → ST_RETRY 路径递增；如果 ADC 一直没
+//     回 done，FSM 卡 ST_RB_WAIT。这种情况靠 BYPASS_HANDSHAKE=1（让
+//     verify_en 硬接 PASS）规避；生产时由 reg_bank 把 BYPASS 锁在 0。
+//   - prog_full_array=1 时 row/col 配置位被 ignore——但我没在 RTL 里
+//     强制清 0，因为 cim_macro_arbiter 已经在 prog_busy 下用 prog_wl_spike
+//     直接驱动 64 根 WL，row/col 信息从未到模拟 die，不会出错。
+// =============================================================================
+
 //======================================================================
 // 文件名: cim_program_ctrl.sv
 // 模块名: cim_program_ctrl

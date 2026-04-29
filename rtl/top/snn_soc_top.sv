@@ -1,3 +1,51 @@
+// =============================================================================
+// 【面试讲解 cheat sheet · snn_soc_top.sv】 —— 我（设计者）想让你先抓住这几条
+//
+// 一、这个模块在 SoC 里是什么角色？
+//   它是数字 die 的"内部 SoC 顶层"——所有可综合 RTL 在这里 wiring，外面再由
+//   chip_top 包上 pad ring。我故意把"pad-facing 包装"和"内部 SoC"拆成两层，
+//   是为了让 ASIC tape-out 路径（chip_top）和 FPGA / 仿真路径（top_tb 直接打
+//   snn_soc_top）共用同一份 SoC 内核——FPGA 不需要 pad cell，TB 不需要 pad
+//   ESD，但都要看到完全一样的 bus / FSM / SNN 行为。
+//
+// 二、面试里最容易被深挖的 4 个点（每个点我都附了对应章节）：
+//   1) CIM Test Mode 怎么旁路模拟宏 → §"CIM Test Mode" 注释块
+//      为什么要：模拟 die 早于数字 die 完成不可能，必须在没有 macro 的前提下
+//      跑通"DMA → FIFO → FSM → ADC → LIF → 输出 FIFO"全数字链。
+//   2) SNN 推理与 PROG 编程的互锁 → §"SNN/PROG 互锁" 注释块
+//      为什么要：cim_macro 是单端口资源，推理和编程同时占用会让 wl/dac/bl_data
+//      全部错位，且 in-flight 改 PROG_* 寄存器还会让 10-stage pad 编码器漂值。
+//   3) wl_mux 的 10-stage shift register 与 cim_start_ext 相位对齐 → wl_mux_wrapper 实例旁
+//      为什么要：64 根 WL 时分复用成 8×8 group，模拟侧要求 prog_op/prog_level
+//      与 cim_start 同时到达；wrapper 内 8 cycle SEND + 1 锁存 + 1 DONE 共 10
+//      拍——这 10 拍 pipeline 必须把 op/level 也一起打 10 拍才不会失配。
+//   4) ENABLE_BOOT_ROM=0/1 的两套地址映射 → §"地址译码" 注释块
+//      为什么要：Gate A 旧 TB 与 FPGA BRAM-init flow 在 0x0 直读 instr_sram；
+//      ASIC tape-out 必须在 0x0 装 mask ROM（SRAM 上电是 X）。我用一个 generate
+//      把 boot_rom slave + instr_sram 平移做成"参数选项"，不引入新文件、不破坏
+//      旧回归。
+//
+// 三、关键设计指标
+//   - 单时钟域 50 MHz（ASIC 目标 + ZCU102 FPGA 目标），异步低有效复位 rst_n。
+//   - 吞吐率：MNIST 8x8 + T=10 + ratio_code=1，一帧 80 个子时间步，主链路约
+//     800 cycle 完成单样本推理（不含 DMA）；详见 doc/06 §阶段 C。
+//   - Bus protocol：simple_bus (1-cycle 响应)，由 axi2simple_bridge 或 ICB
+//     bridge 转入；reg_bank/SRAM/DMA/UART/SPI/FIFO 均是 simple_bus slave。
+//
+// 四、这个文件刻意不做的事（trade-off 我能讲得清）：
+//   - 不做时钟门控：MVP 阶段功耗预算优先按"全时钟一直跑"估算；门控放到
+//     P&R signoff 阶段做，避免 RTL 阶段 STA 死结。
+//   - 不做 ECC：单 die SRAM 容量小且都在数字侧，软错率可接受；如果未来要
+//     扩到 64KB+ instr SRAM 才考虑。
+//   - 不做 PSU/PMU：上电序列由 chip_top 外面的 board / package 处理。
+//
+// 五、读源码顺序建议（我自己复盘也这么读）：
+//   ① 模块端口表 → ② generate ENABLE_E203 块 → ③ bus_interconnect 实例化 →
+//   ④ reg_bank 实例化 → ⑤ DMA + FIFO → ⑥ cim_array_ctrl + wl_mux_wrapper →
+//   ⑦ cim_macro_blackbox / cim_macro_arbiter → ⑧ adc_ctrl + lif_neurons →
+//   ⑨ debug 计数器（dbg_*）。
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 // 自动文档头：本文件的可读性说明（仅注释说明，不改变任何逻辑）
 // 文件路径：rtl/top/snn_soc_top.sv
@@ -1061,6 +1109,35 @@ module snn_soc_top #(
   // 做法是把 64 位 wl_bitmap 分成 8 组，每组 8 位，按时间顺序送到外部 WL MUX。
   // 因此它的本质不是改数据内容，而是把“并行位图”改成“时分复用协议”。
   // WL MUX 协议信号已通过 wl_*_ext 端口连到 chip_top pad（ENABLE_EXT_CIM_IF=1 时有效）。
+  // -------------------------------------------------------------------------
+  // 【面试讲解 · wl_mux_wrapper 为什么这样接】（设计者视角）
+  // 我把这段单独拎出来讲，因为它是数字-模拟接口最容易踩坑、面试也最爱问的地方。
+  //
+  // Q1: 为什么要 TDM 而不是直接拉 64 根 WL pad？
+  //     1x1mm die 总 pad 预算 55，扣掉 power/ground/clk/rst/UART/SPI/JTAG/ADC
+  //     + 编程接口 7 pad 后，留给 WL 的预算只够 8 data + 3 group_sel + 1 latch
+  //     共 12 pad。64→12 必须做 8:1 时分复用——这是 pad 预算硬约束推导出来的，
+  //     不是性能选项。8 cycle×50 MHz=160 ns 完成一次 WL bitmap 投放，对每个
+  //     timestep 的整体 latency 影响 < 5%，可接受。
+  //
+  // Q2: 为什么 prog_busy 时切到 prog_wl_spike + prog_busy_rise？
+  //     编程时只激活一行（one-hot），cim_program_ctrl 在 prog_busy 上升沿提供
+  //     这一行的 64-bit one-hot vector，复用同一条 WL pad 通路把 row 信息送到
+  //     模拟侧。如果不复用，要再加 6 根 prog_row pad（编程时专用），太奢侈。
+  //
+  // Q3: 为什么 wrapper 输出 wl_valid_pulse_wrapped 比输入 wl_valid_pulse 晚 10 拍？
+  //     8 cycle SEND（8 组依次发出）+ 1 cycle 锁存 latch + 1 cycle DONE 收尾
+  //     = 10 cycle latency。这 10 拍是 cim_start_ext 必须等待的"WL 已稳定"
+  //     窗口，否则模拟侧会在 wl_data 还没扫到目标 group 时拉起 cim_start，导致
+  //     电流注入到错误的 row。所以 cim_array_ctrl 收到 wl_valid_pulse_wrapped
+  //     才允许进入 dac_valid 阶段——这是 wrapper 对外暴露的"握手契约"。
+  //
+  // Q4: 如果删掉 wl_mux_busy → dbg_wl_stall_cnt 这条线会怎样？
+  //     不会有功能错误（FSM 已经用 wl_valid_pulse_wrapped 等回 ack）。但失去
+  //     一个非常宝贵的 silicon debug 抓手：板上如果 WL 信号 toggle 异常，能
+  //     从计数器读出"是否 mux 经常停顿"，比抓波形快得多。这是 V1.1 给 silicon
+  //     bring-up 留的"低成本观察孔"，不是功能必需。
+  // -------------------------------------------------------------------------
   wl_mux_wrapper u_wl_mux_wrapper (
     .clk               (clk),
     .rst_n             (rst_n),
@@ -1503,6 +1580,31 @@ module snn_soc_top #(
   //
   // 注：dac_ready MUX 已移除（2026-02-27），dac_ctrl 当前不再依赖外部握手。
   //======================
+
+  // -------------------------------------------------------------------------
+  // 【面试讲解 · CIM Test Mode 是怎么实现"无 macro 自检"的】（设计者视角）
+  //
+  // 我设计这条 test 路径的根因：流片项目里数字 die 与模拟 die 几乎不可能同
+  // 时回片，先到的那一方必须有办法独立证明"自己是对的"。test_mode=1 时：
+  //   - cim_done / adc_done 由数字侧的小型 fake-response FSM 在 fixed
+  //     latency 后自己拉起，绕开 cim_macro_blackbox / 真 ADC；
+  //   - bl_data 用 cim_test_data_pos / cim_test_data_neg 两个 SW 可写常量
+  //     按 bl_sel 的奇偶（pos 列 vs neg 列）合成 Scheme B 差分输入；
+  //   - 软件给 pos=100 / neg=0 → 差分=+100 → LIF 膜电位单调上升直至触发
+  //     spike → OUT_FIFO_COUNT 自然非零，等价于一次"不依赖模拟"的端到端冒烟。
+  //
+  // 为什么 MUX 源选 arb_*（arbiter 输出）而不是 *_hw（macro 直接输出）？
+  //   ENABLE_PROGRAM_MODE=1 时，arbiter 在 prog_busy 期间把 macro 的 done/
+  //   data 强制清零，防止"编程脉冲也被当推理 done"误触发 cim_array_ctrl。
+  //   如果 MUX 源是 *_hw，这一层互锁就被旁路了——所以 2026-04-22 把所有
+  //   test 旁路 MUX 移到 arb_* 后面。这是个典型的"防御性 MUX 重排"修复，
+  //   面试如果被问到"V1.1 互锁怎么验证有效"，可以拿这个例子回答：把 test
+  //   路径放到 arbiter 之后，等于让 test 模式下也跑过同样的互锁逻辑。
+  //
+  // 如果删掉 cim_test_mode：test bench 必须每次都把模拟 macro behavioral
+  // model 跑起来，回归时间会显著变长，且板上 silicon bring-up 拿不到"无
+  // 模拟"快速验证手段（详见 fw/silicon_bringup/silicon_bringup.c Phase 0）。
+  // -------------------------------------------------------------------------
 
   // 根据 cim_test_mode 选择信号来源
   //

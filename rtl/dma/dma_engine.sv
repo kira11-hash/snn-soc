@@ -1,3 +1,63 @@
+// =============================================================================
+// 【面试讲解 cheat sheet · dma_engine.sv】 —— 设计者视角
+//
+// 一、它解决什么问题
+//   DMA 在这条 SoC 里是"软件控制硬件搬数"的唯一通道。E203 / TB master 通过
+//   reg_bank 配 SRC/LEN/DST_SEL，写 START 后 FSM 自动从 data_sram 拉数据
+//   写到三种目的之一（input_fifo / weight_sram / instr_sram）。如果不上 DMA：
+//   软件要"读 → 写"两条 bus 周期搬一个 word，64×80 word 一帧需要 12k+ cycle
+//   纯搬运，跟 SNN 推理差一个数量级；上 DMA 后搬运 = 1.5 cycle/word，CPU
+//   可以并行干别的（FW 准备下一帧、配 LIF threshold 等）。
+//
+// 二、面试最容易被深问的 3 个点
+//   1) 为什么 6 状态 FSM 而不是更少？
+//      关键拆分点：ST_RD0 / ST_RD1 / ST_PUSH / ST_WR。
+//      - DST_INPUT_FIFO 路径下，input_fifo 宽度是 NUM_INPUTS=64 bit，DMA
+//        bus 是 32 bit，必须读两 word 拼一个 64-bit push。所以 RD0 抓低
+//        word、RD1 抓高 word + 同拍 push（其实是隔拍）。
+//      - DST_WEIGHT_BUF / DST_INSTR_SRAM 路径下，目的也是 32 bit，单拍读
+//        单拍写就够了——所以走 RD0 → WR 的短路径。
+//      把"读"和"写"拆成独立状态有个时序好处：sram_simple 是单写口，DMA
+//      和 bus 写互斥，把 WR 单独留出来便于 mux 仲裁；如果 WR 和 RD 合在
+//      同状态用组合逻辑做，长路径很容易把 50 MHz 的 STA 顶到边界。
+//
+//   2) ST_WR 为什么是 addr_ptr - 4？这是 bug 吗？
+//      不是 bug，是非阻塞赋值的时序补偿。addr_ptr 在 ST_RD0/RD1 用 <=
+//      递增，ST_WR 同拍读到的 addr_ptr 是"递增前的旧值"——但写出去的
+//      数据是上一拍 RD 抓回来的，对应的地址是 addr_ptr 已经移过的位置，
+//      所以要 -4 还原回那一笔读地址。这是经典的 RTL 阻塞 vs 非阻塞陷阱，
+//      之前 reviewer 误报过一次（CLAUDE.md FP-003 记录了误报模式）。
+//      面试时如果有人质疑这里：拿 always_ff 的语义图画一下就清楚。
+//
+//   3) DST_INPUT_FIFO 要求偶数长度怎么处理边界？
+//      奇数 → ST_IDLE 直接置 ERR + DONE，不进 SETUP。其他三种 corner case
+//      （零长度、未对齐、越界）也都在 ST_IDLE 入口判定：零长度 → DONE（不
+//      报错，是合法 no-op），其他 → ERR。设计原则：所有"快速失败"判定
+//      都集中在 ST_IDLE 入口一处，FSM 中段不做额外检查——这样 FSM 中段
+//      的 timing path 最干净，也方便后续 SDC 给 IDLE→SETUP 加 false_path
+//      约束（不行，那条是真路径，但思路类似）。
+//
+// 三、关键设计指标
+//   - 吞吐：单端口 SRAM 极限是 1 word/cycle，DMA 不增加任何 wait state，
+//     SRC→DST 实际 ~1.5 cycle/word（含 SETUP）。
+//   - 寄存器写背压：DMA 启动后 BUSY=1，CPU 写 SRC/LEN/DST_SEL 被 reg_bank
+//     侧屏蔽（DMA 自己有 sticky busy 状态，不参与 in-flight 锁）。
+//
+// 四、Corner case / 风险
+//   - SRC 物理地址 → SRAM 偏移转换：减 ADDR_DATA_BASE，需要 4-byte 对齐
+//     检查；之前曾被 reviewer 报"未对齐处理"，实际入口已经判 ERR。
+//   - DST=2'b11 是预留非法值：直接 ERR，不要乱当成"未来扩展"用。
+//   - DST=WEIGHT_BUF/INSTR_SRAM 时 dst SRAM 的"按 src 偏移镜像复制"语义
+//     很容易误用——DMA 不能独立指定 dst 起始地址，而是用 src pointer
+//     的低位决定 dst 偏移；payload_off 超出 dst 容量会静默 wrap。这是
+//     单写口 BRAM 推断的代价，FW 必须自行保证 payload 大小。
+//
+// 五、可能的优化（TODO优化方向）
+//   - TODO优化方向：把 ST_RD0 / ST_RD1 合并成 burst-read pipeline，让
+//     连续两拍的读地址背靠背发，可以省 1 cycle setup；但要小心 sram_simple
+//     的 read latency 推断会从"组合"变"寄存"，对 STA 影响要 case-by-case 评估。
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 // AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
 // File: rtl/dma/dma_engine.sv

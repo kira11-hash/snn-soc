@@ -1,3 +1,58 @@
+// =============================================================================
+// 【面试讲解 cheat sheet · lif_neurons.sv】 —— 设计者视角
+//
+// 一、它是什么 / 在 SoC 哪一段
+//   它是 SNN 推理流水的"末级"——把 adc_ctrl 给的 Scheme B 差分有符号 ADC
+//   值在时间维度上累积成"膜电位"，超过阈值就 spike，spike 编号写入 output
+//   FIFO 给软件读。10 路并行（NUM_OUTPUTS=10，对应 MNIST 10 类）。
+//
+// 二、面试最容易被问的 3 个点
+//   1) 为什么用"无 leaky 的 IF"而不是真正的 LIF？
+//      生物学上 LIF 有泄漏项 V[t] = α·V[t-1] + I[t]，硬件上要做乘法器。
+//      MNIST/Fashion 这种短 timestep（T=10）任务里，泄漏项对识别率几乎无
+//      影响（Python sweep 测过差异 < 0.5%）；省下的乘法器面积可以用来做
+//      时分复用，所以我落地版本是 IF（"Integrate-and-Fire"）但保留 LIF
+//      命名以便文档延续——这是工程裁剪，不是误用。
+//
+//   2) bit-plane 加权 + 算术左移的 trade-off
+//      一帧 8x8 像素，每像素 8-bit。如果一次性把整像素灌进去，乘法面积
+//      和 bus 带宽都吃不消。我把 8-bit 像素拆成 8 个 1-bit bit-plane，
+//      MSB 先送（bitplane_shift=7），后续逐拍降到 0。膜电位累加变成
+//      "membrane += adc_out <<< bitplane_shift"——左移代替乘法，0 面积。
+//      代价：单样本要 8 倍 cycle 数（PIXEL_BITS=8 个子时间步），但
+//      ADC + LIF 本来就是流水线最慢段，cycle 数主导项已经摊在那里。
+//
+//   3) signed 9-bit 怎么和 32-bit 膜电位安全相加？
+//      Scheme B 差分输出范围 -255 ~ +255（9-bit signed）。最坏情况下，
+//      单拍 +255 << 7 = +32640，T=10×PIXEL_BITS=8 帧累积上限 ~2.6M，
+//      远低于 2^31。我用 $signed() 显式强转 + LIF_MEM_WIDTH=32 给出
+//      绰绰有余的位宽。如果削到 16-bit 会怎样？最坏 saturate 在 32767，
+//      表面不溢出但 spike 频率会被压低 → 准确率掉。32-bit 是一次到位
+//      不留隐患的工程裕度。
+//      （一个常见误报陷阱：曾经有 reviewer 说 "<<<" 对有符号数处理
+//      有误——其实只要先 $signed() 再赋给 signed 中间变量再 <<<，
+//      SV LRM §6.24.1 完全保证符号扩展正确。CLAUDE.md FP-001 记录
+//      过这个误判模式。）
+//
+// 三、关键设计指标
+//   - 10 路并行 LIF，单拍可同时累积 10 个膜电位、最多产生 10 个 spike。
+//   - spike 内部环形队列深度 32（每 bit-plane 期间可能产生多 spike），
+//     output FIFO 深度 4096——覆盖最坏情况下 T=10 × 8 sub-step × 10
+//     neuron × 50 spike/neuron = 4000，留 ~10% 裕度。
+//
+// 四、Corner case
+//   - soft vs hard reset：soft V←V-Vth 保留超阈余量，可让连续高激发
+//     neuron 在同一 timestep 多次 spike（更接近脉冲编码的生物语义）；
+//     hard V←0 节制 spike 频率。当前工程默认 soft，由 REG_RESET_MODE 切。
+//   - out_fifo_full 背压：spike 太多顶住 FIFO 时，硬件会"丢 spike"（不
+//     写 push，但仍 pop 内部环形队列）——这是 trade-off：宁可少计几个
+//     spike 也不能让流水线卡死，因为 cim_array_ctrl 的下一帧不会等
+//     output FIFO。准确率影响通过 OUTPUT_FIFO_DEPTH 留够裕度规避。
+//   - bitplane_shift 必须在 neuron_in_valid 那一拍稳定——它由
+//     cim_array_ctrl 同步驱动，但如果未来要把 LIF 提到独立时钟域，
+//     这条 timing constraint 必须在 SDC 里显式写出。
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 // AUTO-DOC-HEADER: Detailed readability notes for this file (comments only, no logic change)
 // File: rtl/snn/lif_neurons.sv
