@@ -1,4 +1,54 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · bus_interconnect_v2_e203.sv】 —— 设计者视角
+//
+// 一、它是 v2-fpga-e203 三层桥的"第二层"
+//   位置：icb2simple_bridge_v2b → 本模块 → {INSTR_SRAM / DATA_SRAM / UART /
+//   V2B adapter}。它把 simple_bus master 的请求按地址分发到 4 个 slave，
+//   并把响应 mux 回去。
+//
+// 二、面试最容易被深问的 2 个点
+//   1) 为什么不复用 V1 的 bus_interconnect.sv？
+//      V1 fabric 是严格 1-cycle 风格（所有 slave 在 req 寄存后当拍返回
+//      rdata + m_ready/m_rvalid）。INSTR/DATA/UART 这种 SRAM-like slave
+//      没问题，但 V2B 的 simple2v2btop_adapter 读路径需要固定 2 拍
+//      （ADP_RD_WAIT → ADP_RD_DONE 才拉 m_rvalid），跟 V1 协议不兼容。
+//      解决：fabric 内部分两种风格——
+//      - V1-like slave：本地仿照 V1 fabric 的 cmd 寄存 + 当拍 rdata 返回；
+//      - V2B 路径：透传 m_valid 到 adapter（组合路径），等 adapter 自己
+//        返回 m_ready (写 1 拍) / m_rvalid (读 2 拍)。
+//      这样既不动 V1 fabric（保住 V1 已 tape-out 验证过的代码），又支持
+//      V2.B 的多拍响应。
+//
+//   2) 怎么保证两条路径不会同拍冲突？
+//      靠 master (icb2simple_bridge_v2b) 的 "single outstanding" 纪律：
+//      ICB bridge 一次只发一笔事务，必须等 m_ready/m_rvalid 才发下一笔。
+//      所以 fabric 侧"V1-like 事务 (req_valid_q=1) 与 V2B 事务
+//      (v2b_inflight_q=1)" 是天然互斥的——同一拍最多只有一种事务在飞，
+//      响应 mux 只需要按当前 inflight flag 选源即可，不需要复杂仲裁。
+//      这个简化 fabric 设计的关键依赖：master 是 single-outstanding。
+//      如果未来加 multi-outstanding，必须引入 transaction ID + 响应队列。
+//
+// 三、关键设计指标
+//   - INSTR/DATA/UART 路径：1 cycle 写、2 cycle 读（含 cmd 寄存 1 拍）。
+//   - V2B 路径：1 cycle 写、3 cycle 读（adapter 自身 2 拍 + fabric 透传）。
+//   - 4 段地址窗口由 snn_soc_pkg.sv 的 ADDR_V2E203_* / ADDR_V2B_* 定义；
+//     地址窗口外 → decode miss（fabric 不响应，由 master timeout 兜底）。
+//
+// 四、Corner case
+//   - decode miss 行为：本 fabric 不主动报错，假定上游 icb2simple_bridge_v2b
+//     已经在白名单拦截。fabric miss 是最后一道兜底——如果 bridge 白名单
+//     没拦住（设计错误），事务在 fabric 这里"消失"，master 看不到响应，
+//     最终由 ICB master 端 timeout 报 hang。这是设计纵深（defense in
+//     depth）：bridge 是主防线，fabric 是兜底，TB watchdog 是第三道。
+//   - 写 wstrb 透传到 V1-like slave：SRAM 实现要尊重 wstrb byte mask，
+//     fabric 不做组合化简——这是和 v2-arm WSTRB fix 同样的 lesson，对
+//     simple_bus master 也成立。
+//   - V2B path 的 m_addr 是完整 32-bit，adapter 内部自己截 m_addr[11:0]
+//     做 cmd_addr，fabric 不做偏移转换。这条是为了让 fabric 重写其他
+//     V2B 模块时端口不变。
+// =============================================================================
+
 //======================================================================
 // 文件名: rtl/bus/bus_interconnect_v2_e203.sv
 // 模块名: bus_interconnect_v2_e203
