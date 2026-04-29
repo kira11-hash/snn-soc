@@ -10,7 +10,7 @@
 ## 结论
 
 **`fw/main.c` 改动不需要重跑 FPGA 板上验证**。
-现有 `main-fpga-e203-alpha-passed` tag（见 [alpha_board_bringup_log_20260424.txt](alpha_board_bringup_log_20260424.txt)，在 `main-fpga-e203-alpha` 分支上）的证据链已经覆盖开机擦除路径。
+现有 `main-fpga-e203-alpha-passed` tag（完整板验日志见 `main-fpga-e203-alpha` 分支内的 `doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`）的证据链已经覆盖开机擦除路径。
 
 ## 理由
 
