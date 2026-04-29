@@ -268,7 +268,8 @@ module v2b_soc_top_parity_tb;
   // Trace when stage_engine is in S_READ_WL with cfg_input_src=STREAM_A (stage 1)
   int sba_input_trace = 0;
   always @(posedge clk) begin
-    if (rst_n && dut.u_se.state == 4'd3 && dut.u_se.cfg_input_src == 2'd1 && sba_input_trace < 5) begin
+    if (rst_n && dut.u_se.state == 4'd3 &&
+        dut.u_se.cfg_input_src == V2B_BUF_SEL_STREAM_A && sba_input_trace < 5) begin
       $display("[SE-S_READ_WL stage1] t_idx=%0d sbA_rd_en_se=%0b sbA_rd_addr_se=%0d",
         dut.u_se.t_idx, dut.sbA_rd_en_se, dut.sbA_rd_addr_se);
       sba_input_trace++;

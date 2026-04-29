@@ -48,7 +48,8 @@ module tile_mode_1_e2e_tb;
   logic [T_AW-1:0] debug_t_idx;
   logic [15:0] cfg_in_dim = 0, cfg_out_dim = 0;
   logic [31:0] cfg_threshold = 0, cfg_sum_max = 0;
-  logic [1:0] cfg_input_src = 0, cfg_output_dst = 0;
+  logic [V2B_BUF_SEL_W-1:0] cfg_input_src = '0;
+  logic [1:0] cfg_output_dst = '0;
   logic cfg_tile_mode = 0, cfg_is_tile_final = 0, cfg_preserve_membrane = 0;
   logic [15:0] cfg_t_count = 0;
 

@@ -1,3 +1,4 @@
++incdir+../rtl/top
 ../rtl/top/snn_soc_pkg.sv
 ../rtl/snn/input_stream_sram.sv
 ../rtl/snn/stream_buffer_v2.sv
@@ -9,4 +10,4 @@
 ../rtl/snn/conv_ctrl_v2.sv
 ../rtl/snn/stage_engine_v2.sv
 ../rtl/top/snn_soc_v2b_top.sv
-../tb/v2b_soc_top_parity_tb.sv
+../tb/conv_stage_smoke_tb.sv

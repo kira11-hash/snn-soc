@@ -58,12 +58,14 @@ module stage_engine_v2
   input  logic [15:0] cfg_out_dim,                // 1..P_N_OUT
   input  logic [31:0] cfg_threshold,
   input  logic [31:0] cfg_sum_max,                // unused in V0 behavioral MAC
-  input  logic [1:0]  cfg_input_src,              // V2B_BUF_SEL_*
+  input  logic [V2B_BUF_SEL_W-1:0] cfg_input_src, // V2B_BUF_SEL_*
   input  logic [1:0]  cfg_output_dst,             // V2B_BUF_SEL_*
   input  logic        cfg_tile_mode,
   input  logic        cfg_is_tile_final,
   input  logic        cfg_preserve_membrane,
   input  logic [15:0] cfg_t_count,                // actual T for this run (<= P_T_MAX)
+  input  logic        cfg_conv_mode,
+  input  logic        cfg_flatten_mode,
 
   // ── input_stream_sram read port ────────────────────────────────────
   output logic                         isr_rd_en,
@@ -111,7 +113,21 @@ module stage_engine_v2
   output logic [15:0]                       mac_cfg_out_dim,
   output logic [31:0]                       mac_cfg_sum_max,
   output logic [$clog2(P_N_OUT)-1:0]        mac_diff_rd_j,
-  input  logic signed [P_PARTIAL_W-1:0]     mac_diff_rd_data
+  input  logic signed [P_PARTIAL_W-1:0]     mac_diff_rd_data,
+
+  // Dynamic WL source used by CONV patch and fmap-flatten readers.
+  output logic                              dyn_wl_req_valid,
+  input  logic                              dyn_wl_req_ready,
+  output logic [8:0]                        dyn_wl_req_timestep,
+  input  logic                              dyn_wl_resp_valid,
+  output logic                              dyn_wl_resp_ready,
+  input  logic [P_N_IN-1:0]                 dyn_wl_resp_data,
+  input  logic [8:0]                        dyn_wl_resp_valid_count,
+
+  // Final-tile spike stream for CONV fmap writeback.
+  output logic                              spike_out_valid,
+  output logic [8:0]                        spike_out_timestep,
+  output logic [P_N_OUT-1:0]                spike_out_vec
 );
 
   // ── FSM state encoding ─────────────────────────────────────────────
@@ -131,7 +147,8 @@ module stage_engine_v2
     S_FINAL_WAIT = 5'd12,
     S_FINAL_NEURON = 5'd13,
     S_FINAL_WRITE= 5'd14,   // write sbA after last_j's spike_this_t NBA lands
-    S_DONE       = 5'd15
+    S_DONE       = 5'd15,
+    S_DYN_WAIT   = 5'd16
   } state_e;
 
   state_e state, next_state;
@@ -157,6 +174,15 @@ module stage_engine_v2
 
   // Determine output buffer
   assign write_to_A = (cfg_output_dst == V2B_BUF_SEL_STREAM_A);
+
+  logic dynamic_input_sel;
+  assign dynamic_input_sel = cfg_conv_mode &&
+      ((cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER) ||
+       (cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN));
+
+  assign dyn_wl_req_valid    = (state == S_READ_WL) && dynamic_input_sel;
+  assign dyn_wl_req_timestep = {1'b0, t_idx};
+  assign dyn_wl_resp_ready   = (state == S_DYN_WAIT) && dynamic_input_sel;
 
   // ── Comparators (avoid Icarus "constant select" issues) ──────────────
   localparam int OUT_DIM_W = $clog2(P_N_OUT + 1);
@@ -201,6 +227,7 @@ module stage_engine_v2
       (cfg_in_dim  != 16'd0) && (cfg_in_dim  <= 16'(P_N_IN))  &&
       (cfg_out_dim != 16'd0) && (cfg_out_dim <= 16'(P_N_OUT)) &&
       (cfg_t_count != 16'd0) && (cfg_t_count <= 16'(P_T_MAX)) &&
+      (cfg_input_src <= V2B_BUF_SEL_FMAP_FLATTEN) &&
       !(cfg_input_src == cfg_output_dst &&
         cfg_output_dst != V2B_BUF_SEL_OUTPUT_FIFO);
 
@@ -220,7 +247,16 @@ module stage_engine_v2
                       next_state = S_READ_WL;
                      end
       S_CLEAR_TPB:    next_state = S_READ_WL;   // kept for backward compat; unreachable
-      S_READ_WL:      next_state = S_MAC_WAIT;
+      S_READ_WL: begin
+                      if (dynamic_input_sel) begin
+                        if (dyn_wl_req_ready) next_state = S_DYN_WAIT;
+                        else                  next_state = S_READ_WL;
+                      end else begin
+                        next_state = S_MAC_WAIT;
+                      end
+                     end
+      S_DYN_WAIT:     if (dyn_wl_resp_valid) next_state = S_MAC_KICK;
+                      else                   next_state = S_DYN_WAIT;
       S_MAC_WAIT:     next_state = S_MAC_LATCH;
       S_MAC_LATCH:    next_state = S_MAC_KICK;
       S_MAC_KICK:     next_state = S_MAC_RUN;
@@ -262,6 +298,9 @@ module stage_engine_v2
       err_code     <= V2B_STAGE_ERR_OK;
       spike_this_t <= '0;
       wl_latched   <= '0;
+      spike_out_valid <= 1'b0;
+      spike_out_timestep <= '0;
+      spike_out_vec <= '0;
       for (k = 0; k < P_N_OUT; k++) membrane[k] <= '0;
 
       mac_start <= 1'b0;
@@ -285,6 +324,7 @@ module stage_engine_v2
       tpb_rd_en     <= 1'b0;
       tpb_clear_all <= 1'b0;
       mac_start     <= 1'b0;
+      spike_out_valid <= 1'b0;
 
       state <= next_state;
 
@@ -327,21 +367,29 @@ module stage_engine_v2
 
         S_READ_WL: begin
           // Pulse the read-enable of the selected input buffer.
-          case (cfg_input_src)
-            V2B_BUF_SEL_INPUT_SRAM: begin
-              isr_rd_en   <= 1'b1;
-              isr_rd_addr <= t_idx;
-            end
-            V2B_BUF_SEL_STREAM_A: begin
-              sbA_rd_en   <= 1'b1;
-              sbA_rd_addr <= t_idx;
-            end
-            V2B_BUF_SEL_STREAM_B: begin
-              sbB_rd_en   <= 1'b1;
-              sbB_rd_addr <= t_idx;
-            end
-            default: begin end
-          endcase
+          if (!dynamic_input_sel) begin
+            case (cfg_input_src)
+              V2B_BUF_SEL_INPUT_SRAM: begin
+                isr_rd_en   <= 1'b1;
+                isr_rd_addr <= t_idx;
+              end
+              V2B_BUF_SEL_STREAM_A: begin
+                sbA_rd_en   <= 1'b1;
+                sbA_rd_addr <= t_idx;
+              end
+              V2B_BUF_SEL_STREAM_B: begin
+                sbB_rd_en   <= 1'b1;
+                sbB_rd_addr <= t_idx;
+              end
+              default: begin end
+            endcase
+          end
+        end
+
+        S_DYN_WAIT: begin
+          if (dyn_wl_resp_valid) begin
+            wl_latched <= dyn_wl_resp_data;
+          end
         end
 
         S_MAC_WAIT: begin
@@ -414,6 +462,11 @@ module stage_engine_v2
               sbB_wr_addr <= t_idx;
               sbB_wr_data <= spike_this_t;
             end
+            if (cfg_conv_mode && cfg_is_tile_final) begin
+              spike_out_valid    <= 1'b1;
+              spike_out_timestep <= {1'b0, t_idx};
+              spike_out_vec      <= spike_this_t;
+            end
           end
           spike_this_t <= '0;
           if (last_t) begin
@@ -466,6 +519,11 @@ module stage_engine_v2
             sbB_wr_addr <= t_idx;
             sbB_wr_data <= spike_this_t;
           end
+          if (cfg_conv_mode && cfg_is_tile_final) begin
+            spike_out_valid    <= 1'b1;
+            spike_out_timestep <= {1'b0, t_idx};
+            spike_out_vec      <= spike_this_t;
+          end
           spike_this_t <= '0;
           if (!last_t) begin
             t_idx <= t_idx + 1;
@@ -477,9 +535,77 @@ module stage_engine_v2
           done_pulse <= 1'b1;
         end
 
-        default: ;
+      default: ;
       endcase
     end
   end
+
+`ifndef SYNTHESIS
+`ifdef VCS
+  property SVA_DYN_WL_FC_NO_REQ;
+    @(posedge clk) disable iff (!rst_n)
+      (cfg_conv_mode == 1'b0) |-> (dyn_wl_req_valid == 1'b0);
+  endproperty
+  assert property (SVA_DYN_WL_FC_NO_REQ);
+
+  property SVA_DYN_WL_STALL_FREEZE_TIMESTEP;
+    @(posedge clk) disable iff (!rst_n)
+      (dyn_wl_req_valid && !dyn_wl_req_ready)
+      |=> (t_idx == $past(t_idx));
+  endproperty
+  assert property (SVA_DYN_WL_STALL_FREEZE_TIMESTEP);
+
+  property SVA_DYN_WL_STALL_NO_MAC_START;
+    @(posedge clk) disable iff (!rst_n)
+      ((dyn_wl_req_valid && !dyn_wl_req_ready) ||
+       (state == S_DYN_WAIT && !dyn_wl_resp_valid))
+      |-> (!mac_start);
+  endproperty
+  assert property (SVA_DYN_WL_STALL_NO_MAC_START);
+
+  property SVA_DYN_WL_STALL_NO_ACCUM_OR_LIF;
+    @(posedge clk) disable iff (!rst_n)
+      ((dyn_wl_req_valid && !dyn_wl_req_ready) ||
+       (state == S_DYN_WAIT && !dyn_wl_resp_valid))
+      |-> (!tpb_acc_en && !spike_out_valid);
+  endproperty
+  assert property (SVA_DYN_WL_STALL_NO_ACCUM_OR_LIF);
+
+  property SVA_DYN_WL_RESP_COUNT_RANGE;
+    @(posedge clk) disable iff (!rst_n)
+      dyn_wl_resp_valid |-> (dyn_wl_resp_valid_count inside {[9'd1:9'd256]});
+  endproperty
+  assert property (SVA_DYN_WL_RESP_COUNT_RANGE);
+
+  property SVA_STAGE_FC_WL_LATCH_UNCHANGED;
+    @(posedge clk) disable iff (!rst_n)
+      (!cfg_conv_mode && state == S_MAC_LATCH)
+      |-> (cfg_input_src inside {V2B_BUF_SEL_INPUT_SRAM,
+                                 V2B_BUF_SEL_STREAM_A,
+                                 V2B_BUF_SEL_STREAM_B});
+  endproperty
+  assert property (SVA_STAGE_FC_WL_LATCH_UNCHANGED);
+
+  property SVA_STAGE_SPIKE_FINAL_TILE_ONLY;
+    @(posedge clk) disable iff (!rst_n)
+      spike_out_valid |-> (cfg_conv_mode && cfg_is_tile_final);
+  endproperty
+  assert property (SVA_STAGE_SPIKE_FINAL_TILE_ONLY);
+
+  property SVA_STAGE_NO_SPIKE_ON_NONFINAL_TILE;
+    @(posedge clk) disable iff (!rst_n)
+      (cfg_conv_mode && cfg_tile_mode && !cfg_is_tile_final) |-> !spike_out_valid;
+  endproperty
+  assert property (SVA_STAGE_NO_SPIKE_ON_NONFINAL_TILE);
+
+  property SVA_STAGE_INPUT_SRC_WIDTH_VALID;
+    @(posedge clk) disable iff (!rst_n)
+      cfg_input_src inside {V2B_BUF_SEL_INPUT_SRAM, V2B_BUF_SEL_STREAM_A,
+                            V2B_BUF_SEL_STREAM_B, V2B_BUF_SEL_OUTPUT_FIFO,
+                            V2B_BUF_SEL_PATCH_UNROLLER, V2B_BUF_SEL_FMAP_FLATTEN};
+  endproperty
+  assert property (SVA_STAGE_INPUT_SRC_WIDTH_VALID);
+`endif
+`endif
 
 endmodule

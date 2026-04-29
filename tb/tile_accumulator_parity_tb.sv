@@ -50,7 +50,8 @@ module tile_accumulator_parity_tb;
   logic [T_AW-1:0] debug_t_idx;
   logic [15:0] cfg_in_dim, cfg_out_dim;
   logic [31:0] cfg_threshold, cfg_sum_max;
-  logic [1:0]  cfg_input_src, cfg_output_dst;
+  logic [V2B_BUF_SEL_W-1:0] cfg_input_src;
+  logic [1:0]  cfg_output_dst;
   logic cfg_tile_mode, cfg_is_tile_final, cfg_preserve_membrane;
   logic [15:0] cfg_t_count;
 
