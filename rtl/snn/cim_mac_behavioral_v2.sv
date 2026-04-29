@@ -1,4 +1,64 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · cim_mac_behavioral_v2.sv】 —— 设计者视角
+//
+// 一、它是什么 / 为什么存在
+//   V2.B 的 per-position Scheme B 差分 MAC 行为模型。它的角色是"在没有真
+//   模拟 cim_macro 的情况下，给数字侧 stage_engine_v2 / lif_neuron_alu 提
+//   供位精确等价的 MAC 输出"——FPGA bitstream 里直接综合这个文件，没有
+//   模拟 RRAM 也能跑端到端推理；ASIC tape-out 后由真模拟 macro 替换，但
+//   接口契约完全一致。
+//
+// 二、面试最容易被深问的 2 个点（这是 Phase D 综合阶段被坑过的真实案例）
+//   1) 为什么从 256-input 组合加法树重构成 WL-serial + j-parallel？
+//      初版用一个 256 路并行加法树（一拍出结果），仿真完美。但 Vivado
+//      Cross-Boundary Area Optimization 阶段在这个组合树上卡死 6 小时
+//      不收敛——256-input 加法树的 fanout 和 LUT depth 让综合器陷入大量
+//      共享子表达式搜索。重构成"WL 维度串行 / j 维度并行"后：
+//      - 每拍只有 128 个 12-bit adder（j 并行），无 256-input 树；
+//      - 每个 out neuron 的权重列单独放一个 256×8 BRAM column，Vivado
+//        能识别成真正的 BRAM 而不是宽 LUTRAM；
+//      - critical path ≈ 1 adder + 1 FF ≈ 2-3 ns，50 MHz 轻松过，留够
+//        裕度给后续逻辑接入；
+//      - latency 从 1 cycle 变 (N_IN + N_OUT) ≈ 384 cycle，但 stage_engine
+//        本来就是 mac_done 握手 FSM，自动适应新 latency。
+//      面试如果被问"如何处理 EDA tool 不收敛"：这个例子是教科书式回答—
+//      不要硬刚工具，看是不是 RTL 写法对工具不友好；改成"工具能高效推
+//      导的结构"通常比改 EDA 配置更彻底。
+//
+//   2) bit-parity 怎么保证？
+//      行为等价的判定标准：对任意 wl_mask、weight、cfg，新版输出
+//      diff_mem[j] 与组合版按位完全相等。我在 9 个 V2.B TB 里跑过
+//      bit-exact 比对（旧实现 + 新实现并跑，逐 j 对比）；100/100
+//      Fashion-14×14 板上 spike count bit-exact 间接证明这条 contract
+//      在更长的 streamed-stage 链路里也成立（见 v2-fpga-e203
+//      board_bringup_log.txt）。如果未来想再优化 latency，依然要保住
+//      这条 bit-exact contract——这是我对器件团队的硬承诺。
+//
+// 三、关键设计指标
+//   - P_N_IN=256, P_N_OUT=128, weight=4-bit signed-pair (pos/neg)。
+//   - 单 stage MAC latency = (N_IN + N_OUT) cycle ≈ 384 cycle @ 50 MHz
+//     = 7.7 us。多层串流时各 stage 在 stage_engine_v2 控制下重叠流水。
+//   - ADC scale 公式严格匹配 Python `adc_scale_v2.rtl_adc_scale_v2`：
+//     scaled = (raw * adc_max + sum_max/2) / sum_max（半步四舍五入），
+//     clamp 到 [0, adc_max]。半步四舍五入 +sum_max/2 是为了让定点除法
+//     产生与浮点 round-half-to-even 数值上接近的结果。
+//
+// 四、Corner case
+//   - in_dim < N_IN 时只对 si < in_dim 那段累加，多余 wl_mask bit 被
+//     ignore——但权重 BRAM 仍占满 256 列；面积上稍浪费，换"参数化
+//     in_dim/out_dim 不需要重综合"的灵活性。
+//   - clip_P_PARTIAL: pos_acc - neg_acc 之差可能是负数 (Scheme B 差分
+//     本来就允许)，clamp 到 P_PARTIAL_W=14-bit signed 范围 [-8192,
+//     8191]。理论最坏 ±256×15=±3840，远低于上限——14-bit 是按"如果
+//     未来 N_IN 扩到 512 也不溢出"的预留裕度。
+//
+// 五、可能的优化（TODO优化方向）
+//   - TODO优化方向：j 并行度可以参数化（当前固定 P_N_OUT=128 全并行）。
+//     如果将来面积预算紧，可以做 8-way j 并行 × 16 周期（128/8），面积
+//     省 8 倍，latency 增 8 倍——具体值看 stage_engine 调度能不能吸收。
+// =============================================================================
+
 //======================================================================
 // 文件名: cim_mac_behavioral_v2.sv
 // 模块名: cim_mac_behavioral_v2

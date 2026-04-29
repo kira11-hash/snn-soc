@@ -1,4 +1,58 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · v2b_axi_wrapper.sv】 —— 设计者视角
+//
+// 一、它解决什么问题
+//   ZCU102 PS 端 Cortex-A53 走 HPM0_FPD 出来的是 AXI4-Lite。但我的 V2.B
+//   accelerator (snn_soc_v2b_top) 内部用的是更简单的 simple_bus（cmd/
+//   rsp，1-cycle 响应）。这个 wrapper 就是"协议转换头"——把 PS 的 AXI4-
+//   Lite 主端转成 V2.B 的 simple_bus 从端，并把所有 AXI 子通道（AW/W/B/
+//   AR/R）的 ready/valid 握手在内部消化掉。
+//
+//   为什么不直接把 V2.B 改成 AXI4-Lite 从端？
+//   答案：解耦。simple_bus 是我自己定的 1-cycle 协议，仿真 / Icarus / 各
+//   种 unit TB 都用它，回归集庞大；如果直接接 AXI，所有 TB 都得重写。把
+//   "AXI ↔ simple ↔ v2b cmd" 三层分离后，每层都能独立 TB 验，bug 也更好
+//   定位（出错时先看 axi2simple，再看 simple2v2btop_adapter，最后看 v2b
+//   top 自身）。
+//
+// 二、面试最容易被深问的 2 个点
+//   1) AXI4-Lite 5 通道 + 握手 vs simple_bus 单通道：怎么 wrap？
+//      AXI 写需要 AW + W + B 三通道独立 valid/ready 握手，且不规定 AW/W
+//      到达顺序；读需要 AR + R 两通道。simple_bus 写一拍完成（cmd_valid +
+//      cmd_write + addr/data/wstrb 全在同拍发出），读两拍（cmd 后等
+//      rsp_valid）。axi2simple_bridge 的 5-state FSM 把 AW/W 并发到达 →
+//      暂存 → 等齐了再送 simple cmd → 等 simple rsp → 给 AXI B/R 响应。
+//      关键 trade-off：吞吐降到 2 cycle/transfer（vs AXI 自己流水化最快
+//      可以背靠背）；但 ARM HPM0 通常带宽要求很低（MMIO 配置而非 burst
+//      数据搬运），换来内核协议的极简，是合算的。
+//
+//   2) 为什么把 wrapper 的 AXI 端口拆 "AW/W/B/AR/R 5 个通道平铺信号"
+//      而不是 SystemVerilog interface？
+//      Vivado Block Design 集成时，HDL 模块端口必须是 flat（or 标准
+//      SmartConnect interface block），interface 端口 BD 不直接认。所以
+//      我在外层暴露 flat 信号，内部 axi2simple_bridge 也用 flat——避免
+//      综合器端口推断错误，也方便 Vivado IP packager / xilinx adapter 自
+//      动绑定 AXI4-Lite 协议。这是 ASIC 工程师转 FPGA 工程经常踩的坑：
+//      纯 RTL 仿真用 interface 很方便，BD 集成必须 flat。
+//
+// 三、关键设计指标
+//   - AXI 时钟域 = PL fabric 50 MHz；与 V2.B 同时钟域。
+//   - 写吞吐：2 cycle/transfer（含 simple_bus 一拍）。
+//   - 读吞吐：3 cycle/transfer（cmd → rsp_valid 1 拍 + AXI R 通道 1 拍）。
+//   - 不支持 AXI burst（4-Lite 协议本身就不支持），所以 firmware 必须用
+//     单笔写实现 streaming，足够 V2.B MMIO 配置场景。
+//
+// 四、Corner case
+//   - 窗口外地址由内层 axi2simple_bridge.addr_mapped() 返回 DECERR
+//     (s_bresp=2'b11 / s_rresp=2'b11)。AXI master 收到 DECERR 后行为由
+//     master 决定（通常异常）。
+//   - WSTRB byte mask 必须穿透到 v2b_top 内部（cmd_wstrb 透传）——这是
+//     F1 修复的根因。如果在这层 wrapper 里直接 wstrb 全 1 写下去，下面
+//     v2b_top 也无法做 byte gate 了。所以 wrapper 不做 wstrb 化简，原样
+//     透传。
+// =============================================================================
+
 //======================================================================
 // 文件名: rtl/top/v2b_axi_wrapper.sv
 // 模块名: v2b_axi_wrapper

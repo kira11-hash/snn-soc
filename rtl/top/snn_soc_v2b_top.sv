@@ -1,4 +1,67 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · snn_soc_v2b_top.sv】 —— 设计者视角
+//
+// 一、它在 v2-arm-fpga-demo 里的位置
+//   它是 V2.B 加速器的"独立 SoC 顶层"，故意不接 V1 的 snn_soc_top。
+//   ARM PS（HPM0 AXI4-Lite）→ v2b_axi_wrapper（AXI slave）→
+//   simple2v2btop_adapter（4-state FSM）→ 本模块的 cmd_* simple_bus。
+//   再往下：input_stream_sram + stream_buffer A/B + cim_mac_behavioral_v2
+//   + tile_partial_buf + stage_engine_v2 + (在 v2-fpga-e203 里还会接
+//   layer_sequencer + spike_feedback + lif_neuron_alu)。
+//
+//   为什么不接 V1 顶层？因为 V1 已经有一套 cim_array_ctrl /
+//   layer_sequencer 在驱动相同信号，co-mingle 会多驱动 + 编译期
+//   conflict。把 V2.B 拆成独立顶层后，可以 build 矩阵清爽地选"V1 only /
+//   V2.B only / V2.B + E203"三种综合 target。
+//
+// 二、面试最容易被深问的 3 个点
+//   1) 为什么 V2.B 不复用 V1 的 cim_macro_blackbox（popcount 公式）？
+//      V1 是单层 64×20 推理，行为模型用 popcount 偷懒；V2.B 要做多层
+//      streamed-stage MAC，权重要真正参与运算（不能用伪公式），且要支持
+//      tile-mode（小子矩阵分批算）和 layer 切换。所以我落了
+//      cim_mac_behavioral_v2：WL 维度串行（每拍 1 根 WL）+ j 维度并行
+//      （同时算 NUM_OUTPUTS 列），内部 adder tree 做累加。这条 trade-off：
+//      面积变大（真乘法）换准确度（不再是 popcount 近似）+ 多层支持。
+//
+//   2) 为什么所有 config 寄存器都要走 apply_wstrb()？
+//      AXI4-Lite 的 WSTRB 允许 partial write（一次只写某几个字节）。
+//      早先版本（v1 frozen tag）一律把 cmd_wdata 整字赋给寄存器，
+//      WSTRB 完全被忽略——这是协议违例。在 ARM 裸机 C 里恰好不会触发
+//      （编译器对 volatile uint32_t * 默认全字 sw），但只要换 byte-mask
+//      RPC 路径（例如 V2.B 把 status 字段拆 byte 通过 byte-write 上
+//      报）就会让 W1P/W1C 字段被错误清掉 → 这就是 F1 bug 的本质。
+//      apply_wstrb 是一个 4-byte mux 函数，带 wstrb[i] 的 byte 用 new
+//      值，否则保留 old 值。所有 cfg 写入都套这个函数，加上 START/
+//      DONE/CLEAR 这类 W1P/W1C bit 必须额外加 cmd_wstrb[0] gate（不止
+//      是 wdata bit 高，还要这个 byte 真的被 strobe 进来）。
+//
+//   3) 为什么 STAGE_CTRL.DONE W1C 要用 cmd_wstrb[0] && cmd_wdata[7] 双判？
+//      光看 cmd_wdata[7]=1 不够：如果 wstrb=4'b1110（只写高 3 byte），
+//      cmd_wdata[7] 这个 byte 根本没真的被 strobe 进来，软件意图是"我
+//      只想改高字段，DONE 别动我"。如果不加 cmd_wstrb[0] gate，DONE
+//      就被错清了——v2b_partial_write_invariant_tb 专门抓这种场景。
+//
+// 三、关键设计指标
+//   - simple_bus 1-cycle 响应（写当拍，读组合）。
+//   - cmd_addr 12 bit，4 KB 寄存器窗口足够。
+//   - SRAM/MAC weight load 走 W1P strobe（INPUT_SRAM_CTRL[0] /
+//     MAC_W_LOAD_CTRL[0]）—— 数据先写入暂存寄存器，CTRL bit 触发
+//     同拍真正写 SRAM。这种"两步走"是为了避免 AXI byte-strobe 在
+//     SRAM 写口直接触发，把单写口的时序留给 cmd 处理路径。
+//
+// 四、Corner case / 风险点
+//   - F1 修复前的 latent bug：partial WSTRB 时 reg_cfg_in_dim 等会被
+//     全字覆盖。frozen v1 tag (8e51ae27) 板上跑 ARM 全字写从未触发。
+//     v2 reburn (ea31be22 + 03a39a61) 把这个 bug 修了 → V2B_AXI_
+//     PARTIAL_WRITE_TB_PASS 成 8 case AXI 栈级回归 + V2B_PARTIAL_WRITE_
+//     INVARIANT_TB_PASS 成 12 check 永久 invariant gate。
+//   - apply_wstrb 必须在所有"组合再赋值"路径都用，包括 CFG3/CFG0
+//     这种"多字段 packed 在一个 32-bit 字" 的位段——我必须先组装出
+//     {high, low} 旧字，过 apply_wstrb 后再拆回各位段写回。这是个
+//     容易踩的细节，TB 里有专门 case。
+// =============================================================================
+
 //======================================================================
 // 文件名: snn_soc_v2b_top.sv
 // 模块名: snn_soc_v2b_top

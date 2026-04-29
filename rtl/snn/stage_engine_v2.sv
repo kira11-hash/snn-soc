@@ -1,4 +1,71 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · stage_engine_v2.sv】 —— 设计者视角
+//
+// 一、它是 V2.B 的"调度大脑"
+//   这是 V2.B streamed-stage MAC pipeline 的 FSM 核心。CPU 通过寄存器配
+//   stage descriptor（in_dim / out_dim / threshold / sum_max / input_src /
+//   output_dst / tile_mode / is_tile_final / t_count），写 START 后这个
+//   FSM 自己跑完一个 stage（一层 SNN 推理）的所有 timestep。
+//
+//   一个 stage 内部循环：每 timestep 读一行 wl_mask（input_stream_sram
+//   或上一层的 stream_buffer A/B）→ 触发 cim_mac_behavioral_v2 算 MAC →
+//   等 mac_done → 收 ADC diff → tile_mode=0 路径走 LIF 发射 + 写 spike
+//   到下一层 stream_buffer；tile_mode=1 路径累加到 tile_partial_buf 不
+//   发 spike。最后一个 tile (is_tile_final=1) 时再扫一遍 tile_partial
+//   做 LIF sweep。
+//
+// 二、面试最容易被深问的 3 个点
+//   1) 为什么需要 tile mode 而不是一次性算完整层？
+//      最大 N_IN×N_OUT = 256×128 = 32k weight，乘以 4-bit = 16 KB BRAM。
+//      multilayer 多层的话每层 partial sum 还要中间 buffer，BRAM 预算
+//      炸。tile mode 把大矩阵切成 N_IN_tile × N_OUT_tile 子块，依次跑：
+//      每个 tile 算完后只把 partial sum 留在 tile_partial_buf（共享），
+//      所有 tile 跑完后一次 LIF。trade-off：BRAM 面积省，但 latency 增
+//      （多次 SETUP），适合 layer 大小动态变化的场景。
+//
+//   2) FSM 设计：为什么 IDLE → SETUP → READ_WL → MAC_WAIT 拆 4 个状态？
+//      不能合并的关键点：
+//      - SETUP 锁存 cfg + 重置 t_idx + 校验 src/dst conflict。如果合到
+//        IDLE，SETUP 检查需要在 START 那一拍组合做完，长路径。
+//      - READ_WL 只发 isr_rd_en 一拍，BRAM 下一拍才出数据。
+//      - MAC_WAIT 等 mac_done（cim_mac_behavioral 内部要 N_IN+N_OUT 拍），
+//        必须电平等待，不能边沿。
+//      - ACCUM 把 mac diff 累加到膜电位（或写 tile_partial），跟 MAC_WAIT
+//        分开是因为 mac_done 来时同拍读 diff_rd_data 已经稳定。
+//      把"每拍只做一件事"摊开，timing 干净，调度可观察（debug_t_idx 输
+//      出给 reg_bank.STAGE_STATUS 让 SW 轮询当前 timestep）。
+//
+//   3) err_code 怎么定义？
+//      三种典型错误，由 SETUP 状态校验：
+//      - START_WHILE_BUSY: 上次 stage 没跑完又触发，本次拒绝执行（FW
+//        bug 通常是这条）。
+//      - SRC_DST_CONFLICT: input_src 与 output_dst 指向同一 buffer
+//        （A→A），会造成读写同 BRAM port 数据自相覆盖。
+//      - DIM_OUT_OF_RANGE: in_dim/out_dim > 物理上限。
+//      err_code 通过 reg_bank.STAGE_STATUS[23:16] 暴露给 SW，FW 出错时
+//      能立即定位是哪条不变量被破坏，比纯 sticky DONE 调试快得多。
+//
+// 三、关键设计指标
+//   - 单 stage latency ≈ T × (mac_latency + LIF_overhead) ≈ T × 400 cycle
+//     @ 50 MHz，T=64 时 ~0.5 ms。
+//   - 多 tile 串流：tile-mode 下 tile_partial_buf 在 stage 之间复用，
+//     调度由 layer_sequencer（v2-fpga-e203 分支特有）顶层控制。
+//
+// 四、Corner case
+//   - cfg_preserve_membrane: 通常 stage 之间 LIF 膜电位清零，但某些场景
+//     （tile 拼接的最后一笔）需要保留前一 tile 的膜电位，这位 bit 由 FW
+//     设置。如果把它写错（应该 1 写成 0）不会报错但会让 spike count 漂移。
+//   - cfg_t_count 必须 ≤ P_T_MAX=256，FSM 不会 clamp，超出会让 t_idx
+//     回卷到 0 错误地址覆盖。SETUP 校验里没有这一条（因为 cfg_t_count
+//     是 16-bit 但物理寻址只用 8-bit），是个潜在 hardening 点。
+//
+// 五、可能的优化（TODO优化方向）
+//   - TODO优化方向：MAC_WAIT 状态可以叠 prefetch——下一 timestep 的
+//     wl_mask 提前发 isr_rd_en，BRAM 流水读，省去 READ_WL 单独一拍。
+//     省 ~25% latency；代价是 ACCUM 路径要多 1 个 stage register 隔离。
+// =============================================================================
+
 //======================================================================
 // 文件名: stage_engine_v2.sv
 // 模块名: stage_engine_v2
