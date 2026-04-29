@@ -24,17 +24,27 @@
 //      所有 tile 跑完后一次 LIF。trade-off：BRAM 面积省，但 latency 增
 //      （多次 SETUP），适合 layer 大小动态变化的场景。
 //
-//   2) FSM 设计：为什么 IDLE → SETUP → READ_WL → MAC_WAIT 拆 4 个状态？
-//      不能合并的关键点：
+//   2) FSM 设计：为什么实际有 16 个状态（S_IDLE..S_DONE，5'd0..5'd15）？
+//      文件 header 里讲过的"IDLE → SETUP → READ_WL → MAC_WAIT → ACCUM"
+//      只是 V0 skeleton 的简化模型。落到实际 RTL 时，每个简化阶段又被
+//      拆成 2-4 个具体状态，原因是"每拍只做一件可观察的事"：
 //      - SETUP 锁存 cfg + 重置 t_idx + 校验 src/dst conflict。如果合到
-//        IDLE，SETUP 检查需要在 START 那一拍组合做完，长路径。
+//        IDLE，SETUP 检查需要在 START 那一拍组合做完，长路径影响 STA。
 //      - READ_WL 只发 isr_rd_en 一拍，BRAM 下一拍才出数据。
-//      - MAC_WAIT 等 mac_done（cim_mac_behavioral 内部要 N_IN+N_OUT 拍），
-//        必须电平等待，不能边沿。
-//      - ACCUM 把 mac diff 累加到膜电位（或写 tile_partial），跟 MAC_WAIT
-//        分开是因为 mac_done 来时同拍读 diff_rd_data 已经稳定。
-//      把"每拍只做一件事"摊开，timing 干净，调度可观察（debug_t_idx 输
-//      出给 reg_bank.STAGE_STATUS 让 SW 轮询当前 timestep）。
+//      - MAC_WAIT / MAC_LATCH / MAC_KICK / MAC_RUN 4 个状态是为了让
+//        cim_mac_behavioral_v2 的 (N_IN+N_OUT) 拍 latency 各阶段都有
+//        一个专门的等待/发起/锁存窗口——必须电平等待 mac_done，不能
+//        边沿采样。
+//      - NEURON_LOOP / NEXT_T 把 j 维度循环和 t 维度循环分开拍，避免
+//        一个 always_ff 里同时管两个 counter（写法易错且不可观察）。
+//      - FINAL_LIF / FINAL_READ / FINAL_WAIT / FINAL_NEURON / FINAL_WRITE
+//        是 tile mode is_tile_final=1 时的最后一轮 LIF sweep（扫描
+//        tile_partial_buf 算 spike 写 sbA），单独一组状态隔离开，避免
+//        和正常 stage 流程的数据通路 mux 在 long path 上叠加。
+//      - DONE 单独一拍 strobe done_pulse 给 reg_bank（W1C sticky）。
+//      把"每拍只做一件事"摊开，timing 干净，调度可观察（debug_t_idx
+//      输出给 reg_bank.STAGE_STATUS 让 SW 轮询当前 timestep；面试时
+//      讲：精细化 FSM 是 silicon 调试性的关键设计原则，不是过度设计）。
 //
 //   3) err_code 怎么定义？
 //      三种典型错误，由 SETUP 状态校验：

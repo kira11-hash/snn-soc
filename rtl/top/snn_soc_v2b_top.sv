@@ -190,6 +190,22 @@ module snn_soc_v2b_top
   localparam logic [11:0] A_READ_SBA_BASE   = 12'h400;  // 0x400 + t*4 (up to t=255)
   localparam logic [11:0] A_READ_SBB_BASE   = 12'h800;  // 0x800 + t*4
 
+  // -------------------------------------------------------------------------
+  // 【面试讲解 · apply_wstrb 是 V2.B AXI 协议 contract 的核心】
+  //
+  // 这个 function 是 F1 修复 (commit bd860dcc) 引入的"把 4-byte AXI WSTRB
+  // 真正落到寄存器写"的工具。在它之前，V2.B 一律 reg <= cmd_wdata（全字
+  // 覆盖），WSTRB 完全被忽略——这是 AXI4-Lite 协议违例。
+  //
+  // 用法约束：所有 cfg 字段写入必须套这个 function；W1P/W1C 这类 control
+  // bit 不能用它（必须用 cmd_wstrb[0] && cmd_wdata[bit] 双重 gate，见
+  // STAGE_CTRL / STREAM_BUF_CTRL / INPUT_SRAM_CTRL / MAC_W_LOAD_CTRL 几处）。
+  //
+  // 为什么 W1P/W1C 不能直接套 apply_wstrb？
+  // 因为 apply_wstrb 是"按字节合并新旧值"的语义，而 W1P/W1C 的语义是"如
+  // 果对应字节真的被 strobe 进来 AND 该 bit 在数据中是 1，触发 pulse / 清
+  // sticky"。前者是数据流，后者是控制脉冲，两个语义不可共用一个 function。
+  // -------------------------------------------------------------------------
   function automatic logic [31:0] apply_wstrb(
     input logic [31:0] old_word,
     input logic [31:0] new_word,
@@ -198,6 +214,13 @@ module snn_soc_v2b_top
     logic [31:0] merged;
     begin
       merged = old_word;
+      // 4-byte 独立判断，对每个 byte 决定是"用新值"还是"保留旧值"。
+      // 对应 AXI4-Lite 标准的 wstrb 语义：wstrb[i]=1 表示这一 byte 上写
+      // 的数据是有意为之，wstrb[i]=0 表示软件没动这个 byte。常见误解：
+      // 以为整字写时 master 会把所有 wstrb 拉满——RISC-V `sw` 确实如此，
+      // 但 ARM 编译器对 `volatile uint8_t *` 的字节赋值会只拉一位 wstrb，
+      // 这正是 V2.B 在 v2-arm 跨 ARM PS 接入时必须正确处理 partial wstrb
+      // 的根因。
       if (wstrb[0]) merged[7:0]   = new_word[7:0];
       if (wstrb[1]) merged[15:8]  = new_word[15:8];
       if (wstrb[2]) merged[23:16] = new_word[23:16];
