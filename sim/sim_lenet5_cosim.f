@@ -1,0 +1,13 @@
++incdir+../rtl/top
+../rtl/top/snn_soc_pkg.sv
+../rtl/snn/input_stream_sram.sv
+../rtl/snn/stream_buffer_v2.sv
+../rtl/snn/tile_partial_buf.sv
+../rtl/snn/cim_mac_behavioral_v2.sv
+../rtl/snn/fmap_sram_v2.sv
+../rtl/snn/patch_unroller_v2.sv
+../rtl/snn/fmap_flatten_reader_v2.sv
+../rtl/snn/conv_ctrl_v2.sv
+../rtl/snn/stage_engine_v2.sv
+../rtl/top/snn_soc_v2b_top.sv
+../tb/lenet5_cosim_tb.sv
