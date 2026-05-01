@@ -198,6 +198,7 @@ module snn_soc_v2b_top
   logic [31:0] reg_conv_fmap_wr_data, reg_conv_fmap_wr_addr;
   logic        reg_conv_fmap_wr_commit_pulse;
   logic        reg_conv_fmap_wr_auto_inc, reg_conv_fmap_wr_target_bank;
+  logic        reg_conv_fmap_wr_inc_pending;
 
   // ── Stage engine wires ─────────────────────────────────────────────
   logic busy, done_pulse;
@@ -605,6 +606,7 @@ module snn_soc_v2b_top
       reg_conv_fmap_wr_commit_pulse <= 1'b0;
       reg_conv_fmap_wr_auto_inc <= 1'b0;
       reg_conv_fmap_wr_target_bank <= 1'b0;
+      reg_conv_fmap_wr_inc_pending <= 1'b0;
     end else begin
       // Default: 1-cycle pulses
       reg_start_pulse    <= 1'b0;
@@ -618,6 +620,10 @@ module snn_soc_v2b_top
       reg_conv_weight_ready_pulse <= 1'b0;
       reg_conv_done_clear_pulse <= 1'b0;
       reg_conv_fmap_wr_commit_pulse <= 1'b0;
+      if (reg_conv_fmap_wr_inc_pending) begin
+        reg_conv_fmap_wr_addr <= reg_conv_fmap_wr_addr + 32'd1;
+        reg_conv_fmap_wr_inc_pending <= 1'b0;
+      end
 
       if (cmd_valid && cmd_write) begin
         case (cmd_addr)
@@ -766,7 +772,7 @@ module snn_soc_v2b_top
                                   cmd_wdata, cmd_wstrb);
             if (cmd_wstrb[0] && cmd_wdata[0]) begin
               reg_conv_fmap_wr_commit_pulse <= 1'b1;
-              if (reg_conv_fmap_wr_auto_inc) reg_conv_fmap_wr_addr <= reg_conv_fmap_wr_addr + 32'd1;
+              if (reg_conv_fmap_wr_auto_inc) reg_conv_fmap_wr_inc_pending <= 1'b1;
             end
             reg_conv_fmap_wr_auto_inc <= word_v[1];
             reg_conv_fmap_wr_target_bank <= word_v[2];

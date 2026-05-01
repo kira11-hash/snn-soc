@@ -12,7 +12,6 @@
 #include "v2b_conv_scheduler.h"
 
 static int32_t counts_buf[10];
-volatile uint32_t g_arm_current_sample_idx = 0u;
 volatile uint32_t g_arm_progress_code = 0u;
 volatile uint32_t g_arm_progress_aux0 = 0u;
 volatile uint32_t g_arm_progress_aux1 = 0u;
@@ -62,7 +61,6 @@ static int mmio_self_test(void)
 static int run_sample(const v2b_lenet5_sample_t *sample, uint32_t idx)
 {
     uart_puts("[TB] sample "); uart_put_dec(idx); uart_puts(" start\n");
-    g_arm_current_sample_idx = idx;
     int rc = v2b_run_lenet5_demo(
         sample->input_words,
         counts_buf
