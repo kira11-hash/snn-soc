@@ -1,19 +1,19 @@
 # v2-arm-fpga-demo build manifest v2
-Generated UTC: 2026-04-25T09:32:59Z
-Git branch: feature/v2-arm-fpga-demo-fix-gpt
-Git commit: 7128fbe63289f11bd64b2fff6c75b080b8abfe98
+Generated UTC: 2026-05-01T05:48:33Z
+Git branch: feature/v2-arm-fpga-demo-conv
+Git commit: b01b1f2ea4babe8b0402133a8b084d8751fa79ab
 
 Vivado tool path: /d/Xilinx/Vivado/2022.2/bin/vivado.bat
 Vivado version: Vivado v2022.2 (64-bit) SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022|IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
-Resolved psu_init.tcl: /d/SoC Design/SoC Design/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl
+Resolved psu_init.tcl: /d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl
 
 AArch64 toolchain path: /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
 AArch64 GCC version: aarch64-xilinx-elf-gcc.exe (GCC) 11.2.0
-V2B_SOC_BASE override: <unset>
+V2B_SOC_BASE override: 0xA0000000u
 
-Bitstream path: /d/SoC Design/SoC Design/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit
-Bitstream SHA256: 78a5f36cfb241fbcd8066fed1fde2cacdfb6087183d944fb5d5029d5f537f9bc
-XSA path: /d/SoC Design/SoC Design/fpga_synth/zcu102_arm_demo.xsa
-XSA SHA256: 9eafbd3cc98671d50cd77a84f1622db159869a95eac579431c511bf245ecbe77
-ELF path: /d/SoC Design/SoC Design/fw/arm/out/v2b_arm_demo.elf
-ELF SHA256: aeeb02a06a74e0bfd7c99e48f3c35f74ed96b054f9889e41b8d856a7ff0b1cc1
+Bitstream path: /d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit
+Bitstream SHA256: 560267f6f6f263d48eed60ddf290102c2e81e63e4f91902ec777251a891e04b7
+XSA path: /d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo.xsa
+XSA SHA256: e28df0113c8bf6e6524db16a62cde5cd3c90d32bec3b8b5221efe2d3540deb30
+ELF path: /d/SoC Design/audit-v2/fw/arm/out/v2b_arm_demo.elf
+ELF SHA256: e8c0b1b8b1e2cc732fe669f87bee78a9e661cb581d43c0a7234c05d5b3df0fca

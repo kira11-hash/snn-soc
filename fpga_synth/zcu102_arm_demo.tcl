@@ -78,6 +78,10 @@ foreach f [list \
   {snn/input_stream_sram.sv} \
   {snn/stream_buffer_v2.sv} \
   {snn/tile_partial_buf.sv} \
+  {snn/fmap_sram_v2.sv} \
+  {snn/patch_unroller_v2.sv} \
+  {snn/fmap_flatten_reader_v2.sv} \
+  {snn/conv_ctrl_v2.sv} \
   {snn/cim_mac_behavioral_v2.sv} \
   {snn/stage_engine_v2.sv} \
   {top/snn_soc_v2b_top.sv} \
@@ -174,7 +178,7 @@ puts "\n=== LAUNCH synth_1 ==="
 launch_runs synth_1 -jobs 4
 wait_on_run synth_1
 if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} {
-  puts "[FATAL] synth_1 failed"
+  puts {[FATAL] synth_1 failed}
   exit 1
 }
 
@@ -182,7 +186,7 @@ puts "\n=== LAUNCH impl_1 (to bitstream) ==="
 launch_runs impl_1 -to_step write_bitstream -jobs 4
 wait_on_run impl_1
 if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} {
-  puts "[FATAL] impl_1 failed"
+  puts {[FATAL] impl_1 failed}
   exit 1
 }
 

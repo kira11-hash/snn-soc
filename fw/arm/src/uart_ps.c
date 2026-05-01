@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "platform.h"
 
+#ifndef UART_MIRROR_BASE
+#define UART_MIRROR_BASE UART_BASE
+#endif
+
 #define UART_REG(base, off) (*(volatile uint32_t *)((uintptr_t)(base) + (uintptr_t)(off)))
 #define UART_CR(base)       UART_REG((base), 0x00u)
 #define UART_MR(base)       UART_REG((base), 0x04u)

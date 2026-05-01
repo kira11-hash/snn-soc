@@ -138,11 +138,14 @@ compile() {
   OBJECTS+=("$obj_win")
 }
 
+echo "[build_arm_firmware] regenerate LeNet5 golden header"
+python "$HERE/scripts/gen_lenet5_header.py"
+
 echo "[build_arm_firmware] compile (V2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE)"
 compile "$HERE/src/crt0_aarch64.S"
 compile "$HERE/src/uart_ps.c"
-compile "$HERE/src/golden_fashion10.c"
-compile "$HERE/src/v2b_scheduler_arm.c"
+compile "$HERE/src/golden_lenet5.c"
+compile "$HERE/src/v2b_conv_scheduler_arm.c"
 compile "$HERE/src/arm_main.c"
 
 # Link phase
@@ -158,8 +161,7 @@ echo "[build_arm_firmware] size report:"
 
 echo ""
 echo "[build_arm_firmware] symbol presence check:"
-REQUIRED_SYMS=("arm_main" "v2b_infer_resident_14x14" "v2b_run_stage"
-               "uart_init" "golden_fashion10" "_start")
+REQUIRED_SYMS=("arm_main" "v2b_run_lenet5_demo" "uart_init" "golden_lenet5" "_start")
 SYM_LIST=$("$NM_BIN" "$ELF_WIN" | awk '{print $3}')
 for sym in "${REQUIRED_SYMS[@]}"; do
   if ! grep -q "^${sym}$" <<<"$SYM_LIST"; then

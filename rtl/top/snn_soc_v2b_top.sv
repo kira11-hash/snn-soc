@@ -1,67 +1,4 @@
 `timescale 1ns/1ps
-// =============================================================================
-// 【面试讲解 cheat sheet · snn_soc_v2b_top.sv】 —— 设计者视角
-//
-// 一、它在 v2-arm-fpga-demo 里的位置
-//   它是 V2.B 加速器的"独立 SoC 顶层"，故意不接 V1 的 snn_soc_top。
-//   ARM PS（HPM0 AXI4-Lite）→ v2b_axi_wrapper（AXI slave）→
-//   simple2v2btop_adapter（4-state FSM）→ 本模块的 cmd_* simple_bus。
-//   再往下：input_stream_sram + stream_buffer A/B + cim_mac_behavioral_v2
-//   + tile_partial_buf + stage_engine_v2 + (在 v2-fpga-e203 里还会接
-//   layer_sequencer + spike_feedback + lif_neuron_alu)。
-//
-//   为什么不接 V1 顶层？因为 V1 已经有一套 cim_array_ctrl /
-//   layer_sequencer 在驱动相同信号，co-mingle 会多驱动 + 编译期
-//   conflict。把 V2.B 拆成独立顶层后，可以 build 矩阵清爽地选"V1 only /
-//   V2.B only / V2.B + E203"三种综合 target。
-//
-// 二、面试最容易被深问的 3 个点
-//   1) 为什么 V2.B 不复用 V1 的 cim_macro_blackbox（popcount 公式）？
-//      V1 是单层 64×20 推理，行为模型用 popcount 偷懒；V2.B 要做多层
-//      streamed-stage MAC，权重要真正参与运算（不能用伪公式），且要支持
-//      tile-mode（小子矩阵分批算）和 layer 切换。所以我落了
-//      cim_mac_behavioral_v2：WL 维度串行（每拍 1 根 WL）+ j 维度并行
-//      （同时算 NUM_OUTPUTS 列），内部 adder tree 做累加。这条 trade-off：
-//      面积变大（真乘法）换准确度（不再是 popcount 近似）+ 多层支持。
-//
-//   2) 为什么所有 config 寄存器都要走 apply_wstrb()？
-//      AXI4-Lite 的 WSTRB 允许 partial write（一次只写某几个字节）。
-//      早先版本（v1 frozen tag）一律把 cmd_wdata 整字赋给寄存器，
-//      WSTRB 完全被忽略——这是协议违例。在 ARM 裸机 C 里恰好不会触发
-//      （编译器对 volatile uint32_t * 默认全字 sw），但只要换 byte-mask
-//      RPC 路径（例如 V2.B 把 status 字段拆 byte 通过 byte-write 上
-//      报）就会让 W1P/W1C 字段被错误清掉 → 这就是 F1 bug 的本质。
-//      apply_wstrb 是一个 4-byte mux 函数，带 wstrb[i] 的 byte 用 new
-//      值，否则保留 old 值。所有 cfg 写入都套这个函数，加上 START/
-//      DONE/CLEAR 这类 W1P/W1C bit 必须额外加 cmd_wstrb[0] gate（不止
-//      是 wdata bit 高，还要这个 byte 真的被 strobe 进来）。
-//
-//   3) 为什么 STAGE_CTRL.DONE W1C 要用 cmd_wstrb[0] && cmd_wdata[7] 双判？
-//      光看 cmd_wdata[7]=1 不够：如果 wstrb=4'b1110（只写高 3 byte），
-//      cmd_wdata[7] 这个 byte 根本没真的被 strobe 进来，软件意图是"我
-//      只想改高字段，DONE 别动我"。如果不加 cmd_wstrb[0] gate，DONE
-//      就被错清了——v2b_partial_write_invariant_tb 专门抓这种场景。
-//
-// 三、关键设计指标
-//   - simple_bus 1-cycle 响应（写当拍，读组合）。
-//   - cmd_addr 12 bit，4 KB 寄存器窗口足够。
-//   - SRAM/MAC weight load 走 W1P strobe（INPUT_SRAM_CTRL[0] /
-//     MAC_W_LOAD_CTRL[0]）—— 数据先写入暂存寄存器，CTRL bit 触发
-//     同拍真正写 SRAM。这种"两步走"是为了避免 AXI byte-strobe 在
-//     SRAM 写口直接触发，把单写口的时序留给 cmd 处理路径。
-//
-// 四、Corner case / 风险点
-//   - F1 修复前的 latent bug：partial WSTRB 时 reg_cfg_in_dim 等会被
-//     全字覆盖。frozen v1 tag (8e51ae27) 板上跑 ARM 全字写从未触发。
-//     v2 reburn (ea31be22 + 03a39a61) 把这个 bug 修了 → V2B_AXI_
-//     PARTIAL_WRITE_TB_PASS 成 8 case AXI 栈级回归 + V2B_PARTIAL_WRITE_
-//     INVARIANT_TB_PASS 成 12 check 永久 invariant gate。
-//   - apply_wstrb 必须在所有"组合再赋值"路径都用，包括 CFG3/CFG0
-//     这种"多字段 packed 在一个 32-bit 字" 的位段——我必须先组装出
-//     {high, low} 旧字，过 apply_wstrb 后再拆回各位段写回。这是个
-//     容易踩的细节，TB 里有专门 case。
-// =============================================================================
-
 //======================================================================
 // 文件名: snn_soc_v2b_top.sv
 // 模块名: snn_soc_v2b_top
@@ -187,25 +124,25 @@ module snn_soc_v2b_top
   localparam logic [11:0] A_STREAM_BUF_CTRL = 12'h060;
   localparam logic [11:0] A_STATE_CTRL      = 12'h064;
 
+  localparam logic [11:0] A_CONV_MODE_CFG      = 12'h084;
+  localparam logic [11:0] A_CONV_CFG_HW        = 12'h088;
+  localparam logic [11:0] A_CONV_CFG_C         = 12'h08C;
+  localparam logic [11:0] A_CONV_CFG_K_S_P     = 12'h090;
+  localparam logic [11:0] A_CONV_CFG_OUT_HW    = 12'h094;
+  localparam logic [11:0] A_CONV_CFG_T         = 12'h098;
+  localparam logic [11:0] A_CONV_CFG_TILE      = 12'h09C;
+  localparam logic [11:0] A_CONV_CFG_FMAP_BASE = 12'h0A0;
+  localparam logic [11:0] A_CONV_CFG_OUT_BASE  = 12'h0A4;
+  localparam logic [11:0] A_CONV_CTRL          = 12'h0A8;
+  localparam logic [11:0] A_CONV_STATUS        = 12'h0AC;
+  localparam logic [11:0] A_CONV_FMAP_WR_DATA  = 12'h0B0;
+  localparam logic [11:0] A_CONV_FMAP_WR_ADDR  = 12'h0B4;
+  localparam logic [11:0] A_CONV_PERF_CYCLES   = 12'h0B8;
+  localparam logic [11:0] A_CONV_FMAP_WR_CTRL  = 12'h0BC;
+
   localparam logic [11:0] A_READ_SBA_BASE   = 12'h400;  // 0x400 + t*4 (up to t=255)
   localparam logic [11:0] A_READ_SBB_BASE   = 12'h800;  // 0x800 + t*4
 
-  // -------------------------------------------------------------------------
-  // 【面试讲解 · apply_wstrb 是 V2.B AXI 协议 contract 的核心】
-  //
-  // 这个 function 是 F1 修复 (commit bd860dcc) 引入的"把 4-byte AXI WSTRB
-  // 真正落到寄存器写"的工具。在它之前，V2.B 一律 reg <= cmd_wdata（全字
-  // 覆盖），WSTRB 完全被忽略——这是 AXI4-Lite 协议违例。
-  //
-  // 用法约束：所有 cfg 字段写入必须套这个 function；W1P/W1C 这类 control
-  // bit 不能用它（必须用 cmd_wstrb[0] && cmd_wdata[bit] 双重 gate，见
-  // STAGE_CTRL / STREAM_BUF_CTRL / INPUT_SRAM_CTRL / MAC_W_LOAD_CTRL 几处）。
-  //
-  // 为什么 W1P/W1C 不能直接套 apply_wstrb？
-  // 因为 apply_wstrb 是"按字节合并新旧值"的语义，而 W1P/W1C 的语义是"如
-  // 果对应字节真的被 strobe 进来 AND 该 bit 在数据中是 1，触发 pulse / 清
-  // sticky"。前者是数据流，后者是控制脉冲，两个语义不可共用一个 function。
-  // -------------------------------------------------------------------------
   function automatic logic [31:0] apply_wstrb(
     input logic [31:0] old_word,
     input logic [31:0] new_word,
@@ -214,13 +151,6 @@ module snn_soc_v2b_top
     logic [31:0] merged;
     begin
       merged = old_word;
-      // 4-byte 独立判断，对每个 byte 决定是"用新值"还是"保留旧值"。
-      // 对应 AXI4-Lite 标准的 wstrb 语义：wstrb[i]=1 表示这一 byte 上写
-      // 的数据是有意为之，wstrb[i]=0 表示软件没动这个 byte。常见误解：
-      // 以为整字写时 master 会把所有 wstrb 拉满——RISC-V `sw` 确实如此，
-      // 但 ARM 编译器对 `volatile uint8_t *` 的字节赋值会只拉一位 wstrb，
-      // 这正是 V2.B 在 v2-arm 跨 ARM PS 接入时必须正确处理 partial wstrb
-      // 的根因。
       if (wstrb[0]) merged[7:0]   = new_word[7:0];
       if (wstrb[1]) merged[15:8]  = new_word[15:8];
       if (wstrb[2]) merged[23:16] = new_word[23:16];
@@ -235,7 +165,8 @@ module snn_soc_v2b_top
 
   logic [15:0] reg_cfg_in_dim, reg_cfg_out_dim;
   logic [31:0] reg_cfg_threshold, reg_cfg_sum_max;
-  logic [1:0]  reg_cfg_input_src, reg_cfg_output_dst;
+  logic [V2B_BUF_SEL_W-1:0] reg_cfg_input_src;
+  logic [1:0]  reg_cfg_output_dst;
   logic        reg_cfg_tile_mode, reg_cfg_is_tile_final, reg_cfg_preserve_membrane;
   logic [15:0] reg_cfg_t_count;
 
@@ -254,6 +185,19 @@ module snn_soc_v2b_top
 
   // Pulses (W1P)
   logic reg_buf_clear_a, reg_buf_clear_b, reg_buf_clear_tile;
+
+  // CONV register bank
+  logic        reg_conv_mode, reg_flatten_mode, reg_fmap_pp_sel, reg_weight_timeout_en;
+  logic [15:0] reg_conv_H, reg_conv_W, reg_conv_C_in, reg_conv_C_out;
+  logic [3:0]  reg_conv_K, reg_conv_stride, reg_conv_pad;
+  logic [15:0] reg_conv_out_H, reg_conv_out_W, reg_conv_T_count;
+  logic [15:0] reg_conv_tile_count, reg_conv_last_tile_valid_count;
+  logic [31:0] reg_conv_fmap_base_word, reg_conv_out_base_word;
+  logic        reg_conv_start_pulse, reg_conv_abort_pulse, reg_conv_weight_ready_pulse;
+  logic        reg_conv_done_clear_pulse;
+  logic [31:0] reg_conv_fmap_wr_data, reg_conv_fmap_wr_addr;
+  logic        reg_conv_fmap_wr_commit_pulse;
+  logic        reg_conv_fmap_wr_auto_inc, reg_conv_fmap_wr_target_bank;
 
   // ── Stage engine wires ─────────────────────────────────────────────
   logic busy, done_pulse;
@@ -299,6 +243,57 @@ module snn_soc_v2b_top
   logic [J_AW-1:0] mac_diff_rd_j;
   logic signed [P_PARTIAL_W-1:0] mac_diff_rd_data;
 
+  // CONV integration wires
+  logic conv_busy, conv_done_sticky, conv_weight_req;
+  logic [7:0] conv_cur_h, conv_cur_w, conv_cur_tile;
+  logic [3:0] conv_err_code;
+  logic [31:0] conv_perf_cycles;
+
+  logic patch_ctx_valid;
+  logic [7:0] patch_ctx_h, patch_ctx_w;
+  logic [15:0] patch_ctx_tile_idx;
+  logic [3:0] patch_cfg_K, patch_cfg_stride, patch_cfg_pad, patch_cfg_stream_words;
+  logic [15:0] patch_cfg_C_in, patch_cfg_H, patch_cfg_W;
+  logic [31:0] patch_cfg_fmap_base_word;
+  logic flat_ctx_valid;
+  logic [15:0] flat_tile_idx, flat_cfg_H, flat_cfg_W, flat_cfg_C;
+  logic [31:0] flat_cfg_fmap_base_word;
+  logic [3:0] flat_cfg_stream_words;
+
+  logic conv_stage_start_pulse;
+  logic [15:0] conv_stage_cfg_in_dim, conv_stage_cfg_out_dim;
+  logic [31:0] conv_stage_cfg_threshold, conv_stage_cfg_sum_max;
+  logic [V2B_BUF_SEL_W-1:0] conv_stage_cfg_input_src;
+  logic [1:0] conv_stage_cfg_output_dst;
+  logic conv_stage_cfg_tile_mode, conv_stage_cfg_is_tile_final;
+  logic conv_stage_cfg_preserve_membrane;
+  logic [15:0] conv_stage_cfg_t_count;
+  logic conv_stage_clear_tile_buf;
+
+  logic dyn_wl_req_valid, dyn_wl_req_ready, dyn_wl_resp_valid, dyn_wl_resp_ready;
+  logic [8:0] dyn_wl_req_timestep, dyn_wl_resp_valid_count;
+  logic [P_N_IN-1:0] dyn_wl_resp_data;
+  logic patch_req_valid, patch_req_ready, patch_resp_valid, patch_resp_ready;
+  logic [255:0] patch_resp_data;
+  logic [8:0] patch_resp_count;
+  logic flat_req_valid, flat_req_ready, flat_resp_valid, flat_resp_ready;
+  logic [255:0] flat_resp_data;
+  logic [8:0] flat_resp_count;
+
+  logic patch_fmap_rd_en, flat_fmap_rd_en;
+  logic [31:0] patch_fmap_rd_addr, flat_fmap_rd_addr;
+  logic [31:0] fmap_rd_data;
+  logic conv_fmap_wr_en, conv_fmap_wr_bank_sel;
+  logic [31:0] conv_fmap_wr_addr, conv_fmap_wr_data;
+  logic [3:0] conv_fmap_wr_strb;
+  logic fw_fmap_wr_valid, fmap_sram_wr_en, fmap_sram_wr_bank_sel;
+  logic [31:0] fmap_sram_wr_addr, fmap_sram_wr_data;
+  logic [3:0] fmap_sram_wr_strb;
+  logic fmap_sram_oob;
+  logic spike_out_valid;
+  logic [8:0] spike_out_timestep;
+  logic [P_N_OUT-1:0] spike_out_vec;
+
   // ── Mux: SE vs bus read access to stream buffers ────────────────────
   logic sbA_rd_en_mux, sbB_rd_en_mux;
   logic [T_AW-1:0] sbA_rd_addr_mux, sbB_rd_addr_mux;
@@ -332,7 +327,7 @@ module snn_soc_v2b_top
   generate if (P_ENABLE_TILE_BUF) begin : g_tpb
     tile_partial_buf u_tpb (
       .clk(clk), .rst_n(rst_n),
-      .clear_all(tpb_clear_all | reg_buf_clear_tile),
+      .clear_all(tpb_clear_all | reg_buf_clear_tile | conv_stage_clear_tile_buf),
       .acc_en(tpb_acc_en), .wr_t(tpb_wr_t), .wr_j(tpb_wr_j), .wr_diff(tpb_wr_diff),
       .rd_en(tpb_rd_en), .rd_t(tpb_rd_t), .rd_j(tpb_rd_j),
       .rd_data(tpb_rd_data)
@@ -354,17 +349,178 @@ module snn_soc_v2b_top
     .diff_rd_j(mac_diff_rd_j), .diff_rd_data(mac_diff_rd_data)
   );
 
+  assign patch_req_valid  = dyn_wl_req_valid && (conv_stage_cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER);
+  assign flat_req_valid   = dyn_wl_req_valid && (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN);
+  assign dyn_wl_req_ready = (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)
+                          ? flat_req_ready : patch_req_ready;
+  assign patch_resp_ready = dyn_wl_resp_ready && (conv_stage_cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER);
+  assign flat_resp_ready  = dyn_wl_resp_ready && (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN);
+  assign dyn_wl_resp_valid = (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)
+                           ? flat_resp_valid : patch_resp_valid;
+  assign dyn_wl_resp_data = (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)
+                          ? flat_resp_data : patch_resp_data;
+  assign dyn_wl_resp_valid_count = (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)
+                                 ? flat_resp_count : patch_resp_count;
+
+  fmap_sram_v2 u_fmap (
+    .clk(clk), .rst_n(rst_n),
+    .bank_sel_pp(reg_fmap_pp_sel),
+    .rd_en(patch_fmap_rd_en | flat_fmap_rd_en),
+    .rd_word_addr(patch_fmap_rd_en ? patch_fmap_rd_addr : flat_fmap_rd_addr),
+    .rd_data(fmap_rd_data),
+    .wr_en(fmap_sram_wr_en),
+    .wr_bank_sel(fmap_sram_wr_bank_sel),
+    .wr_word_addr(fmap_sram_wr_addr),
+    .wr_data(fmap_sram_wr_data),
+    .wr_strb(fmap_sram_wr_strb),
+    .addr_oob(fmap_sram_oob)
+  );
+
+  patch_unroller_v2 u_patch_unroller (
+    .clk(clk), .rst_n(rst_n),
+    .ctx_valid(patch_ctx_valid),
+    .ctx_h(patch_ctx_h), .ctx_w(patch_ctx_w), .ctx_tile_idx(patch_ctx_tile_idx),
+    .cfg_K(patch_cfg_K), .cfg_stride(patch_cfg_stride), .cfg_pad(patch_cfg_pad),
+    .cfg_C_in(patch_cfg_C_in), .cfg_H(patch_cfg_H), .cfg_W(patch_cfg_W),
+    .cfg_fmap_base_word(patch_cfg_fmap_base_word),
+    .cfg_stream_words(patch_cfg_stream_words),
+    .dyn_wl_req_valid(patch_req_valid),
+    .dyn_wl_req_ready(patch_req_ready),
+    .dyn_wl_req_timestep(dyn_wl_req_timestep),
+    .dyn_wl_resp_valid(patch_resp_valid),
+    .dyn_wl_resp_ready(patch_resp_ready),
+    .dyn_wl_resp_data(patch_resp_data),
+    .dyn_wl_resp_valid_count(patch_resp_count),
+    .fmap_rd_en(patch_fmap_rd_en),
+    .fmap_rd_word_addr(patch_fmap_rd_addr),
+    .fmap_rd_data(fmap_rd_data)
+  );
+
+  fmap_flatten_reader_v2 u_flatten_reader (
+    .clk(clk), .rst_n(rst_n),
+    .ctx_valid(flat_ctx_valid),
+    .flat_tile_idx(flat_tile_idx),
+    .cfg_H(flat_cfg_H), .cfg_W(flat_cfg_W), .cfg_C(flat_cfg_C),
+    .cfg_fmap_base_word(flat_cfg_fmap_base_word),
+    .cfg_stream_words(flat_cfg_stream_words),
+    .dyn_wl_req_valid(flat_req_valid),
+    .dyn_wl_req_ready(flat_req_ready),
+    .dyn_wl_req_timestep(dyn_wl_req_timestep),
+    .dyn_wl_resp_valid(flat_resp_valid),
+    .dyn_wl_resp_ready(flat_resp_ready),
+    .dyn_wl_resp_data(flat_resp_data),
+    .dyn_wl_resp_valid_count(flat_resp_count),
+    .fmap_rd_en(flat_fmap_rd_en),
+    .fmap_rd_word_addr(flat_fmap_rd_addr),
+    .fmap_rd_data(fmap_rd_data)
+  );
+
+  conv_ctrl_v2 u_conv_ctrl (
+    .clk(clk), .rst_n(rst_n),
+    .cfg_conv_mode(reg_conv_mode),
+    .cfg_flatten_mode(reg_flatten_mode),
+    .cfg_pp_sel(reg_fmap_pp_sel),
+    .cfg_weight_timeout_en(reg_weight_timeout_en),
+    .cfg_H(reg_conv_H), .cfg_W(reg_conv_W),
+    .cfg_C_in(reg_conv_C_in), .cfg_C_out(reg_conv_C_out),
+    .cfg_K(reg_conv_K), .cfg_stride(reg_conv_stride), .cfg_pad(reg_conv_pad),
+    .cfg_out_H(reg_conv_out_H), .cfg_out_W(reg_conv_out_W),
+    .cfg_T_count(reg_conv_T_count),
+    .cfg_tile_count(reg_conv_tile_count),
+    .cfg_last_tile_valid_count(reg_conv_last_tile_valid_count),
+    .cfg_fmap_base_word(reg_conv_fmap_base_word),
+    .cfg_out_base_word(reg_conv_out_base_word),
+    .cfg_threshold(reg_cfg_threshold),
+    .cfg_sum_max(reg_cfg_sum_max),
+    .start_pulse(reg_conv_start_pulse),
+    .abort_pulse(reg_conv_abort_pulse),
+    .weight_ready_pulse(reg_conv_weight_ready_pulse),
+    .done_clear_pulse(reg_conv_done_clear_pulse),
+    .fmap_wr_commit_pulse(reg_conv_fmap_wr_commit_pulse),
+    .fmap_wr_addr(reg_conv_fmap_wr_addr),
+    .busy(conv_busy), .done_sticky(conv_done_sticky), .weight_req(conv_weight_req),
+    .current_pixel_h(conv_cur_h), .current_pixel_w(conv_cur_w),
+    .current_tile_idx(conv_cur_tile), .err_code(conv_err_code),
+    .perf_cycles(conv_perf_cycles),
+    .patch_ctx_valid(patch_ctx_valid),
+    .patch_ctx_h(patch_ctx_h), .patch_ctx_w(patch_ctx_w),
+    .patch_ctx_tile_idx(patch_ctx_tile_idx),
+    .patch_cfg_K(patch_cfg_K), .patch_cfg_stride(patch_cfg_stride),
+    .patch_cfg_pad(patch_cfg_pad), .patch_cfg_C_in(patch_cfg_C_in),
+    .patch_cfg_H(patch_cfg_H), .patch_cfg_W(patch_cfg_W),
+    .patch_cfg_fmap_base_word(patch_cfg_fmap_base_word),
+    .patch_cfg_stream_words(patch_cfg_stream_words),
+    .flat_ctx_valid(flat_ctx_valid), .flat_tile_idx(flat_tile_idx),
+    .flat_cfg_H(flat_cfg_H), .flat_cfg_W(flat_cfg_W), .flat_cfg_C(flat_cfg_C),
+    .flat_cfg_fmap_base_word(flat_cfg_fmap_base_word),
+    .flat_cfg_stream_words(flat_cfg_stream_words),
+    .stage_start_pulse(conv_stage_start_pulse),
+    .stage_cfg_in_dim(conv_stage_cfg_in_dim),
+    .stage_cfg_out_dim(conv_stage_cfg_out_dim),
+    .stage_cfg_threshold(conv_stage_cfg_threshold),
+    .stage_cfg_sum_max(conv_stage_cfg_sum_max),
+    .stage_cfg_input_src(conv_stage_cfg_input_src),
+    .stage_cfg_output_dst(conv_stage_cfg_output_dst),
+    .stage_cfg_tile_mode(conv_stage_cfg_tile_mode),
+    .stage_cfg_is_tile_final(conv_stage_cfg_is_tile_final),
+    .stage_cfg_preserve_membrane(conv_stage_cfg_preserve_membrane),
+    .stage_cfg_t_count(conv_stage_cfg_t_count),
+    .stage_clear_tile_buf(conv_stage_clear_tile_buf),
+    .stage_done_pulse(done_pulse),
+    .stage_err_code(err_code),
+    .spike_out_valid(spike_out_valid),
+    .spike_out_timestep(spike_out_timestep),
+    .spike_out_vec(spike_out_vec),
+    .fmap_wr_en(conv_fmap_wr_en),
+    .fmap_wr_bank_sel(conv_fmap_wr_bank_sel),
+    .fmap_wr_word_addr(conv_fmap_wr_addr),
+    .fmap_wr_data(conv_fmap_wr_data),
+    .fmap_wr_strb(conv_fmap_wr_strb)
+  );
+
+  assign fw_fmap_wr_valid      = reg_conv_fmap_wr_commit_pulse && !conv_busy
+                               && (reg_conv_fmap_wr_addr < ((V2B_CONV_FMAP_BANK_KIB * 1024) / 4));
+  assign fmap_sram_wr_en       = conv_fmap_wr_en | fw_fmap_wr_valid;
+  assign fmap_sram_wr_bank_sel = conv_fmap_wr_en ? conv_fmap_wr_bank_sel
+                                                 : reg_conv_fmap_wr_target_bank;
+  assign fmap_sram_wr_addr     = conv_fmap_wr_en ? conv_fmap_wr_addr
+                                                 : reg_conv_fmap_wr_addr;
+  assign fmap_sram_wr_data     = conv_fmap_wr_en ? conv_fmap_wr_data
+                                                 : reg_conv_fmap_wr_data;
+  assign fmap_sram_wr_strb     = conv_fmap_wr_en ? conv_fmap_wr_strb : 4'hF;
+
+  logic se_start_pulse;
+  logic [15:0] se_cfg_in_dim, se_cfg_out_dim, se_cfg_t_count;
+  logic [31:0] se_cfg_threshold, se_cfg_sum_max;
+  logic [V2B_BUF_SEL_W-1:0] se_cfg_input_src;
+  logic [1:0] se_cfg_output_dst;
+  logic se_cfg_tile_mode, se_cfg_is_tile_final, se_cfg_preserve_membrane;
+
+  assign se_start_pulse = conv_busy ? conv_stage_start_pulse : reg_start_pulse;
+  assign se_cfg_in_dim = conv_busy ? conv_stage_cfg_in_dim : reg_cfg_in_dim;
+  assign se_cfg_out_dim = conv_busy ? conv_stage_cfg_out_dim : reg_cfg_out_dim;
+  assign se_cfg_threshold = conv_busy ? conv_stage_cfg_threshold : reg_cfg_threshold;
+  assign se_cfg_sum_max = conv_busy ? conv_stage_cfg_sum_max : reg_cfg_sum_max;
+  assign se_cfg_input_src = conv_busy ? conv_stage_cfg_input_src : reg_cfg_input_src;
+  assign se_cfg_output_dst = conv_busy ? conv_stage_cfg_output_dst : reg_cfg_output_dst;
+  assign se_cfg_tile_mode = conv_busy ? conv_stage_cfg_tile_mode : reg_cfg_tile_mode;
+  assign se_cfg_is_tile_final = conv_busy ? conv_stage_cfg_is_tile_final : reg_cfg_is_tile_final;
+  assign se_cfg_preserve_membrane = conv_busy ? conv_stage_cfg_preserve_membrane : reg_cfg_preserve_membrane;
+  assign se_cfg_t_count = conv_busy ? conv_stage_cfg_t_count : reg_cfg_t_count;
+
   stage_engine_v2 u_se (
     .clk(clk), .rst_n(rst_n),
-    .start_pulse(reg_start_pulse),
+    .start_pulse(se_start_pulse),
     .busy(busy), .done_pulse(done_pulse),
     .err_code(err_code), .debug_t_idx(debug_t_idx),
-    .cfg_in_dim(reg_cfg_in_dim), .cfg_out_dim(reg_cfg_out_dim),
-    .cfg_threshold(reg_cfg_threshold), .cfg_sum_max(reg_cfg_sum_max),
-    .cfg_input_src(reg_cfg_input_src), .cfg_output_dst(reg_cfg_output_dst),
-    .cfg_tile_mode(reg_cfg_tile_mode), .cfg_is_tile_final(reg_cfg_is_tile_final),
-    .cfg_preserve_membrane(reg_cfg_preserve_membrane),
-    .cfg_t_count(reg_cfg_t_count),
+    .cfg_in_dim(se_cfg_in_dim), .cfg_out_dim(se_cfg_out_dim),
+    .cfg_threshold(se_cfg_threshold), .cfg_sum_max(se_cfg_sum_max),
+    .cfg_input_src(se_cfg_input_src), .cfg_output_dst(se_cfg_output_dst),
+    .cfg_tile_mode(se_cfg_tile_mode), .cfg_is_tile_final(se_cfg_is_tile_final),
+    .cfg_preserve_membrane(se_cfg_preserve_membrane),
+    .cfg_t_count(se_cfg_t_count),
+    .cfg_conv_mode(conv_busy),
+    .cfg_flatten_mode(reg_flatten_mode),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),
@@ -377,7 +533,17 @@ module snn_soc_v2b_top
     .mac_start(mac_start), .mac_done(mac_done), .mac_busy(mac_busy),
     .mac_wl_mask(mac_wl_mask), .mac_cfg_in_dim(mac_cfg_in_dim),
     .mac_cfg_out_dim(mac_cfg_out_dim), .mac_cfg_sum_max(mac_cfg_sum_max),
-    .mac_diff_rd_j(mac_diff_rd_j), .mac_diff_rd_data(mac_diff_rd_data)
+    .mac_diff_rd_j(mac_diff_rd_j), .mac_diff_rd_data(mac_diff_rd_data),
+    .dyn_wl_req_valid(dyn_wl_req_valid),
+    .dyn_wl_req_ready(dyn_wl_req_ready),
+    .dyn_wl_req_timestep(dyn_wl_req_timestep),
+    .dyn_wl_resp_valid(dyn_wl_resp_valid),
+    .dyn_wl_resp_ready(dyn_wl_resp_ready),
+    .dyn_wl_resp_data(dyn_wl_resp_data),
+    .dyn_wl_resp_valid_count(dyn_wl_resp_valid_count),
+    .spike_out_valid(spike_out_valid),
+    .spike_out_timestep(spike_out_timestep),
+    .spike_out_vec(spike_out_vec)
   );
 
   // ── Done sticky ────────────────────────────────────────────────────
@@ -403,7 +569,7 @@ module snn_soc_v2b_top
       reg_cfg_out_dim           <= '0;
       reg_cfg_threshold         <= '0;
       reg_cfg_sum_max           <= '0;
-      reg_cfg_input_src         <= 2'd0;
+      reg_cfg_input_src         <= '0;
       reg_cfg_output_dst        <= 2'd0;
       reg_cfg_tile_mode         <= 1'b0;
       reg_cfg_is_tile_final     <= 1'b1;
@@ -421,6 +587,24 @@ module snn_soc_v2b_top
       reg_buf_clear_a           <= 1'b0;
       reg_buf_clear_b           <= 1'b0;
       reg_buf_clear_tile        <= 1'b0;
+      reg_conv_mode             <= 1'b0;
+      reg_flatten_mode          <= 1'b0;
+      reg_fmap_pp_sel           <= 1'b0;
+      reg_weight_timeout_en     <= 1'b0;
+      reg_conv_H <= '0; reg_conv_W <= '0; reg_conv_C_in <= '0; reg_conv_C_out <= '0;
+      reg_conv_K <= '0; reg_conv_stride <= '0; reg_conv_pad <= '0;
+      reg_conv_out_H <= '0; reg_conv_out_W <= '0; reg_conv_T_count <= '0;
+      reg_conv_tile_count <= '0; reg_conv_last_tile_valid_count <= '0;
+      reg_conv_fmap_base_word <= '0; reg_conv_out_base_word <= '0;
+      reg_conv_start_pulse <= 1'b0;
+      reg_conv_abort_pulse <= 1'b0;
+      reg_conv_weight_ready_pulse <= 1'b0;
+      reg_conv_done_clear_pulse <= 1'b0;
+      reg_conv_fmap_wr_data <= '0;
+      reg_conv_fmap_wr_addr <= '0;
+      reg_conv_fmap_wr_commit_pulse <= 1'b0;
+      reg_conv_fmap_wr_auto_inc <= 1'b0;
+      reg_conv_fmap_wr_target_bank <= 1'b0;
     end else begin
       // Default: 1-cycle pulses
       reg_start_pulse    <= 1'b0;
@@ -429,6 +613,11 @@ module snn_soc_v2b_top
       reg_buf_clear_a    <= 1'b0;
       reg_buf_clear_b    <= 1'b0;
       reg_buf_clear_tile <= 1'b0;
+      reg_conv_start_pulse <= 1'b0;
+      reg_conv_abort_pulse <= 1'b0;
+      reg_conv_weight_ready_pulse <= 1'b0;
+      reg_conv_done_clear_pulse <= 1'b0;
+      reg_conv_fmap_wr_commit_pulse <= 1'b0;
 
       if (cmd_valid && cmd_write) begin
         case (cmd_addr)
@@ -450,11 +639,11 @@ module snn_soc_v2b_top
               {13'h0, reg_cfg_preserve_membrane,
                reg_cfg_is_tile_final, reg_cfg_tile_mode,
                6'h0, reg_cfg_output_dst,
-               6'h0, reg_cfg_input_src},
+               5'h0, reg_cfg_input_src},
               cmd_wdata,
               cmd_wstrb
             );
-            reg_cfg_input_src         <= cfg3_word[1:0];
+            reg_cfg_input_src         <= cfg3_word[V2B_BUF_SEL_W-1:0];
             reg_cfg_output_dst        <= cfg3_word[9:8];
             reg_cfg_tile_mode         <= cfg3_word[16];
             reg_cfg_is_tile_final     <= cfg3_word[17];
@@ -503,6 +692,84 @@ module snn_soc_v2b_top
             if (cmd_wstrb[0] && cmd_wdata[1]) reg_buf_clear_a    <= 1'b1;
             if (cmd_wstrb[0] && cmd_wdata[2]) reg_buf_clear_b    <= 1'b1;
             if (cmd_wstrb[0] && cmd_wdata[3]) reg_buf_clear_tile <= 1'b1;
+          end
+
+          A_CONV_MODE_CFG: begin
+            logic [31:0] conv_mode_word;
+            conv_mode_word = apply_wstrb({28'h0, reg_weight_timeout_en,
+                                           reg_fmap_pp_sel, reg_flatten_mode,
+                                           reg_conv_mode},
+                                          cmd_wdata, cmd_wstrb);
+            reg_conv_mode <= conv_mode_word[0];
+            reg_flatten_mode <= conv_mode_word[1];
+            reg_fmap_pp_sel <= conv_mode_word[2];
+            reg_weight_timeout_en <= conv_mode_word[3];
+          end
+          A_CONV_CFG_HW: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({reg_conv_W, reg_conv_H}, cmd_wdata, cmd_wstrb);
+            reg_conv_H <= word_v[15:0];
+            reg_conv_W <= word_v[31:16];
+          end
+          A_CONV_CFG_C: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({reg_conv_C_out, reg_conv_C_in}, cmd_wdata, cmd_wstrb);
+            reg_conv_C_in <= word_v[15:0];
+            reg_conv_C_out <= word_v[31:16];
+          end
+          A_CONV_CFG_K_S_P: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({20'h0, reg_conv_pad, reg_conv_stride, reg_conv_K},
+                                  cmd_wdata, cmd_wstrb);
+            reg_conv_K <= word_v[3:0];
+            reg_conv_stride <= word_v[7:4];
+            reg_conv_pad <= word_v[11:8];
+          end
+          A_CONV_CFG_OUT_HW: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({reg_conv_out_W, reg_conv_out_H}, cmd_wdata, cmd_wstrb);
+            reg_conv_out_H <= word_v[15:0];
+            reg_conv_out_W <= word_v[31:16];
+          end
+          A_CONV_CFG_T: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({16'h0, reg_conv_T_count}, cmd_wdata, cmd_wstrb);
+            reg_conv_T_count <= word_v[15:0];
+          end
+          A_CONV_CFG_TILE: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({reg_conv_last_tile_valid_count, reg_conv_tile_count},
+                                  cmd_wdata, cmd_wstrb);
+            reg_conv_tile_count <= word_v[15:0];
+            reg_conv_last_tile_valid_count <= word_v[31:16];
+          end
+          A_CONV_CFG_FMAP_BASE:
+            reg_conv_fmap_base_word <= apply_wstrb(reg_conv_fmap_base_word, cmd_wdata, cmd_wstrb);
+          A_CONV_CFG_OUT_BASE:
+            reg_conv_out_base_word <= apply_wstrb(reg_conv_out_base_word, cmd_wdata, cmd_wstrb);
+          A_CONV_CTRL: begin
+            if (cmd_wstrb[0] && cmd_wdata[0]) reg_conv_start_pulse <= 1'b1;
+            if (cmd_wstrb[0] && cmd_wdata[1]) reg_conv_abort_pulse <= 1'b1;
+            if (cmd_wstrb[0] && cmd_wdata[2]) reg_conv_weight_ready_pulse <= 1'b1;
+          end
+          A_CONV_STATUS: begin
+            if (cmd_wstrb[0] && cmd_wdata[1]) reg_conv_done_clear_pulse <= 1'b1;
+          end
+          A_CONV_FMAP_WR_DATA:
+            reg_conv_fmap_wr_data <= apply_wstrb(reg_conv_fmap_wr_data, cmd_wdata, cmd_wstrb);
+          A_CONV_FMAP_WR_ADDR:
+            reg_conv_fmap_wr_addr <= apply_wstrb(reg_conv_fmap_wr_addr, cmd_wdata, cmd_wstrb);
+          A_CONV_FMAP_WR_CTRL: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({29'h0, reg_conv_fmap_wr_target_bank,
+                                   reg_conv_fmap_wr_auto_inc, 1'b0},
+                                  cmd_wdata, cmd_wstrb);
+            if (cmd_wstrb[0] && cmd_wdata[0]) begin
+              reg_conv_fmap_wr_commit_pulse <= 1'b1;
+              if (reg_conv_fmap_wr_auto_inc) reg_conv_fmap_wr_addr <= reg_conv_fmap_wr_addr + 32'd1;
+            end
+            reg_conv_fmap_wr_auto_inc <= word_v[1];
+            reg_conv_fmap_wr_target_bank <= word_v[2];
           end
 
           default: ;
@@ -573,8 +840,28 @@ module snn_soc_v2b_top
       A_STAGE_CFG3:    read_mux = {13'h0, reg_cfg_preserve_membrane,
                                     reg_cfg_is_tile_final, reg_cfg_tile_mode,
                                     6'h0, reg_cfg_output_dst,
-                                    6'h0, reg_cfg_input_src};
+                                    5'h0, reg_cfg_input_src};
       A_STAGE_CFG5:    read_mux = {16'h0, reg_cfg_t_count};
+      A_CONV_MODE_CFG: read_mux = {28'h0, reg_weight_timeout_en,
+                                    reg_fmap_pp_sel, reg_flatten_mode,
+                                    reg_conv_mode};
+      A_CONV_CFG_HW:   read_mux = {reg_conv_W, reg_conv_H};
+      A_CONV_CFG_C:    read_mux = {reg_conv_C_out, reg_conv_C_in};
+      A_CONV_CFG_K_S_P: read_mux = {20'h0, reg_conv_pad, reg_conv_stride, reg_conv_K};
+      A_CONV_CFG_OUT_HW: read_mux = {reg_conv_out_W, reg_conv_out_H};
+      A_CONV_CFG_T:    read_mux = {16'h0, reg_conv_T_count};
+      A_CONV_CFG_TILE: read_mux = {reg_conv_last_tile_valid_count, reg_conv_tile_count};
+      A_CONV_CFG_FMAP_BASE: read_mux = reg_conv_fmap_base_word;
+      A_CONV_CFG_OUT_BASE:  read_mux = reg_conv_out_base_word;
+      A_CONV_CTRL:     read_mux = 32'h0;
+      A_CONV_STATUS:   read_mux = {conv_cur_tile, conv_cur_w, conv_cur_h,
+                                   conv_err_code, 1'b0, conv_weight_req,
+                                   conv_done_sticky, conv_busy};
+      A_CONV_FMAP_WR_DATA: read_mux = reg_conv_fmap_wr_data;
+      A_CONV_FMAP_WR_ADDR: read_mux = reg_conv_fmap_wr_addr;
+      A_CONV_PERF_CYCLES:  read_mux = conv_perf_cycles;
+      A_CONV_FMAP_WR_CTRL: read_mux = {29'h0, reg_conv_fmap_wr_target_bank,
+                                       reg_conv_fmap_wr_auto_inc, 1'b0};
       default: begin
         // Use registered versions so rd_data has had one cycle to settle.
         if (cmd_read_sba_q) read_mux = sbA_rd_data[31:0];

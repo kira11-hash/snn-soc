@@ -9,8 +9,9 @@
  *   (e.g., -DV2B_SOC_BASE=0xB0000000u) to swap without code edits.
  *
  * ZCU102 board preset maps PS UART0 to MIO18/19 and PS UART1 to MIO20/21.
- * The CP2108 USB-UART exposes multiple COM ports; early board smoke mirrors
- * banners to both UARTs so a COM-port mapping mistake does not hide progress.
+ * The known-good ARM board evidence on this branch used PS UART0 only.
+ * Keep that simpler contract for LeNet-5 bring-up rather than depending on
+ * mirrored dual-UART banners.
  */
 #ifndef V2B_ARM_PLATFORM_H
 #define V2B_ARM_PLATFORM_H
@@ -25,16 +26,8 @@
 #define UART0_BASE   0xFF000000u
 #endif
 
-#ifndef UART1_BASE
-#define UART1_BASE   0xFF010000u
-#endif
-
 #ifndef UART_BASE
-#define UART_BASE    UART1_BASE    /* primary: PS UART1 (ZCU102 board preset MIO20/21) */
-#endif
-
-#ifndef UART_MIRROR_BASE
-#define UART_MIRROR_BASE UART0_BASE /* secondary bring-up banner mirror */
+#define UART_BASE    UART0_BASE    /* known-good board path: PS UART0 / COM4 */
 #endif
 
 /* PS UART input reference clock (LPD peripheral) used for BRGR divisor.

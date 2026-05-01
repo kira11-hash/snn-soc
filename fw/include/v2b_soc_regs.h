@@ -58,6 +58,23 @@
 #define V2B_SOC_STREAM_BUF_CTRL V2B_SOC_REG(0x060u)
 #define V2B_SOC_STATE_CTRL      V2B_SOC_REG(0x064u)
 
+/* ── CONV extension registers ─────────────────────────────────── */
+#define V2B_SOC_CONV_MODE_CFG      V2B_SOC_REG(0x084u)
+#define V2B_SOC_CONV_CFG_HW        V2B_SOC_REG(0x088u)
+#define V2B_SOC_CONV_CFG_C         V2B_SOC_REG(0x08Cu)
+#define V2B_SOC_CONV_CFG_K_S_P     V2B_SOC_REG(0x090u)
+#define V2B_SOC_CONV_CFG_OUT_HW    V2B_SOC_REG(0x094u)
+#define V2B_SOC_CONV_CFG_T         V2B_SOC_REG(0x098u)
+#define V2B_SOC_CONV_CFG_TILE      V2B_SOC_REG(0x09Cu)
+#define V2B_SOC_CONV_CFG_FMAP_BASE V2B_SOC_REG(0x0A0u)
+#define V2B_SOC_CONV_CFG_OUT_BASE  V2B_SOC_REG(0x0A4u)
+#define V2B_SOC_CONV_CTRL          V2B_SOC_REG(0x0A8u)
+#define V2B_SOC_CONV_STATUS        V2B_SOC_REG(0x0ACu)
+#define V2B_SOC_CONV_FMAP_WR_DATA  V2B_SOC_REG(0x0B0u)
+#define V2B_SOC_CONV_FMAP_WR_ADDR  V2B_SOC_REG(0x0B4u)
+#define V2B_SOC_CONV_PERF_CYCLES   V2B_SOC_REG(0x0B8u)
+#define V2B_SOC_CONV_FMAP_WR_CTRL  V2B_SOC_REG(0x0BCu)
+
 /* ── Bulk read of stream buffers (RO) ─────────────────────────── */
 /* READ_SBA[t]: 0x400 + t*4  (32 low bits of stream_buf_A[t], t in [0, 255]) */
 /* READ_SBB[t]: 0x800 + t*4  (32 low bits of stream_buf_B[t])              */
@@ -88,6 +105,8 @@
 #define V2B_SOC_BUF_SEL_STREAM_A    1u
 #define V2B_SOC_BUF_SEL_STREAM_B    2u
 #define V2B_SOC_BUF_SEL_OUTPUT_FIFO 3u
+#define V2B_SOC_BUF_SEL_PATCH_UNROLLER 4u
+#define V2B_SOC_BUF_SEL_FMAP_FLATTEN  5u
 
 /* ── MAC_W_LOAD_ADDR encoding ─────────────────────────────────── */
 #define V2B_SOC_MAC_W_LOAD_PACK(i, j)  (((uint32_t)(j) << 8) | ((uint32_t)(i) & 0xFFu))
@@ -100,5 +119,27 @@
 #define V2B_SOC_STREAM_BUF_CLEAR_A         (1u << 1)
 #define V2B_SOC_STREAM_BUF_CLEAR_B         (1u << 2)
 #define V2B_SOC_STREAM_BUF_CLEAR_TILE_BUF  (1u << 3)
+
+/* ── CONV_MODE_CFG / CONV_CTRL / CONV_STATUS / FMAP_WR_CTRL bits ── */
+#define V2B_SOC_CONV_MODE_EN             (1u << 0)
+#define V2B_SOC_CONV_FLATTEN_MODE        (1u << 1)
+#define V2B_SOC_CONV_FMAP_PP_SEL         (1u << 2)
+#define V2B_SOC_CONV_WEIGHT_TIMEOUT_EN   (1u << 3)
+
+#define V2B_SOC_CONV_CTRL_START          (1u << 0)
+#define V2B_SOC_CONV_CTRL_ABORT          (1u << 1)
+#define V2B_SOC_CONV_CTRL_WEIGHT_READY   (1u << 2)
+
+#define V2B_SOC_CONV_STATUS_BUSY         (1u << 0)
+#define V2B_SOC_CONV_STATUS_DONE         (1u << 1)
+#define V2B_SOC_CONV_STATUS_WEIGHT_REQ   (1u << 2)
+#define V2B_SOC_CONV_STATUS_ERR(x)       (((x) >> 4) & 0xFu)
+#define V2B_SOC_CONV_STATUS_CUR_H(x)     (((x) >> 8) & 0xFFu)
+#define V2B_SOC_CONV_STATUS_CUR_W(x)     (((x) >> 16) & 0xFFu)
+#define V2B_SOC_CONV_STATUS_CUR_TILE(x)  (((x) >> 24) & 0xFFu)
+
+#define V2B_SOC_CONV_FMAP_WR_COMMIT      (1u << 0)
+#define V2B_SOC_CONV_FMAP_WR_AUTO_INC    (1u << 1)
+#define V2B_SOC_CONV_FMAP_WR_TARGET_BANK (1u << 2)
 
 #endif /* V2B_SOC_REGS_H */

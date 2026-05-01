@@ -2,12 +2,10 @@
  * fw/arm/link_arm.ld — AArch64 standalone linker script for Phase B Gate B.
  *
  * Memory model (Zynq UltraScale+ ZCU102):
- *   - OCM 0xFFFC_0000..0xFFFF_FFFF (256 KB, 4 × 64 KB banks). The Phase C0
- *     first-smoke ELF is deliberately linked into OCM so it does not depend on
- *     DDR training / address-line behavior in a raw psu_init.tcl + JTAG flow.
- *     Current image size is ~137 KB including 64 KB stack, so it fits.
- *   - A future Vitis BSP application can move .text/.rodata to DDR after FSBL
- *     initialization and MMU/cache attributes are under BSP control.
+ *   - OCM 0xFFFC_0000..0xFFFF_FFFF (256 KB) for startup code, stack, UART,
+ *     and small runtime state.
+ *   - DDR 0x0010_0000.. for the large LeNet-5 golden bundle (weights + input
+ *     words) after `psu_init.tcl` has completed PS/DDR bring-up in XSCT.
  *
  * For PHASE B GATE purposes (compile + link + size + nm check), the absolute
  * addresses don't matter as long as the sections resolve. For direct JTAG
@@ -23,6 +21,7 @@ ENTRY(_start)
 
 MEMORY {
     OCM  (rwx) : ORIGIN = 0xFFFC0000, LENGTH = 256K
+    DDR  (rwx) : ORIGIN = 0x00100000, LENGTH = 64M
 }
 
 SECTIONS
@@ -60,6 +59,14 @@ SECTIONS
         . = . + 0x10000;
         _stack_top = .;
     } > OCM
+
+    .ddr_rodata : {
+        . = ALIGN(64);
+        __ddr_rodata_start = .;
+        *(.ddr_rodata*)
+        . = ALIGN(64);
+        __ddr_rodata_end = .;
+    } > DDR
 
     /DISCARD/ : {
         *(.note.*)
