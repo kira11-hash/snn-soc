@@ -1,0 +1,3 @@
+[PROG] full-array erase DONE
+[PROG] write subset rows=0..9 cols=0..9 PASS
+FPGA_E203_PROGRAM_ERASE_WRITE_PASS
