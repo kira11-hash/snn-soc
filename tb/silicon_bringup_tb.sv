@@ -39,6 +39,17 @@ module silicon_bringup_tb;
   logic [2:0] prog_op_ext;      // V1 external programming (2026-04-24)
   logic [3:0] prog_level_ext;
 
+  // FW-C1 / B1 follow-up TODO（2026-05-02 audit）：
+  // 当前实例化 ENABLE_BOOT_ROM 走 default=0（snn_soc_top.sv:135），把
+  // silicon_bringup.hex 装到 instr_sram@0x0。但流片 chip_top 配置是
+  // ENABLE_BOOT_ROM=1，物理 INSTR_SRAM 基址 0x1000；fw/silicon_bringup/
+  // build_silicon_bringup.sh 已升级到 link_app.ld（origin=0x1000，对应硅片
+  // 真实地址）后，本 TB 与硅片配置失配 → false-positive 风险。
+  // 跟进 fix（独立 commit）：把本 TB 改成实例化 chip_top + ENABLE_BOOT_ROM=1
+  // + 把 silicon_bringup.hex 装到 dut.u_soc_core.u_instr_sram.mem（boot_rom
+  // 经 fallback 跳到 0x1000 时执行的就是 silicon_bringup）。
+  // 当前为保留 sim regression 不破坏，先维持旧实例；用户重 build 后
+  // silicon_bringup.hex 与本 TB 加载方式语义不再吻合，需要尽快迁移。
   snn_soc_top #(
     .ENABLE_E203         (1'b1),
     .ENABLE_PROGRAM_MODE (1'b1),

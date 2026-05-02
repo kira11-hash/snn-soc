@@ -346,7 +346,11 @@ module cim_program_ctrl_tb;
 
   initial begin
     #20000000;
+    // BLOCKER B-03 fix（2026-05-02 audit）：旧版只打 [FAIL]，没有打协议化的
+    // CIM_PROGRAM_CTRL_FAIL marker，CI grep -q "_PASS" 的退出码会 catch 但
+    // 日志归类异常困难。流片前最后一关 timeout 必须有清晰 FAIL marker。
     $display("[FAIL] Global timeout");
+    $display("CIM_PROGRAM_CTRL_FAIL (global timeout)");
     $finish;
   end
 endmodule

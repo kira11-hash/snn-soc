@@ -244,7 +244,9 @@ module prog_inflight_lock_tb;
 
   initial begin
     #2_000_000;
+    // BLOCKER B-03 fix（2026-05-02 audit）：补协议化 FAIL marker。
     $display("[FAIL] Global timeout");
+    $display("PROG_INFLIGHT_LOCK_TB_FAIL (global timeout)");
     $finish;
   end
 endmodule

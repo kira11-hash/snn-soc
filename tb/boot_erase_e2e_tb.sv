@@ -223,7 +223,9 @@ module boot_erase_e2e_tb;
   // 全局超时
   initial begin
     #20_000_000; // 20 ms sim time
+    // BLOCKER B-03 fix（2026-05-02 audit）：补协议化 FAIL marker。
     $display("[FAIL] Global timeout (20ms sim)");
+    $display("BOOT_ERASE_E2E_TB_FAIL (global timeout)");
     $finish;
   end
 endmodule
