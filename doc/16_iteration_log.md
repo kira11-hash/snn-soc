@@ -4,6 +4,74 @@
 
 ---
 
+## Iteration 12 — 2026-05-02 ARM ZCU102 LeNet-5 联调复盘（时序口径 + preload 根因）
+
+### 背景
+
+- 本节记录 `feature/v2-arm-fpga-demo-conv` 分支上，把原先“ARM PS 经 AXI-Lite 驱动 V2.B、只跑 bypass / scheduler”的板级链路，扩到“真 `conv1 -> conv2 -> fc1 -> fc2 -> fc3`”过程中踩到的几类坑。
+- 之所以把这段经验写回主线日志，是因为这次暴露出来的两个核心问题都不是 LeNet-5 独有问题，而是以后很容易重演的**系统级错误**：
+  - 一个是 **PS-PL 时钟口径和项目 baseline 不一致**
+  - 另一个是 **firmware preload 写地址语义和 RTL auto-inc 时序语义不一致**
+- 后者尤其值得反复提醒：当时功能长时间不对，很容易先怀疑卷积算法、权重映射、ARM cache、AXI 读写或者 stage 调度；但最后锁到的根因，其实是 **`conv fmap preload` 地址递增时机错了**，导致 feature map 没被写到 firmware 以为的地址上。
+
+### 关键提交链（按时间）
+
+- `7e6f24ef` — `fixup: PL fabric clock 100 MHz → 50 MHz to match project baseline`
+- `24951bb3` — `gpt-fix: harden ARM board bring-up review findings`
+- `dea06766` — `Add ARM ZCU102 LeNet-5 bring-up flow`
+- `5beca16b` — `Work around conv1 path for ARM board pass`
+- `3719c3e7` — `Checkpoint before native conv1 root-cause fix`
+- `48958da0` — `Fix conv fmap preload address increment`
+
+### 这次我实际做的几类改动
+
+- **先把 PL 时钟口径从 100 MHz 拉回 50 MHz，避免一开始就在错误 baseline 上看时序**
+  - 改动文件集中在 `fpga_synth/zcu102_arm_demo.tcl`、`fpga_synth/bd_sanity_zcu102_arm_demo.tcl`、`fpga_synth/ooc_v2b_arm_demo.tcl`、`rtl/top/v2b_axi_wrapper_bd.v` 和分支内 `doc/arm-fpga-demo/00_architecture.md`。
+  - 具体动作是把 `pl_clk0` 从 `100 MHz` 改回项目统一口径 `50 MHz`，并把 OOC pseudo-constraint 从 `10 ns` 改成 `20 ns`，输入/输出 delay 也跟着按 50 MHz 重算。
+  - 这样做不是“保守一点而已”，而是为了和项目里所有依赖 `50 MHz` 标尺的东西保持一致，包括 `cim_program_ctrl` 里按 50 MHz 标定的脉宽、已有 synth 脚本、学习路径和 bring-up 文档的默认口径。
+  - 这一步做完后，OOC 时序余量从“虽然能过、但口径不对”变成“和项目真实目标一致的 PASS”，也避免后续把功能问题误判成纯 timing 问题。
+
+- **把 ARM first-light / board bring-up 基建补结实，避免板上直接无声卡死**
+  - `fw/arm/src/crt0_aarch64.S` 的注释和假设被改正为：当前 `xsct` 直灌 ELF 路线依赖 `psu_init.tcl` 完成 DDR、PS、PL isolation / reset 初始化，`crt0` 本身并不负责 MMU / cache / BSP 初始化。
+  - `scripts/program_zcu102_c0.tcl` / `scripts/program_zcu102_c1.tcl` 被改成：找不到 `psu_init.tcl` 直接 `FATAL` 退出，而不是继续往下跑，防止“DDR 根本没 init 却还 download ELF”这种假成功。
+  - `fw/src/v2b_scheduler.c` 增加 stage poll timeout，板上如果时钟、复位、地址映射或响应链路有问题，会返回 firmware-visible error，而不是一直 spin。
+  - `fw/arm/src/arm_main.c` 的 MMIO self-test 也从“读写保留寄存器”修成“读写真实 CFG1 threshold 寄存器”，避免自测本身不严谨。
+  - 这些改动的价值不是提高性能，而是把“哪里没通”尽快暴露出来，缩短 ARM 板级联调时的盲调时间。
+
+- **在根因没锁死前，先做一个只绕过 `conv1` 的临时 workaround，把问题范围迅速缩小**
+  - `5beca16b` 这步没有直接硬猜 root cause，而是先加了 `conv1_ref_all_samples.h`、`sample0_conv1_ref_sparse.h`、`sample0_conv2_ref_sparse.h` 等参考数据，把 `fw/src/v2b_conv_scheduler.c` 暂时改成：不走 live `conv1` 输入展开，而是按 sample index 直接 preload 参考 `conv1` 输出。
+  - `fw/arm/src/arm_main.c` 里新增 `g_arm_current_sample_idx`，就是为了让 scheduler 知道当前在跑第几个 sample，从而选对那份参考 feature map。
+  - 这个 workaround 的意义非常大：如果绕过 `conv1` 后 `conv2 -> fc3` 整条链能在板上 PASS，那就说明 AXI-Lite 主通路、ARM MMIO、后半段 scheduler、输出计数、golden compare 都大概率是好的，问题应当收缩到“原始输入 feature map 如何 preload 到 conv 路径”这件事上。
+  - 也就是说，它不是最终方案，而是一个**定位用的隔离实验**，专门用来证明 bug 在 `conv1` 之前，而不在整个 ARM host 架构本身。
+
+- **最后的正式修复不是“卷积参数调一下”，而是修 `conv fmap preload` 的地址语义**
+  - 真正回收 workaround、恢复原生 `conv1` 路径的是 `48958da0`。这次修复同时动了 firmware 和 RTL，两边缺一不可。
+  - firmware 侧：`fw/src/v2b_conv_scheduler.c`
+  - 原来 `v2b_load_input_fmap_words()` 是按 dense 流程从 `0..word_count-1` 连续写，并假设 `A_CONV_FMAP_WR_CTRL` 的 `AUTO_INC + COMMIT` 会让下一笔数据自然落到下一个地址。
+  - 修后改成“先 clear 目标 bank，再跳过连续 0，只对非零段写入；每遇到一段新的非零 run，先显式把 `V2B_SOC_CONV_FMAP_WR_ADDR` 设成源数据的绝对地址 `i`，再连续提交这一段 non-zero words”。
+  - 这么改有两个目的：第一，减少 ARM 侧无意义 MMIO 写流量；第二，更重要的是把“当前写入的绝对地址”暴露得更明确，方便确认 preload 究竟写到了哪。
+  - RTL 侧：`rtl/top/snn_soc_v2b_top.sv`
+  - 新增 `reg_conv_fmap_wr_inc_pending`，把原先“`COMMIT` 当拍就直接 `addr <= addr + 1`”改成“`COMMIT` 当拍只记一个 pending，下一拍再真正做地址加一”。
+  - 这是本次 root cause 的关键。原先 firmware 以为自己是在“先按当前地址写，再自增到下一地址”；但 RTL 的实现等价于“这笔提交触发后，下一次真正被消费的写地址已经提前变成了加一后的值”。结果就是 preload 内容整体发生地址漂移，后面 `conv1` 读到的 feature map 和 Python / firmware 以为自己写进去的根本不是一回事。
+  - 所以当时“功能一直不对”的真正解释，不是 `conv1` 算法错了，不是权重 tile 错了，也不是 ARM cache 把数据吃掉了，而是 **preload 的写地址合同没对齐**。
+  - 同一个提交里还把前面 workaround 用到的 sample-index 全局变量、参考 header 和 bypass 路径删掉，恢复成真正走 `input_words -> conv1 -> conv2 -> fc` 的正式实现。这一点也很重要，因为 workaround 如果不及时回收，后面很容易把临时路径误当成正式架构。
+
+### 这次排障最值得记住的结论
+
+- **ARM 板级联调先看口径，再看算法**。只要分支上出现了和主线不一样的 PL 时钟、约束周期、脉宽假设，就先把这些统一；否则 timing 报告和功能现象都会失真。
+- **遇到“前半段开真数据就错，后半段喂参考数据却对”的情况，第一怀疑对象应该是 preload / address generation，而不是后级计算本身。**
+- **凡是带 `COMMIT/W1P/AUTO_INC` 的 MMIO 预加载接口，都要明确“地址在哪一拍生效、在哪一拍自增、SRAM 在哪一拍真正采样”**。这个合同如果没写清楚，软件和 RTL 很容易各自“觉得自己是对的”，最后系统整体却错。
+- **临时 workaround 要故意做成“隔离实验”，然后在 root-cause fix 落地后及时删掉。** 这次 `5beca16b` 有价值，但如果 `48958da0` 后不回收，就会把 future debug 带偏。
+
+### 以后再碰 ARM 路线，建议优先检查的顺序
+
+- 先确认 `pl_clk0`、OOC constraint、文档口径是不是都还是 `50 MHz`，不要默认沿用旧脚本。
+- 如果板上“能读写寄存器，但真跑 scheduler 结果不对”，先做最小隔离：绕过 `conv1` 或只喂后级参考 feature map，看问题是在 preload 之前还是之后。
+- 一旦怀疑 preload，不要只看最终分类结果，直接看 `CONV_FMAP_WR_ADDR / CTRL / DATA` 的写入序列，以及 RTL 内部 auto-inc 是否比 SRAM consume 早一拍。
+- 对 ARM firmware 里的“为了调试先加的 sample-index / 参考 header / bypass path”保持警惕，板子跑通之后要尽快删回正式路径。
+
+---
+
 ## Iteration 9 — 2026-03-31 main 分支再审计与 WL wrapper 边界修正
 
 ### 本次复核范围
