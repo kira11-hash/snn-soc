@@ -5,12 +5,12 @@
  *
  * 概要：
  *   - 此头文件由 fw/src/v2b_conv_scheduler.c 实现，再被两条 host 路径 include：
- *       fw/v2b_arm_smoke/...           ← ARM A53 路径（v2-arm-fpga-demo-conv）
- *       fw/v2_e203_smoke/...           ← E203 RV32 路径（v2-fpga-e203-conv，本分支）
+ *       fw/arm/...                     ← ARM A53 路径（v2-arm-fpga-demo-conv）
+ *       fw/v2_e203_smoke/...           ← E203 RV32 路径（v2-fpga-e203-conv）
  *   - 高层 API：v2b_run_lenet5_demo 一把跑完 5 层 LeNet-5；
  *               v2b_run_conv_layer / v2b_run_fc_stage 提供更细粒度的调度入口。
  *   - 权重以 sparse 三元组 (lane, out_c, packed4+4) 表示，由
- *     fw/v2_e203_smoke/scripts/gen_lenet5_header.py 从 Python golden manifest
+ *     host-specific gen_lenet5_header.py 从 Python golden manifest
  *     直接生成，保证 firmware↔RTL↔Python golden 三方对齐。
  *
  * 重要约束：

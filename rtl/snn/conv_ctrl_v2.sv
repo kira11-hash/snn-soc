@@ -24,7 +24,7 @@
 //   32-bit timestep-packed fmap layout 写回 fmap_sram_v2。
 //
 // 【关键指标和取舍】
-// 目标是 E203/FPGA demo 上 50 MHz 单时钟域稳定跑通，吞吐以“每个空间点
+// 目标是 ZCU102 FPGA demo 上 50 MHz 单时钟域稳定跑通，吞吐以“每个空间点
 // 每个 tile 启动一次 stage_engine”为基本粒度；控制路径不追求一拍发射，而
 // 是优先保证权重 preload、动态 WL 读取、BRAM 1-cycle latency 和写回顺序
 // 都可解释、可调试。后续如果要冲更高频率，应优先把大乘法/除法从校验或
@@ -163,6 +163,7 @@ module conv_ctrl_v2
   logic [31:0] wait_ctr;
   logic [31:0] perf_ctr;
   logic [15:0] write_idx;
+  logic [15:0] write_chan_idx, write_stream_idx, write_buf_idx_q;
   logic [3:0]  stream_words_q;
   logic [31:0] input_dim_q;
   logic [15:0] tile_count_expected_q;
@@ -171,6 +172,7 @@ module conv_ctrl_v2
   logic [31:0] fmap_words_in_q, fmap_words_out_q;
   logic [3:0]  validate_err;
   logic [31:0] out_word_addr_cur;
+  logic [31:0] pixel_base_word_q, pixel_stride_words_q, write_addr_cursor_q;
 
   // 【架构注释：为什么这里先缓存 spike 再写 fmap】
   // 我没有让 stage_engine_v2 直接写 fmap_sram_v2，因为 stage_engine 的输出是
@@ -331,9 +333,11 @@ module conv_ctrl_v2
       err_code <= ERR_OK;
       cur_h <= '0; cur_w <= '0; cur_tile <= '0;
       wait_ctr <= '0; perf_ctr <= '0; write_idx <= '0;
+      write_chan_idx <= '0; write_stream_idx <= '0; write_buf_idx_q <= '0;
       stream_words_q <= '0; input_dim_q <= '0;
       tile_count_expected_q <= '0; last_count_expected_q <= '0;
       fmap_words_in_q <= '0; fmap_words_out_q <= '0; validate_err <= ERR_OK;
+      pixel_base_word_q <= '0; pixel_stride_words_q <= '0; write_addr_cursor_q <= '0;
       patch_ctx_valid <= 1'b0; flat_ctx_valid <= 1'b0;
       stage_start_pulse <= 1'b0; stage_clear_tile_buf <= 1'b0;
       fmap_wr_en <= 1'b0; fmap_wr_bank_sel <= 1'b0; fmap_wr_word_addr <= '0;
@@ -392,6 +396,12 @@ module conv_ctrl_v2
             cur_w <= '0;
             cur_tile <= '0;
             write_idx <= '0;
+            write_chan_idx <= '0;
+            write_stream_idx <= '0;
+            write_buf_idx_q <= '0;
+            pixel_base_word_q <= cfg_out_base_word;
+            pixel_stride_words_q <= cfg_C_out * stream_words_q;
+            write_addr_cursor_q <= cfg_out_base_word;
             stage_clear_tile_buf <= 1'b1;
             for (ii = 0; ii < P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX; ii++) begin
               spike_word_buf[ii] <= 32'h0;
@@ -469,37 +479,41 @@ module conv_ctrl_v2
           if (cur_tile + 16'd1 < cfg_tile_count) begin
             cur_tile <= cur_tile + 16'd1;
             state <= S_WAIT_WEIGHT;
-          end else if (cfg_flatten_mode) begin
+        end else if (cfg_flatten_mode) begin
             state <= S_DONE;
           end else begin
             write_idx <= '0;
+            write_chan_idx <= '0;
+            write_stream_idx <= '0;
+            write_buf_idx_q <= '0;
+            write_addr_cursor_q <= pixel_base_word_q;
             state <= S_WRITEBACK;
           end
         end
 
-        // 【架构注释：E203 分支写回地址直接由 write_idx 展开】
-        // E203 demo 的版本保留了公式化地址计算，优点是状态更少、从代码上能直接
-        // 看出 fmap layout：pixel-major、channel-major、每 channel 内 stream_words
-        // 连续。代价是 S_WRITEBACK 中有除/模 stream_words 的组合逻辑；当前 50 MHz
-        // 目标和 stream_words<=8 可以接受。若后续频率上不去，可采用 ARM 分支那种
-        // cursor 递增实现，或者把除/模换成小 FSM/lookup。
-        // TODO优化方向：将 write_idx/stream_words 的除模关系预译码为 {chan, stream}
-        // 递增计数器，可进一步缩短写回地址路径。
+        // 【架构注释：共享实现使用递增 cursor，少放组合乘除在写回热路径】
+        // 每个输出像素的 fmap 地址是 (((h*out_W+w)*C_out+c)*stream_words+s)。
+        // 在 FPGA demo 这条路径里，我把 pixel_base_word_q 和 write_addr_cursor_q
+        // 提前寄存，让 S_WRITEBACK 每拍基本只做 +1 和小计数器更新，降低时序压力。
+        // trade-off 是控制寄存器多一点，必须在空间点切换时维护 cursor；如果漏掉
+        // pixel_base_word_q 更新，会出现所有像素写到同一块地址的灾难性覆盖。
         S_WRITEBACK: begin
-          if (write_idx < (cfg_C_out * stream_words_q)) begin
-            out_word_addr_cur =
-              cfg_out_base_word
-              + ((((cur_h * cfg_out_W) + cur_w) * cfg_C_out
-                  + (write_idx / stream_words_q)) * stream_words_q)
-              + (write_idx % stream_words_q);
+          if (write_chan_idx < cfg_C_out) begin
             fmap_wr_en <= 1'b1;
             fmap_wr_bank_sel <= ~cfg_pp_sel;
-            fmap_wr_word_addr <= out_word_addr_cur;
-            fmap_wr_data <= spike_word_buf[((write_idx / stream_words_q)
-                         * V2B_FMAP_WORDS_PER_STREAM_MAX)
-                         + (write_idx % stream_words_q)];
+            fmap_wr_word_addr <= write_addr_cursor_q;
+            fmap_wr_data <= spike_word_buf[write_buf_idx_q];
             fmap_wr_strb <= 4'hF;
             write_idx <= write_idx + 16'd1;
+            write_addr_cursor_q <= write_addr_cursor_q + 32'd1;
+            if (write_stream_idx + 16'd1 < stream_words_q) begin
+              write_stream_idx <= write_stream_idx + 16'd1;
+              write_buf_idx_q <= write_buf_idx_q + 16'd1;
+            end else begin
+              write_stream_idx <= 16'd0;
+              write_chan_idx <= write_chan_idx + 16'd1;
+              write_buf_idx_q <= (write_chan_idx + 16'd1) * V2B_FMAP_WORDS_PER_STREAM_MAX;
+            end
           end else begin
             state <= S_SPATIAL_NEXT;
           end
@@ -514,6 +528,7 @@ module conv_ctrl_v2
           if (cur_w + 16'd1 < cfg_out_W) begin
             cur_w <= cur_w + 16'd1;
             cur_tile <= '0;
+            pixel_base_word_q <= pixel_base_word_q + pixel_stride_words_q;
             stage_clear_tile_buf <= 1'b1;
             for (ii = 0; ii < P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX; ii++) begin
               spike_word_buf[ii] <= 32'h0;
@@ -523,6 +538,7 @@ module conv_ctrl_v2
             cur_h <= cur_h + 16'd1;
             cur_w <= '0;
             cur_tile <= '0;
+            pixel_base_word_q <= pixel_base_word_q + pixel_stride_words_q;
             stage_clear_tile_buf <= 1'b1;
             for (ii = 0; ii < P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX; ii++) begin
               spike_word_buf[ii] <= 32'h0;

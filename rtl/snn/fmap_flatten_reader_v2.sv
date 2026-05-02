@@ -111,7 +111,7 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
-  // 【架构注释：E203 分支把 stream_words 乘法展开成移位加法】
+  // 【架构注释：共享实现把 stream_words 乘法展开成移位加法】
   // cfg_stream_words 最大 8，不值得让综合器推一个宽乘法器。case 形式更啰嗦，
   // 但 timing 更确定，也和 patch_unroller_v2 的地址路径保持一致。
   function automatic [31:0] scale_stream_words(input [31:0] idx);
@@ -129,7 +129,7 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
-  // 【架构注释：E203 分支的 flatten 地址可以直接线性化】
+  // 【架构注释：共享实现的 flatten 地址可以直接线性化】
   // 这里利用上层已经把 fmap 按 row-major HWC 线性存放，flat_idx 本身就是
   // linear_stream，因此只需要 base + flat_idx*stream_words + timestep_word。
   // 这比反拆 row/col/channel 更短，是这条 FPGA timing 分支的特化优化。

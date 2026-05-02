@@ -131,7 +131,7 @@ module patch_unroller_v2
 
   // 【架构注释：用移位加法替代可变乘法】
   // cfg_stream_words 的合法范围来自 T_count，最大 8。这里不用 idx*cfg_stream_words，
-  // 而是 case 成移位加法，是为了让 Vivado/E203 FPGA 分支少推一个宽乘法器，
+  // 而是 case 成移位加法，是为了让 Vivado 少推一个宽乘法器，
   // 这类小优化对 50 MHz 也许不是必须，但能显著降低时序分析里的不确定性。
   function automatic [31:0] scale_stream_words(input [31:0] idx);
     begin
@@ -205,8 +205,8 @@ module patch_unroller_v2
   logic [31:0] lane_addr;
   logic [4:0] lane_bit_idx;
 
-  // 【架构注释：E203 分支选择 streaming address generator】
-  // 这条分支曾经重点处理 timing closure，所以我没有预先生成 256 项 lane 地址表，
+  // 【架构注释：共享实现选择 streaming address generator】
+  // 这条路径曾经重点处理 timing closure，所以我没有预先生成 256 项 lane 地址表，
   // 而是用 advance_lane_state 逐 lane 推进 {h,w,kx,chan,stream_base}。这样少了
   // 大数组扇出和 build 表写入，代价是初始化时要用 S_INIT0/1/2 把 tile_base
   // 转成起始 channel/kx/ky。这个 trade-off 更适合小 FPGA 和较保守频率目标。
