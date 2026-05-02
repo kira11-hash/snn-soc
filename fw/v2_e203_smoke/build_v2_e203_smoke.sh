@@ -9,10 +9,12 @@
 #   or from Windows git-bash if CROSS prefix resolves.
 #
 # Output:
-#   SIM_FAST=0 -> out/v2_e203_smoke.elf   + .bin + .hex
-#                  out/v2_e203_encoder.elf + .bin + .hex
-#   SIM_FAST=1 -> out_simfast/v2_e203_smoke.elf   + .bin + .hex
-#                  out_simfast/v2_e203_encoder.elf + .bin + .hex
+#   SIM_FAST=0 -> out/v2_e203_smoke.elf    + .bin + .hex
+#                  out/v2_e203_encoder.elf  + .bin + .hex
+#                  out/v2_e203_lenet5.elf   + .bin + .hex
+#   SIM_FAST=1 -> out_simfast/v2_e203_smoke.elf    + .bin + .hex
+#                  out_simfast/v2_e203_encoder.elf  + .bin + .hex
+#                  out_simfast/v2_e203_lenet5.elf   + .bin + .hex
 
 set -euo pipefail
 
@@ -54,6 +56,7 @@ LDFLAGS_COMMON="-nostdlib -Wl,--gc-sections -Wl,--print-memory-usage"
 # gen_bram_init 路径 (仓库根 scripts/gen_bram_init.py)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 GEN_HEX_PY="$REPO_ROOT/scripts/gen_bram_init.py"
+GEN_LENET_PY="$SCRIPT_DIR/scripts/gen_lenet5_header.py"
 WORDS=16384  # 64 KB / 4 = 16384 words
 
 mkdir -p "$OUT_DIR"
@@ -67,12 +70,35 @@ build_one() {
     local binf="$OUT_DIR/v2_e203_${variant}.bin"
     local hex="$OUT_DIR/v2_e203_${variant}.hex"
 
+    local common_sources=(
+        src/crt0_v2_e203.S
+        src/uart_printf_v2e203.c
+    )
+    local variant_sources=()
+
+    case "$variant" in
+        smoke|encoder)
+            variant_sources=(
+                src/v2b_scheduler_e203.c
+                src/golden_fashion10.c
+            )
+            ;;
+        lenet5)
+            variant_sources=(
+                src/golden_lenet5.c
+                src/v2b_conv_scheduler_e203.c
+            )
+            ;;
+        *)
+            echo "[FATAL] unknown build variant: $variant" >&2
+            exit 1
+            ;;
+    esac
+
     echo "=== Building $variant ==="
     $CC $CFLAGS \
-        src/crt0_v2_e203.S \
-        src/uart_printf_v2e203.c \
-        src/v2b_scheduler_e203.c \
-        src/golden_fashion10.c \
+        "${common_sources[@]}" \
+        "${variant_sources[@]}" \
         "$main_src" \
         -T "$ldscript" \
         $LDFLAGS_COMMON \
@@ -90,6 +116,8 @@ build_one() {
 
 build_one smoke   src/v2_e203_smoke_main.c   link_v2_e203_smoke.ld
 build_one encoder src/v2_e203_encoder_main.c link_v2_e203_encoder.ld
+python3 "$GEN_LENET_PY"
+build_one lenet5  src/v2_e203_lenet5_main.c  link_v2_e203_lenet5.ld
 
 echo ""
 echo "V2_E203_FW_BUILD_PASS"

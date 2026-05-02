@@ -81,6 +81,137 @@ module cim_mac_behavioral_v2
   output logic signed [P_PARTIAL_W-1:0]     diff_rd_data
 );
 
+`ifndef SYNTHESIS
+  // Simulation fast path: preserve the MAC transaction semantics and exact
+  // arithmetic, but avoid spending thousands of cycles per synthetic CONV
+  // timestep in the behavioral model.
+  localparam int RAW_W = $clog2((P_N_IN + 1) * ((1<<P_W_BITS) - 1) + 1);
+  localparam logic [31:0] ADC_MAX_CONST = (32'd1 << P_ADC_BITS) - 32'd1;
+  localparam logic signed [31:0] PARTIAL_MAX_32 = (32'sd1 <<< (P_PARTIAL_W-1)) - 32'sd1;
+  localparam logic signed [31:0] PARTIAL_MIN_32 = -(32'sd1 <<< (P_PARTIAL_W-1));
+
+  typedef enum logic [1:0] {
+    FS_IDLE = 2'd0,
+    FS_DONE = 2'd1
+  } fast_state_e;
+
+  fast_state_e fast_state;
+
+  logic [P_W_BITS-1:0] sim_w_pos_mem [0:P_N_IN-1][0:P_N_OUT-1];
+  logic [P_W_BITS-1:0] sim_w_neg_mem [0:P_N_IN-1][0:P_N_OUT-1];
+  logic signed [P_PARTIAL_W-1:0] diff_mem [0:P_N_OUT-1];
+  logic [P_N_IN-1:0] wl_latched_mac;
+  logic [15:0]       in_dim_latched;
+  logic [15:0]       out_dim_latched;
+  logic [31:0]       sum_max_latched;
+
+  assign diff_rd_data = diff_mem[diff_rd_j];
+  assign mac_busy = (fast_state != FS_IDLE);
+  assign mac_done = (fast_state == FS_DONE);
+
+  function automatic [31:0] adc_scale_fast(input logic [RAW_W-1:0] raw,
+                                           input logic [31:0] sum_max);
+    logic [63:0] numerator;
+    logic [63:0] scaled;
+    begin
+      if (sum_max == 32'd0) begin
+        adc_scale_fast = 32'd0;
+      end else begin
+        numerator = ({ {(64-RAW_W){1'b0}}, raw } * {32'd0, ADC_MAX_CONST})
+                  + {32'd0, (sum_max >> 1)};
+        scaled = numerator / {32'd0, sum_max};
+        adc_scale_fast = (scaled > {32'd0, ADC_MAX_CONST})
+                       ? ADC_MAX_CONST
+                       : scaled[31:0];
+      end
+    end
+  endfunction
+
+  function automatic signed [P_PARTIAL_W-1:0] clip_diff_fast(input logic [31:0] pos_adc,
+                                                             input logic [31:0] neg_adc);
+    logic signed [31:0] raw_diff;
+    begin
+      raw_diff = $signed({20'b0, pos_adc[11:0]})
+               - $signed({20'b0, neg_adc[11:0]});
+      if (raw_diff > PARTIAL_MAX_32) begin
+        clip_diff_fast = PARTIAL_MAX_32[P_PARTIAL_W-1:0];
+      end else if (raw_diff < PARTIAL_MIN_32) begin
+        clip_diff_fast = PARTIAL_MIN_32[P_PARTIAL_W-1:0];
+      end else begin
+        clip_diff_fast = raw_diff[P_PARTIAL_W-1:0];
+      end
+    end
+  endfunction
+
+  integer sim_si;
+  integer sim_j;
+  logic [RAW_W-1:0] sim_pos_sum;
+  logic [RAW_W-1:0] sim_neg_sum;
+  logic [31:0] sim_pos_adc;
+  logic [31:0] sim_neg_adc;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      fast_state <= FS_IDLE;
+      wl_latched_mac <= '0;
+      in_dim_latched <= '0;
+      out_dim_latched <= '0;
+      sum_max_latched <= '0;
+      for (sim_si = 0; sim_si < P_N_IN; sim_si = sim_si + 1) begin
+        for (sim_j = 0; sim_j < P_N_OUT; sim_j = sim_j + 1) begin
+          sim_w_pos_mem[sim_si][sim_j] <= '0;
+          sim_w_neg_mem[sim_si][sim_j] <= '0;
+        end
+      end
+      for (sim_j = 0; sim_j < P_N_OUT; sim_j = sim_j + 1) begin
+        diff_mem[sim_j] <= '0;
+      end
+    end else begin
+      if (w_load_en) begin
+        sim_w_pos_mem[w_load_i][w_load_j] <= w_load_pos_data;
+        sim_w_neg_mem[w_load_i][w_load_j] <= w_load_neg_data;
+      end
+
+      case (fast_state)
+        FS_IDLE: begin
+          if (mac_start) begin
+            wl_latched_mac <= wl_mask;
+            in_dim_latched <= cfg_in_dim;
+            out_dim_latched <= cfg_out_dim;
+            sum_max_latched <= cfg_sum_max;
+            for (sim_j = 0; sim_j < P_N_OUT; sim_j = sim_j + 1) begin
+              sim_pos_sum = '0;
+              sim_neg_sum = '0;
+              if (sim_j < cfg_out_dim) begin
+                for (sim_si = 0; sim_si < P_N_IN; sim_si = sim_si + 1) begin
+                  if (sim_si < cfg_in_dim && wl_mask[sim_si]) begin
+                    sim_pos_sum = sim_pos_sum
+                                + {{(RAW_W-P_W_BITS){1'b0}}, sim_w_pos_mem[sim_si][sim_j]};
+                    sim_neg_sum = sim_neg_sum
+                                + {{(RAW_W-P_W_BITS){1'b0}}, sim_w_neg_mem[sim_si][sim_j]};
+                  end
+                end
+                sim_pos_adc = adc_scale_fast(sim_pos_sum, cfg_sum_max);
+                sim_neg_adc = adc_scale_fast(sim_neg_sum, cfg_sum_max);
+                diff_mem[sim_j] <= clip_diff_fast(sim_pos_adc, sim_neg_adc);
+              end else begin
+                diff_mem[sim_j] <= '0;
+              end
+            end
+            fast_state <= FS_DONE;
+          end
+        end
+
+        FS_DONE: begin
+          fast_state <= FS_IDLE;
+        end
+
+        default: fast_state <= FS_IDLE;
+      endcase
+    end
+  end
+
+`else
   // ── Width calculations ───────────────────────────────────────────
   // Max per-neuron raw sum: if all 256 WL are 1 and all weights are
   // 15 (4-bit max), raw = 256 * 15 = 3840, fits in 12 bits.
@@ -355,6 +486,7 @@ module cim_mac_behavioral_v2
   assign mac_busy = (mac_state != MS_IDLE);
   assign mac_done = (mac_state == MS_DONE);
 
+`endif
 endmodule
 
 // One weight column BRAM for a single output neuron. Data packs

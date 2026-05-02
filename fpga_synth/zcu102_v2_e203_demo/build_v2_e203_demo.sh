@@ -2,8 +2,8 @@
 # fpga_synth/zcu102_v2_e203_demo/build_v2_e203_demo.sh
 # Board-ready V2E203 build pipeline: firmware -> BRAM hex -> Vivado bitstream.
 #
-# Defaults are smoke/full-board mode:
-#   HEX=fw/v2_e203_smoke/out/v2_e203_smoke.hex
+# Defaults are LeNet-5 board-evidence mode:
+#   HEX=fw/v2_e203_smoke/out/v2_e203_lenet5.hex
 #   OUT_DIR=fpga_synth/zcu102_v2_e203_demo/out
 #   SKIP_FW=0
 #
@@ -26,7 +26,7 @@ esac
 VIVADO="${VIVADO:-vivado}"
 SKIP_FW="${SKIP_FW:-0}"
 
-HEX="${HEX:-$REPO_ROOT/fw/v2_e203_smoke/out/v2_e203_smoke.hex}"
+HEX="${HEX:-$REPO_ROOT/fw/v2_e203_smoke/out/v2_e203_lenet5.hex}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/out}"
 
 abs_path() {

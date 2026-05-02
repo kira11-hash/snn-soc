@@ -12,7 +12,7 @@ if {[llength $argv] >= 1} {
 if {[llength $argv] >= 2} {
     set instr_hex [lindex $argv 1]
 } else {
-    set instr_hex [file join $repo_root fw v2_e203_smoke out v2_e203_smoke.hex]
+    set instr_hex [file join $repo_root fw v2_e203_smoke out v2_e203_lenet5.hex]
 }
 
 if {[llength $argv] >= 3} {
@@ -72,6 +72,10 @@ set sv_files [list \
     $repo_root/rtl/snn/input_stream_sram.sv \
     $repo_root/rtl/snn/stream_buffer_v2.sv \
     $repo_root/rtl/snn/tile_partial_buf.sv \
+    $repo_root/rtl/snn/fmap_sram_v2.sv \
+    $repo_root/rtl/snn/patch_unroller_v2.sv \
+    $repo_root/rtl/snn/fmap_flatten_reader_v2.sv \
+    $repo_root/rtl/snn/conv_ctrl_v2.sv \
     $repo_root/rtl/snn/stage_engine_v2.sv \
     $repo_root/rtl/top/snn_soc_v2b_top.sv \
     $repo_root/rtl/top/e203_min_wrap.sv \

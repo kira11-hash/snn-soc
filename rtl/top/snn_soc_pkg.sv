@@ -184,6 +184,18 @@ package snn_soc_pkg;
   localparam logic [31:0] ADDR_FIFO_BASE   = 32'h4000_0400;
   localparam logic [31:0] ADDR_FIFO_END    = 32'h4000_04FF;
 
+  // V2E203 FPGA evidence branch memory map (E203 soft-core in PL).
+  localparam logic [31:0] V2E203_INSTR_BYTES     = 32'h0001_0000; // 64KB IMEM BRAM
+  localparam logic [31:0] V2E203_DATA_BYTES      = 32'h0000_2000; // 8KB DMEM BRAM
+  localparam logic [31:0] ADDR_V2E203_INSTR_BASE = 32'h0000_0000;
+  localparam logic [31:0] ADDR_V2E203_INSTR_END  = ADDR_V2E203_INSTR_BASE + V2E203_INSTR_BYTES - 1;
+  localparam logic [31:0] ADDR_V2E203_DATA_BASE  = 32'h0001_0000;
+  localparam logic [31:0] ADDR_V2E203_DATA_END   = ADDR_V2E203_DATA_BASE + V2E203_DATA_BYTES - 1;
+  localparam logic [31:0] ADDR_V2E203_UART_BASE  = 32'h0002_0000;
+  localparam logic [31:0] ADDR_V2E203_UART_END   = 32'h0002_00FF;
+  localparam logic [31:0] ADDR_V2B_BASE          = 32'hA000_0000;
+  localparam logic [31:0] ADDR_V2B_END           = 32'hA000_0FFF;
+
   // ──────────────────────────────────────────────────────────────────────────
   // V2 CIM 编程参数（ENABLE_PROGRAM_MODE=1 时生效）
   // ──────────────────────────────────────────────────────────────────────────
@@ -279,17 +291,33 @@ package snn_soc_pkg;
   //   mode 1 = ACTIVE_WL: SUM_MAX = stage.in_dim × 15      (per-tile, firmware-supplied)
   parameter int V2B_SUM_MAX_ARRAY      = V2B_NUM_INPUTS * 15; // = 3840
 
+  // V2.B CONV extension constants (REV 5, M3.A).
+  parameter int V2B_CONV_FMAP_BANK_KIB         = 256;       // ping-pong A/B each
+  parameter int V2B_CONV_MAX_K                 = 5;
+  parameter int V2B_CONV_MAX_C_IN              = 128;
+  parameter int V2B_CONV_MAX_KKC               = 1152;      // K*K*C_in <= this
+  parameter int V2B_CONV_MAX_H                 = 64;
+  parameter int V2B_CONV_MAX_W                 = 64;
+  parameter int V2B_FMAP_WORDS_PER_STREAM_MAX  = 8;         // T<=256 => ceil(T/32)
+  parameter int V2B_CONV_WEIGHT_TIMEOUT_CYCLES = 1_000_000;
+
   // Stream buffer ownership encoding (REV 3.3 D14 state machine)
   parameter logic [1:0] V2B_BUF_STATE_FREE    = 2'd0;
   parameter logic [1:0] V2B_BUF_STATE_WRITING = 2'd1;
   parameter logic [1:0] V2B_BUF_STATE_READY   = 2'd2;
   parameter logic [1:0] V2B_BUF_STATE_READING = 2'd3;
 
-  // INPUT_SRC / OUTPUT_DST encoding for STAGE_CFG3
-  parameter logic [1:0] V2B_BUF_SEL_INPUT_SRAM = 2'd0;
-  parameter logic [1:0] V2B_BUF_SEL_STREAM_A   = 2'd1;
-  parameter logic [1:0] V2B_BUF_SEL_STREAM_B   = 2'd2;
-  parameter logic [1:0] V2B_BUF_SEL_OUTPUT_FIFO = 2'd3; // OUTPUT_DST only
+  // INPUT_SRC / OUTPUT_DST encoding for STAGE_CFG3.
+  // REV 5 MINOR-6 widens input source IDs to 3 bits for dynamic CONV
+  // sources. The legacy values keep the original low 2-bit encoding, so
+  // existing FC paths with selector[2]=0 remain byte-compatible.
+  parameter int V2B_BUF_SEL_W = 3;
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_INPUT_SRAM     = 3'b000; // was 2'b00
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_STREAM_A       = 3'b001; // was 2'b01
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_STREAM_B       = 3'b010; // was 2'b10
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_OUTPUT_FIFO    = 3'b011; // OUTPUT_DST only
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_PATCH_UNROLLER = 3'b100;
+  parameter logic [V2B_BUF_SEL_W-1:0] V2B_BUF_SEL_FMAP_FLATTEN   = 3'b101;
 
   // Stage error codes (STAGE_STATUS.ERR[23:16])
   parameter logic [7:0] V2B_STAGE_ERR_OK                   = 8'h00;
@@ -298,27 +326,6 @@ package snn_soc_pkg;
   parameter logic [7:0] V2B_STAGE_ERR_TILE_BUF_UNAVAILABLE = 8'h03;
   parameter logic [7:0] V2B_STAGE_ERR_CIM_NOT_READY        = 8'h04;
   parameter logic [7:0] V2B_STAGE_ERR_DIM_OUT_OF_RANGE     = 8'h05;
-
-  // ============================================================
-  // V2E203 FPGA 支线专用（feature/v2-fpga-e203, branch-local additive）
-  // 不影响 V1 `snn_soc_top` / V2 `snn_soc_v2b_top`；仅被本支线
-  // `snn_soc_v2b_e203_top` + 新 fabric + 新 bridge + TB 消费。
-  // ============================================================
-  // SRAM 容量
-  localparam logic [31:0] V2E203_INSTR_BYTES      = 32'h0001_0000; // 64 KB IMEM
-  localparam logic [31:0] V2E203_DATA_BYTES       = 32'h0000_2000; //  8 KB DMEM
-  // 地址窗口（4 段：INSTR / DATA / UART / V2B）
-  localparam logic [31:0] ADDR_V2E203_INSTR_BASE  = 32'h0000_0000;
-  localparam logic [31:0] ADDR_V2E203_INSTR_END   = ADDR_V2E203_INSTR_BASE + V2E203_INSTR_BYTES - 1; // 0x0000_FFFF
-  localparam logic [31:0] ADDR_V2E203_DATA_BASE   = 32'h0001_0000;
-  localparam logic [31:0] ADDR_V2E203_DATA_END    = ADDR_V2E203_DATA_BASE  + V2E203_DATA_BYTES  - 1; // 0x0001_1FFF
-  // Keep UART in the E203 mem_icb region. 0x0200_0000 is E203 CLINT and
-  // would be routed to clint_icb before the V2E203 bridge ever sees it.
-  localparam logic [31:0] ADDR_V2E203_UART_BASE   = 32'h0002_0000;
-  localparam logic [31:0] ADDR_V2E203_UART_END    = 32'h0002_00FF;
-  // V2B adapter consumes m_addr[11:0] as local offset, so base must stay 4KB-aligned.
-  localparam logic [31:0] ADDR_V2B_BASE           = 32'hA000_0000;
-  localparam logic [31:0] ADDR_V2B_END            = 32'hA000_0FFF;
 
 endpackage
 /* verilator lint_on UNUSEDPARAM */

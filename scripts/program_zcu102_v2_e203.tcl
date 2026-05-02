@@ -41,10 +41,10 @@ puts ""
 puts "The E203 soft-core starts automatically from IMEM BRAM."
 puts "Open ZCU102 J83 CP2108 Interface 2 at 115200 8N1 and watch for:"
 puts "  FPGA_V2_E203_BOOT_UART_PASS"
-puts {  sample 00 counts=[...]}
+puts {  [PASS] sample 00 ...}
 puts {  ...}
-puts {  sample 09 counts=[...]}
-puts "  FPGA_V2_E203_MULTILAYER_INFER_PASS"
+puts {  [PASS] sample 09 ...}
+puts "  FPGA_V2_E203_LENET5_PASS"
 puts ""
 
 disconnect
