@@ -14,15 +14,7 @@
 #include "../include/uart_printf.h"
 #include <stdint.h>
 
-// Programming registers (REG_BANK_BASE relative)
-#define PROG_CTRL   (*(volatile uint32_t *)(REG_BANK_BASE + 0x38u))
-#define PROG_ROW    (*(volatile uint32_t *)(REG_BANK_BASE + 0x3Cu))
-#define PROG_COL    (*(volatile uint32_t *)(REG_BANK_BASE + 0x40u))
-#define PROG_STATUS (*(volatile uint32_t *)(REG_BANK_BASE + 0x44u))
-
-#define PROG_STATUS_DONE_MASK  (1u << 7)
-#define PROG_STATUS_PASS_MASK  (1u << 1)
-#define PROG_STATUS_FAIL_MASK  (1u << 2)
+// PROG_* register aliases moved to soc_regs.h (audit-pass4 M-2).
 
 // Smoke programming scope: 10×10 subset (rows 0..9, cols 0..9), level 1
 #define SMOKE_ROWS   10u
