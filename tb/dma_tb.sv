@@ -14,6 +14,8 @@
 //   T8 : DST_INPUT_FIFO FIFO 背压：full 时暂停，不丢数据
 //   T9 : DMA 进行中写 REG_DST_SEL 被忽略，不得中途切换目标
 //   T10: 非法 DST_SEL=2'b11 -> ERR
+//   T11: ST_PUSH timeout 后下一次 START 必须享有完整新 timeout 窗口
+//        （audit-pass5 R-M2.1：清 push_stall_cnt 残留状态）
 //
 // 通过标准：所有测试输出 [PASS]，最后打印 DMA_SMOKETEST_PASS
 //======================================================================
@@ -91,7 +93,13 @@ module dma_tb;
   end
 
   // ── DUT ──────────────────────────────────────────────────────────────────
-  dma_engine u_dma (
+  // R-M2.1（pass5）：把 PUSH_TIMEOUT_CYCLES 改小到 64，让 T11 在 sim 里能
+  // 在合理 cycle 数内观察 timeout/recovery；T1~T10 既有 case 用同一覆盖窗口
+  // 也仍然成立（既有 backpressure case T8 只阻塞 12 拍，远小于 64）。
+  localparam int unsigned TB_PUSH_TIMEOUT = 64;
+  dma_engine #(
+    .PUSH_TIMEOUT_CYCLES(TB_PUSH_TIMEOUT)
+  ) u_dma (
     .clk          (clk),
     .rst_n        (rst_n),
     .req_valid    (req_valid),
@@ -369,6 +377,76 @@ module dma_tb;
     check("T10.DONE=1",  rd[1] == 1'b1);
     check("T10.BUSY=0",  rd[3] == 1'b0);
     bus_write(REG_DMA_CTRL, 32'h6);
+
+    // ==================================================================
+    // T11: ST_PUSH timeout 后下一次 START 必须享有完整新 timeout 窗口
+    //   audit-pass5 R-M2.1：之前 timeout 退出未清 push_stall_cnt，导致
+    //   下一次新事务一进 ST_PUSH 立即 ERR（FIFO 还是满时）。
+    //   覆盖步骤：
+    //     a) 第 1 次 START + FIFO 满 → 等到 timeout 触发 ERR
+    //     b) W1C 清 ERR/DONE
+    //     c) 第 2 次 START + FIFO 仍满 → 在新 timeout 窗口的"早期 cycles"内
+    //        读 BUSY 必须仍为 1（计数器从 0 重新开始，没有提前 ERR）
+    //     d) 释放 FIFO 满 → 第 2 次事务正常完成，DONE=1, ERR=0
+    // ==================================================================
+    $display("--- T11: post-timeout fresh window (audit-pass5 R-M2.1) ---");
+    in_fifo_full = 1'b1;                              // 全程保持 FIFO 满（直到 step d）
+    bus_write(REG_DMA_CTRL, 32'h6);                   // 先清干净 DONE/ERR
+    bus_write(REG_DST_SEL,   32'h0);
+    bus_write(REG_SRC_ADDR,  ADDR_DATA_BASE);
+    bus_write(REG_LEN_WORDS, 32'd8);
+
+    // step a: 第 1 次 START
+    bus_write(REG_DMA_CTRL,  32'h1);
+    // 给 FSM 充分时间走完 SETUP/RD0/RD1 进入 ST_PUSH，然后 timeout（=64）+ 余量
+    repeat(TB_PUSH_TIMEOUT + 32) @(posedge clk);
+    bus_read(REG_DMA_CTRL, rd);
+    check("T11a.first_timeout_ERR", rd[2] == 1'b1);
+    check("T11a.first_timeout_DONE", rd[1] == 1'b1);
+    check("T11a.first_timeout_BUSY=0", rd[3] == 1'b0);
+
+    // step b: W1C 清 ERR + DONE
+    bus_write(REG_DMA_CTRL, 32'h6);
+    repeat(2) @(posedge clk);
+    bus_read(REG_DMA_CTRL, rd);
+    check("T11b.cleared_ERR", rd[2] == 1'b0);
+    check("T11b.cleared_DONE", rd[1] == 1'b0);
+
+    // step c: 第 2 次 START，FIFO 仍满；在新 timeout 窗口"早期"BUSY 必须为 1
+    //   选择 16 cycles：远小于 TB_PUSH_TIMEOUT=64，一定还在新窗口里
+    //   同时大于 SETUP/RD0/RD1 进入 ST_PUSH 的 ~3 拍
+    bus_write(REG_DMA_CTRL, 32'h1);
+    repeat(16) @(posedge clk);
+    bus_read(REG_DMA_CTRL, rd);
+    check("T11c.in_new_window_BUSY=1", rd[3] == 1'b1);
+    check("T11c.in_new_window_ERR=0",  rd[2] == 1'b0);
+    check("T11c.in_new_window_DONE=0", rd[1] == 1'b0);
+
+    // step d: 释放 FIFO，第 2 次事务正常完成
+    @(posedge clk); #1;
+    in_fifo_full = 1'b0;
+    wait_done(200);
+    bus_read(REG_DMA_CTRL, rd);
+    check("T11d.recover_DONE=1", rd[1] == 1'b1);
+    check("T11d.recover_ERR=0",  rd[2] == 1'b0);
+    bus_write(REG_DMA_CTRL, 32'h6);
+
+    // step e: recover 之后再走一遍完整 timeout 窗口（pass5 codex polish）：
+    //   再次 START + FIFO 仍满 → 等 TB_PUSH_TIMEOUT + margin → 必须再次 timeout。
+    //   这条断言"recover 后第 N 次（N≥2）也能正常使用完整新窗口"，与 a/c 的
+    //   "第 1 次 / 第 2 次"配合，把 push_stall_cnt 残留状态彻底拷问一轮。
+    in_fifo_full = 1'b1;
+    bus_write(REG_DST_SEL,   32'h0);
+    bus_write(REG_SRC_ADDR,  ADDR_DATA_BASE);
+    bus_write(REG_LEN_WORDS, 32'd8);
+    bus_write(REG_DMA_CTRL,  32'h1);
+    repeat(TB_PUSH_TIMEOUT + 32) @(posedge clk);
+    bus_read(REG_DMA_CTRL, rd);
+    check("T11e.repeat_timeout_ERR",  rd[2] == 1'b1);
+    check("T11e.repeat_timeout_DONE", rd[1] == 1'b1);
+    check("T11e.repeat_timeout_BUSY=0", rd[3] == 1'b0);
+    bus_write(REG_DMA_CTRL, 32'h6);
+    in_fifo_full = 1'b0;
 
     // ==================================================================
     // 结果汇总
