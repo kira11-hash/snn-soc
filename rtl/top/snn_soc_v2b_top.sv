@@ -45,24 +45,46 @@
 //   0x1C  STAGE_CFG5       [15:0]=T_COUNT (实际 T，<= MAX_TIMESTEPS)
 //
 //   0x20  INPUT_SRAM_ADDR  [T_AW-1:0] — 写 WL 到 input_stream_sram 的地址
-//   0x24  INPUT_SRAM_LO    低 128 bit (wr_data[127:0])  （分两次写 256-bit）
-//   0x28  INPUT_SRAM_HI    高 128 bit (wr_data[255:128])
-//   0x2C  INPUT_SRAM_CTRL  [0]=WRITE_STROBE W1P（锁存 LO+HI 写入 SRAM）
+//   0x24  INPUT_SRAM_W0    wr_data[31:0]
+//   0x28  INPUT_SRAM_W1    wr_data[63:32]
+//   0x2C  INPUT_SRAM_W2    wr_data[95:64]
+//   0x30  INPUT_SRAM_W3    wr_data[127:96]
+//   0x34  INPUT_SRAM_W4    wr_data[159:128]
+//   0x38  INPUT_SRAM_W5    wr_data[191:160]
+//   0x3C  INPUT_SRAM_W6    wr_data[223:192]
+//   0x40  INPUT_SRAM_W7    wr_data[255:224]
+//   0x44  INPUT_SRAM_CTRL  [0]=WRITE_STROBE W1P（锁存 W0-W7 写入 SRAM）
 //
-//   0x30  MAC_W_LOAD_ADDR  [7:0]=i, [15:8]=j
-//   0x34  MAC_W_LOAD_DATA  [3:0]=pos, [7:4]=neg
-//   0x38  MAC_W_LOAD_CTRL  [0]=WRITE_STROBE W1P
+//   0x50  MAC_W_LOAD_ADDR  [7:0]=i, [15:8]=j
+//   0x54  MAC_W_LOAD_DATA  [3:0]=pos, [7:4]=neg
+//   0x58  MAC_W_LOAD_CTRL  [0]=WRITE_STROBE W1P
 //
-//   0x40  STREAM_BUF_CTRL  [0]=SWAP W1P（占位，当前 resident 不用）
+//   0x60  STREAM_BUF_CTRL  [0]=SWAP W1P（占位，当前 resident 不用）
 //                          [1]=CLEAR_A W1P, [2]=CLEAR_B W1P
 //                          [3]=CLEAR_TILE_BUF W1P
-//   0x44  STATE_CTRL       [0]=CLEAR_MEMBRANE W1P (暂由 stage_engine 自动)
+//   0x64  STATE_CTRL       [0]=CLEAR_MEMBRANE W1P (暂由 stage_engine 自动)
+//
+//   0x84-0xBC CONV/Flatten extension：mode/HW/C/KSP/outHW/T/tile/base/
+//             start/status/fmap preload write port/perf counter。这里是我给
+//             ARM/E203 firmware 暴露的最小卷积层控制面。
 //
 //   0x50+t*4  READ_SBA[t]  RO, 读 stream_buffer_A[t] 的低 32-bit
 //   0x50+0x100+t*4  READ_SBB[t] RO, 读 stream_buffer_B[t] 的低 32-bit
 //
 // 为简化起见，实现把 READ_SBA/READ_SBB 合并为两个地址基（0x0400, 0x0500）
 // 加 t 偏移。
+//
+// 【我在 SoC 里的位置和设计取舍】
+// 我是 V2.B demo 的最小 SoC 顶层：没有把 V1 老控制器混进来，而是直接把
+// stage_engine_v2、MAC、stream buffers、tile_partial_buf、fmap_sram 和 CONV
+// 动态 reader 接到一套简化 memory-mapped register bank 上。这样做的好处是
+// bring-up 路径短、每个寄存器和每条握手都能在 TB/firmware 里直接观察；代价是
+// 总线协议很朴素，没有 AXI backpressure、burst 或 CDC 适配。
+//
+// 【关键指标】
+// 当前 ARM/E203 FPGA demo 都按单时钟域 50 MHz 目标来收敛，寄存器写 1 cycle
+// 接受、读响应 1 cycle 延迟，stream/fmap SRAM 均按同步 1-cycle read 使用。
+// 所有跨模块背压都用 ready/valid 或 W1P pulse 表达，不引入第二时钟域。
 //======================================================================
 module snn_soc_v2b_top
   import snn_soc_pkg::*;
@@ -143,6 +165,11 @@ module snn_soc_v2b_top
   localparam logic [11:0] A_READ_SBA_BASE   = 12'h400;  // 0x400 + t*4 (up to t=255)
   localparam logic [11:0] A_READ_SBB_BASE   = 12'h800;  // 0x800 + t*4
 
+  // 【Corner case：所有 CPU 可写寄存器都必须尊重 WSTRB】
+  // ARM PS / E203 firmware 可能发 byte/halfword 写，尤其 bring-up 时常用
+  // devmem 或简化总线任务只写低字节的 W1P bit。这里统一做 read-modify-write，
+  // 避免一次写 START/COMMIT 时把同一个寄存器里的 mode、auto-inc、target_bank
+  // 等高位配置清掉。之前 partial write invariant TB 就是专门防这个坑。
   function automatic logic [31:0] apply_wstrb(
     input logic [31:0] old_word,
     input logic [31:0] new_word,
@@ -187,6 +214,11 @@ module snn_soc_v2b_top
   logic reg_buf_clear_a, reg_buf_clear_b, reg_buf_clear_tile;
 
   // CONV register bank
+  // 【架构注释：我把 CONV 控制面放在顶层内联，而不是另起 reg_bank 模块】
+  // 这条 demo 线最看重可调试性：固件写哪个地址、RTL 哪个 pulse 拉高，都能在
+  // 一个文件里追到。长期看独立 reg_bank 更整洁，但当前阶段内联能减少接线错误。
+  // TODO优化方向：当寄存器 map 稳定后，可以把 STAGE/CONV register bank 拆成
+  // 独立模块，并用同一份 YAML/JSON 生成 C header、RTL decode 和文档。
   logic        reg_conv_mode, reg_flatten_mode, reg_fmap_pp_sel, reg_weight_timeout_en;
   logic [15:0] reg_conv_H, reg_conv_W, reg_conv_C_in, reg_conv_C_out;
   logic [3:0]  reg_conv_K, reg_conv_stride, reg_conv_pad;
@@ -350,6 +382,11 @@ module snn_soc_v2b_top
     .diff_rd_j(mac_diff_rd_j), .diff_rd_data(mac_diff_rd_data)
   );
 
+  // 【架构注释：dynamic WL 请求在顶层按 input_src 分流】
+  // stage_engine_v2 只发一套 dyn_wl_req/resp；我在顶层根据 conv_ctrl 当前给出的
+  // input_src 选择 patch_unroller 或 flatten_reader。这样 stage_engine 不需要知道
+  // CONV 几何，也不需要实例化两套输入通路。代价是 input_src 必须在一次 stage
+  // 运行期间稳定，conv_ctrl 的 stage_cfg_* 寄存输出正是为这个目的存在。
   assign patch_req_valid  = dyn_wl_req_valid && (conv_stage_cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER);
   assign flat_req_valid   = dyn_wl_req_valid && (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN);
   assign dyn_wl_req_ready = (conv_stage_cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)
@@ -479,6 +516,12 @@ module snn_soc_v2b_top
     .fmap_wr_strb(conv_fmap_wr_strb)
   );
 
+  // 【Corner case：firmware preload 写口和 CONV 写回仲裁】
+  // ARM bring-up 曾经卡很久的核心原因之一，是 fmap/weight preload 时序没有被讲清：
+  // firmware 必须在 CONV idle 时把输入 fmap 写进 reader bank，并在每个 tile 权重装好
+  // 后回 weight_ready。这里我明确让 CONV writeback 优先，firmware preload 只能在
+  // !conv_busy 且地址在 bank 内时写。否则一次误写会污染正在读取的 fmap，表现成
+  // “功能一直不对”而不是明显的总线错误。
   assign fw_fmap_wr_valid      = reg_conv_fmap_wr_commit_pulse && !conv_busy
                                && (reg_conv_fmap_wr_addr < ((V2B_CONV_FMAP_BANK_KIB * 1024) / 4));
   assign fmap_sram_wr_en       = conv_fmap_wr_en | fw_fmap_wr_valid;
@@ -620,6 +663,11 @@ module snn_soc_v2b_top
       reg_conv_weight_ready_pulse <= 1'b0;
       reg_conv_done_clear_pulse <= 1'b0;
       reg_conv_fmap_wr_commit_pulse <= 1'b0;
+      // 【Corner case：auto-inc 延后一拍，避免同拍 commit 地址被提前加一】
+      // firmware preload 常用“写 DATA、写 CTRL.commit、地址自动+1”的循环。如果我在
+      // commit 同一拍就更新 reg_conv_fmap_wr_addr，组合写口可能拿到加一后的地址，
+      // 第一 word 被写偏，后续整张 fmap 都错位。inc_pending 把地址递增推迟到
+      // commit 脉冲已经被 SRAM 采样之后，这是 ARM preload 问题里最值得记住的细节。
       if (reg_conv_fmap_wr_inc_pending) begin
         reg_conv_fmap_wr_addr <= reg_conv_fmap_wr_addr + 32'd1;
         reg_conv_fmap_wr_inc_pending <= 1'b0;
@@ -765,6 +813,10 @@ module snn_soc_v2b_top
             reg_conv_fmap_wr_data <= apply_wstrb(reg_conv_fmap_wr_data, cmd_wdata, cmd_wstrb);
           A_CONV_FMAP_WR_ADDR:
             reg_conv_fmap_wr_addr <= apply_wstrb(reg_conv_fmap_wr_addr, cmd_wdata, cmd_wstrb);
+          // 【Corner case：commit 是 W1P，auto-inc/target_bank 是状态位】
+          // 我把 bit0 设计成写 1 触发、不自保持；bit1/bit2 是可读写配置。这样软件
+          // 可以先设置 auto-inc/target_bank，再连续写 commit。若把 commit 做成普通
+          // level，firmware 忘记清零会每拍重复写同一个 data word。
           A_CONV_FMAP_WR_CTRL: begin
             logic [31:0] word_v;
             word_v = apply_wstrb({29'h0, reg_conv_fmap_wr_target_bank,

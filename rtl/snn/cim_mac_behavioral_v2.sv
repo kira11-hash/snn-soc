@@ -7,6 +7,13 @@
 // V2.B per-position Scheme B differential MAC，behavioral 实现。
 // FPGA-friendly 版（2026-04-21 重构自 combinational 256-input adder 树）。
 //
+// 【我在 SoC 里的位置】
+// 我是 stage_engine_v2 后面的 MAC 计算单元占位模型：stage_engine 把当前
+// timestep 的 256-bit wl_mask、in_dim/out_dim/sum_max 给我，我按每个输出神经元
+// 计算 pos/neg 两路累加、ADC 缩放和差分裁剪，再把 diff_mem[j] 供 stage_engine
+// 做 membrane/tile partial sum。真实芯片里这里会换成 CIM array + ADC controller，
+// 但接口和 latency 握手保持一致，所以系统级控制不需要重写。
+//
 // 【架构：WL-serial + all-j-parallel】
 // 为避开 Vivado "Cross Boundary and Area Optimization" 阶段在 256-input
 // 组合加法树上卡死（实测 > 6h 不收敛），改成每 cycle 处理 1 个 WL
@@ -42,6 +49,12 @@
 // stage_engine_v2、snn_soc_v2b_top 不需要改。只是 mac_busy 持续时间变长
 // （N_IN + N_OUT 代替 N_OUT）。stage_engine FSM 已用 mac_done 握手，
 // 自动适应新 latency。
+//
+// 【关键指标和取舍】
+// FPGA demo 目标是 50 MHz 以上可综合、可解释、可和 Python golden bit-exact。
+// 我宁愿把 MAC latency 拉长到 N_IN+N_OUT，也不保留 256-input 组合树，因为后者
+// 在综合阶段会把 debug 时间吞掉。面试时可以强调：这里优化的是可闭合性和
+// 系统握手稳定性，而不是单个 MAC transaction 的理论最短周期。
 //
 // 【ADC 公式（match Python adc_scale_v2.rtl_adc_scale_v2）】
 //   adc_max = (1 << adc_bits) - 1
@@ -82,9 +95,11 @@ module cim_mac_behavioral_v2
 );
 
 `ifndef SYNTHESIS
-  // Simulation fast path: preserve the MAC transaction semantics and exact
-  // arithmetic, but avoid spending thousands of cycles per synthetic CONV
-  // timestep in the behavioral model.
+  // 【架构注释：仿真 fast path 只加速，不改变事务语义】
+  // 我在非综合路径里一拍算完整 diff，是为了让 CONV unit/cosim 不被
+  // N_IN+N_OUT 的 behavioral latency 拖慢。mac_busy/mac_done 的握手仍保持
+  // 一个 transaction 的边界，数值也走同一套 ADC/clip 公式；综合路径不会看到
+  // 这段逻辑。
   localparam int RAW_W = $clog2((P_N_IN + 1) * ((1<<P_W_BITS) - 1) + 1);
   localparam logic [31:0] ADC_MAX_CONST = (32'd1 << P_ADC_BITS) - 32'd1;
   localparam logic signed [31:0] PARTIAL_MAX_32 = (32'sd1 <<< (P_PARTIAL_W-1)) - 32'sd1;

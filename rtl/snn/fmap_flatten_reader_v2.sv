@@ -2,9 +2,22 @@
 //======================================================================
 // fmap_flatten_reader_v2.sv
 //
-// Dynamic WL reader for CONV->FC flatten mode. It gathers row-major fmap
-// bits into a 256-lane wordline using the same 32-bit padded stream layout
-// as patch_unroller_v2.
+// 【我在 SoC 里的位置】
+// 我是 CONV->FC 之间的 flatten 动态 word-line reader。前面 CONV 层把 spike
+// 写成 fmap_sram_v2 的 H×W×C×T padded stream layout；后面的 FC stage_engine
+// 只希望看到 256-lane WL。我负责把 row-major 的 flat_idx 映射回
+// {row,col,channel,stream_word,bit_idx}，让 FC 层不用关心 fmap 的二维结构。
+//
+// 【接口和数据流】
+// - ctx_valid/flat_tile_idx/cfg_* 来自 conv_ctrl_v2 的 flatten 模式。
+// - dyn_wl_req_* / dyn_wl_resp_* 接 stage_engine_v2，每个 timestep 返回一条
+//   flatten 后的 256-bit 输入 WL。
+// - fmap_rd_* 接 fmap_sram_v2，读 32-bit timestep-packed word。
+//
+// 【关键指标和取舍】
+// 和 patch_unroller 一样，我用单端口顺序读保证 50 MHz FPGA demo 稳定，不追求
+// 一拍完成 256 lane。flatten 只做 HWC 线性展开，不做 LIF/阈值判断；这样设计边界
+// 清楚，面试时可以说“CONV 负责产生 fmap，flatten reader 只负责重排视图”。
 //======================================================================
 module fmap_flatten_reader_v2
   import snn_soc_pkg::*;
@@ -37,6 +50,10 @@ module fmap_flatten_reader_v2
   input  logic [31:0] fmap_rd_data
 );
 
+  // 【架构注释：为什么 flatten 也用 reader FSM】
+  // flatten 看起来只是 row-major 地址递增，但它仍然要处理 last tile、BRAM
+  // 1-cycle latency、dyn_wl ready/valid 背压，以及仿真 cache。用 FSM 把这些
+  // 时序显式表达出来，比把 256 个地址组合展开更适合 FPGA timing。
   typedef enum logic [2:0] {
     S_IDLE       = 3'd0,
     S_CTX_LATCH  = 3'd1,
@@ -78,6 +95,9 @@ module fmap_flatten_reader_v2
   integer      cache_lane;
 `endif
 
+  // 【Corner case：FC 输入维度不是 256 的整数倍】
+  // 最后一个 flatten tile 之外的 lane 必须返回 0。否则 FC 的高位 lane 会读到
+  // 上一个 tile 或未初始化缓存，表现为分类层偶发多 spike。
   function automatic [8:0] calc_valid_count(input [31:0] full_dim,
                                             input [31:0] tile_base);
     logic [31:0] remaining;
@@ -91,6 +111,9 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
+  // 【架构注释：E203 分支把 stream_words 乘法展开成移位加法】
+  // cfg_stream_words 最大 8，不值得让综合器推一个宽乘法器。case 形式更啰嗦，
+  // 但 timing 更确定，也和 patch_unroller_v2 的地址路径保持一致。
   function automatic [31:0] scale_stream_words(input [31:0] idx);
     begin
       case (cfg_stream_words_q)
@@ -106,6 +129,10 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
+  // 【架构注释：E203 分支的 flatten 地址可以直接线性化】
+  // 这里利用上层已经把 fmap 按 row-major HWC 线性存放，flat_idx 本身就是
+  // linear_stream，因此只需要 base + flat_idx*stream_words + timestep_word。
+  // 这比反拆 row/col/channel 更短，是这条 FPGA timing 分支的特化优化。
   function automatic [31:0] calc_word_addr(input int unsigned flat_idx,
                                            input [8:0] timestep);
     begin
@@ -116,6 +143,9 @@ module fmap_flatten_reader_v2
   endfunction
 
 `ifndef SYNTHESIS
+  // 【架构注释：仿真 cache 避免同一 32-bit word 重复读】
+  // 连续 timestep 落在同一个 req_timestep[8:5] 时，地址完全相同，只是取不同 bit。
+  // cache 不改变 valid/ready 协议，只让大规模 cosim 更快。
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state <= S_IDLE;
@@ -153,6 +183,10 @@ module fmap_flatten_reader_v2
           state <= S_WAIT_REQ;
         end
 
+        // 【Corner case：ctx_valid 可以覆盖当前等待态配置】
+        // conv_ctrl_v2 会在每个 tile 发新 ctx。若 reader 正在 WAIT_REQ，说明上一条
+        // WL 已消费完，我允许新 ctx 覆盖旧 ctx；若正在读 SRAM，则不会接收新 ctx，
+        // 避免一次 response 里混入两个 tile 的地址。
         S_WAIT_REQ: begin
           if (ctx_valid) begin
             flat_tile_idx_q <= flat_tile_idx;
@@ -175,6 +209,10 @@ module fmap_flatten_reader_v2
           end
         end
 
+        // 【Corner case：cache hit、last tile、正常读三条路径要互斥】
+        // cache 命中时直接从 lane_word_cache 取 bit；lane_idx>=valid_count_q 时
+        // 主动补 0；只有真实 lane 才发 SRAM 读。这个顺序不能反过来，否则 last tile
+        // 的空 lane 可能错误命中旧 cache。
         S_PREP_LANE: begin
           if (cache_valid && cache_word_idx == req_timestep_q[8:5]) begin
             for (cache_lane = 0; cache_lane < P_N_IN; cache_lane = cache_lane + 1) begin
@@ -275,6 +313,9 @@ module fmap_flatten_reader_v2
           end
         end
 
+        // 【Corner case：综合路径 last tile zero-fill】
+        // lane_idx>=valid_count_q 时不读 SRAM，直接返回 0。否则超出 flat_dim 的地址
+        // 可能仍落在 fmap bank 内，读到上一层残留数据。
         S_PREP_LANE: begin
           if (lane_idx == 9'd256) begin
             state <= S_RESPOND;

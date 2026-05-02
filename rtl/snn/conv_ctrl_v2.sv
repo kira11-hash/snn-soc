@@ -2,9 +2,33 @@
 //======================================================================
 // conv_ctrl_v2.sv
 //
-// V2.B CONV extension outer controller. It owns configuration validation,
-// spatial/tile loops, FW-managed weight request/ready handshake, stage_engine
-// launches, and final spike writeback into fmap_sram_v2.
+// 【我在 SoC 里的位置】
+// 我是 V2.B CONV/Flatten 扩展的外层调度器，位于 CPU-facing 寄存器组
+// 和 stage_engine_v2 之间。CPU 只负责写配置、预装 fmap/weight，并通过
+// start/weight_ready 脉冲推进任务；我负责把一个高层卷积层拆成
+// out_h/out_w 空间点、KKC/Flatten tile、每个 tile 的 stage_engine 调用，
+// 最后再把 final tile 产生的 spike 打包写回 fmap_sram_v2 的另一侧 bank。
+//
+// 【接口怎么接】
+// - cfg_* / start_pulse / abort_pulse / done_clear_pulse 来自 snn_soc_v2b_top
+//   内联寄存器组，承载 firmware 对 CONV 层的描述。
+// - weight_req / weight_ready_pulse 是我和 firmware 的权重预装握手：我请求
+//   “当前空间点+tile 的 256×C_out 权重已经该装了”，firmware 完成 preload
+//   后回一个 pulse；如果 firmware 忘了这一步，功能会长时间卡在 WAIT_WEIGHT，
+//   这也是之前 ARM bring-up 看起来“算不对”的根因之一。
+// - patch_ctx_* / flat_ctx_* 发给动态 word-line reader，告诉它当前读哪个
+//   patch 或 flatten tile。
+// - stage_cfg_* / stage_start_pulse 发给 stage_engine_v2，真正执行 T 个
+//   timestep 的 CIM MAC、tile partial sum 和最终 LIF。
+// - spike_out_* 从 stage_engine_v2 回来，我把 final tile 的 spike 按
+//   32-bit timestep-packed fmap layout 写回 fmap_sram_v2。
+//
+// 【关键指标和取舍】
+// 目标是 E203/FPGA demo 上 50 MHz 单时钟域稳定跑通，吞吐以“每个空间点
+// 每个 tile 启动一次 stage_engine”为基本粒度；控制路径不追求一拍发射，而
+// 是优先保证权重 preload、动态 WL 读取、BRAM 1-cycle latency 和写回顺序
+// 都可解释、可调试。后续如果要冲更高频率，应优先把大乘法/除法从校验或
+// 地址计算路径继续切 pipeline，而不是改动握手机制。
 //======================================================================
 module conv_ctrl_v2
   import snn_soc_pkg::*;
@@ -148,6 +172,15 @@ module conv_ctrl_v2
   logic [3:0]  validate_err;
   logic [31:0] out_word_addr_cur;
 
+  // 【架构注释：为什么这里先缓存 spike 再写 fmap】
+  // 我没有让 stage_engine_v2 直接写 fmap_sram_v2，因为 stage_engine 的输出是
+  // “某个 timestep 的 C_out-bit spike 向量”，而 fmap_sram_v2 的物理布局是
+  // “每个 channel 连续 stream_words 个 32-bit word”。两者维度相反，直接写会
+  // 形成跨 timestep/channel 的随机写和复杂 byte/bit mask。这里先用寄存器数组
+  // 做一次转置：stage 运行时按 timestep 收集，stage done 后按 fmap layout 顺序
+  // 顺写 SRAM。这样控制简单，也避免 CONV 写回和动态 reader 在同一拍抢读写端口。
+  // TODO优化方向：如果后续 C_out 或 T_count 扩大，spike_word_buf 应替换为小型
+  // dual-port SRAM 或分块 writeback FIFO，避免寄存器面积随 P_N_OUT*T_count 线性放大。
   logic [31:0] spike_word_buf [0:(P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX)-1];
 
   assign current_pixel_h  = cur_h[7:0];
@@ -203,6 +236,18 @@ module conv_ctrl_v2
     conv_out_dim = ((in_size + {28'h0, pad, 1'b0} - k) / stride) + 1;
   endfunction
 
+  // 【架构注释：为什么启动前集中做 validate】
+  // 我把几何、tile、T_count、C_out、fmap 边界都集中在 S_VALIDATE 检查，而不是
+  // 在每个状态里边跑边报错。原因是 CONV 一旦发出 weight_req，firmware 就会开始
+  // preload 权重；如果配置已经非法却晚到中途才发现，软件侧可能已经覆盖了 MAC
+  // 权重 RAM，调试时会误以为是计算错。集中校验的代价是 start 后多 1 个控制状态，
+  // 但换来的是错误码稳定、不会产生半启动事务，也不会把错误传播到 fmap_sram。
+  //
+  // 【Corner case】
+  // cfg_stride=0、pad 后尺寸小于 K、tile_count/last_tile_valid_count 与 KKC 不匹配、
+  // fmap base+words 越过 bank，这些都必须在 weight_req 前挡住。去掉这些保护后，
+  // 典型症状不是立即崩溃，而是 reader 读到 bank 外零值或旧值，最后表现成
+  // LeNet-5 层间 spike 稀疏度异常，很难从输出反推真正原因。
   task automatic compute_validate;
     logic [31:0] kkc;
     logic [31:0] input_dim;
@@ -270,6 +315,12 @@ module conv_ctrl_v2
     end
   endtask
 
+  // 【架构注释：为什么用显式 FSM 而不是几个嵌套计数器硬连】
+  // 我这里要同时协调四类时序：firmware 权重 preload、动态 WL reader 上下文、
+  // stage_engine 子任务、fmap 写回。它们的 ready/done 都不是纯固定周期，如果只用
+  // 多层计数器，遇到 weight_ready 延迟、abort、stage error 或 timeout 时很容易
+  // 出现计数器继续跑但外设还没准备好的“半事务”。显式 FSM 的代价是状态数多，
+  // 但每个状态都有唯一职责，面试时也能清楚说明系统为什么不会乱序写 bank。
   integer ii;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -302,6 +353,11 @@ module conv_ctrl_v2
 
       if (busy) perf_ctr <= perf_ctr + 32'd1;
 
+      // 【Corner case：firmware preload 写口必须避开 CONV 正在运行】
+      // fmap_wr_commit_pulse 是 CPU/firmware 用来预装输入 fmap 的通道，而运行中的
+      // CONV 会把输出写到另一侧 bank。即使理论上 bank 不同，我也禁止 busy 时
+      // firmware 写入，因为 bring-up 期间最容易把 pp_sel、target_bank 或 auto-inc
+      // 搞错；如果不挡，动态 reader 可能读到半更新数据，最后表现为功能偶发不对。
       if (fmap_wr_commit_pulse && busy) begin
         err_code <= ERR_FMAP_WRITE_WHILE_BUSY;
         done_sticky <= 1'b1;
@@ -344,6 +400,12 @@ module conv_ctrl_v2
           end
         end
 
+        // 【架构注释：weight_req/weight_ready 是软件参与的 preload 边界】
+        // 我没有在 RTL 内部做 weight DMA，是因为当前 demo 的权重来源既可能来自
+        // ARM PS/E203 firmware，也可能来自测试平台直接写 MAC weight RAM。把 preload
+        // 显式暴露成握手后，硬件只保证“weight_ready 之后才启动 stage_engine”，软件
+        // 可以选择任何装载策略。代价是 firmware 必须严格按协议回应；如果忘记回应，
+        // 我会一直停在这里，直到 timeout 或 abort，而不是带着旧权重继续算。
         S_WAIT_WEIGHT: begin
           weight_req <= 1'b1;
           if (abort_pulse) begin
@@ -363,6 +425,10 @@ module conv_ctrl_v2
           end
         end
 
+        // 【架构注释：先发 reader context，再启动 stage_engine】
+        // patch_unroller/flatten_reader 都会锁存当前空间点和 tile 信息。这里我专门
+        // 给它们一个 ctx_valid 状态，再下一拍才 start stage_engine，避免 stage 在
+        // 第一个 timestep 就发 dyn_wl_req_valid 时 reader 还没更新上下文。
         S_CTX_ISSUE: begin
           if (cfg_flatten_mode) flat_ctx_valid <= 1'b1;
           else                  patch_ctx_valid <= 1'b1;
@@ -374,6 +440,11 @@ module conv_ctrl_v2
           state <= S_STAGE_WAIT;
         end
 
+        // 【架构注释：只捕获 final tile 的 spike】
+        // stage_engine 在 tile_mode 下会把非 final tile 累加到 tile_partial_buf，只有
+        // final tile 才做 LIF 并吐 spike_out_*。我在这里仍然用 !flatten_mode 再过滤，
+        // 是为了让 Flatten->FC 的“只读 fmap、不回写 fmap”路径保持安静，避免把 FC
+        // 输出误写成下一层 feature map。
         S_STAGE_WAIT: begin
           if (spike_out_valid && !cfg_flatten_mode) begin
             for (ii = 0; ii < P_N_OUT; ii++) begin
@@ -390,6 +461,10 @@ module conv_ctrl_v2
           end
         end
 
+        // 【架构注释：tile 先内循环，空间点后外循环】
+        // 对同一个输出像素，我先跑完所有 KKC tile，让 partial sum 在 tile_partial_buf
+        // 里闭合，再进入 writeback。这样 membrane/LIF 的语义等同于完整 KKC 一次性
+        // MAC；如果空间点先递增，partial buffer 会混入不同像素，错误会非常隐蔽。
         S_STAGE_DONE: begin
           if (cur_tile + 16'd1 < cfg_tile_count) begin
             cur_tile <= cur_tile + 16'd1;
@@ -402,6 +477,14 @@ module conv_ctrl_v2
           end
         end
 
+        // 【架构注释：E203 分支写回地址直接由 write_idx 展开】
+        // E203 demo 的版本保留了公式化地址计算，优点是状态更少、从代码上能直接
+        // 看出 fmap layout：pixel-major、channel-major、每 channel 内 stream_words
+        // 连续。代价是 S_WRITEBACK 中有除/模 stream_words 的组合逻辑；当前 50 MHz
+        // 目标和 stream_words<=8 可以接受。若后续频率上不去，可采用 ARM 分支那种
+        // cursor 递增实现，或者把除/模换成小 FSM/lookup。
+        // TODO优化方向：将 write_idx/stream_words 的除模关系预译码为 {chan, stream}
+        // 递增计数器，可进一步缩短写回地址路径。
         S_WRITEBACK: begin
           if (write_idx < (cfg_C_out * stream_words_q)) begin
             out_word_addr_cur =
@@ -422,6 +505,11 @@ module conv_ctrl_v2
           end
         end
 
+        // 【Corner case：切换空间点时必须清空 spike_word_buf 和 tile partial】
+        // 上一个像素的 spike 转置缓存不能泄漏到下一个像素；同时 tile_partial_buf
+        // 也要重新开始累加。这里每次移动 w/h 都拉 stage_clear_tile_buf 并清空本地
+        // spike_word_buf。去掉这段后，输入全零或边缘 padding 区域最容易暴露问题：
+        // 它们本应没有 spike，却会继承前一个像素的残留 bit。
         S_SPATIAL_NEXT: begin
           if (cur_w + 16'd1 < cfg_out_W) begin
             cur_w <= cur_w + 16'd1;
