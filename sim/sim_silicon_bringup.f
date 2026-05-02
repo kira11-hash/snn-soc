@@ -21,11 +21,13 @@
 ../rtl/snn/cim_macro_blackbox.sv
 ../rtl/snn/cim_macro_arbiter.sv
 ../rtl/snn/cim_program_ctrl.sv
+../rtl/mem/boot_rom.sv
 ../rtl/periph/uart_ctrl.sv
 ../rtl/periph/spi_ctrl.sv
 ../rtl/periph/jtag_mem_loader.sv
 ../rtl/top/e203_min_wrap.sv
 ../rtl/top/snn_soc_top.sv
+../rtl/top/chip_top.sv
 ../rtl/vendor_e203/e203/general/sirv_1cyc_sram_ctrl.v
 ../rtl/vendor_e203/e203/general/sirv_gnrl_bufs.v
 ../rtl/vendor_e203/e203/general/sirv_gnrl_dffs.v

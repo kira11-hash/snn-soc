@@ -39,25 +39,51 @@ module silicon_bringup_tb;
   logic [2:0] prog_op_ext;      // V1 external programming (2026-04-24)
   logic [3:0] prog_level_ext;
 
-  // FW-C1 / B1 follow-up TODO（2026-05-02 audit）：
-  // 当前实例化 ENABLE_BOOT_ROM 走 default=0（snn_soc_top.sv:135），把
-  // silicon_bringup.hex 装到 instr_sram@0x0。但流片 chip_top 配置是
-  // ENABLE_BOOT_ROM=1，物理 INSTR_SRAM 基址 0x1000；fw/silicon_bringup/
-  // build_silicon_bringup.sh 已升级到 link_app.ld（origin=0x1000，对应硅片
-  // 真实地址）后，本 TB 与硅片配置失配 → false-positive 风险。
-  // 跟进 fix（独立 commit）：把本 TB 改成实例化 chip_top + ENABLE_BOOT_ROM=1
-  // + 把 silicon_bringup.hex 装到 dut.u_soc_core.u_instr_sram.mem（boot_rom
-  // 经 fallback 跳到 0x1000 时执行的就是 silicon_bringup）。
-  // 当前为保留 sim regression 不破坏，先维持旧实例；用户重 build 后
-  // silicon_bringup.hex 与本 TB 加载方式语义不再吻合，需要尽快迁移。
-  snn_soc_top #(
-    .ENABLE_E203         (1'b1),
-    .ENABLE_PROGRAM_MODE (1'b1),
-    .ENABLE_PROGRAM_WEIGHT_MODEL (1'b1)
-  ) dut (.*);
+  // FW-C1 fix（2026-05-02 audit follow-up）：
+  // 旧版用 snn_soc_top + default ENABLE_BOOT_ROM=0，把 silicon_bringup.hex 装到
+  // instr_sram@0x0；这与流片 chip_top 配置（ENABLE_BOOT_ROM=1，物理 INSTR_SRAM
+  // 基址 0x1000）完全失配。FW B1 fix 已让 silicon_bringup.elf 链到 0x1000
+  // （link_app.ld），现在改 dut 为 chip_top + ENABLE_BOOT_ROM=1，并用一个
+  // stub boot_rom hex（首字节 jal x0,+0x1000，跳过 SPI flash boot 流程直接落到
+  // INSTR_SRAM）让 CPU 在 PC=0x1000 处执行 silicon_bringup —— 与硅片真实路径
+  // 一致。
+  //
+  // ⚠ 注意：stub ROM 不验证 SPI flash boot 路径（boot_rom_main.c 的
+  // magic header validation / SPI command pump）。完整 Day-2 硅片路径
+  // 由 chip_top_rom_smoke_tb / chip_top_rom_hi_smoke_tb 覆盖，这里只验证
+  // silicon_bringup 在 PC=0x1000 启动 + UART 抓 PASS marker。
+  chip_top #(
+    .BOOT_ROM_INIT_FILE("../tb/silicon_bringup_stub_rom.hex")
+  ) dut (
+    .clk_pad          (clk),
+    .rst_n_pad        (rst_n),
+    .uart_rx_pad      (uart_rx),
+    .uart_tx_pad      (uart_tx),
+    .spi_cs_n_pad     (spi_cs_n),
+    .spi_sck_pad      (spi_sck),
+    .spi_mosi_pad     (spi_mosi),
+    .spi_miso_pad     (spi_miso),
+    .jtag_tck_pad     (jtag_tck),
+    .jtag_tms_pad     (jtag_tms),
+    .jtag_tdi_pad     (jtag_tdi),
+    .jtag_tdo_pad     (jtag_tdo),
+    .wl_data_pad      (wl_data_ext),
+    .wl_group_sel_pad (wl_group_sel_ext),
+    .wl_latch_pad     (wl_latch_ext),
+    .cim_start_pad    (cim_start_ext),
+    .cim_done_pad     (cim_done_ext),
+    .bl_sel_pad       (bl_sel_ext),
+    .bl_data_pad      (bl_data_ext),
+    .prog_op_pad      (prog_op_ext),
+    .prog_level_pad   (prog_level_ext)
+  );
 
-  // Minimal SPI-flash stub (not exercised by silicon_bringup; kept for signals)
+  // SPI flash 不被 stub ROM 路径触发（jal x0,+0x1000 直接跳过 SPI boot）；
+  // 但 spi_miso 必须有定义否则会是 X 传播。
   assign spi_miso = 1'b1;
+
+  // 注：firmware preload（$readmemh）由下面 main initial 块统一处理，
+  // 与 NOP-fill / data_sram / weight_sram clear 在同一时序节点。
 
   // Clock
   initial begin
@@ -79,16 +105,15 @@ module silicon_bringup_tb;
   logic   fail_seen  = 1'b0;
   logic   new_byte   = 1'b0;  // set for one cycle when a byte is appended
 
-  // Monitor the path into the reg_bank-level bus master seen by
-  // u_uart.  u_uart req_valid / req_write / req_addr / req_wdata
-  // are driven from bus_interconnect in snn_soc_top.
+  // Monitor the path into the reg_bank-level bus master seen by u_uart.
+  // FW-C1 fix: 现在 dut 是 chip_top，u_uart 在 dut.u_soc_core.u_uart。
   always @(posedge clk) begin
     new_byte <= 1'b0;
-    if (rst_n && dut.u_uart.req_valid && dut.u_uart.req_write
-        && (dut.u_uart.req_addr[7:0] == 8'h00)
-        && !dut.u_uart.tx_busy) begin
+    if (rst_n && dut.u_soc_core.u_uart.req_valid && dut.u_soc_core.u_uart.req_write
+        && (dut.u_soc_core.u_uart.req_addr[7:0] == 8'h00)
+        && !dut.u_soc_core.u_uart.tx_busy) begin
       if (char_count < 2047) begin
-        char_buf[char_count] = byte'(dut.u_uart.req_wdata[7:0]);
+        char_buf[char_count] = byte'(dut.u_soc_core.u_uart.req_wdata[7:0]);
         char_count          += 1;
         new_byte            <= 1'b1;
         $write("%c", char_buf[char_count - 1]);  // live echo
@@ -169,17 +194,22 @@ module silicon_bringup_tb;
     char_count = 0;
 
     // NOP-fill then overlay firmware
+    // FW-C1 fix: 现在通过 chip_top 实例，hierarchy 是 dut.u_soc_core.u_*
     for (i = 0; i < (INSTR_SRAM_BYTES / 4); i = i + 1) begin
-      dut.u_instr_sram.mem[i] = 32'h0000_0013;
+      dut.u_soc_core.u_instr_sram.mem[i] = 32'h0000_0013;
     end
     for (i = 0; i < (DATA_SRAM_BYTES / 4); i = i + 1) begin
-      dut.u_data_sram.mem[i] = 32'h0000_0000;
+      dut.u_soc_core.u_data_sram.mem[i] = 32'h0000_0000;
     end
     for (i = 0; i < (WEIGHT_SRAM_BYTES / 4); i = i + 1) begin
-      dut.u_weight_sram.mem[i] = 32'h0000_0000;
+      dut.u_soc_core.u_weight_sram.mem[i] = 32'h0000_0000;
     end
 
-    $readmemh("../fw/silicon_bringup/out/silicon_bringup.hex", dut.u_instr_sram.mem);
+    // 注：silicon_bringup.hex 现在按 link_app.ld（origin=0x1000）链接，
+    // 但 instr_sram 的 mem 数组索引仍从 0 开始（基址映射在 SoC 总线层处理），
+    // 所以 $readmemh 直接装到 mem[0..N]（与硅片 boot_rom 跳到 0x1000 后
+    // CPU 取指 instr_sram[0] 的物理对应一致）。
+    $readmemh("../fw/silicon_bringup/out/silicon_bringup.hex", dut.u_soc_core.u_instr_sram.mem);
 
     repeat (10) @(posedge clk);
     rst_n = 1'b1;
