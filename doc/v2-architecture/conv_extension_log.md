@@ -41,6 +41,32 @@
 | ARM 板验 PASS marker | `ARM_FPGA_DEMO_LENET5_PASS`（10 行 [PASS] sample N） |
 | E203 板验 PASS marker | `FPGA_V2_E203_BOOT_UART_PASS` + 10 行 [PASS] sample N + V2_E203_LENET5_PASS |
 
+### 2.1bis. LeNet-5 Fashion-MNIST 28×28 ablation（2026-05-03 新增）— quantization-stack ceiling 证据
+
+**目的**：回答"V2.B CONV path 在 Fashion-MNIST 上能不能比 FC SNN baseline (#1, 82.38%) 高"，即"加 conv 是不是 Fashion 82% 的解药"。结论：**不是**。
+
+| 维度 | 值 |
+|---|---|
+| Bundle 名 | `python_multilayer/results_conv/lenet5_fashion/`（manifest + 10 sample × hex + cosim_full_log.txt） |
+| Checkpoint | `python_multilayer/checkpoints/lenet5_snn_fashion.pth` (head) + `lenet5_fashion.pth` (proxy) |
+| PyTorch float proxy 精度 | 90.94%（fp32 LeNet on Fashion-MNIST 全 test set） |
+| Quant SNN test accuracy（与 #3 同 RTL 路径）| **81.99%**（vs proxy −8.95 pp，4-bit weight + T=10 + 8-bit ADC 量化栈损失）|
+| Selected accuracy（10 个 class-first sample）| 0.9（9/10 argmax==label） |
+| Layer chain | conv1 (28×28×1→28×28×6, K=5) → conv2 (28×28×6→12×12×16, K=5 S=2) → fc1 (2304→120, 9 tiles) → fc2 (120→84) → fc3 (84→10)（与 #3 完全一致） |
+| Cosim TB | `tb/lenet5_cosim_tb.sv`（umbrella `feature/v2-conv-extension`，evidence 分支不携带；与 #3 同一份）|
+| Cosim 命令 | `bash sim/run_lenet5_cosim.sh --full lenet5_fashion`（umbrella 上 commit `a6591518` 加了 bundle 参数）|
+| Cosim 结果 | `LENET5_COSIM_TB_PASS bundle=lenet5_fashion samples=10` |
+| `golden_counts_concat` SHA256 | `d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627` |
+| `rtl_counts_dump` SHA256 | `d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627`（与 golden 完全一致 → byte-exact）|
+| Per-sample argmax 比对 | RTL `argmax(counts)` == Python `argmax(counts)` for **all 10 samples** |
+| 板验状态 | ❌ 不重烧 ZCU102。RTL 路径与 #3 完全一致；只换 weight + input fmap hex 不引入新 RTL 行为，bit-exactness 已被 #3 板验证明（参考 #2 MNIST 14×14 的同款不上板逻辑）|
+
+**叙事用法**：
+- ✅ 论文用 #5 配 #1/#3 一起做 quantization-stack-ceiling 三角证据：FC vs LeNet-5 在 Fashion 同一栈下都收敛到 ~82%，而 MNIST 在两个架构下分别 96/93%；Fashion 的低数字不是路径或架构问题，是量化栈与任务难度的乘积上限
+- ✅ 这是 **#2.2 CIFAR-10 plateau 现象（13%）的 Fashion 版本**：不同 dataset 在 V2.B 4-bit / T=10/64 / ADC=8/10 stack 下有各自的天然天花板（MNIST ≈ 93-96%，Fashion ≈ 82%，CIFAR-10 ≈ 13%）
+- ❌ **不可**写"加 conv 让 Fashion 跑到 90%+" — 本 ablation 直接反证
+- ❌ **不可**用 selected_accuracy=0.9 当 90% test set 精度 — 它是 10 个 class-first sample 的子集
+
 ### 2.2 Tiny VGG / Plain-CNN-4（CIFAR-10 32×32，T=64）— M5 主动收兵
 
 | 网络 | 训练精度 | 判定 | 论文措辞 |

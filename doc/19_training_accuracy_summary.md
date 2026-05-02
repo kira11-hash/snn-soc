@@ -2,12 +2,12 @@
 
 > **用途**：把目前所有"在硬件上能跑通的 SNN 训练精度"放一个表里方便论文/简历/
 > handoff 引用。包含原始的 V2.B FC baseline (Fashion-MNIST 14×14)、本次 ablation
-> 跑出来的 MNIST 14×14、V2.B CONV extension 的 LeNet-5 28×28，以及最新 ablation
-> 的 Fashion-MNIST 28×28 raw-input 路径，并给出文献对照让读者知道这些数字
-> "拿不拿得出手"。
+> 跑出来的 MNIST 14×14、V2.B CONV extension 的 LeNet-5 28×28、Fashion-MNIST 28×28
+> raw-input 路径、以及最新的 LeNet-5 on Fashion-MNIST 28×28 ablation（4-bit
+> 量化栈天花板对照），并给出文献对照让读者知道这些数字"拿不拿得出手"。
 >
-> **状态**：2026-05-03 update（新增 #4 Fashion 28×28 raw-input ablation 84.05%）。
-> 新增训练结果时在末尾追加，**不重写历史行**。
+> **状态**：2026-05-03 update（新增 #5 LeNet-5 on Fashion 28×28 ablation 81.99%
+> + cosim bit-exact PASS）。新增训练结果时在末尾追加，**不重写历史行**。
 
 ---
 
@@ -19,18 +19,21 @@
 | **2** | **MNIST 14×14**（同 196→64→10 拓扑，本次 ablation） | 2 层 FC SNN：196 → 64 → 10 | T=64, ADC=10, weight=4-bit signed [-7,+7] | **96.48%** | ❌ 不上板（路径与 #1 完全一致，bit-exact 已被 #1 板验证明；MNIST 重烧无新工程价值） |
 | **3** | **LeNet-5 (MNIST 28×28)**（V2.B CONV extension） | 5 层 LeNet-5：Conv1+Conv2+FC1+FC2+FC3 | T=10, ADC=8, weight=4-bit signed [-7,+7] | **93.03%** | ✅ ZCU102 板验通过（tag `v2-arm-fpga-demo-conv-passed @ dabcaf0d` + `v2-fpga-e203-conv-passed @ a1c0c828`），10/10 sample byte-exact |
 | **4** | **Fashion-MNIST 28×28**（同 196→64→10 拓扑放大到 784→64→10，本次 ablation） | 2 层 FC SNN：784 → 64 → 10 | T=64, ADC=10, weight=4-bit signed [-7,+7] | **84.05%** | ❌ 不上板（Python ideal matmul 训练，未做 multi-tile bit-exact；784 输入需要 V2.B tile_mode=1 FC 路径整合后才能 byte-exact 板验，超本计划 scope） |
+| **5** | **LeNet-5 (Fashion-MNIST 28×28)**（用 #3 同拓扑跑 Fashion，本次 ablation） | 5 层 LeNet-5：Conv1+Conv2+FC1+FC2+FC3 | T=10, ADC=8, weight=4-bit signed [-7,+7] | **81.99%** （float proxy 90.94%）| ✅ Sim cosim bit-exact 通过（10/10 sample byte-exact，golden_counts SHA `d952f218...` = rtl_counts SHA），不重烧 ZCU102（路径与 #3 完全一致，仅换 weight + input fmap hex；bit-exactness 已被 #3 板验证明） |
 
 ### 1.1 配置差异说明
 
-| 维度 | #1 Fashion 14×14 | #2 MNIST 14×14 | #3 LeNet-5 28×28 | #4 Fashion 28×28 |
-|---|---|---|---|---|
-| Input | Fashion-MNIST 28×28 → 下采样到 14×14 → 196 像素 | MNIST 28×28 → 下采样到 14×14 → 196 像素 | MNIST 28×28（原图，不下采样） | Fashion-MNIST 28×28（原图，不下采样）→ 784 像素 |
-| Layer kind | 全 FC | 全 FC | 2 conv + 3 FC（混合） | 全 FC |
-| 时间步 T | 64 | 64 | 10 | 64 |
-| ADC bits | 10（V2.B 加速器配置） | 10 | 8（用 V1 默认） | 10 |
-| Weight quant | 4-bit signed [-7, +7] QAT | 同上 | 同上 | 同上 |
-| Encoding | streamed_rate (Bresenham accumulator) | 同上 | rate / Bresenham（首层）+ tile-mode partial sum | 同上（首 FC 需 tile_mode=1, 4 tiles，但 Python 用 ideal matmul） |
-| 网络 #params | 196×64 + 64×10 = 13,184 | 同 #1 | conv1 6×1×5×5 + conv2 16×6×5×5 + fc1 2304×120 + fc2 120×84 + fc3 84×10 ≈ 296K | 784×64 + 64×10 = 50,816 |
+| 维度 | #1 Fashion 14×14 | #2 MNIST 14×14 | #3 LeNet-5 MNIST | #4 Fashion 28×28 FC | #5 LeNet-5 Fashion |
+|---|---|---|---|---|---|
+| Input | Fashion-MNIST 28×28 → 下采样到 14×14 → 196 像素 | MNIST 28×28 → 下采样到 14×14 → 196 像素 | MNIST 28×28（原图，不下采样） | Fashion-MNIST 28×28（原图，不下采样）→ 784 像素 | Fashion-MNIST 28×28（原图，不下采样） |
+| Layer kind | 全 FC | 全 FC | 2 conv + 3 FC（混合） | 全 FC | 2 conv + 3 FC（混合） |
+| 时间步 T | 64 | 64 | 10 | 64 | 10 |
+| ADC bits | 10（V2.B 加速器配置） | 10 | 8（用 V1 默认） | 10 | 8 |
+| Weight quant | 4-bit signed [-7, +7] QAT | 同上 | 同上 | 同上 | 同上 |
+| Encoding | streamed_rate (Bresenham accumulator) | 同上 | rate / Bresenham（首层）+ tile-mode partial sum | 同上（首 FC 需 tile_mode=1, 4 tiles，但 Python 用 ideal matmul） | rate / Bresenham（首层）+ tile-mode partial sum（与 #3 完全一致） |
+| 网络 #params | 196×64 + 64×10 = 13,184 | 同 #1 | conv1 6×1×5×5 + conv2 16×6×5×5 + fc1 2304×120 + fc2 120×84 + fc3 84×10 ≈ 296K | 784×64 + 64×10 = 50,816 | 同 #3 ≈ 296K |
+| Float proxy 精度 | — | — | ~99% | — | **90.94%**（PyTorch fp32 LeNet on Fashion） |
+| Quant SNN 精度 | 82.38% | 96.48% | 93.03% | 84.05% | **81.99%**（vs proxy -8.95 pp） |
 
 ### 1.2 板验 selected accuracy 红线
 
@@ -67,6 +70,7 @@
 | **本工作 #2** | **MNIST 14×14** | **196→64→10 FC** | **4** | **64** | **96.48%** | **本次 ablation** |
 | **本工作 #3** | **MNIST 28×28** | **LeNet-5** | **4** | **10** | **93.03%** | **本次 V2.B CONV path** |
 | **本工作 #4** | **Fashion-MNIST 28×28** | **784→64→10 FC** | **4** | **64** | **84.05%** | **本次 ablation（Python ideal matmul，未板验）** |
+| **本工作 #5** | **Fashion-MNIST 28×28** | **LeNet-5** | **4** | **10** | **81.99%** | **本次 ablation（与 #3 同 RTL 路径，cosim bit-exact PASS，未重烧 FPGA）** |
 | **本工作 #1** | **Fashion-MNIST 14×14** | **196→64→10 FC** | **4** | **64** | **82.38%** | **本次 V2.B FC baseline** |
 | Loihi (Intel) | MNIST 28×28 | 多种小 SNN | 8 | 100+ | 96–97% | 8-bit weights, longer T |
 | TrueNorth (IBM) | MNIST 28×28 | 较大深网 | "synaptic crossbar" ~16 levels | rate-coded | ~99% | 体量大很多 |
@@ -84,6 +88,7 @@
 | #3 **MNIST 28×28 LeNet-5, 93.03%** | ✅ **拿得出手**（中段，注意低于 #2） | 看似比 #2 低 ~3 pp 反直觉，但因为 (a) T 从 64 缩到 10（4 倍少时间步） (b) ADC 从 10-bit 缩到 8-bit (c) 网络深 5 层有 cascaded 量化误差累积。在 4-bit / T=10 / ADC=8 约束下 LeNet-5 跑到 93% 可接受；如果想冲 96%+ 需要 T 加到 30-50 + ADC=10。这是 **trade-off 透明叙事**而不是缺点 |
 | #1 **Fashion-MNIST 14×14, 82.38%** | ⚠ **拿得出手但要小心叙事** | Fashion-MNIST 14×14 + 浅 FC 在文献里通常是 87-92%，82% 偏低。原因主要是 14×14 下采样让 Fashion 类间纹理特征丢失（Fashion 比 MNIST 更依赖纹理）。**不要单独 quote 82%**——配合 #2（同拓扑 MNIST 96.48%）和 #4（同拓扑 Fashion 28×28 84.05%）一起出现，能说明"82% 不是路径瓶颈，是 Fashion + 14×14 + 4-bit 三者交集的任务难度上限"。论文里写"Fashion 14×14 demonstrates the streaming FC pipeline functions correctly; absolute accuracy is task/quantization-bound, not infrastructure-bound." |
 | #4 **Fashion-MNIST 28×28, 84.05%** | ⚠ **拿得出手但要小心叙事，同时是关键 ablation 证据** | 把 #1 的 14×14 input 升到原始 28×28 raw（拓扑保持 2-FC，仅首层 in_dim 从 196 升到 784）只买到 +1.67 pp（82.38% → 84.05%）。这是"Fashion 14×14 不是分辨率瓶颈"的直接证据：4× 像素只换 1.67 pp 说明瓶颈在 4-bit weight + 浅 FC + Fashion 任务难度，不在 avgpool 下采样。**论文里**：用 #4 反驳"82% 是不是因为下采样太狠"的潜在 reviewer 质疑——同拓扑放大 input 也只到 84%，下采样不背锅。**简历里**：通常不单独 quote 84.05%，可作为 #1 的旁证；如果需要单独提，说明清楚"Python ideal matmul 训练精度，未板验"。 |
+| #5 **LeNet-5 (Fashion-MNIST 28×28), 81.99%** | ⚠ **拿得出手但同时是 quantization-stack ceiling 证据** | PyTorch float LeNet-5 baseline 90.94% → quant SNN 81.99%（4-bit weight + T=10 + 8-bit ADC 量化栈丢 -8.95 pp）。这与 #1 / #4 在同一个量化天花板（~82-84%）撞上：**不论换 FC 还是 LeNet-5 conv，Fashion-MNIST 在 V2.B 4-bit / T=10 / ADC=8/10 stack 下都收敛到 ~82%**。论文里：(a) **不**说"加 conv 就能解决 Fashion 82%"——本 ablation 直接反证；(b) **要**说"V2.B 量化栈在 MNIST 上还有头部空间（93-96%），在 Fashion 上撞了量化天花板，与 CIFAR-10 上的 13% plateau 是同一现象的不同程度（详见 conv_extension_log.md §2.2）"；(c) 为什么这个数仍 valuable：是 V2.B CONV 路径**已 board-verified bit-exact**（#3）的同路径运行，10/10 sample byte-exact 自洽（cosim PASS golden_counts SHA = rtl_counts SHA = `d952f218...`），把"路径正确性"和"任务精度"分开 — 体现工程严谨性。**简历里**：通常不单独 quote 81.99%；和 #3 一起出现说"同路径 dataset swap，MNIST 93% / Fashion 82%，是 quant stack 在两个任务上的天然差距，不是路径问题"。 |
 
 ---
 
@@ -96,13 +101,17 @@
 > (196→64→10 on Fashion-MNIST 14×14, T=64, 4-bit weights, 10-bit ADC,
 > board-verified bit-exact) and a 5-layer LeNet-5 CNN (MNIST 28×28, T=10, 4-bit
 > weights, 8-bit ADC, board-verified bit-exact on two CPU paths). Reported
-> training accuracy on Fashion-MNIST 14×14 = 82.38%, on MNIST 14×14 (cross-dataset
-> ablation, same topology) = 96.48%, on MNIST 28×28 LeNet-5 = 93.03%, and on
-> Fashion-MNIST 28×28 (raw-input ablation, 784→64→10) = 84.05% — all within
-> the literature range for comparable bit-width / time-step quantized SNN
-> deployments. The 14×14 vs 28×28 Fashion ablation (+1.67 pp for 4× input pixels)
-> indicates the Fashion baseline accuracy is bounded by 4-bit weights + shallow
-> FC + dataset difficulty, not by the avgpool downsample step."
+> training accuracy: Fashion-MNIST 14×14 = 82.38%, MNIST 14×14 (cross-dataset
+> ablation, same topology) = 96.48%, MNIST 28×28 LeNet-5 = 93.03%,
+> Fashion-MNIST 28×28 (raw-input ablation, 784→64→10) = 84.05%, and
+> Fashion-MNIST 28×28 (LeNet-5 path, ablation) = 81.99% (sim cosim
+> bit-exact, PyTorch float proxy 90.94%) — all within the literature range
+> for comparable bit-width / time-step quantized SNN deployments. The
+> 14×14 vs 28×28 Fashion ablation (+1.67 pp for 4× pixels) and the
+> LeNet-5-vs-FC ablation on Fashion (no architectural lift over FC at this
+> quantization stack) jointly indicate that Fashion accuracy is bounded by
+> the 4-bit weight / short-T / 8-10-bit ADC quantization stack, not by
+> input resolution or by FC-vs-conv architecture choice."
 
 ### 3.2 简历表述
 
@@ -149,6 +158,23 @@ python run_streamed_rate_train.py --topology 784_64_10 --epochs 30 --seed 42
 # 注意：784 输入需要 V2.B tile_mode=1（4 个 256-tile partial-sum 累加）才能
 # byte-exact 板验；当前 Python forward 用 ideal matmul，未做 multi-tile
 # RTL bit-exact mapping，因此本数字仅作为训练精度参考，不可上板。
+
+# (5) LeNet-5 on Fashion-MNIST 28×28 ablation (81.99%) ── 本次新增
+python gen_convnet_golden.py --network lenet5 \
+    --dataset-override fashion_mnist --tag _fashion --samples 10
+# 输出：python_multilayer/checkpoints/lenet5_snn_fashion.pth
+#       python_multilayer/results_conv/lenet5_fashion/
+#         + lenet5_golden_manifest.json (quant_snn_test_acc=0.8199, selected=0.9)
+#         + sample_NN_*.hex / weights/ (10 个 class-first sample 的整数 golden)
+#         + cosim_full_log.txt (LENET5_COSIM_TB_PASS marker)
+# RTL bit-exact 验证（与 #3 共用同一 cosim TB，仅换 bundle）：
+bash sim/run_lenet5_cosim.sh --full lenet5_fashion
+# 通过标准：LENET5_COSIM_TB_PASS bundle=lenet5_fashion samples=10
+# 关键 SHA（golden ↔ rtl 必须相等）：
+#   golden_counts_concat = rtl_counts_dump =
+#     d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627
+# 注意：本结果 RTL 路径与 #3 (MNIST LeNet-5) 完全一致（仅 weight + input
+# fmap hex 不同），#3 已 byte-exact 板验通过。本 ablation 不重烧 ZCU102。
 ```
 
 每次跑都用 `--seed 42` 固定 RNG；多次跑可复现（已在 conv_extension_log §1
@@ -172,7 +198,8 @@ python run_streamed_rate_train.py --topology 784_64_10 --epochs 30 --seed 42
 
 ---
 
-**封存声明**：本文档反映 2026-05-03 的训练结果状态（最近一次更新增加 #4
-Fashion-MNIST 28×28 raw-input ablation 84.05%）。新增 ablation 时在 §1
+**封存声明**：本文档反映 2026-05-03 的训练结果状态（最近一次更新同时新增 #4
+Fashion-MNIST 28×28 raw-input ablation 84.05% + #5 LeNet-5 on Fashion-MNIST
+28×28 ablation 81.99% with cosim bit-exact PASS）。新增 ablation 时在 §1
 表格末尾追加，**不重写历史行**；论文/简历引用时锁到本文件 + 对应训练
 manifest（avoid drifting numbers）。
