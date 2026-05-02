@@ -6,20 +6,24 @@
 
 **参数口径**：本文涉及的默认参数与时序数值以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 
-## 当前分支特别说明（feature/v2-arm-fpga-demo）
+## 当前分支特别说明（feature/v2-arm-fpga-demo-conv）
 
-**本文件是 main 分支 doc/06 的克隆版**，在保留 Part A/B/C 全部内容的基础上，在末尾追加了 **Part D：V2 ARM PS-PL FPGA Demo 集成**，用于本分支特有的 ARM Cortex-A53（ZCU102 PS）+ V2.B 加速器（PL fabric）演示路径。
+**本文件是 main 分支 doc/06 的克隆版**，在保留 Part A/B/C 全部内容的基础上，在末尾追加了 **Part D：V2 ARM PS-PL FPGA Demo 集成 + LeNet-5 CONV 扩展**，用于本分支特有的 ARM Cortex-A53（ZCU102 PS）+ V2.B 加速器（PL fabric）演示路径。
 
 | 元数据 | 值 |
 |------|------|
-| 当前分支 | `feature/v2-arm-fpga-demo` |
-| 板级冻结 tag (v1) | `v2-arm-fpga-demo-passed @ 8e51ae27`（2026-04-22） |
-| 板级冻结 commit (v2 reburn) | `ea31be22`（WSTRB byte-mask 修复后重烧 PASS） |
-| Claude 复核基线 HEAD | `eed19406`（在 `03a39a61` v2 tag 之后仅 doc/注释收口） |
-| 是否需要 reburn | **否** — HEAD vs reburn commit 的差异均为纯文档/注释 |
-| 板级 PASS 标记 | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
+| 当前分支 | `feature/v2-arm-fpga-demo-conv` |
+| 板级冻结 tag (v1, Fashion-MNIST 14×14) | `v2-arm-fpga-demo-passed @ 8e51ae27`（2026-04-22） |
+| 板级冻结 commit (v2 reburn, Fashion-MNIST 14×14) | `ea31be22`（WSTRB byte-mask 修复后重烧 PASS） |
+| **板级冻结 commit (v2-conv, LeNet-5 28×28)** | **`48958da0`（2026-05-01，CONV 扩展 + 5 层串流 PASS）** |
+| Claude 复核基线 HEAD | `48958da0`（"Fix conv fmap preload address increment" + work-around 回滚） |
+| 板验固件实际对应的 commit | `3719c3e7`（manifest 锁定；work-around 路径，板上跑出 PASS marker 的版本） |
+| 当前审计修复是否需要 reburn | **否** — 本次仅做文档（doc/06 + arm-fpga-demo 系列）+ 中文化注释；不动 RTL/FW 行为，不影响 bitstream / ELF SHA |
+| HEAD（native conv1）路径是否需要 reburn | **是**（RTL + FW 已和 manifest commit 不同；上板留作后续工作，不在本评估周期 scope） |
+| 板级 PASS 标记（v2 Fashion） | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
+| **板级 PASS 标记（v2-conv LeNet-5）** | **`ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample 全 PASS，counts byte-exact，argmax 全对）** |
 
-**学习时请按照"先 Part A → Part B → Part C（如需了解 ASIC 主线）→ Part D（本分支特有）"的顺序**。Part D 假设你已经熟悉 V1 主线 + V1.1 加固层；如果你只想学 ARM PS-PL 集成，可以从 Part D 开始。
+**学习时请按照"先 Part A → Part B → Part C（如需了解 ASIC 主线）→ Part D（本分支特有）"的顺序**。Part D 假设你已经熟悉 V1 主线 + V1.1 加固层；如果你只想学 ARM PS-PL 集成，可以从 Part D 开始。Part D 末尾的阶段 23 / 24 是 v2-conv LeNet-5 扩展，建议先把阶段 19-22（v2 Fashion 基线）看懂再进。
 
 ---
 
@@ -1919,6 +1923,214 @@ xsct program_zcu102_arm_demo.tcl
 
 ---
 
+## 阶段 23：CONV 扩展 + LeNet-5 28×28 端到端（Day 52-55，v2-conv 子分支）
+
+**目标**：理解从 v2 (Fashion-MNIST 14×14 单 stage) 到 v2-conv (LeNet-5 28×28 五层串流) 的架构演进；能解释 RTL/寄存器/ARM 调度三层的 CONV 扩展。
+
+**前置条件**：阶段 19-22 全部检验清单通过；能复述 streamed-stage MAC 的 tile-mode 调度。
+
+### 23.1 为什么需要 LeNet-5
+
+v2 基线只验证了"展平后单层 FC"（Fashion 14×14 直接 patch_unroller 喂到 stage_engine）。要把项目推到论文 / 简历能写"端到端 CNN 推理"，必须证明 V2.B 能跑：
+- 真实 conv layer（5×5 kernel，stride/pad 可配）
+- 多层串流（前一层 spike output 作为下一层 fmap input）
+- flatten 切换（conv 输出 fmap 转换成 fc 期望的 row-major 向量）
+
+**LeNet-5 拓扑**（与 PyTorch 原 LeNet 一致）：
+
+```
+input 28×28×1
+  ↓ conv1 (5×5, stride=1, pad=2)
+hidden 28×28×6
+  ↓ conv2 (5×5, stride=2, pad=0)
+hidden 12×12×16
+  ↓ flatten (h*W+w)*C+c → 2304-dim
+fc1 → 120 维
+  ↓
+fc2 → 84 维
+  ↓
+fc3 → 10 维（argmax 即预测类别）
+```
+
+### 23.2 RTL 增量（M3.A → M3.C）
+
+| 模块 | 文件 | 作用 |
+|---|---|---|
+| `fmap_sram_v2` | `rtl/snn/fmap_sram_v2.sv` | 双 bank ping-pong feature map SRAM |
+| `patch_unroller_v2` | `rtl/snn/patch_unroller_v2.sv` | 对 conv 的 5×5 patch 按行扫描 + 多通道展平 |
+| `flatten_reader_v2` | `rtl/snn/flatten_reader_v2.sv` | 按 `(h*W+w)*C+c` row-major 把 conv 输出展平 |
+| `conv_ctrl_v2` | `rtl/snn/conv_ctrl_v2.sv` | conv 层 FSM：扫 (oh, ow) → 取 patch → 等 stage_engine 完成 → 写回 fmap |
+| `stage_engine_v2` 扩展 | `rtl/snn/stage_engine_v2.sv` | 增加 conv tile-mode + flatten tile-mode 入口 |
+
+提交序列：`13b87cc7` (M3.A 基础设施) → `cacb4285` (M3.B 集成) → `30ebada3` (M3.C bit-exact TB) → `5ff5264c` (M4 LeNet-5 golden) → `dea06766` (ARM bring-up)。
+
+### 23.3 寄存器扩展
+
+新增的 CONV 寄存器（基址 `V2B_SOC_BASE`）：
+
+| 偏移 | 名称 | 关键位段 |
+|------|------|---------|
+| 0x084 | CONV_MODE_CFG | [0]=EN, [1]=FLATTEN_MODE, [2]=FMAP_PP_SEL |
+| 0x088 | CONV_CFG_HW | [15:0]=H, [31:16]=W |
+| 0x08C | CONV_CFG_C | [15:0]=C_in, [31:16]=C_out |
+| 0x090 | CONV_CFG_K_S_P | [3:0]=k, [7:4]=stride, [15:8]=pad |
+| 0x094 | CONV_CFG_OUT_HW | [15:0]=out_H, [31:16]=out_W |
+| 0x098 | CONV_CFG_T | [15:0]=t_count |
+| 0x09C | CONV_CFG_TILE | [15:0]=tile_count, [31:16]=last_tile_valid_count |
+| 0x0A0 | CONV_CFG_FMAP_BASE | fmap 基地址（word 单位） |
+| 0x0A4 | CONV_CFG_OUT_BASE | 输出基地址（word 单位） |
+| 0x0A8 | CONV_CTRL | [0]=START W1P, [2]=WEIGHT_READY W1P |
+| 0x0AC | CONV_STATUS | [0]=BUSY RO, [1]=DONE W1C, [2]=WEIGHT_REQ RO, [7:4]=ERR RO, [31:8]=cur_h/w/tile |
+| 0x0B0 | CONV_FMAP_WR_DATA | fmap 预加载写数据 |
+| 0x0B4 | CONV_FMAP_WR_ADDR | fmap 写地址（word index） |
+| 0x0BC | CONV_FMAP_WR_CTRL | [0]=COMMIT W1P, [1]=AUTO_INC, [2]=TARGET_BANK |
+
+具体定义详见 `fw/include/v2b_soc_regs.h` 与 `doc/arm-fpga-demo/00_architecture.md` §12.3。
+
+### 23.4 ARM 端 CONV 调度握手（关键）
+
+`fw/src/v2b_conv_scheduler.c` 的 `v2b_run_conv_layer` 实现了 5 步握手：
+
+```c
+// 步骤 1：写完所有 CONV_CFG_* 寄存器
+V2B_SOC_STAGE_CFG1 = cfg->threshold;
+V2B_SOC_STAGE_CFG2 = cfg->sum_max;
+V2B_SOC_CONV_CFG_HW = (W << 16) | H;
+// ...
+
+// 步骤 2：清 DONE
+V2B_SOC_CONV_STATUS = V2B_SOC_CONV_STATUS_DONE;
+
+// 步骤 3：启动
+V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_START;
+
+// 步骤 4：tile-by-tile 握手（关键！）
+for (req = 0; req < requests_expected; req++) {
+    while (!(V2B_SOC_CONV_STATUS & WEIGHT_REQ));    // 等硬件请求
+    tile_idx = CONV_STATUS_CUR_TILE(status);
+    v2b_switch_sparse_tile(layer, tile_idx);        // 写 sparse 权重
+    V2B_SOC_CONV_CTRL = WEIGHT_READY;               // 通知硬件继续
+}
+
+// 步骤 5：等 DONE 并查 ERR
+while (!(V2B_SOC_CONV_STATUS & DONE));
+if (CONV_STATUS_ERR(status) != 0) return -err;
+```
+
+**为什么需要 WAIT_WEIGHT_REQ**：V2.B MAC 权重存储区只能装一个 tile（`NUM_INPUTS × NUM_OUTPUTS`）。多 tile 层（如 fc1，input_dim=2304，9 个 tile）必须每 tile 切换前装权重。硬件用 `WEIGHT_REQ` 拉高表示"我要切到 tile_idx，请把权重写好后再 WEIGHT_READY"。
+
+每层的 `requests_expected`：
+- conv1: 28×28 = 784（每个像素位置触发 1 次，单 tile）
+- conv2: 12×12 = 144
+- fc1: 9（9 个 tile 各 1 次）
+- fc2 / fc3: 走单 stage，不走 conv 调度（用 `v2b_run_fc_stage`）
+
+### 23.5 Python 黄金参考链路
+
+```
+gen_convnet_golden.py → checkpoints/lenet5.pth + lenet5_snn.pth
+   │ MNIST + seed=20260430
+   │ quant_snn_test_accuracy = 0.9303（10000 张 test set）
+   ▼
+results_conv/lenet5/lenet5_golden_manifest.json
+   │ + sample_NN_*.hex / counts.txt（10 个 class-first 样本）
+   ▼
+fw/arm/scripts/gen_lenet5_header.py
+   │ sparse 化（lane, out_c, packed pos+neg 4-bit），节省 OCM
+   ▼
+fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
+```
+
+bit-exact 合约：板上 ARM 跑完后 `counts_buf[0..9]` 与 `golden_lenet5[i].expected_counts` 字节级匹配；argmax 必须等于 expected_class。
+
+### 23.6 关键回归 / 板验证据
+
+| 命令 | 标记 |
+|------|------|
+| `python python_multilayer/gen_convnet_golden.py --network lenet5` | 训练 + 生成 manifest，selected_accuracy = 1.0（10/10） |
+| `bash fw/arm/build_arm_firmware.sh` | `PHASE_B_GATE_PASS`（含 LeNet-5 golden） |
+| `bash scripts/build_zcu102_arm_demo.sh` | `ZCU102_ARM_DEMO_BITGEN_PASS`（WNS > 0 @ 50 MHz） |
+| `xsct scripts/program_zcu102_c0.tcl` | `[program_zcu102_c0] CORE_0_RUNNING` |
+| 板上 UART log | `ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample）|
+
+板验日志：[doc/arm-fpga-demo/board_bringup_log_lenet5.txt](arm-fpga-demo/board_bringup_log_lenet5.txt)
+
+### 23.7 调试历史与坑（2026-05-01）
+
+| Commit | 阶段 | 说明 |
+|--------|------|------|
+| `5beca16b` | work-around | 临时把 Python 端 conv1 reference 直接塞进 ARM header（`fw/arm/include/conv1_ref_all_samples.h`），绕开 conv1 RTL 路径，先确保下游 conv2 / FC 调度上板可验 |
+| `3719c3e7` | checkpoint | 保留 work-around 状态；**当前 build_manifest_v2.txt 锁定的板验固件基于这个 commit 构建** |
+| `48958da0` | RTL 真修复 + work-around 回滚 | "Fix conv fmap preload address increment"：纠正 `snn_soc_v2b_top.sv` 中 `reg_conv_fmap_wr_addr` 的 auto-increment 时序（commit pulse 与 addr+1 同拍发出会让 RTL 看到旧地址，加 1 拍 pending 寄存器解决）；同时删除 5beca16b 的 work-around 头文件，启用 native conv1 路径 |
+
+**关键区分（重要）**：
+- 已板验 PASS = work-around 路径（manifest commit `3719c3e7`）：conv1 输出来自 Python 预算结果，conv2/FC 走 RTL；10/10 sample PASS 已锁定为不可变证据
+- 当前 HEAD = native conv1 路径（commit `48958da0`）：5 层完全走 RTL，但 HEAD vs manifest commit 之间有 RTL + FW 实质差异，bit/elf SHA 会变；HEAD 路径上板验证留作后续工作（不在本评估周期 scope）
+
+详见 doc/arm-fpga-demo/00_architecture.md §12.7 / §12.7.1。
+
+### 23.8 Limitation（CIFAR 收兵）
+
+| 项 | 状态 | 原因 |
+|---|------|------|
+| CIFAR-10（tiny_vgg / plain_cnn4） | 仅 Python + 仿真 cosim，未上板 | 权重远大于 LeNet-5（fc.in_dim=4096），稀疏化后 ARM OCM 仍紧张；本评估周期收兵 |
+| ASIC 路径加 CONV | 不在 v2-conv scope | ASIC tape-out 仍走 V1 单层 patch_unroller，CONV 是 FPGA evidence-only 工作 |
+
+### 检验标准
+
+- [ ] 能说出 v2 (Fashion 14×14) 与 v2-conv (LeNet-5 28×28) 在拓扑/RTL/寄存器/调度四个维度的差异
+- [ ] 能解释为什么需要 WAIT_WEIGHT_REQ 握手以及在多 tile 层（如 fc1）中如何工作
+- [ ] 能复述 v2b_run_conv_layer 的 5 步序列
+- [ ] 能解释 sparse 权重格式（lane/out_c/packed pos+neg 4-bit）的 OCM 节省动机
+- [ ] 能说出 commit `48958da0` 修复了什么 bug 以及为什么它能让 native conv1 路径上板 PASS
+
+---
+
+## 阶段 24：复现与扩展（Day 56，参考）
+
+### 24.1 完整复现命令链
+
+```bash
+# 1) 训练 + 生成黄金参考
+cd python_multilayer
+python gen_convnet_golden.py --network lenet5
+# 输出：checkpoints/lenet5*.pth + results_conv/lenet5/
+
+# 2) 编译 ARM 固件
+cd ../fw/arm
+bash build_arm_firmware.sh
+# 输出：out/v2b_arm_demo.elf
+
+# 3) Vivado 综合 + bitgen（需 Vivado 2022.2）
+cd ../..
+bash scripts/build_zcu102_arm_demo.sh
+# 输出：fpga_synth/.../impl_1/v2b_arm_demo_bd_wrapper.bit + .xsa
+
+# 4) 板上烧写（需 ZCU102 + JTAG）
+xsct scripts/program_zcu102_c0.tcl
+
+# 5) 抓 UART（CP2108 Interface 0 = COM4，115200 8N1）
+# 期望看到 ARM_FPGA_DEMO_LENET5_PASS
+```
+
+### 24.2 添加新拓扑的扩展点
+
+如果想加 CIFAR / 其他数据集：
+
+1. `python_multilayer/gen_convnet_golden.py` 的 `NETWORKS` dict 已经支持 `tiny_vgg` / `plain_cnn4`，跑 `--network tiny_vgg` 就能生成 manifest
+2. 新增数据集需要写对应的 `LayerSpec` + checkpoint train 函数（参考 `train_single_head_checkpoint`）
+3. ARM 端：`gen_lenet5_header.py` 可改造成 `gen_<network>_header.py`，输出对应的 sparse 权重 + samples
+4. `arm_main.c` 改 include 与 demo 入口；`v2b_run_lenet5_demo` 可作为模板
+
+### 24.3 ASIC 路径加 CONV 的提议（未来工作）
+
+- chip_top 加 fmap_sram_v2 / patch_unroller_v2 / conv_ctrl_v2（约 +20K gates）
+- 寄存器组扩 0x84-0xBC 的 CONV_* 段
+- E203 端固件接入：复用 `fw/src/v2b_conv_scheduler.c`（V2B_SOC_BASE 改成 ASIC 内 reg_bank 路径即可）
+- 风险：ASIC tape-out scope 内时间紧，CONV 扩展可能延后到 V1.2 或 V2 ASIC
+
+---
+
 ## Part D 时间规划
 
 | 天数 | 内容 | 时长 |
@@ -1926,12 +2138,14 @@ xsct program_zcu102_arm_demo.tcl
 | Day 41-43 | 阶段 19：ZCU102 ARM PS-PL 集成基础 | 6-8h |
 | Day 44-45 | 阶段 20：AXI4-Lite slave + WSTRB | 5-6h |
 | Day 46-49 | 阶段 21：V2.B streamed-stage MAC | 10-12h |
-| Day 50-51 | 阶段 22：ARM 裸机固件 + 板上烧写 | 5-6h |
+| Day 50-51 | 阶段 22：ARM 裸机固件 + 板上烧写（Fashion-MNIST 14×14） | 5-6h |
+| **Day 52-55** | **阶段 23：CONV 扩展 + LeNet-5 28×28 端到端** | **8-10h** |
+| Day 56 | 阶段 24：复现与扩展（参考） | 2-3h |
 
-**Part D 总计约 1.5 周**，每天投入 3-4 小时。
+**Part D 总计约 2 周**（含 v2-conv LeNet-5 扩展），每天投入 3-4 小时。
 
 ---
 
-*Part D 最后更新：2026-04-29（基于 v2-arm-fpga-demo Claude 复核基线 HEAD = eed19406；本次 GPT 仅补 doc/TB gate，不影响 FPGA bitstream）*
+*Part D 最后更新：2026-05-02（v2-arm-fpga-demo-conv 板验 LeNet-5 PASS 后追加阶段 23/24；本次 doc/中文化修订不影响 FPGA bitstream）*
 
-**学习建议**：本分支是"evidence branch"，优先看 `doc/arm-fpga-demo/00_architecture.md` 与板级证据日志，再回到 RTL 看实现。建议在阅读 cim_mac_behavioral_v2 / stage_engine_v2 之前先把 V1 的 cim_macro_blackbox / cim_array_ctrl 看懂，这样能看出 V2.B 重构的关键演进点。
+**学习建议**：本分支是"evidence branch"，优先看 `doc/arm-fpga-demo/00_architecture.md` 与板级证据日志（含 LeNet-5 板验日志），再回到 RTL 看实现。建议在阅读 cim_mac_behavioral_v2 / stage_engine_v2 / conv_ctrl_v2 之前先把 V1 的 cim_macro_blackbox / cim_array_ctrl 看懂，这样能看出 V2.B 重构的关键演进点。CONV 扩展（阶段 23）是 V2.B 第一次端到端跑真实 CNN 拓扑，是阅读项目的"high-water mark"。

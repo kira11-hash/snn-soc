@@ -1,11 +1,12 @@
-# feature/v2-arm-fpga-demo — Architecture
+# feature/v2-arm-fpga-demo / -conv — Architecture
 
 **Status**:
-- **Phase A（仿真 + RTL wrapper）—✅ ALL GATES PASS**（commit `8301c226`）
-- **Phase B（ARM firmware cross-build）—✅ GATE B PASS**（`v2b_arm_demo.elf` linked, zero undefined refs, symbols verified）
-- **Phase C0 本地静态 sanity — ✅ OOC synth PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 via HPM0_FPD 已锁**（full bitgen + 板上 smoke 在 Qingan sign-off + 有板子时跑）
-- **Phase C0/C1 board validation（frozen v1）—✅ PASS**（tag `v2-arm-fpga-demo-passed` @ `8e51ae27`，2026-04-22 sign-off）
-- **Fix wave F1（WSTRB partial-write repair）—✅ RTL/TB PASS + re-bitgen PASS + re-burn PASS**（tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
+- **Phase A（仿真 + RTL wrapper）—✅ 全部 Gate PASS**（commit `8301c226`）
+- **Phase B（ARM 固件交叉编译）—✅ GATE B PASS**（`v2b_arm_demo.elf` 链接成功，无 undefined refs，所有关键符号已验证）
+- **Phase C0 本地静态 sanity — ✅ OOC 综合 PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 经 HPM0_FPD 已锁**（完整 bitgen + 板上 smoke 在用户 sign-off + 有板子时执行）
+- **Phase C0/C1 板级验证（frozen v1，Fashion-MNIST 14×14）—✅ PASS**（tag `v2-arm-fpga-demo-passed` @ `8e51ae27`，2026-04-22 sign-off）
+- **Fix wave F1（WSTRB partial-write 修复）—✅ RTL/TB PASS + 重 bitgen PASS + 重烧 PASS**（tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
+- **CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv）—✅ PASS**（HEAD `48958da0`，2026-05-01 sign-off，`ARM_FPGA_DEMO_LENET5_PASS`，详见 §12）
 
 **Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。frozen v1 与 v2 fix wave 通过双 tag 并存：
 
@@ -323,3 +324,180 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 | direct-top | `sim/run_v2b_partial_write_invariant.sh` | 直驱 `snn_soc_v2b_top.cmd_*`，守住 START W1P / DONE W1C / clear pulses 的 byte0 invariant |
 
 后续任何触碰 `rtl/top/snn_soc_v2b_top.sv`、`rtl/top/v2b_axi_wrapper.sv` 或 `rtl/bus/simple2v2btop_adapter.sv` 的改动，都应同时跑这两条 gate。
+
+---
+
+## 12. CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv 子分支）
+
+**HEAD commit**：`48958da0`（2026-05-01）
+**板验 PASS 标记**：`ARM_FPGA_DEMO_LENET5_PASS`
+**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（已更新到 LeNet-5 重烧 SHA）
+**详细 UART 日志**：`doc/arm-fpga-demo/board_bringup_log_lenet5.txt`
+
+### 12.1 为什么从 Fashion-MNIST 14×14 升级到 LeNet-5
+
+| 维度 | v2 (Fashion 14×14) | v2-conv (LeNet-5 28×28) |
+|------|------------------|------------------------|
+| 拓扑 | 单 stage（patch_unroller 直进 stage_engine） | 5 层串流：conv1 → conv2 → fc1(flatten) → fc2 → fc3 |
+| 输入 | 14×14×1，每像素 8 bit | 28×28×1，每像素 8 bit |
+| 卷积核 | 无（直接展开成向量做 FC） | 5×5，stride=1/2，pad=2/0 |
+| RTL 增量 | 无 | fmap_sram_v2 / patch_unroller_v2 / flatten_reader_v2 / conv_ctrl_v2 / stage_engine 扩展 |
+| ARM 调度 | 一次 stage 配置 + start | 按层 tile-by-tile 握手：WAIT_WEIGHT_REQ → 写 weight → WEIGHT_READY |
+| 验证范围 | spike count byte-exact | spike count byte-exact + argmax accuracy 10/10 |
+
+LeNet-5 的目的是**把 V2.B 第一次推到真实 CNN 拓扑**，证明 streamed-stage MAC 能把多层 conv + flatten + fc 串联起来，让 ARM 端可以纯靠 MMIO + tile-mode 调度跑完整张图的端到端推理。
+
+### 12.2 RTL 新增模块（M3.A → M3.C）
+
+来自 commit 序列：`13b87cc7` (M3.A) → `cacb4285` (M3.B) → `30ebada3` (M3.C) → `5ff5264c` (M4 LeNet-5 golden) → `dea06766` (ARM bring-up)。
+
+| 模块 | 文件 | 作用 |
+|---|---|---|
+| `fmap_sram_v2` | `rtl/snn/fmap_sram_v2.sv` | 双 bank ping-pong feature map SRAM，cur/next 帧分开存 |
+| `patch_unroller_v2` | `rtl/snn/patch_unroller_v2.sv` | 把 conv 的 5×5 patch 按行扫描后展平成 stage_engine 期望的向量；支持 stride / pad / 多通道 |
+| `flatten_reader_v2` | `rtl/snn/flatten_reader_v2.sv` | flatten 模式下按 row-major (h*W+w)*C+c 顺序把 fmap 平铺出来给 stage_engine |
+| `conv_ctrl_v2` | `rtl/snn/conv_ctrl_v2.sv` | conv 层 FSM：扫 (oh, ow) → 触发 patch 取 → 等 stage_engine 完成 → 写回 fmap |
+| `stage_engine_v2` 扩展 | `rtl/snn/stage_engine_v2.sv` | 增加 conv tile-mode + flatten tile-mode 入口 |
+
+### 12.3 寄存器扩展
+
+新增寄存器（详见 `fw/include/v2b_soc_regs.h`）：
+
+| 偏移 | 名称 | 关键位段 |
+|------|------|---------|
+| 0x084 | CONV_MODE_CFG | [0]=EN, [1]=FLATTEN_MODE, [2]=FMAP_PP_SEL, [3]=WEIGHT_TIMEOUT_EN |
+| 0x088 | CONV_CFG_HW | [15:0]=H, [31:16]=W |
+| 0x08C | CONV_CFG_C | [15:0]=C_in, [31:16]=C_out |
+| 0x090 | CONV_CFG_K_S_P | [3:0]=k, [7:4]=stride, [15:8]=pad |
+| 0x094 | CONV_CFG_OUT_HW | [15:0]=out_H, [31:16]=out_W |
+| 0x098 | CONV_CFG_T | [15:0]=t_count |
+| 0x09C | CONV_CFG_TILE | [15:0]=tile_count, [31:16]=last_tile_valid_count |
+| 0x0A0 | CONV_CFG_FMAP_BASE | fmap 基地址（word 单位） |
+| 0x0A4 | CONV_CFG_OUT_BASE | 输出基地址（word 单位） |
+| 0x0A8 | CONV_CTRL | [0]=START W1P, [1]=ABORT W1P, [2]=WEIGHT_READY W1P |
+| 0x0AC | CONV_STATUS | [0]=BUSY RO, [1]=DONE W1C, [2]=WEIGHT_REQ RO, [7:4]=ERR RO, [31:8]=cur_h/w/tile RO |
+| 0x0B0 | CONV_FMAP_WR_DATA | fmap 预加载写数据 |
+| 0x0B4 | CONV_FMAP_WR_ADDR | fmap 写地址（word index） |
+| 0x0BC | CONV_FMAP_WR_CTRL | [0]=COMMIT W1P, [1]=AUTO_INC, [2]=TARGET_BANK |
+
+### 12.4 CONV 调度握手协议（ARM 侧）
+
+`fw/src/v2b_conv_scheduler.c` 的 `v2b_run_conv_layer` 实现了如下序列：
+
+```
+1. 配置寄存器：
+   STAGE_CFG1 = threshold
+   STAGE_CFG2 = sum_max
+   CONV_CFG_HW / C / K_S_P / OUT_HW / T / TILE / FMAP_BASE / OUT_BASE
+   CONV_MODE_CFG = EN | (FLATTEN_MODE if applicable) | (PP_SEL if applicable)
+
+2. 清 DONE：CONV_STATUS = DONE_MASK
+
+3. 启动：CONV_CTRL = START
+
+4. tile-by-tile 握手循环（重复 requests_expected 次）：
+   while (!(CONV_STATUS & WEIGHT_REQ));         // 等硬件请求权重
+   tile_idx = CONV_STATUS_CUR_TILE(status);     // 读当前 tile id
+   v2b_switch_sparse_tile(layer, tile_idx);     // 把 sparse weight 写进 MAC
+   CONV_CTRL = WEIGHT_READY;                    // 通知硬件继续
+
+5. 等 DONE：while (!(CONV_STATUS & DONE));
+6. 检查 ERR 字段，非 0 则报错
+```
+
+**为什么需要 WAIT_WEIGHT_REQ 握手**：V2.B 的 MAC 权重存储区只够装一个 tile（NUM_INPUTS×NUM_OUTPUTS）；多 tile 层（如 fc1 输入维度 12×12×16=2304，需要 9 个 tile）必须在每个 tile 切换前重新装权重。硬件用 WEIGHT_REQ 拉高表示"我下一拍要切到 tile_idx，软件请把对应权重写好后再 WEIGHT_READY"。LeNet-5 的层级 requests_expected：
+
+| 层 | requests_expected | 含义 |
+|---|------------------|------|
+| conv1 | 28×28 = 784 | 每个 (oh, ow) 像素位置都触发 1 次（单 tile，所以同一个 weight） |
+| conv2 | 12×12 = 144 | stride=2 后输出 12×12 像素位置 |
+| fc1 | 9 | 9 个 tile 各请求 1 次（input dim 2304 / 256 NUM_INPUTS = 9） |
+| fc2 | 0 + 1 stage | 单 tile，走 `v2b_run_fc_stage`（不走 conv 调度） |
+| fc3 | 0 + 1 stage | 同上 |
+
+### 12.5 LeNet-5 黄金参考链路
+
+```
+gen_convnet_golden.py (Python)
+   │ MNIST (60000 train / 10000 test) + seed=20260430
+   ▼
+ConvNet (PyTorch float)        ← train_proxy_checkpoint，~24 epochs
+   │ quantize_signed (4-bit signed [-7, +7])
+   ▼
+QuantSNNNet / LenetSNNHead      ← train_lenet5_head_checkpoint，~8 epochs
+   │ checkpoint = lenet5_snn.pth (quant_snn_test_accuracy=0.9303)
+   ▼
+run_integer_network             ← bit-exact 整数 SNN 引擎（与 RTL 完全对齐）
+   │ 10 个 class-first 样本 → spike counts + intermediate hex
+   ▼
+results_conv/lenet5/lenet5_golden_manifest.json
+   │ + sample_NN_*.hex / *.txt (input fmap / conv1 / conv2 / fc1/2/3 stream + counts)
+   ▼
+gen_lenet5_header.py            ← 生成 ARM 固件可直接编译进 OCM 的 sparse 权重 + golden samples
+   ▼
+fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
+```
+
+**bit-exact 合约**：
+
+- Python 整数引擎 (`run_integer_network`) 和 RTL 在每一 (sample, layer, t, channel) 上输出相同的 spike bit
+- 板上 ARM 跑完后 `counts_buf[0..9]` 与 `golden_lenet5[i].expected_counts` 字节级匹配
+- argmax(counts_buf) 与 `golden_lenet5[i].expected_class` 完全一致 → 选定的 10/10 样本全部预测正确
+
+### 12.6 量化与权重稀疏化
+
+- **权重精度**：4-bit signed，范围 `[-7, +7]`（用 `quantize_signed` 把每层最大绝对值映射到 `max_level=7`）
+- **存储格式**：每层每 tile 拆成 `pos_hex` + `neg_hex` 两个 256×NUM_OUTPUTS 矩阵；CIM 阵列硬件按"正负通道"分别累加再做差分
+- **稀疏化**（仅 ARM 端 OCM 优化）：`gen_lenet5_header.py` 的 `collect_sparse_entries` 把 (lane, out_c, packed) 三元组打包；packed[3:0]=pos[3:0]，packed[7:4]=neg[3:0]；只保留 pos!=0 或 neg!=0 的 entry，跳过零权重，节省 OCM
+- 例如 fc1 9 个 tile 全 dense 是 9×256×120×2=552960 bytes，稀疏后通常只剩 ~10-30%（视真实训练后的稀疏度），刚好能塞进 OCM 256 KB
+
+### 12.7 v2 → v2-conv 之间的关键 fix
+
+| Commit | 描述 | 影响 |
+|--------|------|------|
+| `5beca16b` | "Work around conv1 path for ARM board pass" | 临时把 Python 端 conv1 reference 直接塞进 ARM header（`conv1_ref_all_samples.h`），绕开 conv1 RTL，先确保下游 conv2 / FC 调度路径上板可验证（**已被 48958da0 回滚，不再是当前路径**） |
+| `3719c3e7` | "Checkpoint before native conv1 root-cause fix" | 工作中点 checkpoint，保留 work-around 状态；**仅作为 root-cause fix 之前的历史 checkpoint，不再是板验所引用的版本** |
+| `48958da0` | "Fix conv fmap preload address increment" | 定位并修复 RTL root cause：`snn_soc_v2b_top.sv` 中 `CONV_FMAP_WR_CTRL.WR_COMMIT` 与 `reg_conv_fmap_wr_addr` 自增同拍发出，导致带 `auto_inc` 的固件 preload 实际写入地址整体错后一格；fix = 把地址递增延后到下一拍 + 在 firmware sparse preload 之前先清目标 bank（避免零词跳写留下旧数据）。同步删除 5beca16b 的 work-around 头文件，回到 native conv1 路径。**已用此版重新 bitgen + ELF link，板上 10/10 native PASS。** |
+
+### 12.7.1 板验路径已统一为 native conv1（commit 48958da0）
+
+| 维度 | 当前板验状态（HEAD = `48958da0`，clean rebuild） |
+|------|---------------------------------------------|
+| conv1 数据来源 | 完全走 RTL（conv_ctrl_v2 + fmap_sram_v2 + patch_unroller_v2） |
+| conv2 / FC1-3 | 完全走 RTL（与 conv1 同一调度链） |
+| RTL 状态 | fmap auto-inc bug 已修，native 路径完整正确 |
+| 板验状态 | ✅ 板上 PASS（10/10 sample 全 native，UART 实抓 ARM_FPGA_DEMO_LENET5_PASS） |
+| reference bypass | ❌ 已删除，**没有 reference conv1 bypass，没有 work-around** |
+
+**历史回顾（保留作复盘）**：
+- 5beca16b → 3719c3e7 期间存在 work-around 路径（Python 预算 conv1，跳过 conv1 RTL），用于隔离 conv1 RTL bug 与下游 conv2/FC bug，保证下游调度链先有上板证据
+- 48958da0 修复 RTL root cause 之后，work-around 头文件 + scheduler 分支被全部回滚；当前分支只剩 native 一条路径
+- 论文 / 简历叙事直接引用 native PASS 即可，无需提及 work-around；work-around 仅作为调试日志条目保留
+
+### 12.8 板级证据链
+
+| 项 | 状态 |
+|---|------|
+| Vivado 重综合 + bitgen（commit 48958da0） | ✅ ZCU102_ARM_DEMO_BITGEN_PASS（WNS > 0 @ 50 MHz） |
+| ARM ELF 链接 + 大小检查（commit 48958da0） | ✅ PHASE_B_GATE_PASS（含 LeNet-5 golden，无 conv1 reference bypass） |
+| xsct JTAG 烧写（commit 48958da0） | ✅ [program_zcu102_c0] CORE_0_RUNNING |
+| UART 抓 LeNet-5 PASS marker（commit 48958da0） | ✅ ARM_FPGA_DEMO_LENET5_PASS（10/10 sample 全 native PASS） |
+| Manifest 文件本体 | ⚠ `build_manifest_v2.txt` 自身仍记录 commit = 3719c3e7 + 三个 3719c3e7-build SHA（48958da0 工作树里继承下来的 build 记录，未为 HEAD 单独重编 manifest） |
+| native conv1 路径板验事实 | ✅ HEAD (48958da0) 用于 clean bitgen + ELF link，UART 抓到 10/10 ARM_FPGA_DEMO_LENET5_PASS（与 manifest SHA 字段无关，证据来源是日志 + UART marker） |
+| 板验日志 | ✅ `board_bringup_log_lenet5.txt`（native PASS narrative + manifest 口径差说明 + 调试历史复盘） |
+
+### 12.9 仍未做 / 计划但未上板
+
+| 项 | 状态 | 说明 |
+|---|------|------|
+| CIFAR-10 拓扑（tiny_vgg / plain_cnn4） | 仅 Python + 仿真 cosim | 权重过大，OCM 紧张；本评估周期不上板 |
+| 多 sample batch 调度（不重置 fmap SRAM） | 当前每 sample 完整重载 input fmap | 后续可优化，目前 10 sample / batch 总耗时 < 几秒 |
+| Cache / MMU 启用 | 未启用，纯 OCM uncached 路径 | Vitis BSP 路线下未来可切，预计 50-100× 吞吐提升 |
+| ASIC 路径（chip_top）的 CONV 支持 | 不在 v2-conv scope | 本分支专注 FPGA evidence；ASIC tape-out 仍走 V1 单层路径 |
+
+### 12.10 引用规则
+
+- **论文 / 简历**：引用 `feature/v2-arm-fpga-demo-conv @ 48958da0` + `board_bringup_log_lenet5.txt`
+- **历史对照**：v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍是合法基线
+- **复现命令**：详见 `board_bringup_log_lenet5.txt` 末节
+

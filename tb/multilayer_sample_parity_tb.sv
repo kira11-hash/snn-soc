@@ -56,7 +56,8 @@ module multilayer_sample_parity_tb;
 
   logic [15:0] cfg_in_dim, cfg_out_dim;
   logic [31:0] cfg_threshold, cfg_sum_max;
-  logic [1:0]  cfg_input_src, cfg_output_dst;
+  logic [V2B_BUF_SEL_W-1:0] cfg_input_src;
+  logic [1:0]               cfg_output_dst;
   logic        cfg_tile_mode = 0, cfg_is_tile_final = 1, cfg_preserve_membrane = 0;
   logic [15:0] cfg_t_count = T[15:0];
 

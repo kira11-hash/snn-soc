@@ -1,34 +1,30 @@
 #!/usr/bin/env bash
 #
-# fw/arm/build_arm_firmware.sh — Phase B standalone ARM build.
+# fw/arm/build_arm_firmware.sh — Phase B 独立 ARM 构建脚本。
 #
-# Produces `fw/arm/out/v2b_arm_demo.elf` using the Xilinx aarch64-none-elf
-# toolchain (bundled with Vitis 2022.2). No Vitis workspace, no BSP — just
-# direct compile + link against a minimal standalone stub (crt0 + link.ld).
+# 输出 `fw/arm/out/v2b_arm_demo.elf`，使用 Xilinx aarch64-none-elf 工具链
+# （Vitis 2022.2 自带）。不依赖 Vitis workspace、不依赖 BSP，直接对最小化
+# standalone stub（crt0 + link.ld）做 compile + link。
 #
-# Phase B Gate (as defined in plan REV 2):
-#   - ELF links cleanly (zero undefined references)
-#   - size report: text < 32 KB firmware code, rodata < 400 KB, bss < 16 KB
-#   - nm contains arm_main, v2b_infer_resident_14x14, v2b_run_stage,
-#     uart_init, golden_fashion10
+# Phase B Gate（plan REV 2 定义）：
+#   - ELF 链接干净（0 个 undefined refs）
+#   - size 报告满足预算（v2-conv 已扩到 LeNet-5 后 .text + .rodata ≈ 150 KB）
+#   - nm 包含 arm_main / v2b_run_lenet5_demo / uart_init / golden_lenet5 / _start
 #
-# Windows-path-with-space caveat: the Xilinx aarch64 gcc is a native
-# Windows .exe and can't parse MSYS-style paths that contain spaces
-# (standard MinGW limitation). We convert the workspace prefix to its
-# DOS 8.3 short form (e.g., `D:\SOCDES~1\audit-v2`) before handing
-# filenames to gcc. This requires the workspace directory to have a
-# short-name assigned (Windows default).
+# Windows 路径含空格的处理（关键）：Xilinx aarch64 gcc 是原生 Windows .exe，
+# 无法直接处理 MSYS 风格的含空格路径（MinGW 通用限制）。脚本把 workspace
+# 前缀转成 DOS 8.3 短名（如 `D:\SOCDES~1\audit-v2`）再传给 gcc。这要求
+# Windows 目录已分配短名（默认行为）。
 #
-# Override flags:
-#   V2B_SOC_BASE=0xB0000000u  — if Vivado Address Editor (Phase C0) picks
-#                               a different base, pass it here without
-#                               touching the C source.
-#   TOOLCHAIN_BIN=/path       — override cross-gcc dir. Default:
-#                               /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
+# 可覆盖的环境变量：
+#   V2B_SOC_BASE=0xB0000000u   — Vivado Address Editor（Phase C0）若改了 base，
+#                                直接在编译时传入即可，无需改 C 源码。
+#   TOOLCHAIN_BIN=/path         — 覆盖交叉 gcc 路径。默认：
+#                                 /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
 #
-# Phase C0 currently reuses this minimal ELF for direct xsct/JTAG bring-up.
-# A future Vitis-proper workspace can replace the startup/UART pieces with
-# BSP-generated PS init, MMU tables, xil_printf, and Xuartps support.
+# Phase C0 当前直接复用本脚本输出的 ELF 走 xsct/JTAG bring-up。
+# 后续可改造成 Vitis BSP workspace（含 PS init、MMU tables、xil_printf、Xuartps），
+# 但本评估周期保持 standalone 路径，控制变量。
 
 set -euo pipefail
 
@@ -37,30 +33,27 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/out"
 mkdir -p "$OUT"
 
-# Translate workspace to DOS 8.3 form so gcc.exe can handle paths with spaces.
+# 把 workspace 路径翻译成 DOS 8.3 短名，让 gcc.exe 能处理带空格的路径。
 if command -v cygpath >/dev/null 2>&1; then
-  # cygpath -d requires the target to exist; we construct path by taking
-  # the short form of the workspace ROOT (which has the space) and
-  # appending the rest as plain Windows-style suffix.
-  ROOT_WIN_SHORT=$(cygpath -dw "$ROOT")   # e.g., D:\SOCDES~1\audit-v2
-  HERE_WIN_SHORT=$(cygpath -dw "$HERE")   # e.g., D:\SOCDES~1\audit-v2\fw\arm
-  OUT_WIN_SHORT=$(cygpath -dw "$OUT")     # e.g., D:\SOCDES~1\audit-v2\fw\arm\out
+  # cygpath -d 要求目标已存在；先把 workspace ROOT（含空格）转成短名，
+  # 再把剩下的相对部分按 Windows 风格拼上。
+  ROOT_WIN_SHORT=$(cygpath -dw "$ROOT")   # 例：D:\SOCDES~1\audit-v2
+  HERE_WIN_SHORT=$(cygpath -dw "$HERE")   # 例：D:\SOCDES~1\audit-v2\fw\arm
+  OUT_WIN_SHORT=$(cygpath -dw "$OUT")     # 例：D:\SOCDES~1\audit-v2\fw\arm\out
 else
-  # Fall back to the Unix-form paths (will break if path contains spaces).
+  # 没 cygpath 时退回 Unix 风格路径（路径含空格会失败）。
   ROOT_WIN_SHORT="$ROOT"
   HERE_WIN_SHORT="$HERE"
   OUT_WIN_SHORT="$OUT"
 fi
 
-# Helper: given a Unix-form source path rooted under $HERE, emit its
-# 8.3-Windows form. We do this per-file by letting cygpath -dw resolve
-# a path that already exists (source files do).
+# 工具函数：把 $HERE 下的 Unix 风格路径转成 8.3 Windows 短名。
+# 因为 cygpath -dw 要求文件已存在，这一支只用于已有的 source 文件。
 to_win_short() {
   cygpath -dw "$1"
 }
 
-# For output files (don't exist yet at script start), touch them so
-# cygpath can resolve the 8.3 short form.
+# 输出文件在脚本开始时还不存在；先 touch 一下让 cygpath 能解析短名。
 to_win_short_out() {
   local path="$1"
   [ -e "$path" ] || : > "$path"
@@ -73,18 +66,18 @@ SIZE_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-size"
 NM_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-nm"
 
 if [ ! -e "${CC_BIN}.exe" ] && [ ! -e "${CC_BIN}" ]; then
-  echo "[FATAL] aarch64-none-elf-gcc not found at: $CC_BIN" >&2
-  echo "         Set TOOLCHAIN_BIN to your Vitis aarch64 bin dir." >&2
+  echo "[FATAL] 找不到 aarch64-none-elf-gcc：$CC_BIN" >&2
+  echo "         请把 TOOLCHAIN_BIN 设到 Vitis aarch64 bin 目录。" >&2
   exit 1
 fi
 
 V2B_SOC_BASE_OVERRIDE="${V2B_SOC_BASE:-0xA0000000u}"
 
-# Include dirs need the DOS 8.3 form too (workspace root has a space).
+# Include 路径同样需要转 8.3 短名（仓库根目录含空格）
 INC_ARM=$(cygpath -dw "$HERE/include")
 INC_FW=$(cygpath -dw "$ROOT/fw/include")
 INC_TOOL="$(dirname "$TOOLCHAIN_BIN")/lib/gcc/aarch64-none-elf/11.2.0/include"
-# Xilinx install path has no short name, but also no space → plain -w is fine.
+# Xilinx 安装路径没有短名但也不含空格 → 走普通 -w 就够
 INC_TOOL_WIN=$(cygpath -w "$INC_TOOL")
 
 CFLAGS=(
@@ -119,7 +112,7 @@ LDFLAGS=(
   "-T$LINK_LD"
 )
 
-# Compile phase
+# 编译阶段
 OBJECTS=()
 compile() {
   local src_unix="$1"
@@ -131,55 +124,55 @@ compile() {
   if [[ "$src_unix" == *.S ]]; then
     "$CC_BIN" "${ASFLAGS[@]}" -c "$src_win" -o "$obj_win"
   else
-    # Force C language: on MSYS, 8.3 short-name path uppercases the extension
-    # (e.g. `v2b_scheduler_arm.c` → `V2B_SC~1.C`) which gcc treats as C++.
+    # 强制 C 语言：在 MSYS 下 8.3 短名会把扩展名改成大写
+    # （例如 v2b_scheduler_arm.c → V2B_SC~1.C），gcc 默认把 .C 当 C++ 编。
     "$CC_BIN" "${CFLAGS[@]}" -x c -c "$src_win" -o "$obj_win"
   fi
   OBJECTS+=("$obj_win")
 }
 
-echo "[build_arm_firmware] regenerate LeNet5 golden header"
+echo "[build_arm_firmware] 重新生成 LeNet-5 黄金参考 header"
 python "$HERE/scripts/gen_lenet5_header.py"
 
-echo "[build_arm_firmware] compile (V2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE)"
+echo "[build_arm_firmware] 编译（V2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE）"
 compile "$HERE/src/crt0_aarch64.S"
 compile "$HERE/src/uart_ps.c"
 compile "$HERE/src/golden_lenet5.c"
 compile "$HERE/src/v2b_conv_scheduler_arm.c"
 compile "$HERE/src/arm_main.c"
 
-# Link phase
+# 链接阶段
 ELF_UNIX="$OUT/v2b_arm_demo.elf"
 ELF_WIN=$(to_win_short_out "$ELF_UNIX")
-echo "[build_arm_firmware] link → $ELF_UNIX"
+echo "[build_arm_firmware] 链接 → $ELF_UNIX"
 "$CC_BIN" "${LDFLAGS[@]}" "${OBJECTS[@]}" -o "$ELF_WIN"
 
-# Gate B reports
+# Gate B 报告
 echo ""
-echo "[build_arm_firmware] size report:"
+echo "[build_arm_firmware] size 报告："
 "$SIZE_BIN" "$ELF_WIN"
 
 echo ""
-echo "[build_arm_firmware] symbol presence check:"
+echo "[build_arm_firmware] 关键符号存在性检查："
 REQUIRED_SYMS=("arm_main" "v2b_run_lenet5_demo" "uart_init" "golden_lenet5" "_start")
 SYM_LIST=$("$NM_BIN" "$ELF_WIN" | awk '{print $3}')
 for sym in "${REQUIRED_SYMS[@]}"; do
   if ! grep -q "^${sym}$" <<<"$SYM_LIST"; then
-    echo "  [FATAL] missing symbol: $sym" >&2
+    echo "  [FATAL] 缺少符号: $sym" >&2
     exit 2
   fi
   echo "  [OK] $sym"
 done
 
 echo ""
-echo "[build_arm_firmware] undefined-ref check:"
+echo "[build_arm_firmware] 未解析引用检查："
 UNDEF=$("$NM_BIN" -u "$ELF_WIN" 2>/dev/null || true)
 if [ -n "$UNDEF" ]; then
-  echo "[FATAL] undefined references:" >&2
+  echo "[FATAL] 存在未解析引用：" >&2
   echo "$UNDEF" >&2
   exit 3
 fi
-echo "  [OK] zero undefined refs"
+echo "  [OK] 无未解析引用"
 
 echo ""
 echo "============================================"

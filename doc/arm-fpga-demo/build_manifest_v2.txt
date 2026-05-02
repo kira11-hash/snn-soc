@@ -1,4 +1,22 @@
 # v2-arm-fpga-demo build manifest v2
+# 用途：v2-arm-fpga-demo-conv 分支的 LeNet-5 板验固件 + bitstream 工具链 manifest。
+# 关联 UART 日志：board_bringup_log_lenet5.txt（PASS marker = ARM_FPGA_DEMO_LENET5_PASS）
+# 老版本（Fashion-MNIST 14x14）的 board log 见 board_bringup_log_v2.txt（保留作历史对照）。
+#
+# ⚠ 口径说明（必读，避免引用混淆）：
+# 1. 当前分支 HEAD = 48958da0（"Fix conv fmap preload address increment"）。
+#    用 48958da0 重新做了 clean bitstream + clean ELF，板上做了完整 native 路径
+#    10/10 验证（UART 抓到 ARM_FPGA_DEMO_LENET5_PASS）。这是论文 / 简历可引用的板验事实。
+# 2. 但本 manifest 自身从未在 48958da0 上重新生成；它是从 3719c3e7 时刻
+#    继承下来的 build 记录，原样存活在 48958da0 的工作树里：
+#      - "Git commit" 字段还是 3719c3e7
+#      - 三个 SHA256 还是 3719c3e7 build 的值
+#    所以这三项是 "48958da0 树内现存的 clean rebuild 记录值"，
+#    而不是 "针对 48958da0 自身重新生成的 manifest"。
+# 3. 如果要让 manifest 自身也对齐到 48958da0，需要在做完 48958da0 clean rebuild 的
+#    worktree 上跑：scripts/build_zcu102_arm_demo.sh + 重新生成 manifest（更新 Git commit
+#    字段 + 重算 SHA256）；当前 audit-v2 worktree 内的工件是上次 build 留下来的，
+#    没有为 48958da0 单独重写过。
 Generated UTC: 2026-05-01T12:28:20Z
 Git branch: feature/v2-arm-fpga-demo-conv
 Git commit: 3719c3e727e9dee5b1d5a64ffedb6c49b2d1a1f9

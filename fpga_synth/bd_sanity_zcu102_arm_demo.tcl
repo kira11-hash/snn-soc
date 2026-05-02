@@ -42,6 +42,10 @@ foreach f [list \
   {snn/tile_partial_buf.sv} \
   {snn/cim_mac_behavioral_v2.sv} \
   {snn/stage_engine_v2.sv} \
+  {snn/fmap_sram_v2.sv} \
+  {snn/patch_unroller_v2.sv} \
+  {snn/fmap_flatten_reader_v2.sv} \
+  {snn/conv_ctrl_v2.sv} \
   {top/snn_soc_v2b_top.sv} \
   {bus/axi2simple_bridge.sv} \
   {bus/simple2v2btop_adapter.sv} \

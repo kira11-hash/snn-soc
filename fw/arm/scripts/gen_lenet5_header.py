@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Generate compact LeNet-5 golden assets for ARM firmware.
+"""为 ARM 固件生成紧凑的 LeNet-5 黄金参考数据。
 
-This version is OCM-friendly:
-  - sample input fmap words stay dense
-  - weights are emitted as sparse triples: (lane, out_c, packed_posneg)
+OCM 友好的输出形式：
+  - 样本输入 fmap word 仍然是 dense 数组（input_words 由 packed bitplane 后已经很紧凑）
+  - 权重输出成稀疏三元组：(lane, out_c, packed_pos_neg_4bit)，跳过零权重，
+    把 fc1 9×256×120 这种大层塞进 OCM 256 KB
+
+输入：python_multilayer/results_conv/lenet5/lenet5_golden_manifest.json
+输出：fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 """
 
 from __future__ import annotations

@@ -1,8 +1,21 @@
-"""Generate M4/M5 conv-network checkpoints and integer golden bundles.
+"""生成 M4/M5 卷积网络的 PyTorch checkpoint + 整数黄金参考数据包。
 
-The generated bundles are consumed by the cosim testbenches.  PyTorch training
-only provides deterministic weights; all golden outputs are produced by the
-integer RTL-like reference in :mod:`snn_engine_conv`.
+支持的网络（NETWORKS dict）：
+  - lenet5：MNIST 28×28；本分支 ZCU102 实际上板验证使用
+  - tiny_vgg / plain_cnn4：CIFAR-10 32×32；本分支仅做 Python + 仿真 cosim 验证，未上板
+
+工作流程（以 lenet5 为例）：
+  1) 训练浮点 ConvNet 得到 lenet5.pth（proxy checkpoint）
+  2) 量化前两层 conv (4-bit signed [-7, +7])，冻结后训练 SNN-FC head（fc1 max_level=3，
+     fc2/fc3 max_level=7）→ lenet5_snn.pth
+  3) 跑整数 SNN 引擎（snn_engine_conv，与 RTL bit-exact）：对 10 个 class-first 样本
+     生成 input fmap / 中间层 fmap / FC stream / counts
+  4) 落 manifest（lenet5_golden_manifest.json）+ 配套 .hex / .txt 文件给 ARM 固件 / RTL TB
+
+PyTorch 训练只用来产出确定性的权重；最终板上 / cosim 比对都使用
+:mod:`snn_engine_conv` 中的整数 RTL-like 引用引擎，保证 bit-exact。
+
+确定性：seed=20260430（硬编码），跑两次 .pth 应当 byte-exact。
 """
 
 from __future__ import annotations

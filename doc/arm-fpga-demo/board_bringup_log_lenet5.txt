@@ -1,0 +1,153 @@
+v2-arm-fpga-demo-conv LeNet-5 板验证据（CONV 扩展，原生 conv1 路径）
+
+状态：
+- ✅ BOARD PASS — native conv1 路径上板 10/10 PASS（commit 48958da0）
+- ✅ work-around 路径不再需要保留板验记录；HEAD 已回滚 work-around 头文件，统一走 RTL native conv1
+
+分支：feature/v2-arm-fpga-demo-conv
+当前 worktree HEAD：48958da0a99d2c7da47ce5d4b2232f7576e144df（"Fix conv fmap preload address increment"）
+板验固件 + bitstream 对应的 commit：48958da0a99d2c7da47ce5d4b2232f7576e144df（与 HEAD 一致，clean rebuild）
+板验日期：2026-05-01
+板验路径：原生 conv1 — fmap_sram_v2 + patch_unroller_v2 + conv_ctrl_v2 + stage_engine_v2 全 RTL 链路
+
+调试历史（保留作复盘）：
+- commit 5beca16b 「Work around conv1 path for ARM board pass」：临时把 Python 端 conv1 reference
+  直接塞进固件 header（fw/arm/include/conv1_ref_all_samples.h），跳过 conv1 RTL，
+  先把下游 conv2/FC 调度链上板隔离验证。
+- commit 3719c3e7 「Checkpoint before native conv1 root-cause fix」：work-around 路径中点 checkpoint。
+- commit 48958da0 「Fix conv fmap preload address increment」：定位到 root cause —
+  CONV_FMAP_WR_CTRL 在 commit 同拍就把地址寄存器加一，导致带 auto_inc 的 firmware preload
+  实际写入地址整体错后一格。修复方式：把地址递增延后到下一拍；同时在 firmware 的 sparse
+  preload 之前先清目标 bank，避免零词跳写留下旧数据。
+  本 commit 同时回滚了 5beca16b 的 work-around 头文件，回到 native conv1 RTL 路径。
+- 用 48958da0 重新 bitgen + ELF link，板上做了完整原生 10/10 验证：UART 抓到全部
+  [PASS] sample N，结尾标记 ARM_FPGA_DEMO_LENET5_PASS。**这次不是 work-around，
+  也没有 reference conv1 bypass。**
+
+评审基线 tag：v2-arm-fpga-demo-v2-passed @ 03a39a61
+（v2 = WSTRB byte-mask 修复后冻结的 Fashion-MNIST 14×14 基线，与本 LeNet-5
+板验为不同的 evidence track；论文叙事并行引用即可）
+
+为什么从 Fashion-MNIST 14×14 升级到 LeNet-5（28×28 MNIST）：
+- v2 基线只验证了 streamed-stage MAC + 单层 + multilayer FC 路径（Fashion 14×14 通过 patch_unroller 的 14×14 直接喂到 stage_engine）
+- LeNet-5 需要原生 CONV 调度（28×28→28×28 conv1、28×28→12×12 conv2、flatten→fc1→fc2→fc3 五层串流），是 V2.B 第一次端到端跑真实 CNN 拓扑
+- 增加内容：fmap_sram_v2、patch_unroller_v2、flatten_reader_v2、conv_ctrl_v2、stage_engine 扩展、conv_mode_cfg / conv_cfg_* / conv_ctrl 寄存器组、ARM 侧 v2b_run_conv_layer 调度器、Python 侧 gen_convnet_golden.py 全栈生成
+- ARM 固件路径：arm_main.c 调用 v2b_run_lenet5_demo()，按层依次发 START + tile-by-tile WAIT_WEIGHT_REQ → 写 weight → WEIGHT_READY 握手
+
+artifact 证据（详见 build_manifest_v2.txt）：
+- Bit SHA256：c8b3283d99aa09d71b81650a12979506a1f3fcfaf58b1413697f0d73c623c88a
+- ELF SHA256：f4470738b974e568f25e99eea204ebaa72510bf9109c9534a1576836b2987ee2
+- XSA SHA256：5334ac012f679ec5a6be25541db30a3f6263664f841fde9e57803e3e89306466
+- Bit 路径：fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit
+- ELF 路径：fw/arm/out/v2b_arm_demo.elf
+- 解析后的 psu_init.tcl 路径：fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl
+- Vivado 版本：v2022.2 (64-bit)，SW Build 3671981，IP Build 3669848
+- AArch64 GCC：11.2.0
+- V2B_SOC_BASE：0xA000_0000（与 v2 一致，未改 BD 地址）
+
+⚠ manifest 与 HEAD 之间的口径差（必读）：
+- 上面 SHA256 是 48958da0 工作树内现存的 build 记录值；这份 manifest 的 "Git commit"
+  字段同样写的是 3719c3e7（manifest 自己没有为 48958da0 重新生成过），所以 SHA 与
+  3719c3e7 build 时锁定的值一致——这是历史 build 记录留在 48958da0 树里的产物。
+- HEAD = 48958da0（已用此版重新做了 clean bitstream + clean ELF，板上做了完整 native
+  路径 10/10 PASS）这件事是 ground truth，由本日志正文 + UART 抓到的 ARM_FPGA_DEMO_LENET5_PASS
+  作为证据；与 manifest SHA 字段的 commit 标注无关。
+- 论文 / 简历引用建议：HEAD commit (48958da0) + 本日志 + ARM_FPGA_DEMO_LENET5_PASS marker；
+  manifest 的 SHA 仅作"工作树里现存哪份 build 记录"的工具链证据，**不应当作 48958da0 自身
+  重编 manifest 的字节级证据**——后者需要重新跑一次 build_zcu102_arm_demo.sh 让 manifest
+  自己也对齐到 48958da0。
+
+Step 1：Python 黄金参考与 .pth 训练
+- 脚本：python_multilayer/gen_convnet_golden.py --network lenet5
+- 训练流程：先训练浮点 ConvNet (conv1+conv2+fc1+fc2+fc3) → 量化 conv1/conv2 (4-bit signed [-7, +7]) →
+  冻结前端 + 在量化 spike stream 上训练 SNN-FC head（fc1 max_level=3，fc2/fc3 max_level=7）
+- 结果存入：python_multilayer/checkpoints/lenet5.pth + lenet5_snn.pth
+- Manifest：python_multilayer/results_conv/lenet5/lenet5_golden_manifest.json
+  - quant_snn_test_accuracy = 0.9303（10000 张 MNIST test set，预测率 93.03%）
+  - selected_accuracy = 1.0（10 个 class-first 样本全部预测正确，与 hardware 严格 byte-exact）
+  - t_count = 10
+  - max_signed_level = 7
+  - 5 层：conv1 (8) / conv2 (16) / fc1 (7) / fc2 (7) / fc3 (3)
+- 每个 sample 落地 4 个 .hex（input_fmap_words / intermediate_conv1 / intermediate_conv2 / final_stream）+ 5 个 stream/counts pair
+
+Step 2：ARM 固件 header 生成
+- 脚本：fw/arm/scripts/gen_lenet5_header.py
+- 读 manifest → 生成 fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
+- 权重表示：sparse triples (lane, out_c, packed_pos_neg_4bit)，相比 dense 数组省下大量 OCM 空间（fc1 9 个 tile 各 256×120 节点，dense 会爆 OCM）
+- 注：48958da0 之后已不再生成 conv1_ref_all_samples.h（work-around 头文件）
+
+Step 3：固件编译
+- 脚本：fw/arm/build_arm_firmware.sh
+- 输出：fw/arm/out/v2b_arm_demo.elf
+- text + rodata 大小：~150 KB（OCM 256 KB 容得下，stack 64 KB）
+- 链接器：fw/arm/link_arm.ld，OCM @ 0xFFFC0000，DDR @ 0x00100000
+
+Step 4：Vivado 重综合 + 重 bitgen
+- 脚本：scripts/build_zcu102_arm_demo.sh
+- 输出：fpga_synth/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit + .xsa
+- 时序 PASS（@ 50 MHz pl_clk0 上 WNS > 0）
+- 标记：ZCU102_ARM_DEMO_BITGEN_PASS
+
+Step 5：JTAG 烧写 + 上电
+- 命令：xsct scripts/program_zcu102_c0.tcl
+- 内部步骤：
+  1. connect to JTAG cable
+  2. source psu_init.tcl
+  3. fpga -file v2b_arm_demo_bd_wrapper.bit
+  4. dow v2b_arm_demo.elf
+  5. con
+- xsct 标记：[program_zcu102_c0] CORE_0_RUNNING
+
+Step 6：UART 实抓 PASS 标记
+- COM 口：CP2108 J83 / Interface 0 (COM4)，115200 8N1
+- 终端：PuTTY
+- 预期 PASS：每个 sample 输出 [PASS] sample N label=K pred=K counts=[...]
+- 总标记：ARM_FPGA_DEMO_LENET5_PASS
+
+CIFAR 部分的状态：
+- gen_convnet_golden.py 同时支持 tiny_vgg / plain_cnn4（CIFAR-10）拓扑；checkpoint 训练框架与 LeNet-5 共享
+- 但本分支只把 LeNet-5 上板到 ZCU102；CIFAR / VGG 拓扑只通过仿真 cosim 验证，未做板验
+- 原因：CIFAR 拓扑权重远大于 LeNet-5（fc.in_dim = 8×8×64 = 4096），sparse 化后 ARM OCM 仍紧张；本评估周期内只做"打通 CONV 调度路径"，CIFAR 上板留作后续 evidence 扩展
+
+=== UART 输出（48958da0 native 路径，10 sample 全 PASS） ===
+UART_OK
+[TB] v2b_arm_lenet5 start - 10 LeNet-5 samples via AXI-Lite
+[TB] V2B_SOC_BASE=0xa0000000
+[OK] MMIO round-trip CFG1
+[TB] sample 0 start
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] conv cfg begin ... conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 ...
+... (conv1/conv2/fc1/fc2/fc3 串流 — 全 RTL 路径，无 reference bypass)
+[TB] conv done status=...
+[PASS] sample 0 label=0 pred=0 counts=[8 0 0 0 0 0 0 4 0 2]
+[PASS] sample 1 label=1 pred=1 counts=[0 7 1 0 1 0 0 0 0 0]
+[PASS] sample 2 label=2 pred=2 counts=[0 0 7 2 0 2 1 0 0 0]
+[PASS] sample 3 label=3 pred=3 counts=[0 2 2 3 0 3 0 0 0 0]
+[PASS] sample 4 label=4 pred=4 counts=[0 0 0 0 8 0 0 0 0 1]
+[PASS] sample 5 label=5 pred=5 counts=[2 0 2 0 2 5 4 0 0 0]
+[PASS] sample 6 label=6 pred=6 counts=[2 0 3 0 3 0 7 0 0 0]
+[PASS] sample 7 label=7 pred=7 counts=[2 0 0 0 0 0 0 8 0 2]
+[PASS] sample 8 label=8 pred=8 counts=[0 0 5 0 0 4 0 0 6 0]
+[PASS] sample 9 label=9 pred=9 counts=[0 0 0 0 3 0 0 1 0 5]
+ARM_FPGA_DEMO_LENET5_PASS
+
+注：上述 counts 与 python_multilayer/results_conv/lenet5/sample_NN_output_counts.txt 严格 byte-exact，
+也与 lenet5_golden_manifest.json 中每个 sample 的 "counts" 字段逐位匹配。10/10 sample 全部 predicted=label。
+
+复现说明（重要）：
+- 完全复现需在仓库 worktree 上：
+  python python_multilayer/gen_convnet_golden.py --network lenet5
+  bash fw/arm/build_arm_firmware.sh
+  bash scripts/build_zcu102_arm_demo.sh   （需 Vivado 2022.2）
+  xsct scripts/program_zcu102_c0.tcl       （需 ZCU102 板 + JTAG）
+- 训练复现性：seed=20260430（在 gen_convnet_golden.py 顶部硬编码），多次跑 .pth 应当字节级一致
+
+引用规则：
+- 论文叙事 / 简历 → 引用 v2-arm-fpga-demo-conv 分支 HEAD commit (48958da0) + 本日志 + manifest_v2 SHA
+- 历史对比 → v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍可作为对照基线
+- 工具链 / 板验细节 → 详见 doc/arm-fpga-demo/build_manifest_v2.txt 与本文件

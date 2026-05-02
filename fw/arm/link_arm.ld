@@ -1,20 +1,21 @@
 /*
- * fw/arm/link_arm.ld — AArch64 standalone linker script for Phase B Gate B.
+ * fw/arm/link_arm.ld — AArch64 standalone 链接脚本（Phase B Gate B 用）。
  *
- * Memory model (Zynq UltraScale+ ZCU102):
- *   - OCM 0xFFFC_0000..0xFFFF_FFFF (256 KB) for startup code, stack, UART,
- *     and small runtime state.
- *   - DDR 0x0010_0000.. for the large LeNet-5 golden bundle (weights + input
- *     words) after `psu_init.tcl` has completed PS/DDR bring-up in XSCT.
+ * 内存模型（Zynq UltraScale+ ZCU102）：
+ *   - OCM 0xFFFC_0000..0xFFFF_FFFF（256 KB）：放启动代码、栈、UART 驱动、小运行时状态
+ *   - DDR 0x0010_0000..：在 XSCT 已经通过 psu_init.tcl 完成 PS/DDR bring-up 之后，
+ *                       可放大体积的 LeNet-5 黄金参考（权重 + 输入 fmap words）。
  *
- * For PHASE B GATE purposes (compile + link + size + nm check), the absolute
- * addresses don't matter as long as the sections resolve. For direct JTAG
- * board deployment (Phase C0+), OCM keeps the smoke test hermetic.
+ * 关于地址：
+ *   - PHASE B GATE 阶段（仅 compile + link + size + nm 检查）：绝对地址不重要，
+ *     只要 section 能 resolve 就过。
+ *   - 上板 JTAG 烧写阶段（Phase C0+）：OCM 自包含可保证 smoke test 不依赖 DDR
+ *     训练状态，先在 OCM 里跑通再说。
  *
- * Symbols used by crt0_aarch64.S:
- *   _stack_top     — stack growth pointer (grows down)
- *   __bss_start    — start of .bss (zeroed by crt0)
- *   __bss_end      — end of .bss
+ * crt0_aarch64.S 引用的符号：
+ *   _stack_top     — 栈顶指针（栈向下生长）
+ *   __bss_start    — .bss 起点（crt0 清零）
+ *   __bss_end      — .bss 终点
  */
 
 ENTRY(_start)
