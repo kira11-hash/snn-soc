@@ -90,7 +90,11 @@ CLAUDE.md               # ★★ 项目硬约束 + 寄存器表 + FP-001..FP-005
 
 ## 二、Claude 已完成的 audit（不要重做，验证质量）
 
-main 分支历史 commits（从 e483a06d 之后到 397d2701 之间）：
+main 分支已经经过 **5 轮**独立 cold-start audit，共 **20+ 个 audit-pass commits**
+全部 push 到 origin/main + cross-synced 到 origin/main-fpga-e203-alpha。
+Pass 报告完整保留：`doc/Claude_audit_pass{3,4,5}_report_2026_05_02.md`。
+
+### Pass 1 + Pass 2（2026-05-02 上半段，原始 audit）
 
 | Commit | 类别 | 修复内容 |
 |---|---|---|
@@ -105,8 +109,39 @@ main 分支历史 commits（从 e483a06d 之后到 397d2701 之间）：
 | `e483a06d` | FW+DOC | **FW-C2**：legacy guard；**FW-C3**：boot_rom golden track；**DOC-C5**：tapeout_schedule sync |
 | `397d2701` | DOC | **R-C9**：BYPASS_HANDSHAKE 政策（die 不带 efuse → 软件 lock readback assert） |
 
-main-fpga-e203-alpha 历史：**1 个 commit `fa79d3a3`** reset to main + 恢复
-25 个 FPGA-only 文件。
+### Pass 3（2026-05-02 后续，第三轮独立 cold-start audit）
+
+| Commit | 类别 | 修复内容 |
+|---|---|---|
+| `bd78a0b0` | rtl+fw+doc | **W-1a**：silicon_bringup.bin 加 git track（与 boot_rom .bin/.hex 一致）；**W-1b**：rom_smoke_*/rom_hi_smoke_* 加 .gitignore；**R-M1.1**：uart_ctrl ST_IDLE TX 启动路径补 wstrb[0] gate（旧 R-M1 仅 gate 了 txdata_shadow，启动路径漏了）；**D-1**：doc/silicon_bringup_plan §6.4 PROG_CTRL_BYPASS_MASK 宏一致性 |
+| `0ac8f269` | doc | 落地 pass3 总结报告 `doc/Claude_audit_pass3_report_2026_05_02.md` |
+
+### Pass 4（2026-05-02 后续，第四轮）
+
+| Commit | 类别 | 修复内容 |
+|---|---|---|
+| `3375d898` | fw+rtl+tb | **M-1**：silicon_bringup hex byte-reproducible by default（删 `__DATE__` embedding，改用 `SILICON_BRINGUP_BUILD_ID`，默认 "frozen"，可 `SOURCE_DATE_EPOCH` env override）；**M-2**：PROG_* register aliases 集中到 `fw/include/soc_regs.h`，删 silicon_bringup.c / main.c 的本地副本；**M-3**：spi_ctrl REG_CTRL byte-selective wstrb gate（pass2 R-M1 只 gate wstrb[0]，导致 cs_force at bit 8 / byte1 unwritable，本轮拆 byte0/byte1 独立 gate） |
+| `7495172b` | fpga-only | M-2 FPGA-side：清理 `fw/e203_smoke/e203_fpga_smoke.c` 的 PROG_* alias |
+| `63bf8692` | doc | **D-2**：刷新 §6.4 R-C9 NOTE（pass3 D-1 写"PROG_CTRL_BYPASS_MASK 是 silicon_bringup.c 的本地 alias"+ TODO 迁移到 soc_regs.h；pass4 M-2 已迁移完成，本轮 NOTE 刷新到 reflect 新状态） + 落地 pass4 报告 |
+
+### Pass 5（2026-05-02 后续，第五轮）
+
+| Commit | 类别 | 修复内容 |
+|---|---|---|
+| `cadf54fc` | doc | 落地 pass5 cold-start prompt |
+| `e46069a6` | rtl+tb | **R-M2.1**（Pass5 唯一 RTL 改动）：dma_engine push_stall_cnt 在 ST_PUSH timeout 退出时未清零 → 下次 START 早窗口可能假阳性触发 ERR；fix（采纳 GPT-5.4 plan 审 + LGTM 的 Option C，defense-in-depth）：(a) 模块加 `parameter int unsigned PUSH_TIMEOUT_CYCLES = V2B_DMA_PUSH_TIMEOUT_CYCLES`（默认仍 1M cycles，硅片行为 100% 等价）；(b) ST_IDLE→ST_SETUP 成功路径加 push_stall_cnt 清零（语义点）；(c) ST_PUSH timeout-exit 加 push_stall_cnt 清零（防御深度）；(d) `tb/dma_tb.sv` 实例化时 override `PUSH_TIMEOUT_CYCLES=64`，新增 T11 (5 phases / 13 sub-checks) 验证 timeout → recover → 再次 timeout 全链路 |
+| `595280ce` | doc | 落地 pass5 报告 |
+| `50c3ba49` | doc | self-ref pass5 doc commit hash 595280ce |
+
+main-fpga-e203-alpha 历史：每次 main 上有 commit，FPGA 支线 fast-forward
+merge 同步（merge commits `7644dea9` / `f778bd78` / `3dec1142` / `06a7b337` /
+`5040375c` / `2aae56ef` / `2f3d132e`）。**跨分支文件 diff 始终 = 25 文件**
+全部 FPGA-only ✓。
+
+> ⚠ 关键：main 上 RTL/FW/sim/doc 任何改动**都必须** sync 到 FPGA。Pass 5 给
+> dma_engine 加了 PUSH_TIMEOUT_CYCLES 参数，FPGA 的 snn_soc_top 实例化 dma_engine
+> 时**不**override 这个参数（默认 1M cycles），所以 FPGA bitstream 行为等价。
+> 但如果你 audit 又改了 RTL，必须验证 FPGA 实例化端口一致 + 跨分支 diff 仍 = 25。
 
 ---
 
@@ -136,20 +171,66 @@ shared 路径），表示 sync 不全。
 
 ### 3.2 RTL / FW / sim / doc 审查
 
-复用 §3.1-3.5 的 `Claude_audit_prompt_2026_05_02_main_and_fpga.md` 的审查矩阵。
-重点看 Claude 第三轮 audit 的 commit（如果他抓到了新问题 + 修了），你 verify
-质量；如果他没抓到的角落，你补上。**严苛、流片前最后一关**。
+复用 `Claude_audit_prompt_2026_05_02_main_and_fpga.md` 的审查矩阵。
+
+Claude 已经做了 **5 轮独立 cold-start audit**（pass1-pass5），每一轮抓的问题
++ 修复 commit 都列在 §二。先把这三份 pass 报告读完：
+- `doc/Claude_audit_pass3_report_2026_05_02.md`（W-1 / R-M1.1 / D-1，CONCERN 等级）
+- `doc/Claude_audit_pass4_report_2026_05_02.md`（M-1 / M-2 / M-3 / D-2，MINOR 等级）
+- `doc/Claude_audit_pass5_report_2026_05_02.md`（R-M2.1 + dma_tb T11，pass2 R-M2 的
+  follow-up corner case）
+
+读完之后**重点 verify 质量**，特别看：
+- pass3 R-M1.1：uart_ctrl 启动路径 wstrb[0] gate 是不是改在了正确位置？是否
+  有遗漏路径（比如 `tx_busy=1` 时的入栈 race）？
+- pass4 M-2 PROG_* macro 集中：所有 silicon_bringup.c / main.c 的 PROG_*
+  reference 是不是都改成 include `soc_regs.h`？有没有漏改的 .c/.h？grep
+  `PROG_CTRL_BYPASS_MASK` 全工程，确认所有出现都从 soc_regs.h 来
+- pass4 M-3 spi_ctrl byte0/byte1 独立 gate：cs_force at bit 8 / byte1 现在
+  能正确写入了吗？跑 spi_tb T1c 应该 PASS
+- pass5 R-M2.1 dma push_stall_cnt：state ST_IDLE→ST_SETUP 入口 + ST_PUSH
+  timeout-exit 都加了清零；timing 上有没有 race（比如 stall_cnt 累加和清零
+  发生在同一拍）？
+
+如果 pass1-5 没抓到的角落（比如 Claude 没看的 corner、BLOCKER-级新问题、
+新发现的 RTL/FW 死锁/边界），你补上。**严苛、流片前最后一关**。
 
 ### 3.3 边界 / 可疑点
 
-1. **R-M2 dma_engine push_stall_cnt 时序**：状态机走出 ST_PUSH 后再回来时
-   stall_cnt 是否正确清零？模拟一下 `in_fifo_full=1` 卡 1M cycles 的真实场景
-2. **R-C9 软件 lock 的边界**：silicon_bringup.c 自己写 BYPASS=1（自检需要），
+1. **R-M2.1 dma_engine push_stall_cnt 时序**（pass5 已 fix，verify 即可）：
+   - pass5 R-M2.1 commit message 提到"采纳 GPT-5.4 plan 审 + 终审 LGTM 的
+     Option C"。verify 这个 Option C 是不是真的实现到位？读 commit `e46069a6`
+     的 diff，确认：
+     (a) `parameter int unsigned PUSH_TIMEOUT_CYCLES` 加在了模块入口
+     (b) ST_IDLE→ST_SETUP 成功路径有 `push_stall_cnt <= 24'd0`
+     (c) ST_PUSH timeout-exit 也有 `push_stall_cnt <= 24'd0`
+     (d) snn_soc_top 实例化 dma_engine 没 override 这个参数（保留 default
+         1M cycles，硅片行为不变）
+   - 跑 `bash sim/run_dma_icarus.sh` 验证 T11 (5 phases / 13 sub-checks) 全 PASS
+   - 想 corner: stall_cnt 累加和清零发生在同一拍（pass5 R-M2.1 是用 NBA
+     `<=`，所以同拍累加 + ST_IDLE→ST_SETUP 清零，最终值是清零；这是**正确的
+     RTL 语义**还是**race**？画出 always_ff 时序图确认）
+2. **R-M1 + R-M1.1 + M-3 uart_ctrl + spi_ctrl wstrb gate**：byte-strobe 严格
+   correctness 经过 pass2/pass3/pass4 三轮加固。verify：
+   - uart_ctrl REG_TXDATA 启动路径需 `wstrb[0]`，REG_CTRL byte-selective gate
+     byte0/byte1
+   - spi_ctrl REG_CTRL byte0 control + byte1 cs_force 现在独立 gate
+   - 所有可能的 byte-store pattern（wstrb 单字节 / 双字节 / 全字节）都 OK？
+3. **R-C9 软件 lock 的边界**：silicon_bringup.c 自己写 BYPASS=1（自检需要），
    但生产固件不能写 1。验证：grep `BYPASS_HANDSHAKE` 全工程，确认所有 write
-   路径只在 silicon_bringup.c 里
-3. **B-1 chip_top BOOT_ROM_INIT_FILE 相对路径**：foundry mask ROM compiler 工具
+   路径只在 silicon_bringup.c 里 + soc_regs.h 的 mask 定义已统一（pass4 M-2 把
+   PROG_CTRL_BYPASS_MASK 集中到 soc_regs.h，pass4 D-2 又刷新了 §6.4 NOTE，
+   verify 这两件事没冲突）
+4. **B-1 chip_top BOOT_ROM_INIT_FILE 相对路径**：foundry mask ROM compiler 工具
    能否解析 `"fw/boot_rom/out/boot_rom.hex"` 这个相对路径？要不要改成 synthesis
-   工具传 GENERIC override 的方式？
+   工具传 GENERIC override 的方式？pass3 audit 已经验证过这个 default 仅给 FPGA
+   综合 + documentation 价值用，TB 都显式 override，ASIC 用 foundry compiler 取代；
+   但如果你审 RTL 流程发现 ASIC synthesis 工具确实需要绝对路径或 GENERIC，
+   那就改
+5. **M-1 silicon_bringup hex byte-reproducibility**：pass4 M-1 删除 `__DATE__`
+   embedding，改用 `SILICON_BRINGUP_BUILD_ID`。验证：连续两次 `bash
+   fw/silicon_bringup/build_silicon_bringup.sh` 后 `silicon_bringup.bin/.hex`
+   字节级一致（commit message 声称已验证，你 sanity check 一遍）
 
 ---
 
