@@ -14,6 +14,40 @@
   - 另一个是 **firmware preload 写地址语义和 RTL auto-inc 时序语义不一致**
 - 后者尤其值得反复提醒：当时功能长时间不对，很容易先怀疑卷积算法、权重映射、ARM cache、AXI 读写或者 stage 调度；但最后锁到的根因，其实是 **`conv fmap preload` 地址递增时机错了**，导致 feature map 没被写到 firmware 以为的地址上。
 
+### 现象时间线（按当时真实排障顺序）
+
+- **第一阶段：先解决“板子能不能稳定跑起来”**
+  - ARM-hosted V2.B 这条线最开始的重点不是卷积，而是先把 `PS -> AXI-Lite -> wrapper -> v2b_top` 整条控制链在板上拉通。
+  - 这个阶段最先暴露出来的是**时钟口径不统一**：脚本里有一部分默认按 `100 MHz` 写，项目整体却长期以 `50 MHz` 为 baseline。
+  - 表面上看，100 MHz 也许“还能过综合/实现”，但它会让后面所有关于 pulse width、延迟预算、板级 smoke 速度、以及“为什么某个等待 guard 太短/太长”的判断都失去统一尺子。
+
+- **第二阶段：把 ARM bring-up 做到“出问题时能说人话”**
+  - 一旦从纯仿真进入 ZCU102 板级联调，最怕的不是结果错，而是“直接没输出、卡死、没法判断停在哪”。
+  - 所以当时先补的是 `psu_init.tcl` 依赖、`xsct` 脚本失败即停、MMIO self-test、stage poll timeout、progress code 这类设施。
+  - 这些设施本身不产生功能正确性，但它们决定了后面排障是“有抓手地缩小范围”，还是“无声瞎猜”。
+
+- **第三阶段：native conv1 打开后，现象是“不是完全不通，而是结果稳定地不对”**
+  - 这类 bug 最麻烦，因为它说明主链路不是全坏的：AXI 还能通，寄存器还能读写，stage 还能启动，后半段也能跑出东西。
+  - 也正因为不是“完全不通”，当时很容易把注意力放到更复杂的地方，比如：
+    - `conv1` 参数是不是配错了
+    - 权重 tile / 稀疏加载是不是错了
+    - ARM cache / barrier 有没有把 MMIO preload 搞乱
+    - scheduler 在 conv/fc 混合路径上是不是有状态残留
+  - 但这类方向都很重，一头扎进去会拖很久。
+
+- **第四阶段：用 workaround 故意绕开 conv1，把问题切成前后两半**
+  - 一旦改成“sample index -> 直接 preload 参考 conv1 输出”，板上后半段链路能恢复到 PASS，这件事非常关键。
+  - 它相当于给出一个强结论：
+    - `conv2 -> fc3` 主体大概率没坏
+    - ARM MMIO / AXI-Lite / wrapper / scheduler 主骨架大概率没坏
+    - 问题大概率集中在“原始输入 feature map 如何进入 conv 路径”这件事上
+  - 这一步让排障从“全系统怀疑”变成“重点审 preload 路径”。
+
+- **第五阶段：最终锁到 preload 地址合同，再做 RTL + firmware 成对修复**
+  - 真正的根因不是算法参数，而是 `CONV_FMAP_WR_*` 这组寄存器接口的地址推进合同没有被软件和 RTL 以同一种方式理解。
+  - 一边以为是“本次写当前地址、然后地址加一”，另一边实际表现更接近“提交脉冲和地址递增耦合得太早”，最终把 preload 写偏。
+  - 这也是为什么当时会出现一种很迷惑的感受：很多东西看起来都像对的，但最终结果就是老不对。
+
 ### 关键提交链（按时间）
 
 - `7e6f24ef` — `fixup: PL fabric clock 100 MHz → 50 MHz to match project baseline`
@@ -22,6 +56,29 @@
 - `5beca16b` — `Work around conv1 path for ARM board pass`
 - `3719c3e7` — `Checkpoint before native conv1 root-cause fix`
 - `48958da0` — `Fix conv fmap preload address increment`
+
+### 最终根因一句话版
+
+- **不是卷积计算本身先错，而是 `conv fmap preload` 这条“软件写地址 + RTL auto-inc”接口合同没对齐，导致 feature map 实际落点和软件预期落点发生偏移。**
+
+### 为什么当时会卡很久
+
+- **因为它不像“完全死机”那样直接暴露层级**
+  - 如果是 `psu_init.tcl` 丢了、AXI base address 错了、PL reset 没放开，往往会直接无输出或超时，定位反而比较快。
+  - 这次不是。系统能跑、寄存器能读、后级能工作、甚至换一种输入喂法还能 PASS，所以它会伪装成“算法细节错误”。
+
+- **因为 workaround 会让人误以为 conv 核心一定没问题**
+  - 实际上 workaround 证明的是“后半段可以独立成立”，不等于“前半段 native 路径没风险”。
+  - 如果忘了这点，就可能把“绕过去能跑通”错误理解成“native preload 语义肯定也没问题”。
+
+- **因为 auto-inc 类接口天然有一层时序错觉**
+  - 软件工程师脑中常见的模型是：
+    1. 先把 `ADDR` 写成 `i`
+    2. 把 `DATA` 写进去
+    3. `COMMIT`
+    4. 硬件“事后”把地址加一
+  - 但 RTL 真正怎么实现，要看寄存器在哪拍更新、下游 SRAM 在哪拍采样、`COMMIT` 和 `ADDR` 是否共用一个时序块。
+  - 只要这三件事里有一件和软件脑中的顺序不一致，就会出现“看起来只差一拍，结果整个 preload 地址都漂了”的问题。
 
 ### 这次我实际做的几类改动
 
@@ -55,6 +112,58 @@
   - 这是本次 root cause 的关键。原先 firmware 以为自己是在“先按当前地址写，再自增到下一地址”；但 RTL 的实现等价于“这笔提交触发后，下一次真正被消费的写地址已经提前变成了加一后的值”。结果就是 preload 内容整体发生地址漂移，后面 `conv1` 读到的 feature map 和 Python / firmware 以为自己写进去的根本不是一回事。
   - 所以当时“功能一直不对”的真正解释，不是 `conv1` 算法错了，不是权重 tile 错了，也不是 ARM cache 把数据吃掉了，而是 **preload 的写地址合同没对齐**。
   - 同一个提交里还把前面 workaround 用到的 sample-index 全局变量、参考 header 和 bypass 路径删掉，恢复成真正走 `input_words -> conv1 -> conv2 -> fc` 的正式实现。这一点也很重要，因为 workaround 如果不及时回收，后面很容易把临时路径误当成正式架构。
+
+### preload 接口到底哪里容易错（把合同写死）
+
+- firmware 预期的理想合同是：
+  1. 先写 `V2B_SOC_CONV_FMAP_WR_ADDR = i`
+  2. 再写 `V2B_SOC_CONV_FMAP_WR_CTRL = AUTO_INC | bank_sel`
+  3. 再写 `V2B_SOC_CONV_FMAP_WR_DATA = words[i]`
+  4. 最后写 `V2B_SOC_CONV_FMAP_WR_CTRL = AUTO_INC | bank_sel | COMMIT`
+  5. 本次 `COMMIT` 应该把 `DATA` 落到“当前地址 i”
+  6. 只有本次写已经被消费之后，内部地址才前进到 `i+1`
+
+- 这次 bug 的本质，就是第 `5` / `6` 条在实现里没有和软件脑内模型完全重合。
+
+- 以后凡是看到这种寄存器组合，都要把下面三件事单独问清楚：
+  - **地址寄存器在哪一拍更新**
+  - **写入有效脉冲在哪一拍产生**
+  - **真正落 SRAM 的地址是更新前的，还是更新后的**
+
+- 如果这三件事没有被文档写死，就不要默认“肯定和普通软件循环想的一样”。
+
+### 这次 workaround 和正式修复的角色区别
+
+- `5beca16b` 的角色是：**缩小问题范围**
+  - 它回答的问题是：“后半段链路是不是本来就坏了？”
+  - 它不是最终架构，也不该长期保留。
+
+- `48958da0` 的角色是：**恢复正式语义**
+  - 它回答的问题是：“native 输入路径怎样才能按正式合同工作？”
+  - 它必须把 workaround 删掉，否则项目里会同时存在“临时旁路正确”和“正式路径语义不清”两种状态，未来更危险。
+
+### 如果下次再遇到类似现象，推荐的最短排障路径
+
+- 第一步：先问是不是**口径问题**
+  - `pl_clk0` 是不是还是 `50 MHz`
+  - OOC / BD / doc / firmware 注释是不是在说同一个频率
+  - timeout / pulse width / delay 预算是不是还沿用旧值
+
+- 第二步：再问是不是**链路死了**
+  - `psu_init.tcl` 有没有真正 source
+  - MMIO self-test 能不能过
+  - stage poll 是不是直接超时
+  - progress code 能不能推进到预期段落
+
+- 第三步：如果链路没死但结果不对，优先做**前后半段切割**
+  - native 输入错不等于后半段错
+  - 先喂参考 `conv1` / `conv2` feature map，把问题分割成 preload 之前和 preload 之后两段
+
+- 第四步：一旦怀疑 preload，直接检查**地址合同**
+  - 不要先看最终分类
+  - 先看 `ADDR / CTRL / DATA / COMMIT`
+  - 再看 RTL 内部 auto-inc 是“同拍改地址”还是“下一拍改地址”
+  - 最后才去怀疑卷积参数、稀疏权重或算法映射
 
 ### 这次排障最值得记住的结论
 
