@@ -1284,6 +1284,37 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 
 **目标**：理解 V1.1 引入的 mask boot ROM 与 `chip_top` 顶层 wrapper，能解释三套地址映射在 `ENABLE_BOOT_ROM` 不同取值下的差异。
 
+### 15.0 学习方法（先看这节再开始）
+
+V1.1 加固层比 V1 主线更"硬核"——你要从 "RTL 跑通 sim" 切换到 "RTL 真的能流片 + 硅片上电能 boot"，关注点从功能正确性扩展到**物理工艺约束 + 启动可观测性**。建议：
+
+- **Day 33 上午（2 小时）**：只读 §15.1 + §15.2，目标"鸟瞰"——能说清"为什么 ASIC 不能上电就跑 INSTR_SRAM"以及"三套地址映射各自适用什么场景"。
+- **Day 33 下午（2-3 小时）**：按 §15.0.1 推荐顺序读源码，重点是 `bus_interconnect.sv` / `boot_rom.sv` 这两个 generate 块，理解 `ENABLE_BOOT_ROM=1` 怎么做地址平移。
+- **Day 34 上午**：精读 §15.4 启动链全貌，跟着 chip_top_rom_smoke_tb 的 UART 输出走一遍 BL → APP 跳转的全过程。
+- **Day 34 下午**：跑 §15.5 列的 5 个 sim regression，全部 PASS 即过本阶段。
+
+#### 15.0.1 推荐阅读源码顺序（按依赖从下到上）
+
+```
+1. rtl/mem/boot_rom.sv               ← mask ROM 行为模型（同步读 + OOB 返回 0）
+                ↓
+2. rtl/top/snn_soc_pkg.sv 中地址常量 ← ADDR_BOOT_ROM_BASE/END + INSTR_BASE_WITH_ROM
+                ↓
+3. rtl/bus/bus_interconnect.sv       ← ENABLE_BOOT_ROM 译码 + INSTR 平移
+                ↓
+4. rtl/bus/icb2simple_bridge.sv      ← 同样译码（E203 ICB 主侧）
+                ↓
+5. rtl/periph/jtag_mem_loader.sv     ← JTAG rescue 通路也要懂平移
+                ↓
+6. rtl/top/snn_soc_top.sv            ← 透传 ENABLE_BOOT_ROM + INIT_FILE 参数
+                ↓
+7. rtl/top/chip_top.sv               ← tape-out wrapper，默认所有 ENABLE_*=1
+                ↓
+8. fw/boot_rom/boot_rom_main.c       ← bootloader 实现（4KB ROM 内填什么）
+```
+
+每个文件先读顶部注释段（V1.1 期间专门写的"我在 SoC 里的位置/接口/取舍"风格），再看实现。
+
 ### 15.1 为什么需要 boot ROM
 
 | 问题 | 原因 |
@@ -1354,6 +1385,40 @@ FSM 扩展：`DST_INPUT_FIFO` 走 `RD0→RD1→PUSH`，`DST_WEIGHT/INSTR` 走 `R
 ## 阶段 16：CIM 编程模式与 boot-time 全阵列擦除（Day 35-37）
 
 **目标**：理解 V1 单层 CIM 写 / 擦 / verify 的硬件控制器与寄存器接口；理解 fw/main.c 开机为什么必须做一次全阵列擦除。
+
+### 16.0 学习方法
+
+本阶段是 V1.1 加固层中最复杂的一段——你要同时理解（a）模拟 die RRAM 编程的物理特性，（b）数字 die 控制器 FSM 的 9 个状态，（c）软件读写 7 个 PROG_* 寄存器的协议，（d）in-flight lock 跨多个寄存器同步锁存的工程动机。建议：
+
+- **Day 35 上午（2 小时）**：只读 §16.1 + §16.2，目标"鸟瞰"——能说出"为什么 V1 也要编程"+ 7 个 PROG_* 寄存器的字段，**先不看 FSM**。
+- **Day 35 下午（2-3 小时）**：按 §16.0.1 推荐顺序读 RTL，重点 `cim_program_ctrl.sv`（FSM）和 `cim_macro_arbiter.sv`（推理/编程仲裁）。
+- **Day 36 上午**：读 §16.3 PROG_FSM_PRESENT 和 §16.4 boot-time erase C 代码，理解软件侧"探测 → 清 DONE → 配置 → 启动 → 轮询"5 步序列。
+- **Day 36 下午**：精读 §16.5 状态机图，画一遍 FSM 状态转移并标注每个分支的退出条件。
+- **Day 37**：跑 §16.7 列的 9 个 sim regression，全 PASS 即过本阶段。
+
+#### 16.0.1 推荐阅读源码顺序（按依赖从下到上）
+
+```
+1. rtl/snn/cim_macro_blackbox.sv     ← 模拟 die 行为模型（编程时也要响应 prog_*）
+                ↓
+2. rtl/snn/cim_program_ctrl.sv       ← 编程 FSM（9 个 state，~335 行）
+                ↓
+3. rtl/snn/cim_macro_arbiter.sv      ← 推理 vs 编程仲裁（prog_busy 切换 mux）
+                ↓
+4. rtl/reg/reg_bank.sv               ← PROG_* 寄存器 decode + in-flight lock
+                ↓
+5. rtl/top/snn_soc_top.sv            ← generate ENABLE_PROGRAM_MODE=1 时实例化
+                ↓
+6. fw/main.c                          ← 开机 boot-time erase 5 步序列
+```
+
+#### 16.0.2 面试高频追问（先想答案，再看 §16.X）
+
+1. **为什么 V1 推理芯片也要带编程能力？**（提示：器件初始态 + 流片后约束）
+2. **PROG_FSM_PRESENT 为什么不能用 256-cycle BUSY 探测代替？**（提示：fast pulse race）
+3. **in-flight lock 锁哪些字段？为什么要锁这些？**（提示：10-stage pad encoder pipeline）
+4. **为什么 BYPASS_HANDSHAKE=1 仅仿真 / silicon Day-1 自检用，生产固件不能开？**（提示：见 §16.X / silicon_bringup_plan §6 R-C9）
+5. **boot-time 全阵列擦除返回 SEQ_DONE 不等于 verify 通过——为什么？**（提示：fire-and-forget vs per-cell verify）
 
 ### 16.1 为什么 V1 也要支持编程
 
@@ -1471,6 +1536,19 @@ ST_IDLE
 
 **目标**：理解 2026-04-24 冻结的方案 α'（α-prime）外部编程合同：为什么把 pad 数从 48 扩到 55，以及 7 个新增 pad 各自的语义。
 
+### 17.0 学习方法
+
+本阶段是 pad 边界 / 模拟 handoff / pipeline 相位对齐三件事的交集。一天就能搞定，但要把"为什么"想透彻：
+
+- **Day 38 上午**：读 §17.1 + §17.2，理解为什么 prog_op + prog_level **必须分开**（不是塞到一个 pad），以及为什么需要 10-stage shift register 做相位对齐。
+- **Day 38 下午**：读 §17.3 in-flight lock + §17.4 关键文件 + §17.5 回归，再回头对照阶段 16.2 的 in-flight lock，把"上锁字段 vs 编码器漂移风险"的对应关系列清楚。
+
+**必须想透的 3 件事**（先想答案，再看 §17.X）：
+
+1. **为什么去掉 prog_pass pad？数字侧 verify 真的能算对？**（提示：见 §17.1 末段，bl_data 直回数字侧）
+2. **10-stage shift register 的 10 拍是怎么算出来的？**（提示：wl_mux_wrapper 的 8 SEND + 1 latch + 1 done）
+3. **如果 in-flight lock 失效，pad 漂移会让一次 write 写到哪？**（提示：op=A 的 ROW/COL + op=B 的 LEVEL 错位）
+
 ### 17.1 背景
 
 V1 数字芯片与模拟芯片是两个独立 die 通过 PCB 互联。模拟侧 RRAM 阵列需要外部 stimulate "写入电压 / 擦除电压 / verify 时序"。早期方案 α 是把 prog_op 直接驱动模拟管脚，但缺少"目标电导级数 / verify 通路"，方案 α' 在此基础上增补：
@@ -1532,6 +1610,49 @@ prog_level_ext (10st):  ----<lvl>--<lvl>--<lvl>...
 ## 阶段 18：Silicon bring-up 固件与 FPGA 板级证据链（Day 39-40）
 
 **目标**：理解流片回片后的 day-1 / day-2 / day-3 上板流程，以及 ZCU102 FPGA 板级验证作为 tape-out 前的最后一道护栏。
+
+### 18.0 学习方法
+
+本阶段聚焦"硅片回片那一刻你 5 分钟内能做什么"。前面 17 个阶段都是"如何让 RTL 跑起来"，这一阶段是"如何让真硅片跑起来"。最大的认知切换：
+
+- 你不能用 sim 调试硅片（没法 dump 波形），**唯一可观测**通道是 UART
+- 你不能依赖任何"软件 magic"（没有 OS / printf 标准库），**唯一可信** marker 是固件里写死的字符串
+- 模拟 die 可能没有同时上电、PCB 焊接可能有问题、JTAG 可能不稳定——所以 firmware 必须**分阶段降级测试**
+
+学习节奏：
+
+- **Day 39 上午**：读 §18.1 silicon_bringup 4 个 phase + 阅读 [doc/silicon_bringup_guide.md](silicon_bringup_guide.md) 的 Day 1/2/3 SOP，理解"为什么先 BYPASS=1 再 BYPASS=0"+ "为什么 erase 在 write 之前"。
+- **Day 39 下午**：读 §18.2 ZCU102 FPGA 路径 + §18.3 reburn 触发条件，理解"FPGA 板上 cim_macro_blackbox 行为模型 + Scheme B 差分"如何与 ASIC 数字 die 等价。
+- **Day 40**：跑 §18.4 silicon_bringup_tb sim regression + 复盘 alpha 板验 UART log（在 [doc/main-fpga-e203/](main-fpga-e203/) 下）。
+
+#### 18.0.1 worked example：硅片 Day 1 第一次上电的 5 分钟
+
+把这条 timeline 记牢，硅片回来你才能"5 分钟内判断 die 是死是活"：
+
+```
+T=0       插电源 → 上电复位（rst_n_pad 释放，~ms 量级）
+T+几ms    CPU 从 0x0 取指 → boot_rom 4KB（mask ROM）跑
+T+几ms    boot_rom 读 SPI flash header magic check
+          ┌─ 没接 SPI flash / SPI flash 空白 → boot_rom 卡死等 JTAG rescue
+          ├─ SPI flash 有 silicon_bringup 镜像 → 跳到 0x1000 跑 silicon_bringup
+T+几十ms  silicon_bringup Phase 0：UART 输出 BRINGUP_PHASE_0_UART_OK
+          ☆ 抓到这条 = 数字 die 活、UART pad 通、复位释放正确
+          没抓到 → 检查电源、复位、UART 极性
+T+几百ms  silicon_bringup Phase 1：BYPASS=1 全阵列擦除
+          UART 输出 BRINGUP_PHASE_1_BYPASS_ERASE_OK
+          ☆ 抓到 = 数字 die 的 cim_program_ctrl FSM + reg_bank 写入路径正常
+          没抓到 → 数字 die FSM 有 bug（罕见，sim 应该已经覆盖）
+T+1-2 sec silicon_bringup Phase 2：BYPASS=0 真模拟擦除
+          UART 输出 BRINGUP_PHASE_2_REAL_ERASE_OK
+          ☆ 抓到 = 模拟 die 已上电 + PCB 互联正确 + 模拟侧响应 cim_done
+          没抓到 → 模拟 die 没接、PCB 焊接错、电压档位错
+T+2-3 sec silicon_bringup Phase 3：BYPASS=0 真模拟写一个 cell + verify
+          UART 输出 BRINGUP_PHASE_3_REAL_WRITE_VERIFY_OK
+          ☆ 抓到 = 数字↔模拟全链路通，可以进入 Day 2 量产编程
+          没抓到 → 模拟侧 verify timing / level mapping 有问题
+```
+
+**关键点**：4 个 Phase 是**单调降级**的——只要 Phase N 失败，N+1 必然失败；Phase N PASS 不能保证 N+1 PASS（因为 Phase N+1 引入新维度的依赖）。这种"分阶段降级"设计让 bring-up 工程师能**快速二分定位**问题在数字 / 模拟 / PCB 哪一边。
 
 ### 18.1 silicon bring-up 固件
 
