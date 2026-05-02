@@ -122,7 +122,12 @@
 //   - 未对齐地址 → err
 //   - 地址越界   → err
 // -------------------------------------------------------------------------
-module dma_engine (
+module dma_engine #(
+  // R-M2.1 fix（2026-05-02 audit pass5）：把 ST_PUSH 卡死超时阈值暴露为模块
+  // 参数，便于 TB（如 dma_tb T11）用小窗口快速验证 timeout/recover 行为。
+  // 默认沿用 snn_soc_pkg::V2B_DMA_PUSH_TIMEOUT_CYCLES（1M cycles ≈ 20ms@50MHz）。
+  parameter int unsigned PUSH_TIMEOUT_CYCLES = snn_soc_pkg::V2B_DMA_PUSH_TIMEOUT_CYCLES
+) (
   input  logic        clk,
   input  logic        rst_n,
 
@@ -313,6 +318,11 @@ module dma_engine (
                 err_sticky  <= 1'b0;
                 addr_ptr    <= src_addr_reg - ADDR_DATA_BASE;
                 words_rem   <= len_words_reg;
+                // R-M2.1 fix（2026-05-02 audit pass5）：新事务进 ST_SETUP 必须
+                // 重置 per-op stall 计数，否则上一次 ST_PUSH 超时退出残留的
+                // ~PUSH_TIMEOUT_CYCLES 旧值会让"新 op 第 1 拍 FIFO 满"立刻
+                // 触发假阳性 ERR；正确语义：每个 START 都应享有完整 timeout 窗口。
+                push_stall_cnt <= 24'd0;
                 state       <= ST_SETUP;
               end
             end
@@ -362,10 +372,14 @@ module dma_engine (
             // 流片影响：硅片如果 fifo 卡住，fw polling DONE 永远不归 1 →
             // fw 必须有 timeout 路径处理；不修则系统级死锁无可见错误。
             push_stall_cnt <= push_stall_cnt + 24'd1;
-            if (push_stall_cnt >= 24'(V2B_DMA_PUSH_TIMEOUT_CYCLES)) begin
-              err_sticky  <= 1'b1;
-              done_sticky <= 1'b1;
-              state       <= ST_IDLE;
+            if (push_stall_cnt >= 24'(PUSH_TIMEOUT_CYCLES)) begin
+              err_sticky    <= 1'b1;
+              done_sticky   <= 1'b1;
+              // R-M2.1 fix（2026-05-02 audit pass5，defense-in-depth）：
+              // timeout 退出时同步清零 push_stall_cnt，配合 ST_IDLE→ST_SETUP
+              // 入口处的清零；任何路径离开 ST_PUSH 都不残留旧计数。
+              push_stall_cnt <= 24'd0;
+              state         <= ST_IDLE;
             end
           end
         end
