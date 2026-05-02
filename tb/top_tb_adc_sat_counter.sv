@@ -271,4 +271,12 @@ module top_tb_adc_sat_counter;
     repeat (10) @(posedge clk);
     $finish;
   end
+
+  // TB-C-01 fix（2026-05-02 audit）：global watchdog，超时打 FAIL marker。
+  initial begin
+    #5_000_000;  // 5 ms sim time
+    $display("[FAIL] ADC_SAT_COUNTER global timeout (5ms sim)");
+    $display("ADC_SAT_COUNTER_FAIL (global timeout)");
+    $finish;
+  end
 endmodule

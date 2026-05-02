@@ -435,4 +435,12 @@ module jtag_mem_loader_tb;
     #50;
     $finish;
   end
+
+  // TB-C-01 fix（2026-05-02 audit）：global watchdog，超时打 FAIL marker。
+  initial begin
+    #2_000_000;  // 2 ms sim time（jtag tck 4-wire 慢，但实际几百 us 内能完成）
+    $display("[FAIL] JTAG_MEM_LOADER global timeout (2ms sim)");
+    $display("JTAG_MEM_LOADER_FAIL (global timeout)");
+    $finish;
+  end
 endmodule

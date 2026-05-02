@@ -360,4 +360,14 @@ module top_tb_sample_align;
   end
 
   wire _unused_tb = uart_tx ^ spi_cs_n ^ spi_sck ^ spi_mosi ^ jtag_tdo;
+
+  // TB-C-01 fix（2026-05-02 audit）：global watchdog，超时打 FAIL marker。
+  // sample_align 是开闸点（doc/09 §4.4），100 sample × ~500us = ~50 ms sim time。
+  // 给 100 ms 余量，让真 RTL livelock 能在 1 minute 内退出 + CI 报错。
+  initial begin
+    #100_000_000;  // 100 ms sim time
+    $display("[FAIL] SAMPLE_ALIGN global timeout (100ms sim)");
+    $display("SAMPLE_ALIGN_FAIL (global timeout)");
+    $finish;
+  end
 endmodule

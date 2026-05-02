@@ -320,4 +320,13 @@ module top_tb_icarus_light;
 
   wire _unused_tb = uart_tx ^ spi_cs_n ^ spi_sck ^ spi_mosi ^ jtag_tdo;
 
+  // TB-C-01 fix（2026-05-02 audit）：global watchdog，超时打 FAIL marker。
+  // 旧版无 timeout，RTL livelock 时 CI 会 hang。light smoke 应当几百 us 内完成。
+  initial begin
+    #5_000_000;  // 5 ms sim time
+    $display("[FAIL] LIGHT_SMOKETEST global timeout (5ms sim)");
+    $display("LIGHT_SMOKETEST_FAIL (global timeout)");
+    $finish;
+  end
+
 endmodule

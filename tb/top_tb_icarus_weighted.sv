@@ -271,4 +271,12 @@ module top_tb_icarus_weighted;
   end
 
   wire _unused_tb = uart_tx ^ spi_cs_n ^ spi_sck ^ spi_mosi ^ jtag_tdo;
+
+  // TB-C-01 fix（2026-05-02 audit）：global watchdog，超时打 FAIL marker。
+  initial begin
+    #20_000_000;  // 20 ms sim time（weighted 跑 T 拍 + UART trace 较慢）
+    $display("[FAIL] WEIGHTED_SIM global timeout (20ms sim)");
+    $display("WEIGHTED_SIM_FAIL (global timeout)");
+    $finish;
+  end
 endmodule
