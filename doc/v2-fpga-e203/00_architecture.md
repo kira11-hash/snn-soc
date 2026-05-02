@@ -262,62 +262,206 @@ This addendum records the timing-closure changes that were needed when the
 same ZCU102 + E203 board path was extended from Fashion-14×14 FC-only smoke to
 native LeNet-5 CONV execution.
 
-**Observed symptom**
+**First important clarification**
 
-- The first clean LeNet-5 build functionally compiled and routed, but failed
-  timing at 50 MHz with worst setup slack `WNS=-10.200 ns`.
-- The initial top violating path was not "global congestion everywhere"; it was
-  concentrated in `u_flatten_reader` address generation.
-- After the first arithmetic cleanup, the hotspot moved to
-  `u_patch_unroller` initialization/address math and eventually shrank to
-  `WNS=-0.697 ns`, proving the issue was local arithmetic structure rather than
-  a clock-tree or XDC problem.
+- The scary negative slack in this episode was **setup slack (`WNS`)**, not
+  hold slack (`WHS`).
+- The worst initial report was `WNS=-10.200 ns` at 50 MHz. Hold was near zero
+  but still non-negative, so this was not a min-delay / skew / false-path bug.
+- That distinction matters because the fixes that work for a `WNS=-10 ns`
+  arithmetic chain are very different from the fixes for a true hold problem.
 
-**Fixes that actually moved timing**
+**What the first failing report really said**
 
-1. `rtl/snn/fmap_flatten_reader_v2.sv`
-   Flatten mode already receives a row-major `flat_idx`, so the original
-   `chan/pixel/row/col` inverse mapping (`%C`, `/C`, `/W`, `*W`, `*C`) was
-   deleted. Address generation now uses:
-   `fmap_base + flat_idx * stream_words + (t >> 5)`.
+- The first clean LeNet-5 build functionally synthesized, placed, and routed,
+  but `report_timing_summary` ended with:
+  - `WNS=-10.200 ns`
+  - `TNS=-1953.975 ns`
+  - `377` failing endpoints
+- The top violating path was:
+  - source: `u_soc/u_v2b/u_flatten_reader/cfg_C_q_reg[12]/C`
+  - destination: `u_soc/u_v2b/u_flatten_reader/read_addr_q_reg[31]/D`
+  - data path delay: `30.190 ns`
+  - logic levels: `144`
+- The key lesson from that first report was that the design was **not**
+  uniformly slow. The failure was already highly concentrated in one local
+  arithmetic cone inside `fmap_flatten_reader_v2.sv`.
 
-2. `rtl/snn/fmap_flatten_reader_v2.sv` and `rtl/snn/patch_unroller_v2.sv`
-   The small `stream_words` multiplier (`1..8`) was rewritten as a fixed
-   shift/add helper instead of leaving it as a generic multiply for Vivado to
-   map into long arithmetic chains / DSPs.
+**Why the original flatten path was bad**
 
-3. `rtl/snn/patch_unroller_v2.sv`
-   The synthesis path originally did per-request `/` and `%` style arithmetic
-   to derive `tile_base -> (k_linear, chan, ky, kx)` and then recomputed the
-   read address from that each time. This was replaced with:
-   - an initialization FSM
-   - sequential subtract-based quotient/remainder derivation
-   - per-lane incremental state (`cur_h/cur_w/cur_kx/cur_chan/stream_base`)
-     instead of re-solving the full index decomposition every lane
+- Flatten mode already enters the reader with a logical row-major index
+  `flat_idx` that corresponds to the `(h,w,c)` traversal order expected by the
+  fmap layout.
+- The old code still reconstructed that same information through:
+  - `chan = flat_idx % C`
+  - `pixel = flat_idx / C`
+  - `row = pixel / W`
+  - `col = pixel % W`
+  - `linear_stream = (((row * W) + col) * C) + chan`
+- In other words, it decomposed a row-major index and then rebuilt the same
+  row-major index again, but now through a long chain of divide/mod/multiply
+  logic. Vivado mapped pieces of that arithmetic into DSP + carry chains, and
+  the address path became the top setup violator.
 
-4. `rtl/top/snn_soc_v2b_top.sv`
-   The shared ARM-proven `CONV_FMAP_WR_CTRL.AUTO_INC` fix was also ported here:
-   the preload address increment is deferred to the next cycle instead of being
-   applied on the same commit cycle. This is a functional fix first, but it was
-   kept in the final LeNet branch because native CONV input preload depends on it.
+**Fix #1 — flatten reader linearization**
 
-**Closure progression**
+File: `rtl/snn/fmap_flatten_reader_v2.sv`
 
-- before cleanup: `WNS=-10.200 ns`
-- after flatten linearization / shift-add cleanup: hotspot moved to patch init
-- after patch-unroller sequential init rewrite: `WNS=+2.774 ns`, `TNS=0.000`
-- final bitstream generated successfully:
-  `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit`
+- The redundant inverse mapping was deleted.
+- Address generation now directly uses the already-correct linear index:
+  `fmap_base + flat_idx * stream_words + (t >> 5)`.
+- This was the first decisive step because it removed the entire
+  `flat_idx -> chan/pixel/row/col -> linear_stream` detour.
+- After this change, the top hotspot moved away from `u_flatten_reader`, which
+  confirmed that the flatten arithmetic was the real cause of the original
+  `-10.200 ns` path.
+
+**Fix #2 — replace tiny generic multiplies with fixed shift/add**
+
+Files:
+- `rtl/snn/fmap_flatten_reader_v2.sv`
+- `rtl/snn/patch_unroller_v2.sv`
+
+- `cfg_stream_words` is runtime-configurable but bounded very tightly:
+  `stream_words = ceil(T/32)` and current supported values are effectively
+  `1..8`.
+- Leaving `idx * cfg_stream_words_q` as a generic multiply gave Vivado freedom
+  to build needlessly heavy arithmetic.
+- The final code rewrites this into a fixed helper:
+  - `1*x`
+  - `2*x`
+  - `3*x = 2*x + x`
+  - ...
+  - `8*x = x << 3`
+- This is small RTL, but it matters because it constrains the synthesizer into
+  a short shift/add implementation instead of a more expensive general product.
+
+**What happened after flatten cleanup**
+
+- Once the flatten path was simplified, the worst setup path moved to
+  `u_patch_unroller`.
+- The intermediate bad path became:
+  - source: `u_soc/u_v2b/u_patch_unroller/cfg_C_in_q_reg[3]/C`
+  - destination: `u_soc/u_v2b/u_patch_unroller/init_klinear_q_reg[0]/D`
+  - data path delay: `20.938 ns`
+  - logic levels: `112`
+- This was valuable because it proved the overall architecture was close enough;
+  there was no reason to revisit clocks, MMCM, XDC, bridge timing, or unrelated
+  E203 logic. The remaining deficit was still arithmetic structure.
+
+**Why the original patch-unroller path was bad**
+
+File: `rtl/snn/patch_unroller_v2.sv`
+
+- The synthesis path originally tried to solve the full patch index mapping in
+  one shot:
+  - `tile_base -> (k_linear, chan)`
+  - `k_linear -> (ky, kx)`
+  - then `(ctx_h, ctx_w, ky, kx, chan)` back into `stream_base`
+- That means the same always block was asking Vivado to infer:
+  - dynamic quotient/remainder
+  - dynamic multiply/add
+  - dynamic bounds adjustment
+  - final fmap word address
+- For simulation this was fine. For 50 MHz FPGA timing, it produced another
+  deeply nested address cone with long carry propagation and several DSP stages.
+
+**Fix #3 — patch-unroller sequential initialization**
+
+File: `rtl/snn/patch_unroller_v2.sv`
+
+- The patch-unroller initialization was rewritten into a small setup FSM.
+- Instead of doing quotient/remainder arithmetic combinationally, the final
+  version:
+  - derives `init_klinear` / `init_chan` with sequential subtract steps
+  - derives `init_ky` / `init_kx` with another sequential subtract phase
+  - then seeds per-lane rolling state
+- The steady-state lane walk no longer re-solves the full decomposition every
+  cycle. It advances with incremental registers:
+  - `cur_h`
+  - `cur_w`
+  - `cur_kx`
+  - `cur_chan`
+  - `stream_base`
+- This is the change that converted the remaining large negative slack into a
+  small negative slack, and then finally into positive margin.
+- Important tradeoff:
+  - latency increased slightly during patch initialization
+  - throughput / functional protocol stayed acceptable for board evidence
+  - setup timing improved enough to close the design cleanly
+
+**Fix #4 — shared functional preload fix carried over**
+
+File: `rtl/top/snn_soc_v2b_top.sv`
+
+- The ARM-proven `CONV_FMAP_WR_CTRL.AUTO_INC` fix was ported into this branch:
+  the preload address increment is deferred to the next cycle instead of being
+  applied on the same commit cycle.
+- This change is first and foremost a correctness fix, not a timing fix, but
+  it belongs in the final LeNet branch because native CONV input preload
+  depends on it.
+- In practice it also helped keep the timing/debug loop honest: once preload
+  behavior matched ARM, any remaining failures could be treated as true E203 /
+  CONV timing or functionality issues rather than mixed preload corruption.
+
+**Closure progression (actual sequence)**
+
+- initial native LeNet-5 implementation:
+  - `WNS=-10.200 ns`
+  - top path in `u_flatten_reader`
+- after flatten linearization + `stream_words` shift/add cleanup:
+  - top hotspot moved out of `u_flatten_reader`
+  - the critical path relocated to `u_patch_unroller`
+- after first patch-unroller cleanup:
+  - `WNS=-0.697 ns`
+  - design was very close, and the worst path had narrowed to patch init math
+- after sequential subtract-based patch init rewrite:
+  - `WNS=+2.774 ns`
+  - `TNS=0.000`
+  - all user timing constraints met
+- final implementation produced:
+  - bitstream:
+    `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit`
+  - UART board evidence:
+    `doc/v2-fpga-e203/board_bringup_log_lenet5.txt`
+  - final runtime tag:
+    `FPGA_V2_E203_LENET5_PASS`
+
+**What did _not_ turn out to be the right first lever**
+
+- Rechecking MMCM / clock derivation
+- Rechecking E203 bus bridges
+- Rechecking board wrapper constraints
+- Chasing generic congestion without first reading the actual top path
+
+Those are still legitimate suspects in other failures, but in this case they
+would have wasted time. The timing reports already pointed at local arithmetic
+cones, and the fastest path to closure was to believe that evidence.
 
 **Practical reminder for future regressions**
 
-- If this branch regresses on LeNet/VGG/Plain-CNN timing again, inspect
-  `fmap_flatten_reader_v2.sv` and `patch_unroller_v2.sv` first.
-- Treat any reintroduction of wide `/`, `%`, or generic `*` on dynamic address
-  terms as suspicious.
-- If arithmetic is already clean but congestion is still high, the next lever is
+- If LeNet/VGG/Plain-CNN timing regresses again, inspect these in order:
+  1. `rtl/snn/fmap_flatten_reader_v2.sv`
+  2. `rtl/snn/patch_unroller_v2.sv`
+  3. `rtl/snn/conv_ctrl_v2.sv`
+  4. large storage primitives still living in LUTRAM
+- Treat any reintroduction of wide dynamic `/`, `%`, or generic `*` on address
+  terms as suspicious by default.
+- If the next regression shows a path inside:
+  - `full_dim`
+  - `row_jump`
+  - `stream_base`
+  - `init_klinear`
+  - `init_chan`
+  then first try restructuring / sequencing before touching clocks or XDC.
+- If arithmetic is already clean but congestion remains high, the next lever is
   to revisit large LUTRAM users (`input_stream_sram`, `stream_buffer_v2`,
-  `tile_partial_buf`) and consider pushing more of them into BRAM/XPM.
+  `tile_partial_buf`) and push more of them into BRAM/XPM.
+- Future self-check rule:
+  - do not trust "it must be global congestion"
+  - always read the first 5-10 worst paths and ask whether they are all the
+    same arithmetic motif
+  - if they are, solve that motif first
 
 ## 5. Phase D — 封存
 
