@@ -2,9 +2,22 @@
 //======================================================================
 // fmap_flatten_reader_v2.sv
 //
-// Dynamic WL reader for CONV->FC flatten mode. It gathers row-major fmap
-// bits into a 256-lane wordline using the same 32-bit padded stream layout
-// as patch_unroller_v2.
+// 【我在 SoC 里的位置】
+// 我是 CONV->FC 之间的 flatten 动态 word-line reader。前面 CONV 层把 spike
+// 写成 fmap_sram_v2 的 H×W×C×T padded stream layout；后面的 FC stage_engine
+// 只希望看到 256-lane WL。我负责把 row-major 的 flat_idx 映射回
+// {row,col,channel,stream_word,bit_idx}，让 FC 层不用关心 fmap 的二维结构。
+//
+// 【接口和数据流】
+// - ctx_valid/flat_tile_idx/cfg_* 来自 conv_ctrl_v2 的 flatten 模式。
+// - dyn_wl_req_* / dyn_wl_resp_* 接 stage_engine_v2，每个 timestep 返回一条
+//   flatten 后的 256-bit 输入 WL。
+// - fmap_rd_* 接 fmap_sram_v2，读 32-bit timestep-packed word。
+//
+// 【关键指标和取舍】
+// 和 patch_unroller 一样，我用单端口顺序读保证 50 MHz FPGA demo 稳定，不追求
+// 一拍完成 256 lane。flatten 只做 HWC 线性展开，不做 LIF/阈值判断；这样设计边界
+// 清楚，面试时可以说“CONV 负责产生 fmap，flatten reader 只负责重排视图”。
 //======================================================================
 module fmap_flatten_reader_v2
   import snn_soc_pkg::*;
@@ -37,6 +50,10 @@ module fmap_flatten_reader_v2
   input  logic [31:0] fmap_rd_data
 );
 
+  // 【架构注释：为什么 flatten 也用 reader FSM】
+  // flatten 看起来只是 row-major 地址递增，但它仍然要处理 last tile、BRAM
+  // 1-cycle latency、dyn_wl ready/valid 背压，以及仿真 cache。用 FSM 把这些
+  // 时序显式表达出来，比把 256 个地址组合展开更适合 FPGA timing。
   typedef enum logic [3:0] {
     S_IDLE       = 4'd0,
     S_CTX_LATCH  = 4'd1,
@@ -87,6 +104,9 @@ module fmap_flatten_reader_v2
   logic signed [31:0] cur_pixel_base_q, cur_chan_base_q;
 `endif
 
+  // 【Corner case：FC 输入维度不是 256 的整数倍】
+  // 最后一个 flatten tile 之外的 lane 必须返回 0。否则 FC 的高位 lane 会读到
+  // 上一个 tile 或未初始化缓存，表现为分类层偶发多 spike。
   function automatic [8:0] calc_valid_count(input [31:0] full_dim,
                                             input [31:0] tile_base);
     logic [31:0] remaining;
@@ -100,6 +120,10 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
+  // 【架构注释：row-major flatten 地址公式】
+  // flat_idx 先拆成 channel 和 pixel，再拆 row/col，最后回到 fmap_sram 的
+  // (((row*W+col)*C+chan)*stream_words + timestep_word) 布局。这里保留公式化
+  // 写法，是为了让仿真路径和设计文档一眼能对上。
   function automatic [31:0] calc_word_addr(input int unsigned flat_idx,
                                            input [8:0] timestep);
     int unsigned c_eff;
@@ -124,6 +148,9 @@ module fmap_flatten_reader_v2
   endfunction
 
 `ifndef SYNTHESIS
+  // 【架构注释：仿真 cache 避免同一 32-bit word 重复读】
+  // 连续 timestep 落在同一个 req_timestep[8:5] 时，地址完全相同，只是取不同 bit。
+  // cache 不改变 valid/ready 协议，只让大规模 cosim 更快。
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state <= S_IDLE;
@@ -231,6 +258,12 @@ module fmap_flatten_reader_v2
     end
   end
 `else
+  // 【架构注释：ARM 分支综合路径预构建 flatten lane base 地址】
+  // 对同一个 flat_tile，256 个 lane 的 base word 与 timestep 无关，我先构建
+  // lane_base_addr_q，后续每个 timestep 只加 word_idx。这对 T_count 较大时有效，
+  // 代价是多一组 256 深度寄存器和 build 状态。
+  // TODO优化方向：如果 lane_base_addr_q 成为布线热点，可改成 E203 分支那种
+  // 直接用 flat_idx 计算/递增的 streaming 实现。
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state <= S_IDLE;
@@ -274,6 +307,9 @@ module fmap_flatten_reader_v2
           state <= S_CTX_PREP;
         end
 
+        // 【架构注释：综合路径预计算 row/col 步进】
+        // flat reader 的地址是连续 HWC，但跨列/跨行时仍要跳回正确 base。我把
+        // row_stride_words/col_stride_words 先算好，后续 build 表只做加法。
         S_CTX_PREP: begin
           row_wrap_delta_q <= row_stride_words_q
                             - $signed({1'b0, ((cfg_W_q - 16'd1) * col_stride_words_q[15:0])});
@@ -287,6 +323,9 @@ module fmap_flatten_reader_v2
           state <= S_BUILD_CTX;
         end
 
+        // 【架构注释：只构建当前 tile 需要的 256 个 lane】
+        // build_logical_idx_q 从 0 扫到 flat_dim，但只有 >=tile_base 的项写入表。
+        // 这样 tile_base 不必参与后续每个 timestep 的地址运算。
         S_BUILD_CTX: begin
           if (build_logical_idx_q >= flat_dim_q || build_fill_idx_q == 9'd256) begin
             state <= S_WAIT_REQ;
@@ -317,6 +356,10 @@ module fmap_flatten_reader_v2
           end
         end
 
+        // 【Corner case：ctx_valid 可以覆盖当前等待态配置】
+        // conv_ctrl_v2 会在每个 tile 发新 ctx。若 reader 正在 WAIT_REQ，说明上一条
+        // WL 已消费完，我允许新 ctx 覆盖旧 ctx；若正在读 SRAM，则不会接收新 ctx，
+        // 避免一次 response 里混入两个 tile 的地址。
         S_WAIT_REQ: begin
           if (ctx_valid) begin
             flat_tile_idx_q <= flat_tile_idx;
@@ -338,6 +381,9 @@ module fmap_flatten_reader_v2
           end
         end
 
+        // 【Corner case：综合路径 last tile zero-fill】
+        // lane_idx>=valid_count_q 时不读 SRAM，直接返回 0。否则超出 flat_dim 的地址
+        // 可能仍落在 fmap bank 内，读到上一层残留数据。
         S_PREP_LANE: begin
           if (lane_idx == 9'd256) begin
             state <= S_RESPOND;

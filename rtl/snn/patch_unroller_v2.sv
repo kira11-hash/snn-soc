@@ -2,9 +2,24 @@
 //======================================================================
 // patch_unroller_v2.sv
 //
-// Dynamic WL reader for CONV mode. A latched spatial/tile context plus a
-// per-timestep request yields one 256-bit word-line response gathered from
-// the 32-bit padded fmap layout.
+// 【我在 SoC 里的位置】
+// 我是 CONV 模式的动态 word-line reader，夹在 stage_engine_v2 和
+// fmap_sram_v2 之间。stage_engine 只知道“第 t 个 timestep 需要一条
+// 256-lane WL”，但不知道这个 WL 对应哪个 feature-map patch；我把
+// conv_ctrl_v2 给出的 {out_h,out_w,tile_idx,K,stride,pad,C_in,H,W,base}
+// 转换成最多 256 个 32-bit SRAM 读，再拼成 256-bit dyn_wl_resp_data。
+//
+// 【接口和数据流】
+// - ctx_valid/cfg_* 来自 conv_ctrl_v2，每个输出空间点、每个 KKC tile 更新一次。
+// - dyn_wl_req_* / dyn_wl_resp_* 接 stage_engine_v2，按 timestep 请求/返回。
+// - fmap_rd_* 接 fmap_sram_v2，读的是 32-bit padded stream word；我只取
+//   timestep[4:0] 那一 bit 作为当前 lane 的 spike。
+//
+// 【关键指标和取舍】
+// 目标 50 MHz 单时钟域，吞吐不是一拍一 WL，而是用小 FSM 顺序读 256 lane。
+// 这牺牲了单层峰值吞吐，但大幅降低 BRAM 端口需求：只用一个 32-bit read port
+// 就能服务 patch 提取。面试里我会强调这是 demo/FPGA 友好的选择；如果要做
+// 高吞吐 accelerator，应把 fmap SRAM 做多 bank 并并行读取多个 lane。
 //======================================================================
 module patch_unroller_v2
   import snn_soc_pkg::*;
@@ -42,6 +57,11 @@ module patch_unroller_v2
   input  logic [31:0] fmap_rd_data
 );
 
+  // 【架构注释：为什么用 FSM 顺序展开 patch】
+  // 一个 patch tile 涉及 K×K×C_in 个逻辑元素，还要处理 padding、last tile
+  // zero-fill 和 BRAM 1-cycle latency。用 FSM 可以把“算地址、发读、等数据、
+  // 写 response bit”拆开，避免在一个组合块里同时做除法、乘法、边界判断和
+  // 256-bit 拼接。代价是 latency 约等于有效 lane 数，但控制可验证、时序稳。
   typedef enum logic [3:0] {
     S_IDLE       = 4'd0,
     S_CTX_LATCH  = 4'd1,
@@ -79,6 +99,10 @@ module patch_unroller_v2
   assign fmap_rd_en              = (state == S_ISSUE_READ);
   assign fmap_rd_word_addr       = read_addr_q;
 
+  // 【Corner case：last tile 不满 256 lane】
+  // KKC 不一定是 256 的整数倍，最后一个 tile 之外的 lane 必须返回 0。
+  // 如果这里直接固定 256，stage_engine 会把 padding lane 当作真实输入参与 MAC，
+  // 对 C_in 较小或 K=3 的层影响特别明显，输出 spike 会比 golden 更密。
   function automatic [8:0] calc_valid_count(input [31:0] full_dim,
                                             input [31:0] tile_base);
     logic [31:0] remaining;
@@ -105,6 +129,11 @@ module patch_unroller_v2
     end
   endfunction
 
+  // 【架构注释：prep_lane 是 patch 地址语义的唯一入口】
+  // 我把 logical lane -> {channel,ky,kx,src_h,src_w,word_addr,bit_idx} 的映射
+  // 收在一个 task 里，是为了保证仿真快路径和综合路径使用同一套数学定义。
+  // padding 区域不读 SRAM，而是返回 should_read=0；这样 reader 不会为了边缘
+  // 像素访问负地址或越过 fmap 边界。
   task automatic prep_lane(
     output logic should_read,
     output logic [31:0] addr,
@@ -145,11 +174,22 @@ module patch_unroller_v2
   logic [4:0] lane_bit_idx;
 
 `ifndef SYNTHESIS
+  // 【架构注释：仿真 cache 只优化速度，不改变握手语义】
+  // unit/cosim 里连续请求多个 timestep 时，t[8:5] 相同代表同一个 32-bit word。
+  // 我把每个 lane 的 word 缓下来，下一次只换 bit_idx，不重复 256 次 SRAM 读。
+  // 这只在非综合路径启用，保证硬件资源模型不被仿真加速逻辑污染。
   logic [31:0] lane_word_cache [0:P_N_IN-1];
   logic        cache_valid;
   logic [3:0]  cache_word_idx;
   integer      cache_lane;
 `else
+  // 【架构注释：ARM 分支综合路径先构建 lane 表】
+  // 这里我先在 S_BUILD_CTX 中把 256 个 lane 是否有效、base word 地址算好，
+  // 后续每个 timestep 只做 base+word_idx。这能减少每个 timestep 的重复几何计算，
+  // 但会引入一组 256 深度的寄存器表和 build 状态，面积/时序之间是折中。
+  // TODO优化方向：如果综合 timing 卡在 lane_can_read_q/lane_base_addr_q 扇出，
+  // 可以参考 E203 分支的 streaming address generator，逐 lane 递增状态而不是
+  // 预先存完整表。
   logic        lane_can_read_q [0:P_N_IN-1];
   logic [31:0] lane_base_addr_q [0:P_N_IN-1];
   logic [8:0]  build_fill_idx_q;
@@ -235,6 +275,10 @@ module patch_unroller_v2
           end
         end
 
+        // 【Corner case：ctx_valid 只是一拍，但 reader 可能晚很多拍才收到 timestep】
+        // 我在 ctx_valid 时立即锁存所有 cfg，后续 WAIT_REQ 阶段即使 firmware 改写了
+        // 寄存器，也不会影响当前 stage_engine 正在消费的 patch。否则一次 CONV 运行中
+        // 软件写下一层配置会把当前地址生成打乱。
         S_CTX_LATCH: begin
           state <= S_WAIT_REQ;
         end
@@ -266,6 +310,9 @@ module patch_unroller_v2
           end
         end
 
+        // 【Corner case：padding lane 和 last tile lane 都必须显式写 0】
+        // response 是 256-bit 宽总线，未赋值 bit 会在仿真里变 X，在硬件里保留旧值。
+        // 所以无论是超出 valid_count，还是 pad 到 fmap 外，我都主动把对应 lane 置 0。
         S_PREP_LANE: begin
           if (cache_valid && cache_word_idx == req_timestep_q[8:5]) begin
             for (cache_lane = 0; cache_lane < P_N_IN; cache_lane = cache_lane + 1) begin
@@ -369,6 +416,9 @@ module patch_unroller_v2
           end
         end
 
+        // 【架构注释：综合路径先计算行/列 stride】
+        // 这些 stride 在一个 ctx 内不变，我先寄存下来，后面 build lane 表时只做递增。
+        // 如果每个 lane 都重新乘 cfg_W*cfg_C*stream_words，时序会被宽乘法拖住。
         S_CTX_LATCH: begin
           row_stride_words_q <= $signed({1'b0, (cfg_W_q * cfg_C_in_q * cfg_stream_words_q)});
           col_stride_words_q <= $signed({1'b0, (cfg_C_in_q * cfg_stream_words_q)});
@@ -402,6 +452,9 @@ module patch_unroller_v2
           state <= S_BUILD_CTX;
         end
 
+        // 【架构注释：构建 256 lane 地址表】
+        // 我只把当前 tile 覆盖到的最多 256 个 logical_idx 写入 lane 表，超出 full_dim
+        // 后立即停止。这样后续每个 timestep 可复用同一张表，适合 T_count 较大的层。
         S_BUILD_CTX: begin
           if (build_logical_idx_q >= full_dim_q || build_fill_idx_q == 9'd256) begin
             state <= S_WAIT_REQ;
@@ -462,6 +515,9 @@ module patch_unroller_v2
           end
         end
 
+        // 【Corner case：综合路径同样要 zero-fill 无效 lane】
+        // lane_can_read_q=false 代表 padding 区，lane_idx>=valid_count_q 代表 last tile
+        // 空洞。两者都不能发 SRAM 读，否则负坐标会经截断变成大正地址，引发 OOB。
         S_PREP_LANE: begin
           if (lane_idx == 9'd256) begin
             state <= S_RESPOND;
