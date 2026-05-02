@@ -1,3 +1,13 @@
 /out/
-/boot_rom/out/
-/silicon_bringup/out/
+# FW-C3 fix（2026-05-02 audit）：boot_rom 是流片 mask ROM 对象，golden bin/hex
+# 必须 git track 留 SHA 溯源。git 不支持先 exclude 父目录再 re-include 子文件，
+# 所以这里用 file-pattern 方式 exclude：boot_rom/out/ 下所有 .elf/.o/.map/.dump
+# 都忽略，但 .bin / .hex 保留。
+/boot_rom/out/*.elf
+/boot_rom/out/*.o
+/boot_rom/out/*.map
+/boot_rom/out/*.dump
+/silicon_bringup/out/*.elf
+/silicon_bringup/out/*.o
+/silicon_bringup/out/*.map
+/silicon_bringup/out/*.dump

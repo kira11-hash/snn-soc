@@ -476,7 +476,7 @@ set_output_delay 2.0 -clock clk [all_outputs]
 
 *初始版本：2026-01-30 / 最后更新：2026-03-21*
 
-**注意**：Phase 1–5 已全部完成，当前处于 Phase 6 综合后端阶段。以文末 **2026-03-31 Status Sync** 为当前状态真源。
+**注意**：Phase 1–5 已全部完成，当前处于 Phase 6 综合后端阶段。以文末 **2026-05-02 Status Sync** 为当前状态真源（覆盖 2026-03-31）。
 
 ## 2026-03-21 Status Sync（历史备份，已被上方 2026-03-31 节覆盖）
 
@@ -498,7 +498,51 @@ set_output_delay 2.0 -clock clk [all_outputs]
 - 综合 / PPA / 后端 P&R / DFT scan chain 插入 / STA 签核
 - 板级 bring-up：boot image 格式完善 / JTAG rescue 实测 / 真实 SPI Flash 验证
 
-## 2026-03-31 Status Sync（当前最新，以此为准）
+## 2026-05-02 Status Sync（当前最新，DOC-C5 audit 追加）
+
+### 已完成（自 03-31 sync 之后）
+
+- ✅ **Iteration 10**（2026-04-22 ~ 04-23）：CIM 编程 (cim_program_ctrl + cim_macro_arbiter +
+  prog_pulse_cfg) 完整集成；silicon_bringup firmware infra（PROG_CTRL.BYPASS_HANDSHAKE +
+  silicon_bringup.c + boot_rom + fpga_bringup_capture.sh）落地
+- ✅ **Iteration 11**（2026-04-24）：方案 α' 外部编程接口冻结；pad 总数从 48 升 55
+  （46 signal + 6 power + 3 ESD-reserved），新增 `prog_op[2:0]` + `prog_level[3:0]`
+  共 7 个 pad；boot_rom OOB / RETRY_LIMIT preserve / in-flight prog reg lock 三处加固
+- ✅ **alpha tag 板级冻结**：`main-fpga-e203-alpha-passed @ 2adc327b` 已通过
+  CIM_PROGRAM_CTRL（8 子测试）+ PROG_PULSE_CFG + PROG_INFLIGHT_LOCK + BOOT_ERASE_E2E
+  四个新 sim gate
+- ✅ **2026-05-02 pre-tape-out hard audit**（详见 doc/16_iteration_log.md Iter 13）：
+  抓出 9 BLOCKER + 15 CONCERN + 15 MINOR，5 个 scoped commit 全部修复 + push origin/main
+  - RTL B-1：chip_top BOOT_ROM_INIT_FILE 默认空 → 改 `fw/boot_rom/out/boot_rom.hex`
+  - RTL B-2：cim_program_ctrl level=0/15 verify 窗口漏判 → 32-bit clamp [0,255]
+  - FW B1：silicon_bringup 链接 0x0 → `link_app.ld` (0x1000)，与硅片 boot_rom 一致
+  - FW C4：silicon_bringup hang() 加 uart_wait_idle 防 PASS marker 末字节丢
+  - DOC B1：doc/06 prog_op 编码错（与 RTL 完全不一致）
+  - 等等（详见 commits 1572b434 / fbbf84e8 / c1fda8e8 / f3970cbb / 95966e9b）
+
+### 还未闭环的事项（Phase 6 后端 + 流片前 follow-up）
+
+- `chip_top` pad cell 实例化（工艺库 pad cell / ESD / drive strength / IO type 配置）
+- 综合 / PPA / 后端 P&R / DFT scan chain 插入 / STA 签核
+- silicon_bringup_tb 切换到 chip_top + ENABLE_BOOT_ROM=1（FW B1 fix 后 TB false-negative，
+  本次 audit 已切到 chip_top + stub ROM 路径）
+- BYPASS_HANDSHAKE efuse/lock 决策（die 上是否有 OTP）
+- DMA push 超时阈值（V2B_DMA_PUSH_TIMEOUT_CYCLES = 1M cycles，audit 加上后未做硅片测算）
+- 流片目标日期：2026-06-30
+
+### 风险评估
+
+- 数字 RTL 功能已冻结，pre-tape-out audit 已修 9 个 BLOCKER；剩余 follow-up 都是
+  validation / TB infra / fw 配套，不影响 RTL 冻结
+- JTAG rescue + boot_rom mask ROM 双路径提供硅上 bring-up 保险
+- CIM 模拟侧 pad 参数冻结于 doc/08 v3.0（2026-03-16），数字侧 2026-04-24 升 α'
+  已与模拟同学 handoff（详见 doc/17_cim_macro_handoff_cover.md）
+- silicon_bringup.elf 链接基址 fix（FW B1）后已自动重 build；硅片真实路径与 TB
+  路径在本 audit 后首次对齐
+
+---
+
+## 2026-03-31 Status Sync（已被 2026-05-02 节覆盖，保留作历史）
 
 ### 已完成
 

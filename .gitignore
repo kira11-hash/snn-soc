@@ -91,7 +91,13 @@ fpga_synth/
 tmp/
 .local_qa/
 # keep fw/silicon_bringup/out/silicon_bringup.hex tracked (golden artifact)
-fw/boot_rom/out/
+# FW-C3 fix（2026-05-02 audit）：boot_rom mask ROM 是流片对象，必须有 SHA 溯源。
+# git 不支持先 exclude 父目录再 re-include 子文件，所以用 file-pattern：
+# boot_rom/out/ 下中间产物（.elf/.o/.map/.dump）忽略，golden .bin/.hex track。
+fw/boot_rom/out/*.elf
+fw/boot_rom/out/*.o
+fw/boot_rom/out/*.map
+fw/boot_rom/out/*.dump
 fw/out/
 eassy-prompt/
 scripts/_patch_paper.py
