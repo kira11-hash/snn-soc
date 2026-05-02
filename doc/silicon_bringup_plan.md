@@ -279,6 +279,13 @@ if (req_wstrb[0] && !prog_inflight) prog_handshake_bypass <= req_wdata[3];
 
 **针对阶段 3（生产固件），强制实施**以下 readback assert 模式，不可省略：
 
+> **宏命名说明（audit-pass3 D-1 fix，2026-05-02）**：
+> 当前 codebase 唯一已实现的 BYPASS bit 宏是 `PROG_CTRL_BYPASS_MASK`，定义在
+> `fw/silicon_bringup/silicon_bringup.c:34`（局部 alias，含义 = `(1u << 3)`）。
+> 本模板使用同名宏以保证可直接编译。
+> 长远建议（CONCERN，未做）：把所有 `PROG_*` 寄存器宏迁移到统一的
+> `fw/include/soc_regs.h`，避免每个新固件文件重复定义并漂移。
+
 ```c
 /*
  * R-C9 audit fix（2026-05-02）：本 die 工艺不带 efuse / OTP cell，
@@ -289,7 +296,7 @@ if (req_wstrb[0] && !prog_inflight) prog_handshake_bypass <= req_wdata[3];
  */
 static void v2b_assert_no_bypass(void) {
     uint32_t v = *(volatile uint32_t *)PROG_CTRL;
-    if (v & PROG_CTRL_BYPASS_HANDSHAKE_MASK) {
+    if (v & PROG_CTRL_BYPASS_MASK) {  // bit[3], silicon bring-up only
         uart_puts("\n[FATAL] PROG_CTRL.BYPASS_HANDSHAKE=1 is FORBIDDEN in production\n");
         uart_puts("[FATAL] R-C9 policy violation — refusing to program any cell.\n");
         uart_puts("[FATAL] Halting CPU. Inspect firmware build and flash a clean image.\n");
@@ -325,9 +332,10 @@ void v2b_program_array(const uint8_t *weights, size_t n) {
 - [ ] **生产固件开发阶段**（V2 或后续）：建立 `fw/production/` 目录，所有 program
       / verify API 入口必须调用 `v2b_assert_no_bypass()`
 - [ ] **CI lint 守口**：在 `production/` 目录下用 grep 模式匹配，禁止任何
-      `*PROG_CTRL = ... | BYPASS_HANDSHAKE_MASK` 类的写法
-- [ ] **出货前 review**：生产固件 .elf 反汇编 grep `BYPASS_HANDSHAKE_MASK`，确认
-      所有出现都是 **read** + **assert 0**，没有任何 **write 1** 的指令序列
+      `*PROG_CTRL = ... | PROG_CTRL_BYPASS_MASK` 类的写法
+- [ ] **出货前 review**：生产固件 .elf 反汇编 grep `PROG_CTRL_BYPASS_MASK`（或
+      与之对应的立即数 `(1<<3)` / `0x08`），确认所有出现都是 **read** + **assert 0**，
+      没有任何 **write 1** 的指令序列
 
 ### 6.6 已知绕过路径（透明披露）
 
