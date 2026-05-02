@@ -196,7 +196,7 @@ module fw_cosim_resident_14x14_tb;
   task automatic sw_run_stage(
     input int in_dim, input int out_dim,
     input int threshold, input int sum_max,
-    input logic [1:0] input_src, input logic [1:0] output_dst
+    input logic [V2B_BUF_SEL_W-1:0] input_src, input logic [1:0] output_dst
   );
     logic [31:0] cfg3_val, sts;
     int g;
@@ -205,7 +205,7 @@ module fw_cosim_resident_14x14_tb;
       bus_write(A_STAGE_CFG1, threshold);
       bus_write(A_STAGE_CFG2, sum_max);
       cfg3_val = 0;
-      cfg3_val[1:0]  = input_src;
+      cfg3_val[V2B_BUF_SEL_W-1:0] = input_src;
       cfg3_val[9:8]  = output_dst;
       cfg3_val[17]   = 1'b1;
       bus_write(A_STAGE_CFG3, cfg3_val);

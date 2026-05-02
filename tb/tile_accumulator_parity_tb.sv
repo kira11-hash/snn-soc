@@ -50,9 +50,12 @@ module tile_accumulator_parity_tb;
   logic [T_AW-1:0] debug_t_idx;
   logic [15:0] cfg_in_dim, cfg_out_dim;
   logic [31:0] cfg_threshold, cfg_sum_max;
-  logic [1:0]  cfg_input_src, cfg_output_dst;
+  logic [V2B_BUF_SEL_W-1:0] cfg_input_src;
+  logic [1:0]               cfg_output_dst;
   logic cfg_tile_mode, cfg_is_tile_final, cfg_preserve_membrane;
   logic [15:0] cfg_t_count;
+  logic cfg_conv_mode = 1'b0;
+  logic cfg_flatten_mode = 1'b0;
 
   // ISR
   logic isr_rd_en;
@@ -153,6 +156,7 @@ module tile_accumulator_parity_tb;
     .cfg_input_src(cfg_input_src), .cfg_output_dst(cfg_output_dst),
     .cfg_tile_mode(cfg_tile_mode), .cfg_is_tile_final(cfg_is_tile_final),
     .cfg_preserve_membrane(cfg_preserve_membrane), .cfg_t_count(cfg_t_count),
+    .cfg_conv_mode(cfg_conv_mode), .cfg_flatten_mode(cfg_flatten_mode),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),

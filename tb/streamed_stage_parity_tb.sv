@@ -48,12 +48,14 @@ module streamed_stage_parity_tb;
   logic [15:0] cfg_out_dim   = OUT_DIM[15:0];
   logic [31:0] cfg_threshold = THRESHOLD;
   logic [31:0] cfg_sum_max   = SUM_MAX;
-  logic [1:0]  cfg_input_src  = V2B_BUF_SEL_INPUT_SRAM;
-  logic [1:0]  cfg_output_dst = V2B_BUF_SEL_STREAM_A;
+  logic [V2B_BUF_SEL_W-1:0] cfg_input_src  = V2B_BUF_SEL_INPUT_SRAM;
+  logic [1:0]               cfg_output_dst = V2B_BUF_SEL_STREAM_A;
   logic        cfg_tile_mode  = 1'b0;
   logic        cfg_is_tile_final = 1'b1;
   logic        cfg_preserve_membrane = 1'b0;
   logic [15:0] cfg_t_count = T[15:0];
+  logic        cfg_conv_mode = 1'b0;
+  logic        cfg_flatten_mode = 1'b0;
 
   // ── input_stream_sram wires ─────────────────────────────────────────
   logic                         isr_wr_en;
@@ -152,6 +154,7 @@ module streamed_stage_parity_tb;
     .cfg_input_src(cfg_input_src), .cfg_output_dst(cfg_output_dst),
     .cfg_tile_mode(cfg_tile_mode), .cfg_is_tile_final(cfg_is_tile_final),
     .cfg_preserve_membrane(cfg_preserve_membrane), .cfg_t_count(cfg_t_count),
+    .cfg_conv_mode(cfg_conv_mode), .cfg_flatten_mode(cfg_flatten_mode),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),

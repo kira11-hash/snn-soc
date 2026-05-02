@@ -220,7 +220,7 @@ module stage_engine_v2
   // 就能立刻知道这一轮被拒，不会误认为 stage 完成了。
   //
   // 【条件来源】
-  // 和 sequential 块 line 266-274 的验证条件完全镜像，两者任何时候
+  // 和 sequential 块里的 S_IDLE start_pulse 验证条件完全镜像，两者任何时候
   // 都必须保持一致（同一组组合输入 → 同一个 reject 决策）。
   // E2 fix（2026-05-02）：PATCH_UNROLLER / FMAP_FLATTEN 是 dynamic WL 源，
   // 必须 cfg_conv_mode=1 才能让 dyn_wl_req_valid 真正发出（见 line 179
@@ -349,7 +349,8 @@ module stage_engine_v2
             // also flag as invalid here, or vice versa). Keep in sync.
             if (cfg_in_dim == 0 || cfg_in_dim > 16'(P_N_IN) ||
                 cfg_out_dim == 0 || cfg_out_dim > 16'(P_N_OUT) ||
-                cfg_t_count == 0 || cfg_t_count > 16'(P_T_MAX)) begin
+                cfg_t_count == 0 || cfg_t_count > 16'(P_T_MAX) ||
+                cfg_input_src > V2B_BUF_SEL_FMAP_FLATTEN) begin
               err_code <= V2B_STAGE_ERR_DIM_OUT_OF_RANGE;
               done_pulse <= 1'b1;  // reject; config_ok=0 keeps next_state=S_IDLE
             end else if (cfg_input_src == cfg_output_dst &&
@@ -644,13 +645,17 @@ module stage_engine_v2
   endproperty
   assert property (SVA_STAGE_NO_SPIKE_ON_NONFINAL_TILE);
 
-  property SVA_STAGE_INPUT_SRC_WIDTH_VALID;
+  property SVA_STAGE_INPUT_SRC_OUT_OF_RANGE_REJECTED;
     @(posedge clk) disable iff (!rst_n)
-      cfg_input_src inside {V2B_BUF_SEL_INPUT_SRAM, V2B_BUF_SEL_STREAM_A,
-                            V2B_BUF_SEL_STREAM_B, V2B_BUF_SEL_OUTPUT_FIFO,
-                            V2B_BUF_SEL_PATCH_UNROLLER, V2B_BUF_SEL_FMAP_FLATTEN};
+      (start_pulse && (cfg_input_src > V2B_BUF_SEL_FMAP_FLATTEN) &&
+       (cfg_in_dim != 16'd0) && (cfg_in_dim <= 16'(P_N_IN)) &&
+       (cfg_out_dim != 16'd0) && (cfg_out_dim <= 16'(P_N_OUT)) &&
+       (cfg_t_count != 16'd0) && (cfg_t_count <= 16'(P_T_MAX)))
+      |=> (state == S_IDLE) &&
+          (err_code == V2B_STAGE_ERR_DIM_OUT_OF_RANGE) &&
+          done_pulse;
   endproperty
-  assert property (SVA_STAGE_INPUT_SRC_WIDTH_VALID);
+  assert property (SVA_STAGE_INPUT_SRC_OUT_OF_RANGE_REJECTED);
 `endif
 `endif
 
