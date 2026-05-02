@@ -256,212 +256,219 @@ FPGA_V2_E203_MULTILAYER_INFER_PASS
 
 The final PASS string is printed only after firmware compares all 100 spike counts with `golden_fashion10.expected_counts`.
 
-### 4.3bis 2026-05-02 LeNet-5 CONV Timing Closure Memo (`feature/v2-fpga-e203-conv`)
+### 4.3bis 2026-05-02 LeNet-5 CONV 时序收口备忘 (`feature/v2-fpga-e203-conv`)
 
-This addendum records the timing-closure changes that were needed when the
-same ZCU102 + E203 board path was extended from Fashion-14×14 FC-only smoke to
-native LeNet-5 CONV execution.
+这一节专门记录：当同一条 ZCU102 + E203 板级路径从 Fashion-14×14
+FC-only smoke 扩展到 **原生 LeNet-5 CONV 执行** 时，为了让 Vivado
+时序重新闭合，最终到底改了什么、为什么这些改动有效、以后如果再掉
+时序该从哪里开始查。
 
-**First important clarification**
+**先澄清一个最重要的点**
 
-- The scary negative slack in this episode was **setup slack (`WNS`)**, not
-  hold slack (`WHS`).
-- The worst initial report was `WNS=-10.200 ns` at 50 MHz. Hold was near zero
-  but still non-negative, so this was not a min-delay / skew / false-path bug.
-- That distinction matters because the fixes that work for a `WNS=-10 ns`
-  arithmetic chain are very different from the fixes for a true hold problem.
+- 当时真正出问题的是 **setup slack（`WNS`）**，不是 hold slack（`WHS`）。
+- 第一版原生 LeNet-5 实现的最坏结果是 `WNS=-10.200 ns` @ 50 MHz。
+- 同时 hold 基本贴近 0，但仍然是非负，所以这不是一个典型的 min-delay /
+  skew / false-path 问题。
+- 这个区分非常重要，因为 `WNS=-10 ns` 的长算术链，和真正 `WHS<0` 的
+  hold 问题，解决手法完全不同。这里不能拿“修 hold”的思路来套。
 
-**What the first failing report really said**
+**第一份失败 timing report 真正告诉了什么**
 
-- The first clean LeNet-5 build functionally synthesized, placed, and routed,
-  but `report_timing_summary` ended with:
+- 第一版 clean LeNet-5 设计在功能上已经能综合、布局、布线全部走完；
+  失败不是“设计炸了”，而是 **最终 timing signoff 没过**。
+- 第一份 `report_timing_summary` 结尾是：
   - `WNS=-10.200 ns`
   - `TNS=-1953.975 ns`
-  - `377` failing endpoints
-- The top violating path was:
-  - source: `u_soc/u_v2b/u_flatten_reader/cfg_C_q_reg[12]/C`
-  - destination: `u_soc/u_v2b/u_flatten_reader/read_addr_q_reg[31]/D`
-  - data path delay: `30.190 ns`
-  - logic levels: `144`
-- The key lesson from that first report was that the design was **not**
-  uniformly slow. The failure was already highly concentrated in one local
-  arithmetic cone inside `fmap_flatten_reader_v2.sv`.
+  - `377` 个 failing endpoints
+- 第一条最坏路径是：
+  - source:
+    `u_soc/u_v2b/u_flatten_reader/cfg_C_q_reg[12]/C`
+  - destination:
+    `u_soc/u_v2b/u_flatten_reader/read_addr_q_reg[31]/D`
+  - data path delay:
+    `30.190 ns`
+  - logic levels:
+    `144`
+- 这份报告最值得相信的一点是：**问题并不是“全局哪里都慢”**。一开始
+  就已经高度集中在 `fmap_flatten_reader_v2.sv` 的局部地址生成锥形逻辑里。
 
-**Why the original flatten path was bad**
+**为什么最初的 flatten 路径会这么差**
 
-- Flatten mode already enters the reader with a logical row-major index
-  `flat_idx` that corresponds to the `(h,w,c)` traversal order expected by the
-  fmap layout.
-- The old code still reconstructed that same information through:
+- flatten 模式进入 reader 时，手里其实已经有一个逻辑上的 row-major
+  线性索引 `flat_idx`。
+- 这个 `flat_idx` 本来就已经对应了 fmap layout 里需要的 `(h,w,c)`
+  遍历顺序。
+- 但旧实现又把这个索引重新“拆回去”，再“拼回来”：
   - `chan = flat_idx % C`
   - `pixel = flat_idx / C`
   - `row = pixel / W`
   - `col = pixel % W`
   - `linear_stream = (((row * W) + col) * C) + chan`
-- In other words, it decomposed a row-major index and then rebuilt the same
-  row-major index again, but now through a long chain of divide/mod/multiply
-  logic. Vivado mapped pieces of that arithmetic into DSP + carry chains, and
-  the address path became the top setup violator.
+- 也就是说，它先把一个 row-major 索引拆成 `chan/pixel/row/col`，
+  然后再通过 `/`、`%`、`*`、`+` 把同一个 row-major 索引再造一次。
+- Vivado 会把这类动态算术的一部分映射成 DSP，另一部分映射成 carry 链，
+  最终就形成了一条非常深的地址路径，于是它自然成了第一条 setup 违例。
 
-**Fix #1 — flatten reader linearization**
+**Fix #1：flatten reader 线性化**
 
-File: `rtl/snn/fmap_flatten_reader_v2.sv`
+文件：`rtl/snn/fmap_flatten_reader_v2.sv`
 
-- The redundant inverse mapping was deleted.
-- Address generation now directly uses the already-correct linear index:
-  `fmap_base + flat_idx * stream_words + (t >> 5)`.
-- This was the first decisive step because it removed the entire
-  `flat_idx -> chan/pixel/row/col -> linear_stream` detour.
-- After this change, the top hotspot moved away from `u_flatten_reader`, which
-  confirmed that the flatten arithmetic was the real cause of the original
-  `-10.200 ns` path.
+- 最直接的一刀，就是把上面那段冗余“反解再重建”逻辑整个删掉。
+- 最终地址公式改成直接使用已经正确的线性索引：
+  `fmap_base + flat_idx * stream_words + (t >> 5)`
+- 这一步的价值在于，它彻底消除了：
+  `flat_idx -> chan/pixel/row/col -> linear_stream`
+  这一大段绕路。
+- 改完后，最坏路径就不再停在 `u_flatten_reader` 里，说明原始
+  `-10.200 ns` 的主因确实就是 flatten 地址算术，而不是别的子系统。
 
-**Fix #2 — replace tiny generic multiplies with fixed shift/add**
+**Fix #2：把小范围乘法收成固定 shift/add**
 
-Files:
+文件：
 - `rtl/snn/fmap_flatten_reader_v2.sv`
 - `rtl/snn/patch_unroller_v2.sv`
 
-- `cfg_stream_words` is runtime-configurable but bounded very tightly:
-  `stream_words = ceil(T/32)` and current supported values are effectively
-  `1..8`.
-- Leaving `idx * cfg_stream_words_q` as a generic multiply gave Vivado freedom
-  to build needlessly heavy arithmetic.
-- The final code rewrites this into a fixed helper:
+- `cfg_stream_words` 虽然是 runtime 可配，但实际范围非常小：
+  `stream_words = ceil(T/32)`，当前有效值基本就是 `1..8`。
+- 如果把 `idx * cfg_stream_words_q` 原样留成通用乘法，Vivado 会有很大自由度
+  去合成比较重的算术实现。
+- 最终代码把它收成一个固定 helper：
   - `1*x`
   - `2*x`
   - `3*x = 2*x + x`
   - ...
   - `8*x = x << 3`
-- This is small RTL, but it matters because it constrains the synthesizer into
-  a short shift/add implementation instead of a more expensive general product.
+- 这个修改看起来“小”，但很关键，因为它等于强行告诉综合器：
+  这里不需要一般乘法，只需要短小的 shift/add。
 
-**What happened after flatten cleanup**
+**flatten 清掉之后发生了什么**
 
-- Once the flatten path was simplified, the worst setup path moved to
-  `u_patch_unroller`.
-- The intermediate bad path became:
-  - source: `u_soc/u_v2b/u_patch_unroller/cfg_C_in_q_reg[3]/C`
-  - destination: `u_soc/u_v2b/u_patch_unroller/init_klinear_q_reg[0]/D`
-  - data path delay: `20.938 ns`
-  - logic levels: `112`
-- This was valuable because it proved the overall architecture was close enough;
-  there was no reason to revisit clocks, MMCM, XDC, bridge timing, or unrelated
-  E203 logic. The remaining deficit was still arithmetic structure.
+- 当 flatten 路径被压下去后，最坏 setup 路径转移到了
+  `u_patch_unroller`。
+- 新的中间坏路径变成：
+  - source:
+    `u_soc/u_v2b/u_patch_unroller/cfg_C_in_q_reg[3]/C`
+  - destination:
+    `u_soc/u_v2b/u_patch_unroller/init_klinear_q_reg[0]/D`
+  - data path delay:
+    `20.938 ns`
+  - logic levels:
+    `112`
+- 这个阶段的信息非常有价值，因为它证明：
+  - 总体架构已经足够接近闭合
+  - 不需要回头重查 MMCM / clock tree / XDC / E203 bridge
+  - 仍然是 **局部地址算术结构** 在拖时序
 
-**Why the original patch-unroller path was bad**
+**为什么最初的 patch-unroller 路径也会很差**
 
-File: `rtl/snn/patch_unroller_v2.sv`
+文件：`rtl/snn/patch_unroller_v2.sv`
 
-- The synthesis path originally tried to solve the full patch index mapping in
-  one shot:
+- synthesis 路径最初想在一口气里把整个 patch index 求完：
   - `tile_base -> (k_linear, chan)`
   - `k_linear -> (ky, kx)`
-  - then `(ctx_h, ctx_w, ky, kx, chan)` back into `stream_base`
-- That means the same always block was asking Vivado to infer:
-  - dynamic quotient/remainder
-  - dynamic multiply/add
-  - dynamic bounds adjustment
-  - final fmap word address
-- For simulation this was fine. For 50 MHz FPGA timing, it produced another
-  deeply nested address cone with long carry propagation and several DSP stages.
+  - 再把 `(ctx_h, ctx_w, ky, kx, chan)` 组合回 `stream_base`
+- 换句话说，同一个 always block 在请求 Vivado 一次性推导：
+  - 动态商 / 余数
+  - 动态乘加
+  - 越界/边界修正
+  - 最终 fmap word address
+- 仿真上它没有问题，但对 50 MHz FPGA 来说，这相当于又造了一条很深的
+  地址算术锥，里面混合了长 carry 传播和多级 DSP。
 
-**Fix #3 — patch-unroller sequential initialization**
+**Fix #3：patch-unroller 初始化改成顺序化**
 
-File: `rtl/snn/patch_unroller_v2.sv`
+文件：`rtl/snn/patch_unroller_v2.sv`
 
-- The patch-unroller initialization was rewritten into a small setup FSM.
-- Instead of doing quotient/remainder arithmetic combinationally, the final
-  version:
-  - derives `init_klinear` / `init_chan` with sequential subtract steps
-  - derives `init_ky` / `init_kx` with another sequential subtract phase
-  - then seeds per-lane rolling state
-- The steady-state lane walk no longer re-solves the full decomposition every
-  cycle. It advances with incremental registers:
+- 最终收口真正起决定作用的一刀，是把 patch-unroller 初始化改成小 FSM。
+- 不再用组合逻辑一次性做商/余数，而是改成：
+  - `init_klinear` / `init_chan` 用顺序减法求出
+  - `init_ky` / `init_kx` 再用另一段顺序减法求出
+  - 然后只用这些结果去 seed 每个 lane 的滚动状态
+- 进入 steady-state 之后，每个 lane 不再重复解完整分解式，而是靠递推寄存器推进：
   - `cur_h`
   - `cur_w`
   - `cur_kx`
   - `cur_chan`
   - `stream_base`
-- This is the change that converted the remaining large negative slack into a
-  small negative slack, and then finally into positive margin.
-- Important tradeoff:
-  - latency increased slightly during patch initialization
-  - throughput / functional protocol stayed acceptable for board evidence
-  - setup timing improved enough to close the design cleanly
+- 这一步的本质是：把“每拍重新求全式”改成“初始化一次 + 后续递推”。
+- 它的代价是：
+  - patch 初始化 latency 稍微多几个 cycle
+- 但它的收益是：
+  - setup 路径长度显著下降
+  - 对 board evidence 的功能协议没有本质伤害
+  - 最终足以把负 slack 拉回正数
 
-**Fix #4 — shared functional preload fix carried over**
+**Fix #4：共享的 preload 真 bug 一并同步**
 
-File: `rtl/top/snn_soc_v2b_top.sv`
+文件：`rtl/top/snn_soc_v2b_top.sv`
 
-- The ARM-proven `CONV_FMAP_WR_CTRL.AUTO_INC` fix was ported into this branch:
-  the preload address increment is deferred to the next cycle instead of being
-  applied on the same commit cycle.
-- This change is first and foremost a correctness fix, not a timing fix, but
-  it belongs in the final LeNet branch because native CONV input preload
-  depends on it.
-- In practice it also helped keep the timing/debug loop honest: once preload
-  behavior matched ARM, any remaining failures could be treated as true E203 /
-  CONV timing or functionality issues rather than mixed preload corruption.
+- ARM 线上已经验证过的 `CONV_FMAP_WR_CTRL.AUTO_INC` 修复也一起同步到了这里：
+  preload 地址自增不再和 commit 同拍发生，而是延后一拍。
+- 这首先是一个功能正确性修复，不是为了 timing 才引入的。
+- 但它必须存在于 LeNet 最终版本里，因为 native CONV input preload
+  本身就依赖这条修复。
+- 从调试角度看，它也有额外好处：preload 行为和 ARM 一致之后，剩余失败就能更放心地
+  归因到 E203/CONV 路径，而不是“输入本来就被 preload 写歪了”。
 
-**Closure progression (actual sequence)**
+**实际的收口轨迹**
 
-- initial native LeNet-5 implementation:
+- 第一版 native LeNet-5：
   - `WNS=-10.200 ns`
-  - top path in `u_flatten_reader`
-- after flatten linearization + `stream_words` shift/add cleanup:
-  - top hotspot moved out of `u_flatten_reader`
-  - the critical path relocated to `u_patch_unroller`
-- after first patch-unroller cleanup:
+  - 顶级热点在 `u_flatten_reader`
+- 做完 flatten 线性化 + `stream_words` shift/add 后：
+  - 顶级热点从 `u_flatten_reader` 挪走
+  - 关键路径转移到 `u_patch_unroller`
+- 做完第一轮 patch-unroller 清理后：
   - `WNS=-0.697 ns`
-  - design was very close, and the worst path had narrowed to patch init math
-- after sequential subtract-based patch init rewrite:
+  - 这时已经非常接近，只差 patch init 那条初始化算术链
+- 把 patch init 改成顺序减法初始化后：
   - `WNS=+2.774 ns`
   - `TNS=0.000`
   - all user timing constraints met
-- final implementation produced:
-  - bitstream:
+- 最终产物：
+  - bitstream：
     `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit`
-  - UART board evidence:
+  - UART board evidence：
     `doc/v2-fpga-e203/board_bringup_log_lenet5.txt`
-  - final runtime tag:
+  - 最终 runtime tag：
     `FPGA_V2_E203_LENET5_PASS`
 
-**What did _not_ turn out to be the right first lever**
+**哪些方向事后证明不是第一优先级**
 
-- Rechecking MMCM / clock derivation
-- Rechecking E203 bus bridges
-- Rechecking board wrapper constraints
-- Chasing generic congestion without first reading the actual top path
+- 回头重查 MMCM / clock derivation
+- 回头重查 E203 bus bridges
+- 回头重查 board wrapper XDC
+- 还没读最坏路径就先泛泛地追“全局拥塞”
 
-Those are still legitimate suspects in other failures, but in this case they
-would have wasted time. The timing reports already pointed at local arithmetic
-cones, and the fastest path to closure was to believe that evidence.
+这些方向在别的问题里当然可能成立，但在这次收口里，如果一开始走这些方向，
+基本就是浪费时间。timing report 已经非常明确地把问题指向局部算术锥，
+最快的收口方式就是信它。
 
-**Practical reminder for future regressions**
+**以后再回归时的提醒**
 
-- If LeNet/VGG/Plain-CNN timing regresses again, inspect these in order:
+- 如果 LeNet / VGG / Plain-CNN 这类网络再次掉 timing，优先按这个顺序看：
   1. `rtl/snn/fmap_flatten_reader_v2.sv`
   2. `rtl/snn/patch_unroller_v2.sv`
   3. `rtl/snn/conv_ctrl_v2.sv`
-  4. large storage primitives still living in LUTRAM
-- Treat any reintroduction of wide dynamic `/`, `%`, or generic `*` on address
-  terms as suspicious by default.
-- If the next regression shows a path inside:
+  4. 仍然留在 LUTRAM 的大块存储
+- 只要在地址项上重新出现宽动态 `/`、`%`、通用 `*`，默认就要提高警惕。
+- 如果下一次新的最坏路径落在这些名字附近：
   - `full_dim`
   - `row_jump`
   - `stream_base`
   - `init_klinear`
   - `init_chan`
-  then first try restructuring / sequencing before touching clocks or XDC.
-- If arithmetic is already clean but congestion remains high, the next lever is
-  to revisit large LUTRAM users (`input_stream_sram`, `stream_buffer_v2`,
-  `tile_partial_buf`) and push more of them into BRAM/XPM.
-- Future self-check rule:
-  - do not trust "it must be global congestion"
-  - always read the first 5-10 worst paths and ask whether they are all the
-    same arithmetic motif
-  - if they are, solve that motif first
+  就优先考虑“拆结构 / 顺序化 / 递推化”，不要第一反应就去碰 clocks 或 XDC。
+- 如果算术已经收干净，但拥塞还是高，那么下一把最值得看的就是大 LUTRAM 用户：
+  - `input_stream_sram`
+  - `stream_buffer_v2`
+  - `tile_partial_buf`
+  可以考虑继续往 BRAM / XPM 推。
+- 给未来自己的一个强提醒：
+  - 不要先入为主地说“这一定是全局拥塞”
+  - 先把最坏 5 到 10 条路径读完
+  - 看它们是不是都在重复同一个算术 motif
+  - 如果是，就先解那个 motif，再考虑更外围的问题
 
 ## 5. Phase D — 封存
 
