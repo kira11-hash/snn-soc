@@ -1859,6 +1859,39 @@ if (row_bits & (1u << j)) counts_out[j] += 1;
 
 ### 21.2bis LeNet-5 CONV 固件（`feature/v2-fpga-e203-conv` 新增）
 
+#### 21.2bis.0 学习方法（先看这节再开始）
+
+本子节比 21.2 主体（Fashion-14×14 baseline）更"难啃"——多了 4 个 RTL 模块 + 15 个新寄存器 + 5 步软硬握手 + 5 层网络串流，第一遍读容易迷失。建议节奏：
+
+- **第 1 阶段（鸟瞰，1 小时）**：只看 21.2bis 顶部的 5 层调度方框图 + IMEM 容量表，不要陷进 RTL 细节，目标"能说出 LeNet-5 在 E203 + V2.B 上是怎么跑起来的（按层 5 步握手）"。
+- **第 2 阶段（读 RTL 顶部注释，1-2 小时）**：按下面给的**推荐阅读源码顺序**，依次浏览 4 个 .sv 文件**顶部的中文注释段**（`【我在 SoC 里的位置】/【接口和数据流】/【关键指标和取舍】`，本次 audit 专门为读者写的），不要看实现细节。
+- **第 3 阶段（精读握手协议 + worked example，2-3 小时）**：精读 21.2bis 的握手 C 代码 + §21.2bis.1 时序图，跟着 §21.2bis.2 worked example 走一遍 fc1 的 9 个 tile timeline。
+- **第 4 阶段（实战）**：跑一次 `bash fw/v2_e203_smoke/build_v2_e203_smoke.sh` + 烧板，对照 `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` 找 `tile_idx=0..8` 的 UART trace。
+
+#### 21.2bis.0.1 推荐阅读源码顺序（**按依赖从下到上**）
+
+```
+1. rtl/snn/fmap_sram_v2.sv            ← 最底层 primitive（双 bank ping-pong 32-bit SRAM）
+                ↓
+2. rtl/snn/patch_unroller_v2.sv       ← CONV 模式动态 WL reader（256 lane 顺序读）
+                ↓
+3. rtl/snn/fmap_flatten_reader_v2.sv  ← CONV→FC 过渡 reader（row-major flatten）
+                ↓
+4. rtl/snn/stage_engine_v2.sv         ← 看新增的 dyn_wl_req/resp 协议 + cfg_conv_mode 入口
+                ↓
+5. rtl/snn/conv_ctrl_v2.sv            ← 最顶层 orchestrator（FSM + 5 步握手 + writeback packer）
+                ↓
+6. rtl/top/snn_soc_v2b_top.sv 中 0x084-0x0BC 寄存器 decode + conv_ctrl_v2 实例化
+                ↓
+7. fw/src/v2b_conv_scheduler.c        ← firmware 侧 5 步握手实现（与 ARM 路径字节级共享）
+                ↓
+8. fw/v2_e203_smoke/src/v2_e203_lenet5_main.c  ← E203 端 main，调用 v2b_run_lenet5_demo
+```
+
+每个文件先看**顶部中文注释段**——本次 V2 audit 专门写了 `【我在 SoC 里的位置】/【接口和数据流】/【关键指标和取舍】` 三段，目的就是让读者不必先读完所有实现就能掌握模块意图。
+
+---
+
 LeNet-5 路径的 firmware 入口是 `fw/v2_e203_smoke/src/v2_e203_lenet5_main.c`，调度核心是 `fw/src/v2b_conv_scheduler.c`（FW 侧 portable C，可被 ARM 路径与 E203 路径同时复用），在 E203 build 中通过 `fw/v2_e203_smoke/src/v2b_conv_scheduler_e203.c` 这层薄壳直接 `#include` 进来：
 
 ```c
@@ -1901,6 +1934,146 @@ v2b_wait_conv_done(&status);
 ```
 
 每次 weight 请求都由 conv FSM 产生（不同输出像素需要不同 tile 的权重，所以是逐 patch 握手而不是一次性全装），`v2b_switch_sparse_tile` 内部带 `(layer, tile)` 缓存，命中时跳过重复装载。
+
+#### 21.2bis.1 5 步握手时序图（必须看懂）
+
+下图把 firmware（E203 CPU）/ conv_ctrl_v2 FSM / patch_unroller_v2 / stage_engine_v2 / fmap_sram_v2 五个角色之间的交互画清楚。conv 层每次执行一个空间点（h, w）的所有 tile：
+
+```
+firmware                conv_ctrl_v2 FSM             patch_unroller / fmap_flatten   stage_engine_v2          fmap_sram_v2
+(E203)                  (CONV 主控)                  reader                          (CIM MAC + LIF)         (ping-pong)
+   │                         │                              │                            │                         │
+   │ STEP 1: 写 cfg          │                              │                            │                         │
+   │ CONV_CFG_HW/C/K/...     │                              │                            │                         │
+   │────────────────────────▶│ S_IDLE                       │                            │                         │
+   │                         │                              │                            │                         │
+   │ STEP 2: 清 DONE         │                              │                            │                         │
+   │ CONV_STATUS = DONE_MASK │                              │                            │                         │
+   │────────────────────────▶│                              │                            │                         │
+   │                         │                              │                            │                         │
+   │ STEP 3: START           │                              │                            │                         │
+   │ CONV_CTRL = START       │                              │                            │                         │
+   │────────────────────────▶│ S_VALIDATE → S_SPATIAL_INIT  │                            │                         │
+   │                         │ (h=0,w=0,tile=0)             │                            │                         │
+   │                         │                              │                            │                         │
+   │                         │ S_WAIT_WEIGHT                │                            │                         │
+   │                         │ weight_req <= 1              │                            │                         │
+   │ ◀────────────────────── │                              │                            │                         │
+   │ STEP 4 loop: 看到        │                              │                            │                         │
+   │ WEIGHT_REQ rising        │                              │                            │                         │
+   │ ┌─────────────────┐     │                              │                            │                         │
+   │ │ load 256×C_out  │     │                              │                            │                         │
+   │ │ weights via     │     │                              │                            │                         │
+   │ │ MAC_W_LOAD_*    │     │                              │                            │                         │
+   │ └─────────────────┘     │                              │                            │                         │
+   │                         │                              │                            │                         │
+   │ CONV_CTRL = WEIGHT_READY│                              │                            │                         │
+   │────────────────────────▶│ S_CTX_ISSUE                  │                            │                         │
+   │                         │ ctx_valid <= 1               │                            │                         │
+   │                         │ patch_ctx_h/w/tile_idx       │                            │                         │
+   │                         │─────────────────────────────▶│ S_CTX_LATCH                │                         │
+   │                         │                              │ S_CTX_PREP/S_BUILD_CTX     │                         │
+   │                         │                              │                            │                         │
+   │                         │ S_STAGE_START                │                            │                         │
+   │                         │ stage_start_pulse           │                            │                         │
+   │                         │─────────────────────────────────────────────────────────▶│ S_SETUP                  │
+   │                         │                              │                            │                         │
+   │                         │ S_STAGE_WAIT                 │                            │ T loop 内每 timestep:    │
+   │                         │                              │ dyn_wl_req_valid           │ S_READ_WL                 │
+   │                         │                              │◀────────────────────────── │                          │
+   │                         │                              │                            │                         │
+   │                         │                              │ ── 256 次 fmap_rd_en ────────────────────────────────▶│
+   │                         │                              │ ◀── fmap_rd_data ─────────────────────────────────────│
+   │                         │                              │ 拼成 256-bit WL            │                         │
+   │                         │                              │ dyn_wl_resp_valid         │ S_DYN_WAIT → S_MAC_*     │
+   │                         │                              │ ───────────────────────────▶ MAC + LIF (if final tile)│
+   │                         │                              │                            │                         │
+   │                         │                              │                            │ done_pulse              │
+   │                         │ ◀──────────────────────────────────────────────────────── │                         │
+   │                         │ S_STAGE_DONE                 │                            │                         │
+   │                         │                              │                            │                         │
+   │                         │ S_WRITEBACK (final tile only)│                            │                         │
+   │                         │ packer + fmap_wr_*          │                            │                         │
+   │                         │──────────────────────────────────────────────────────────────────────────────────────▶│
+   │                         │                              │                            │                         │
+   │                         │ S_SPATIAL_NEXT               │                            │                         │
+   │                         │ tile<tile_count? S_WAIT_W   │                            │                         │
+   │                         │ : (h,w)<out? S_SPATIAL_INIT │                            │                         │
+   │                         │ : S_DONE                    │                            │                         │
+   │                         │                              │                            │                         │
+   │ STEP 5: 等 DONE          │                              │                            │                         │
+   │ poll CONV_STATUS.BUSY=0  │ ── done_sticky <= 1 ──       │                            │                         │
+   │ 然后查 ERR              │                              │                            │                         │
+   │◀────────────────────────│                              │                            │                         │
+```
+
+**几个面试高频追问**：
+
+1. **为什么 STEP 4 必须 tile-by-tile 而不是一次装完所有 tile 的 weights？**
+   答：CIM 的物理 weight 存储是 `256 lane × C_out`，**只能装一个 tile**。
+   多 tile 层（如 fc1，input_dim=2304 = 9×256）必须每 tile 切换前重新装权重。
+   FW + RTL 用 `WEIGHT_REQ/WEIGHT_READY` 握手把这个权重 install 步骤显式化。
+
+2. **为什么不让 conv_ctrl 自己控制 weight install（而要 firmware 介入）？**
+   答：weight 数据存放在 firmware 端（E203 IMEM），RTL 没办法自己取。
+   且 sparse 权重格式（lane / out_c / packed pos+neg 4-bit）需要软件 unpack
+   才能写到现有 `MAC_W_LOAD_*` 寄存器。所以握手只能由 firmware 主控。
+
+3. **stage_engine 在 T loop 里每个 timestep 都要重新发 dyn_wl_req 吗？**
+   答：是的。patch_unroller / flatten_reader 内部有 lane cache（同一 word
+   位置不同 timestep 共享 fmap_sram 读结果），但 stage_engine 看到的接口
+   是"每 timestep 一条新 256-bit WL"。这种解耦让 stage_engine 不需要
+   感知 conv 的 fmap 结构。
+
+#### 21.2bis.2 worked example：fc1 9 个 tile 的 timeline
+
+LeNet-5 fc1 是 2304 → 120 全连接，input_dim=2304 / 256 = **9 个 tile**。来看
+firmware（E203）+ conv_ctrl_v2 + stage_engine_v2 配合跑完一个 fc1 的过程：
+
+```
+T=0       firmware 写 STAGE_CFG1/2 (threshold/sum_max)
+T+几拍    firmware 写 CONV_CFG_TILE = (tile_count=9, last_valid=2304-256*8=256)
+T+几拍    firmware 写 CONV_MODE_CFG = (EN=1, FLATTEN_MODE=1)
+T+1       firmware 清 DONE：CONV_STATUS = DONE_MASK
+T+2       firmware 写 START：CONV_CTRL = 0x1 (W1P)
+T+3..    conv_ctrl_v2 进 S_VALIDATE → S_SPATIAL_INIT (cur_tile=0)
+         conv_ctrl_v2 进 S_WAIT_WEIGHT，weight_req 拉高
+         firmware 在 polling 循环里看到 WEIGHT_REQ rising
+         firmware 调 v2b_switch_sparse_tile(layer, tile_idx=0)：
+              通过 MAC_W_LOAD_* 寄存器把 fc1 tile 0 的 sparse 权重
+              （offsets[0]..offsets[1] 之间的 (lane, out_c, packed) triples）
+              逐个写入 CIM weight memory
+         firmware 写 CONV_CTRL = WEIGHT_READY
+         conv_ctrl_v2 看到 weight_ready_pulse，weight_req 清零，进 S_CTX_ISSUE
+         conv_ctrl_v2 → fmap_flatten_reader_v2 发 ctx_valid + flat_tile_idx=0
+         conv_ctrl_v2 → stage_engine_v2 发 stage_start_pulse + cfg_input_src=FMAP_FLATTEN
+                       + cfg_in_dim=256, cfg_is_tile_final=0（不是最后 tile）
+         stage_engine_v2 进 T loop（10 个 timestep × 256 lane × 1 partial 累加）
+                       不发 LIF（is_tile_final=0），写到 tile_partial_buf[t][j]
+         stage_engine_v2 发 done_pulse → conv_ctrl_v2 进 S_SPATIAL_NEXT
+         conv_ctrl_v2 看 cur_tile<tile_count（0<9），cur_tile++ → 回到 S_WAIT_WEIGHT
+                                                                   ─┐
+         ... 重复 8 次（tile=1..8）...                                │
+         tile=8 时 cfg_is_tile_final=1，cfg_in_dim=256（last_valid）  │
+         stage_engine 在第 8 个 tile 的 LIF 阶段对 tile_partial_buf  ◀┘
+                       做最终阈值比较，emit 120 个 spike（10 timestep × 120 neuron）
+         conv_ctrl_v2 进 S_WRITEBACK，packer 把这 120×10 spike 按 32-bit
+                       padded layout 写到 fmap_sram_v2 反 bank（FLATTEN 模式
+                       不写 fmap，直接进 stream_buffer 给下一层 fc2 用）
+         conv_ctrl_v2 进 S_DONE，done_sticky <= 1
+T+大量    firmware polling CONV_STATUS.BUSY=0 + DONE=1，进入 fc2 调度。
+```
+
+**关键观察**：
+- 9 次 WAIT_WEIGHT_REQ 是这层延迟的主要来源（每次 firmware 切 tile 几百拍，E203 比 ARM 慢一个数量级是正常的）
+- 只有 last tile (tile=8) 才发 LIF + writeback；前 8 个 tile 只累加到 tile_partial_buf
+- FLATTEN 模式下 conv_ctrl 不调用 patch_unroller，而是用 fmap_flatten_reader（同样的 dyn_wl_req/resp 协议接口）
+
+跟着这条 timeline 看一遍 `fw/src/v2b_conv_scheduler.c` 的 `v2b_run_conv_layer`
++ board UART log（搜 `tile_idx=0..8` 或 `[TB] conv weight-ready req=...`），
+你应该能完整匹配上每一步。
+
+---
 
 **E203 IMEM 64 KB 容量约束如何应对**
 
