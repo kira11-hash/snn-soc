@@ -3,29 +3,7 @@
 
 #include <stdint.h>
 
-// ---------------------------------------------------------------------------
-// PROG_* register aliases (not in soc_regs.h; mirror silicon_bringup.c)
-// ---------------------------------------------------------------------------
-#define PROG_CTRL   (*(volatile uint32_t *)(REG_BANK_BASE + 0x38u))
-#define PROG_ROW    (*(volatile uint32_t *)(REG_BANK_BASE + 0x3Cu))
-#define PROG_COL    (*(volatile uint32_t *)(REG_BANK_BASE + 0x40u))
-#define PROG_STATUS (*(volatile uint32_t *)(REG_BANK_BASE + 0x44u))
-
-#define PROG_CTRL_START_MASK      (1u << 0)
-#define PROG_CTRL_ERASE_MASK      (1u << 1)
-#define PROG_CTRL_FULL_ARRAY_MASK (1u << 2)
-// CTRL low byte mask: covers START/ERASE/FULL_ARRAY/BYPASS/LEVEL[3:0].
-// Used in read-modify-write so RETRY_LIMIT (bits[10:8]) is preserved.
-#define PROG_CTRL_LOW_MASK        0xFFu
-
-#define PROG_STATUS_BUSY_MASK         (1u << 0)
-#define PROG_STATUS_PASS_MASK         (1u << 1)
-#define PROG_STATUS_FAIL_MASK         (1u << 2)
-// 2026-04-25: PROG_STATUS[6] is RO PROG_FSM_PRESENT — high if cim_program_ctrl
-// is instantiated (ENABLE_PROGRAM_MODE=1 build). Lets fw skip the cycle-bound
-// probe and avoid races where a fast op completes before BUSY is observed.
-#define PROG_STATUS_FSM_PRESENT_MASK  (1u << 6)
-#define PROG_STATUS_DONE_MASK         (1u << 7)
+// PROG_* register aliases moved to soc_regs.h (audit-pass4 M-2).
 
 // Long enough to cover one 1 ms erase pulse @ 50 MHz plus generous slack.
 #define BOOT_ERASE_POLL_TIMEOUT 0x02000000u

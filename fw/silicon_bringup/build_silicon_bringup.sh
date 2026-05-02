@@ -41,6 +41,25 @@ if [ -n "${UART_BAUD_DIV_OVERRIDE:-}" ]; then
   CFLAGS_EXTRA+=("-DUART_BAUD_DIV=${UART_BAUD_DIV_OVERRIDE}")
 fi
 
+# audit-pass4 M-1: SOURCE_DATE_EPOCH-aware build id.
+#   - default: "frozen" → identical .hex on every machine; tracked golden
+#     stays clean across rebuilds, no daily churn from __DATE__.
+#   - opt-in:  set SOURCE_DATE_EPOCH (e.g. `git log -1 --format=%ct` of the
+#     commit that's about to ship) to embed a real YYYY-MM-DD instead.
+# The C side falls back to "frozen" via #ifndef when this is absent, so the
+# binary still links if you compile by hand without the wrapper script.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+  if SBR_BUILD_ID=$(date -u -d "@${SOURCE_DATE_EPOCH}" "+%Y-%m-%d" 2>/dev/null); then
+    :
+  else
+    SBR_BUILD_ID="frozen"
+  fi
+else
+  SBR_BUILD_ID="frozen"
+fi
+CFLAGS_EXTRA+=("-DSILICON_BRINGUP_BUILD_ID=\"${SBR_BUILD_ID}\"")
+echo "[INFO] silicon_bringup build_id='${SBR_BUILD_ID}' (set SOURCE_DATE_EPOCH to override)"
+
 # BLOCKER FW-B1 fix（2026-05-02 audit）：silicon_bringup 必须链到 0x1000 而非
 # 0x0。流片 chip_top 配置 ENABLE_BOOT_ROM=1，物理 INSTR_SRAM 基址被 mask ROM
 # 占用 0x0..0xFFF 抢去，移到 0x1000；操作手册 doc/silicon_bringup_guide.md +
