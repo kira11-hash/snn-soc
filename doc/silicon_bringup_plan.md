@@ -279,12 +279,11 @@ if (req_wstrb[0] && !prog_inflight) prog_handshake_bypass <= req_wdata[3];
 
 **针对阶段 3（生产固件），强制实施**以下 readback assert 模式，不可省略：
 
-> **宏命名说明（audit-pass3 D-1 fix，2026-05-02）**：
-> 当前 codebase 唯一已实现的 BYPASS bit 宏是 `PROG_CTRL_BYPASS_MASK`，定义在
-> `fw/silicon_bringup/silicon_bringup.c:34`（局部 alias，含义 = `(1u << 3)`）。
-> 本模板使用同名宏以保证可直接编译。
-> 长远建议（CONCERN，未做）：把所有 `PROG_*` 寄存器宏迁移到统一的
-> `fw/include/soc_regs.h`，避免每个新固件文件重复定义并漂移。
+> **宏命名说明（audit-pass4 M-2，2026-05-02）**：
+> `PROG_CTRL_BYPASS_MASK`（含义 `(1u << 3)`）以及其他 `PROG_*` 寄存器/位域
+> 宏现已集中在 `fw/include/soc_regs.h`（pass4 之前是各固件文件局部 alias，
+> 容易漂移；pass4 M-2 完成迁移）。生产固件直接 `#include "soc_regs.h"`
+> 即可使用本模板，无需自己定义。
 
 ```c
 /*
