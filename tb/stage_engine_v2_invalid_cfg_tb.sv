@@ -55,9 +55,13 @@ module stage_engine_v2_invalid_cfg_tb;
   logic [T_AW-1:0] dbg_t;
   logic [15:0] cfg_in_dim, cfg_out_dim;
   logic [31:0] cfg_threshold, cfg_sum_max;
-  logic [1:0]  cfg_input_src, cfg_output_dst;
+  logic [V2B_BUF_SEL_W-1:0] cfg_input_src;
+  logic [1:0]               cfg_output_dst;
   logic        cfg_tile_mode, cfg_is_tile_final, cfg_preserve_membrane;
   logic [15:0] cfg_t_count;
+  // E2 fix（2026-05-02）：cfg_conv_mode/cfg_flatten_mode 显式驱动，T9 reject case
+  // 需要把 cfg_conv_mode=0 + cfg_input_src=PATCH 组合送进 DUT。
+  logic        cfg_conv_mode, cfg_flatten_mode;
 
   // Buffers (stubbed to minimal behavior; we only care about FSM reject)
   logic isr_rd_en;
@@ -94,6 +98,7 @@ module stage_engine_v2_invalid_cfg_tb;
     .cfg_input_src(cfg_input_src), .cfg_output_dst(cfg_output_dst),
     .cfg_tile_mode(cfg_tile_mode), .cfg_is_tile_final(cfg_is_tile_final),
     .cfg_preserve_membrane(cfg_preserve_membrane), .cfg_t_count(cfg_t_count),
+    .cfg_conv_mode(cfg_conv_mode), .cfg_flatten_mode(cfg_flatten_mode),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),
@@ -141,6 +146,8 @@ module stage_engine_v2_invalid_cfg_tb;
       cfg_is_tile_final     = 1'b1;
       cfg_preserve_membrane = 1'b0;
       cfg_t_count           = 16'd4;
+      cfg_conv_mode         = 1'b0;
+      cfg_flatten_mode      = 1'b0;
     end
   endtask
 
@@ -258,6 +265,22 @@ module stage_engine_v2_invalid_cfg_tb;
     cfg_input_src  = V2B_BUF_SEL_STREAM_A;
     cfg_output_dst = V2B_BUF_SEL_STREAM_A;
     check_reject("T7 src==dst==STREAM_A", V2B_STAGE_ERR_SRC_DST_CONFLICT);
+
+    // ── T9 (E2 fix, 2026-05-02): PATCH_UNROLLER + cfg_conv_mode=0 必须 reject ──
+    // 旧版守口只检查 cfg_input_src 在编码范围内，不强制 cfg_conv_mode 一致性；
+    // 这种组合下 dyn_wl_req_valid 永远拉不起来，FSM 进 S_DYN_WAIT 静默挂死。
+    set_base_cfg();
+    cfg_input_src  = V2B_BUF_SEL_PATCH_UNROLLER;
+    cfg_conv_mode  = 1'b0;
+    check_reject("T9 PATCH_UNROLLER+conv_mode=0",
+                 V2B_STAGE_ERR_DYN_SRC_NEEDS_CONV_MODE);
+
+    // ── T10 (E2 fix, 2026-05-02): FMAP_FLATTEN + cfg_conv_mode=0 必须 reject ──
+    set_base_cfg();
+    cfg_input_src  = V2B_BUF_SEL_FMAP_FLATTEN;
+    cfg_conv_mode  = 1'b0;
+    check_reject("T10 FMAP_FLATTEN+conv_mode=0",
+                 V2B_STAGE_ERR_DYN_SRC_NEEDS_CONV_MODE);
 
     // ── T8: Valid config AFTER all rejects must still work (non-wedge proof) ──
     // If the bug were still present, prior rejects would have entered S_SETUP

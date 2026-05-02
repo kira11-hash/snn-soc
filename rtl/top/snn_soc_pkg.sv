@@ -326,6 +326,11 @@ package snn_soc_pkg;
   parameter logic [7:0] V2B_STAGE_ERR_TILE_BUF_UNAVAILABLE = 8'h03;
   parameter logic [7:0] V2B_STAGE_ERR_CIM_NOT_READY        = 8'h04;
   parameter logic [7:0] V2B_STAGE_ERR_DIM_OUT_OF_RANGE     = 8'h05;
+  // PATCH_UNROLLER / FMAP_FLATTEN 这两个 dynamic WL 源必须在 cfg_conv_mode=1
+  // 才合法。CPU 误把 cfg_input_src 设到 PATCH/FLATTEN 但忘记打开 cfg_conv_mode
+  // 时，stage_engine 必须立刻 reject 这一轮，避免 FSM 在 dyn_wl_resp 永远拿不到
+  // 数据的状态下静默卡死。
+  parameter logic [7:0] V2B_STAGE_ERR_DYN_SRC_NEEDS_CONV_MODE = 8'h06;
 
 endpackage
 /* verilator lint_on UNUSEDPARAM */

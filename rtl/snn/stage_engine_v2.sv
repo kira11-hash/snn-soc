@@ -222,12 +222,24 @@ module stage_engine_v2
   // 【条件来源】
   // 和 sequential 块 line 266-274 的验证条件完全镜像，两者任何时候
   // 都必须保持一致（同一组组合输入 → 同一个 reject 决策）。
+  // E2 fix（2026-05-02）：PATCH_UNROLLER / FMAP_FLATTEN 是 dynamic WL 源，
+  // 必须 cfg_conv_mode=1 才能让 dyn_wl_req_valid 真正发出（见 line 179
+  // 的 dynamic_input_sel 组合表达式）。如果 CPU 误配 cfg_input_src=PATCH/FLATTEN
+  // 但 cfg_conv_mode=0，旧版 config_ok 不拦，FSM 会跑到 S_DYN_WAIT 永远等不到
+  // resp，外部看到 busy=1 长时间挂死。本守口在 IDLE 阶段就 reject。
+  logic dyn_src_needs_conv_mode_violated;
+  assign dyn_src_needs_conv_mode_violated =
+      ((cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER) ||
+       (cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)) &&
+      (cfg_conv_mode == 1'b0);
+
   logic config_ok;
   assign config_ok =
       (cfg_in_dim  != 16'd0) && (cfg_in_dim  <= 16'(P_N_IN))  &&
       (cfg_out_dim != 16'd0) && (cfg_out_dim <= 16'(P_N_OUT)) &&
       (cfg_t_count != 16'd0) && (cfg_t_count <= 16'(P_T_MAX)) &&
       (cfg_input_src <= V2B_BUF_SEL_FMAP_FLATTEN) &&
+      !dyn_src_needs_conv_mode_violated &&
       !(cfg_input_src == cfg_output_dst &&
         cfg_output_dst != V2B_BUF_SEL_OUTPUT_FIFO);
 
@@ -344,6 +356,12 @@ module stage_engine_v2
                          cfg_output_dst != V2B_BUF_SEL_OUTPUT_FIFO) begin
               err_code <= V2B_STAGE_ERR_SRC_DST_CONFLICT;
               done_pulse <= 1'b1;  // reject; config_ok=0 keeps next_state=S_IDLE
+            end else if (dyn_src_needs_conv_mode_violated) begin
+              // E2 fix（2026-05-02）：PATCH/FLATTEN 是 dynamic WL 源，必须
+              // cfg_conv_mode=1。否则 FSM 进 S_DYN_WAIT 后 dyn_wl_req_valid
+              // 因 dynamic_input_sel=0 永远不会拉高，stage_engine 会静默挂死。
+              err_code <= V2B_STAGE_ERR_DYN_SRC_NEEDS_CONV_MODE;
+              done_pulse <= 1'b1;
             end else begin
               err_code <= V2B_STAGE_ERR_OK;
               busy <= 1'b1;
@@ -547,6 +565,34 @@ module stage_engine_v2
       (cfg_conv_mode == 1'b0) |-> (dyn_wl_req_valid == 1'b0);
   endproperty
   assert property (SVA_DYN_WL_FC_NO_REQ);
+
+  // E2 fix（2026-05-02）：CPU 误把 cfg_input_src 设到 PATCH/FLATTEN 但忘开
+  // cfg_conv_mode 时，FSM 必须在 IDLE→SETUP 跳转处 reject。本 SVA 检查的是
+  // 这种非法组合下 FSM 不能进入正常运行态（S_SETUP / S_READ_WL），应当回到
+  // S_IDLE 并立刻 done_pulse + err=DYN_SRC_NEEDS_CONV_MODE。
+  property SVA_DYN_SRC_NEEDS_CONV_MODE_REJECTED;
+    @(posedge clk) disable iff (!rst_n)
+      (start_pulse && !cfg_conv_mode &&
+       ((cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER) ||
+        (cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)))
+      |=> (state == S_IDLE);
+  endproperty
+  assert property (SVA_DYN_SRC_NEEDS_CONV_MODE_REJECTED);
+
+  property SVA_DYN_SRC_NEEDS_CONV_MODE_ERR_CODE;
+    @(posedge clk) disable iff (!rst_n)
+      (start_pulse && !cfg_conv_mode &&
+       ((cfg_input_src == V2B_BUF_SEL_PATCH_UNROLLER) ||
+        (cfg_input_src == V2B_BUF_SEL_FMAP_FLATTEN)) &&
+       (cfg_in_dim != 16'd0) && (cfg_in_dim <= 16'(P_N_IN)) &&
+       (cfg_out_dim != 16'd0) && (cfg_out_dim <= 16'(P_N_OUT)) &&
+       (cfg_t_count != 16'd0) && (cfg_t_count <= 16'(P_T_MAX)) &&
+       !(cfg_input_src == cfg_output_dst &&
+         cfg_output_dst != V2B_BUF_SEL_OUTPUT_FIFO))
+      |=> (err_code == V2B_STAGE_ERR_DYN_SRC_NEEDS_CONV_MODE) &&
+          done_pulse;
+  endproperty
+  assert property (SVA_DYN_SRC_NEEDS_CONV_MODE_ERR_CODE);
 
   property SVA_DYN_WL_STALL_FREEZE_TIMESTEP;
     @(posedge clk) disable iff (!rst_n)

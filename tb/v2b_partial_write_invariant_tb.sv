@@ -7,12 +7,10 @@
 //
 // Origin:
 //   feature/v2-arm-fpga-demo audit, GPT F1 (RE-BURN: YES). The full AXI
-//   path TB lives at tb/v2b_axi_partial_write_tb.sv on v2-arm-fpga-demo;
-//   that TB needs the AXI plumbing stack (axi2simple_bridge,
-//   simple2v2btop_adapter, v2b_axi_wrapper). This stripped-down TB drives
-//   snn_soc_v2b_top.cmd_* directly so the same byte-mask invariant is
-//   guarded on branches that don't carry the AXI stack (v2,
-//   feature/v2-fpga-e203, etc).
+//   path TB lives at tb/v2b_axi_partial_write_tb.sv and proves PS-facing
+//   WSTRB propagation through v2b_axi_wrapper. This stripped-down TB drives
+//   snn_soc_v2b_top.cmd_* directly so the core W1P/W1C byte-mask invariant
+//   remains guarded independently of any wrapper or bus-stack changes.
 //
 // Invariants tested (must all PASS on a fixed RTL; any FAIL means
 // snn_soc_v2b_top regressed back to ignoring cmd_wstrb):
@@ -25,8 +23,31 @@
 //   T7 STAGE_CTRL byte1-only write must NOT clear DONE W1C
 //   T8 STAGE_CTRL byte0 write with wdata[7]=1 MUST clear DONE W1C
 //
+// B2 扩展（2026-05-02）：CONV register byte-mask 守口（覆盖 0x084-0x0BC 段）
+//   T9  CONV_CTRL byte1-only 不得触发 START / ABORT / WEIGHT_READY W1P
+//   T10 CONV_CTRL byte0 wdata[0]=1 触发 reg_conv_start_pulse
+//   T11 CONV_CTRL byte0 wdata[1]=1 触发 reg_conv_abort_pulse
+//   T12 CONV_CTRL byte0 wdata[2]=1 触发 reg_conv_weight_ready_pulse
+//   T13 CONV_STATUS byte1-only wdata[1]=1 不得清 DONE W1C
+//   T14 CONV_STATUS byte0 wdata[1]=1 触发 reg_conv_done_clear_pulse
+//   T15 CONV_FMAP_WR_CTRL byte1-only wdata[0]=1 不得触发 commit pulse
+//   T16 CONV_FMAP_WR_CTRL byte0 wdata[0]=1 触发 reg_conv_fmap_wr_commit_pulse
+//   T17 CONV_MODE_CFG byte0 部分写保留高位 byte
+//   T18 CONV_CFG_HW byte slice merge 保留高半字
+//   T19 CONV_CFG_C byte slice merge 保留低半字
+//   T20 CONV_CFG_K_S_P byte slice merge
+//   T21 CONV_CFG_OUT_HW byte slice merge
+//   T22 CONV_CFG_T byte slice merge
+//   T23 CONV_CFG_TILE byte slice merge
+//   T24 CONV_CFG_FMAP_BASE byte slice merge
+//   T25 CONV_CFG_OUT_BASE byte slice merge
+//   T26 CONV_FMAP_WR_DATA byte slice merge
+//   T27 CONV_FMAP_WR_ADDR byte slice merge
+//
 // On the pre-fix RTL (v2-arm-fpga-demo-passed @ 8e51ae27), T1/T3/T4/T5
-// fail; on the post-fix RTL all invariant checks PASS.
+// fail; on the post-fix RTL all invariant checks PASS. The B2 cases above
+// must also PASS — any FAIL means the CONV register decode lost its
+// apply_wstrb() guard or W1P/W1C bits stopped honoring wstrb[0].
 //======================================================================
 module v2b_partial_write_invariant_tb;
 
@@ -37,6 +58,21 @@ module v2b_partial_write_invariant_tb;
   localparam logic [11:0] O_STAGE_CFG0      = 12'h008;
   localparam logic [11:0] O_STAGE_CFG1      = 12'h00C;
   localparam logic [11:0] O_STREAM_BUF_CTRL = 12'h060;
+  // B2 扩展：CONV 段（与 snn_soc_v2b_top.sv 的 A_CONV_* localparam 同步）
+  localparam logic [11:0] O_CONV_MODE_CFG      = 12'h084;
+  localparam logic [11:0] O_CONV_CFG_HW        = 12'h088;
+  localparam logic [11:0] O_CONV_CFG_C         = 12'h08C;
+  localparam logic [11:0] O_CONV_CFG_K_S_P     = 12'h090;
+  localparam logic [11:0] O_CONV_CFG_OUT_HW    = 12'h094;
+  localparam logic [11:0] O_CONV_CFG_T         = 12'h098;
+  localparam logic [11:0] O_CONV_CFG_TILE      = 12'h09C;
+  localparam logic [11:0] O_CONV_CFG_FMAP_BASE = 12'h0A0;
+  localparam logic [11:0] O_CONV_CFG_OUT_BASE  = 12'h0A4;
+  localparam logic [11:0] O_CONV_CTRL          = 12'h0A8;
+  localparam logic [11:0] O_CONV_STATUS        = 12'h0AC;
+  localparam logic [11:0] O_CONV_FMAP_WR_DATA  = 12'h0B0;
+  localparam logic [11:0] O_CONV_FMAP_WR_ADDR  = 12'h0B4;
+  localparam logic [11:0] O_CONV_FMAP_WR_CTRL  = 12'h0BC;
 
   logic clk = 1'b0;
   logic rst_n = 1'b0;
@@ -58,6 +94,12 @@ module v2b_partial_write_invariant_tb;
   integer clear_a_count = 0;
   integer clear_b_count = 0;
   integer clear_tile_count = 0;
+  // B2 扩展：CONV W1P / W1C pulse 监视
+  integer conv_start_pulse_count = 0;
+  integer conv_abort_pulse_count = 0;
+  integer conv_weight_ready_pulse_count = 0;
+  integer conv_done_clear_pulse_count = 0;
+  integer conv_fmap_wr_commit_pulse_count = 0;
 
   snn_soc_v2b_top #(
     .P_ENABLE_TILE_BUF(1'b1),
@@ -75,13 +117,23 @@ module v2b_partial_write_invariant_tb;
     .rsp_rdata  (rsp_rdata)
   );
 
-  // Probe internal pulses to detect spurious W1P firing
+  // Probe internal pulses to detect spurious W1P firing.
   always @(posedge clk) begin
     if (rst_n) begin
-      if (dut.reg_start_pulse)        start_pulse_count <= start_pulse_count + 1;
-      if (dut.reg_buf_clear_a)        clear_a_count     <= clear_a_count + 1;
-      if (dut.reg_buf_clear_b)        clear_b_count     <= clear_b_count + 1;
-      if (dut.reg_buf_clear_tile)     clear_tile_count  <= clear_tile_count + 1;
+      if (dut.reg_start_pulse)    start_pulse_count <= start_pulse_count + 1;
+      if (dut.reg_buf_clear_a)    clear_a_count     <= clear_a_count + 1;
+      if (dut.reg_buf_clear_b)    clear_b_count     <= clear_b_count + 1;
+      if (dut.reg_buf_clear_tile) clear_tile_count  <= clear_tile_count + 1;
+      if (dut.reg_conv_start_pulse)
+        conv_start_pulse_count        <= conv_start_pulse_count + 1;
+      if (dut.reg_conv_abort_pulse)
+        conv_abort_pulse_count        <= conv_abort_pulse_count + 1;
+      if (dut.reg_conv_weight_ready_pulse)
+        conv_weight_ready_pulse_count <= conv_weight_ready_pulse_count + 1;
+      if (dut.reg_conv_done_clear_pulse)
+        conv_done_clear_pulse_count   <= conv_done_clear_pulse_count + 1;
+      if (dut.reg_conv_fmap_wr_commit_pulse)
+        conv_fmap_wr_commit_pulse_count <= conv_fmap_wr_commit_pulse_count + 1;
     end
   end
 
@@ -148,27 +200,24 @@ module v2b_partial_write_invariant_tb;
     rst_n = 1'b1;
     repeat (5) @(posedge clk);
 
-    // Seed CFG1 with a known full-word
+    // Seed CFG1 with a known full-word.
     do_write(O_STAGE_CFG1, 32'hAABBCCDD, 4'b1111);
 
-    // ─── T1 STAGE_CTRL byte1-only write must NOT trigger START ─────
-    // wstrb=4'b0010, wdata[0]=1. Pre-fix RTL ignored wstrb -> START fires.
-    // Post-fix gate by cmd_wstrb[0] -> no pulse.
+    // T1: STAGE_CTRL byte1-only write must NOT trigger START.
     start_pulse_count = 0;
     do_write(O_STAGE_CTRL, 32'h0000_0001, 4'b0010);
     repeat (3) @(posedge clk);
     check_int("T1 STAGE_CTRL byte1-only must not fire START",
               start_pulse_count, 0);
 
-    // ─── T2 STAGE_CTRL byte0 write with wdata[0]=1 MUST trigger ────
+    // T2: STAGE_CTRL byte0 write with wdata[0]=1 MUST trigger.
     start_pulse_count = 0;
     do_write(O_STAGE_CTRL, 32'h0000_0001, 4'b0001);
     repeat (3) @(posedge clk);
     check_int("T2 STAGE_CTRL byte0 START W1P fires",
               start_pulse_count, 1);
 
-    // ─── T3 STAGE_CFG1 byte-merge keeps untouched bytes ───────────
-    // Re-seed then partial-write byte0 only.
+    // T3: STAGE_CFG1 byte-merge keeps untouched bytes.
     do_write(O_STAGE_CFG1, 32'hAABBCCDD, 4'b1111);
     do_write(O_STAGE_CFG1, 32'h0000_00EE, 4'b0001);
     begin : t3_check
@@ -178,7 +227,7 @@ module v2b_partial_write_invariant_tb;
               rd, 32'hAABBCCEE);
     end
 
-    // ─── T4 STAGE_CFG0 byte-mask preserves unwritten half-word ────
+    // T4: STAGE_CFG0 byte-mask preserves unwritten half-word.
     do_write(O_STAGE_CFG0, 32'h11223344, 4'b1111);
     do_write(O_STAGE_CFG0, 32'h00AA0000, 4'b0100);
     begin : t4_check
@@ -188,18 +237,17 @@ module v2b_partial_write_invariant_tb;
               rd, 32'h11AA3344);
     end
 
-    // ─── T5 STREAM_BUF_CTRL byte1-only must NOT fire byte0 pulses ─
+    // T5: STREAM_BUF_CTRL byte1-only must NOT fire byte0 pulses.
     clear_a_count = 0;
     clear_b_count = 0;
     clear_tile_count = 0;
-    // wdata[3:1]=111 but wstrb says only byte1 is being written
     do_write(O_STREAM_BUF_CTRL, 32'h0000_000E, 4'b0010);
     repeat (3) @(posedge clk);
     check_int("T5 STREAM byte1-only no clear_a", clear_a_count, 0);
     check_int("T5 STREAM byte1-only no clear_b", clear_b_count, 0);
     check_int("T5 STREAM byte1-only no clear_tile", clear_tile_count, 0);
 
-    // ─── T6 STREAM_BUF_CTRL byte0 write fires pulses ──────────────
+    // T6: STREAM_BUF_CTRL byte0 write fires pulses.
     clear_a_count = 0;
     clear_b_count = 0;
     clear_tile_count = 0;
@@ -209,7 +257,7 @@ module v2b_partial_write_invariant_tb;
     check_int("T6 STREAM byte0 wdata[2] fires clear_b", clear_b_count, 1);
     check_int("T6 STREAM byte0 wdata[3] fires clear_tile", clear_tile_count, 1);
 
-    // ─── T7/T8 STAGE_CTRL DONE W1C must obey byte0 wstrb ───────────
+    // T7/T8: STAGE_CTRL DONE W1C must obey byte0 wstrb.
     dut.done_sticky = 1'b1;
     repeat (1) @(posedge clk);
     do_write(O_STAGE_CTRL, 32'h0000_0080, 4'b0010);
@@ -228,7 +276,185 @@ module v2b_partial_write_invariant_tb;
               rd & 32'h0000_0080, 32'h0000_0000);
     end
 
-    // ─── Result ────────────────────────────────────────────────────
+    //========================================================================
+    // B2 扩展（2026-05-02）：CONV register byte-mask 守口
+    //========================================================================
+
+    // ── T9: CONV_CTRL byte1-only 不得触发任何 W1P pulse ──
+    conv_start_pulse_count        = 0;
+    conv_abort_pulse_count        = 0;
+    conv_weight_ready_pulse_count = 0;
+    do_write(O_CONV_CTRL, 32'h0000_0007, 4'b0010);
+    repeat (3) @(posedge clk);
+    check_int("T9 CONV_CTRL byte1-only no START",
+              conv_start_pulse_count, 0);
+    check_int("T9 CONV_CTRL byte1-only no ABORT",
+              conv_abort_pulse_count, 0);
+    check_int("T9 CONV_CTRL byte1-only no WEIGHT_READY",
+              conv_weight_ready_pulse_count, 0);
+
+    // ── T10: CONV_CTRL byte0 wdata[0]=1 触发 START ──
+    conv_start_pulse_count = 0;
+    do_write(O_CONV_CTRL, 32'h0000_0001, 4'b0001);
+    repeat (3) @(posedge clk);
+    check_int("T10 CONV_CTRL byte0 wdata[0] fires START",
+              conv_start_pulse_count, 1);
+
+    // ── T11: CONV_CTRL byte0 wdata[1]=1 触发 ABORT ──
+    conv_abort_pulse_count = 0;
+    do_write(O_CONV_CTRL, 32'h0000_0002, 4'b0001);
+    repeat (3) @(posedge clk);
+    check_int("T11 CONV_CTRL byte0 wdata[1] fires ABORT",
+              conv_abort_pulse_count, 1);
+
+    // ── T12: CONV_CTRL byte0 wdata[2]=1 触发 WEIGHT_READY ──
+    conv_weight_ready_pulse_count = 0;
+    do_write(O_CONV_CTRL, 32'h0000_0004, 4'b0001);
+    repeat (3) @(posedge clk);
+    check_int("T12 CONV_CTRL byte0 wdata[2] fires WEIGHT_READY",
+              conv_weight_ready_pulse_count, 1);
+
+    // ── T13: CONV_STATUS byte1-only 不得触发 DONE_CLEAR ──
+    conv_done_clear_pulse_count = 0;
+    do_write(O_CONV_STATUS, 32'h0000_0002, 4'b0010);
+    repeat (3) @(posedge clk);
+    check_int("T13 CONV_STATUS byte1-only no DONE_CLEAR",
+              conv_done_clear_pulse_count, 0);
+
+    // ── T14: CONV_STATUS byte0 wdata[1]=1 触发 DONE_CLEAR ──
+    conv_done_clear_pulse_count = 0;
+    do_write(O_CONV_STATUS, 32'h0000_0002, 4'b0001);
+    repeat (3) @(posedge clk);
+    check_int("T14 CONV_STATUS byte0 wdata[1] fires DONE_CLEAR",
+              conv_done_clear_pulse_count, 1);
+
+    // ── T15: CONV_FMAP_WR_CTRL byte1-only 不得触发 commit pulse ──
+    conv_fmap_wr_commit_pulse_count = 0;
+    do_write(O_CONV_FMAP_WR_CTRL, 32'h0000_0001, 4'b0010);
+    repeat (3) @(posedge clk);
+    check_int("T15 CONV_FMAP_WR_CTRL byte1-only no commit",
+              conv_fmap_wr_commit_pulse_count, 0);
+
+    // ── T16: CONV_FMAP_WR_CTRL byte0 wdata[0]=1 触发 commit ──
+    conv_fmap_wr_commit_pulse_count = 0;
+    do_write(O_CONV_FMAP_WR_CTRL, 32'h0000_0001, 4'b0001);
+    repeat (3) @(posedge clk);
+    check_int("T16 CONV_FMAP_WR_CTRL byte0 wdata[0] fires commit",
+              conv_fmap_wr_commit_pulse_count, 1);
+
+    // ── T17: CONV_MODE_CFG byte0 部分写保留高位 byte ──
+    do_write(O_CONV_MODE_CFG, 32'h0000_000F, 4'b0001);  // seed: all 4 bits set
+    do_write(O_CONV_MODE_CFG, 32'hFF00_0000, 4'b1000);  // 写 byte3 (会被 28'h0 mask 掉)
+    begin : t17_check
+      logic [31:0] rd;
+      do_read(O_CONV_MODE_CFG, rd);
+      // RTL 把 reg_conv_mode/flatten/pp_sel/timeout_en 拼回 [3:0]，高位是 28'h0
+      check32("T17 CONV_MODE_CFG byte3 write masked off (high reads as 0)",
+              rd, 32'h0000_000F);
+    end
+
+    // ── T18: CONV_CFG_HW byte slice merge 保留高半字 ──
+    do_write(O_CONV_CFG_HW, 32'hAABB1122, 4'b1111);
+    do_write(O_CONV_CFG_HW, 32'h0000_0033, 4'b0001);
+    begin : t18_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_HW, rd);
+      check32("T18 CONV_CFG_HW byte0 merge keeps high 24 bits",
+              rd, 32'hAABB1133);
+    end
+
+    // ── T19: CONV_CFG_C byte slice merge 保留低半字 ──
+    do_write(O_CONV_CFG_C, 32'hCCDD3344, 4'b1111);
+    do_write(O_CONV_CFG_C, 32'hEE00_0000, 4'b1000);
+    begin : t19_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_C, rd);
+      check32("T19 CONV_CFG_C byte3 merge keeps low 24 bits",
+              rd, 32'hEEDD3344);
+    end
+
+    // ── T20: CONV_CFG_K_S_P byte slice merge ──
+    do_write(O_CONV_CFG_K_S_P, 32'h0000_0FFF, 4'b1111);  // K=F, stride=F, pad=F
+    do_write(O_CONV_CFG_K_S_P, 32'h0000_0007, 4'b0001);  // 仅低 byte 改成 K=7,stride=0,pad=0
+    begin : t20_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_K_S_P, rd);
+      // RTL 仅保留 [3:0]K [7:4]stride [11:8]pad（其余 20'h0 mask）
+      check32("T20 CONV_CFG_K_S_P byte0 merge keeps pad in byte1",
+              rd, 32'h0000_0F07);
+    end
+
+    // ── T21: CONV_CFG_OUT_HW byte slice merge ──
+    do_write(O_CONV_CFG_OUT_HW, 32'h1234_5678, 4'b1111);
+    do_write(O_CONV_CFG_OUT_HW, 32'h0000_0099, 4'b0001);
+    begin : t21_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_OUT_HW, rd);
+      check32("T21 CONV_CFG_OUT_HW byte0 merge",
+              rd, 32'h1234_5699);
+    end
+
+    // ── T22: CONV_CFG_T byte slice merge ──
+    do_write(O_CONV_CFG_T, 32'h0000_ABCD, 4'b1111);
+    do_write(O_CONV_CFG_T, 32'h0000_00EF, 4'b0001);
+    begin : t22_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_T, rd);
+      // RTL 高 16 bit hard-zero
+      check32("T22 CONV_CFG_T byte0 merge keeps low byte of T",
+              rd, 32'h0000_ABEF);
+    end
+
+    // ── T23: CONV_CFG_TILE byte slice merge ──
+    do_write(O_CONV_CFG_TILE, 32'hAAAA_BBBB, 4'b1111);
+    do_write(O_CONV_CFG_TILE, 32'h00CC_0000, 4'b0100);
+    begin : t23_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_TILE, rd);
+      check32("T23 CONV_CFG_TILE byte2 merge",
+              rd, 32'hAACC_BBBB);
+    end
+
+    // ── T24: CONV_CFG_FMAP_BASE byte slice merge ──
+    do_write(O_CONV_CFG_FMAP_BASE, 32'h1111_2222, 4'b1111);
+    do_write(O_CONV_CFG_FMAP_BASE, 32'h0000_3300, 4'b0010);
+    begin : t24_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_FMAP_BASE, rd);
+      check32("T24 CONV_CFG_FMAP_BASE byte1 merge",
+              rd, 32'h1111_3322);
+    end
+
+    // ── T25: CONV_CFG_OUT_BASE byte slice merge ──
+    do_write(O_CONV_CFG_OUT_BASE, 32'h3333_4444, 4'b1111);
+    do_write(O_CONV_CFG_OUT_BASE, 32'h5500_0000, 4'b1000);
+    begin : t25_check
+      logic [31:0] rd;
+      do_read(O_CONV_CFG_OUT_BASE, rd);
+      check32("T25 CONV_CFG_OUT_BASE byte3 merge",
+              rd, 32'h5533_4444);
+    end
+
+    // ── T26: CONV_FMAP_WR_DATA byte slice merge ──
+    do_write(O_CONV_FMAP_WR_DATA, 32'hDEAD_BEEF, 4'b1111);
+    do_write(O_CONV_FMAP_WR_DATA, 32'h0000_0011, 4'b0001);
+    begin : t26_check
+      logic [31:0] rd;
+      do_read(O_CONV_FMAP_WR_DATA, rd);
+      check32("T26 CONV_FMAP_WR_DATA byte0 merge",
+              rd, 32'hDEAD_BE11);
+    end
+
+    // ── T27: CONV_FMAP_WR_ADDR byte slice merge ──
+    do_write(O_CONV_FMAP_WR_ADDR, 32'h7777_8888, 4'b1111);
+    do_write(O_CONV_FMAP_WR_ADDR, 32'h00AA_0000, 4'b0100);
+    begin : t27_check
+      logic [31:0] rd;
+      do_read(O_CONV_FMAP_WR_ADDR, rd);
+      check32("T27 CONV_FMAP_WR_ADDR byte2 merge",
+              rd, 32'h77AA_8888);
+    end
+
     repeat (5) @(posedge clk);
     $display("");
     $display("=== Results: %0d PASS, %0d FAIL ===", pass_count, fail_count);
