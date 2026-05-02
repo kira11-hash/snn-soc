@@ -89,12 +89,28 @@ fw/v2_e203_smoke/
 fpga_synth/
 .Xil/
 tmp/
+.local_qa/
 # keep fw/silicon_bringup/out/silicon_bringup.hex tracked (golden artifact)
 fw/boot_rom/out/
 fw/out/
 eassy-prompt/
 scripts/_patch_paper.py
 iter_*_CongestedCLBsAndNets.txt
+# 工作区噪音清单（2026-05-02 audit）：本地工具 / 跨支线泄漏 / 一次性脚本，
+# 与 V1 流片路径无关，不进 main 历史。
+fw/arm/
+local_qa/
+tests/
+requirements-local-qa.txt
+scripts/gen_paper_en.py
+doc/local_qa_assistant.md
+doc/GPT_audit_prompt_*.md
+doc/GPT_review_prompt_*.md
+sim/v2b_partial_write_invariant_test
+sim/*_test
+nul
+__pycache__/
+**/.pytest_cache/
 
 # Python modeling generated artifacts
 项目相关文件/器件对齐/Python建模/results/*
