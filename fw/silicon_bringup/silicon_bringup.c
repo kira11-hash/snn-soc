@@ -20,24 +20,14 @@
 #include "../include/uart_printf.h"
 #include <stdint.h>
 
-// ---------------------------------------------------------------------------
-// PROG_* register aliases (not in soc_regs.h; mirror e203_fpga_smoke.c)
-// ---------------------------------------------------------------------------
-#define PROG_CTRL   (*(volatile uint32_t *)(REG_BANK_BASE + 0x38u))
-#define PROG_ROW    (*(volatile uint32_t *)(REG_BANK_BASE + 0x3Cu))
-#define PROG_COL    (*(volatile uint32_t *)(REG_BANK_BASE + 0x40u))
-#define PROG_STATUS (*(volatile uint32_t *)(REG_BANK_BASE + 0x44u))
+// PROG_* register aliases moved to soc_regs.h (audit-pass4 M-2).
 
-#define PROG_CTRL_START_MASK      (1u << 0)
-#define PROG_CTRL_ERASE_MASK      (1u << 1)
-#define PROG_CTRL_FULL_ARRAY_MASK (1u << 2)
-#define PROG_CTRL_BYPASS_MASK     (1u << 3)  // New bit (2026-04-23)
-#define PROG_CTRL_LEVEL_SHIFT     4u
-
-#define PROG_STATUS_BUSY_MASK (1u << 0)
-#define PROG_STATUS_PASS_MASK (1u << 1)
-#define PROG_STATUS_FAIL_MASK (1u << 2)
-#define PROG_STATUS_DONE_MASK (1u << 7)
+// audit-pass4 M-1: build id is injected by build_silicon_bringup.sh so the
+// emitted .hex stays byte-reproducible by default. Set SOURCE_DATE_EPOCH in
+// the env (e.g. to the git commit ctime) to embed a real date instead.
+#ifndef SILICON_BRINGUP_BUILD_ID
+#define SILICON_BRINGUP_BUILD_ID "frozen"
+#endif
 
 // ---------------------------------------------------------------------------
 // Self-test parameters
@@ -102,7 +92,7 @@ static void hang(void) {
 // ---------------------------------------------------------------------------
 int main(void) {
     uart_init(UART_BAUD_DIV);
-    uart_printf("\nSILICON_BRINGUP_START v1 build=%s\n", __DATE__);
+    uart_printf("\nSILICON_BRINGUP_START v1 build=%s\n", SILICON_BRINGUP_BUILD_ID);
 
     // --------------------------------------------------------------------
     // Stage A — Digital inference datapath via REG_CIM_TEST (test_mode=1)

@@ -37,6 +37,17 @@
 #define REG_STATUS         (*(volatile uint32_t *)(REG_BANK_BASE + 0x18u))
 #define CIM_CTRL           (*(volatile uint32_t *)(REG_BANK_BASE + 0x14u))
 
+/* CIM programming registers (only present when ENABLE_PROGRAM_MODE=1).
+ * Authoritative offsets: doc/02_reg_map.md / CLAUDE.md "CIM 编程寄存器".
+ * Centralized in soc_regs.h (audit-pass4 M-2) so silicon_bringup.c / main.c /
+ * e203_fpga_smoke.c stop carrying their own drift-prone aliases. */
+#define PROG_CTRL          (*(volatile uint32_t *)(REG_BANK_BASE + 0x38u))
+#define PROG_ROW           (*(volatile uint32_t *)(REG_BANK_BASE + 0x3Cu))
+#define PROG_COL           (*(volatile uint32_t *)(REG_BANK_BASE + 0x40u))
+#define PROG_STATUS        (*(volatile uint32_t *)(REG_BANK_BASE + 0x44u))
+#define PROG_PULSE_WIDTH   (*(volatile uint32_t *)(REG_BANK_BASE + 0x90u))
+#define PROG_ERASE_WIDTH   (*(volatile uint32_t *)(REG_BANK_BASE + 0x94u))
+
 #define DMA_SRC_ADDR       (*(volatile uint32_t *)(DMA_BASE + 0x00u))
 #define DMA_LEN_WORDS      (*(volatile uint32_t *)(DMA_BASE + 0x04u))
 #define DMA_CTRL           (*(volatile uint32_t *)(DMA_BASE + 0x08u))
@@ -85,6 +96,31 @@
 #define SPI_CTRL_CS_FORCE_MASK     (1u << 8)
 #define SPI_STATUS_BUSY_MASK       (1u << 0)
 #define SPI_STATUS_RX_VALID_MASK   (1u << 1)
+
+/* PROG_CTRL bit fields (REG_BANK + 0x38).  See CLAUDE.md "PROG_CTRL" row. */
+#define PROG_CTRL_START_MASK       (1u << 0)
+#define PROG_CTRL_ERASE_MASK       (1u << 1)
+#define PROG_CTRL_FULL_ARRAY_MASK  (1u << 2)
+#define PROG_CTRL_BYPASS_MASK      (1u << 3)  /* BYPASS_HANDSHAKE; silicon-bringup only */
+#define PROG_CTRL_LEVEL_SHIFT      4u
+#define PROG_CTRL_LEVEL_MASK       (0xFu << PROG_CTRL_LEVEL_SHIFT)
+#define PROG_CTRL_RETRY_LIMIT_SHIFT 8u
+#define PROG_CTRL_RETRY_LIMIT_MASK (0x7u << PROG_CTRL_RETRY_LIMIT_SHIFT)
+/* Low-byte mask: covers START/ERASE/FULL_ARRAY/BYPASS/LEVEL[3:0].
+ * Use for read-modify-write so RETRY_LIMIT (bits[10:8]) is preserved. */
+#define PROG_CTRL_LOW_MASK         0xFFu
+
+/* PROG_STATUS bit fields (REG_BANK + 0x44).
+ * bit[6] = PROG_FSM_PRESENT (RO, high if cim_program_ctrl is instantiated;
+ * lets fw skip the cycle-bound BUSY probe and avoid races where a fast op
+ * completes before BUSY is observed). */
+#define PROG_STATUS_BUSY_MASK         (1u << 0)
+#define PROG_STATUS_PASS_MASK         (1u << 1)
+#define PROG_STATUS_FAIL_MASK         (1u << 2)
+#define PROG_STATUS_RETRY_COUNT_SHIFT 3u
+#define PROG_STATUS_RETRY_COUNT_MASK  (0x7u << PROG_STATUS_RETRY_COUNT_SHIFT)
+#define PROG_STATUS_FSM_PRESENT_MASK  (1u << 6)
+#define PROG_STATUS_DONE_MASK         (1u << 7)
 
 #define FIFO_STATUS_IN_EMPTY_MASK   (1u << 0)
 #define FIFO_STATUS_IN_FULL_MASK    (1u << 1)

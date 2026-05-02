@@ -86,6 +86,28 @@ module spi_tb;
     end
   endtask
 
+  // audit-pass4 M-3: strict byte-strobe write (use a wstrb mask <0xF to
+  // exercise spi_ctrl REG_CTRL byte-selective update).
+  task bus_write_strb;
+    input [31:0] addr;
+    input [31:0] data;
+    input [3:0]  strb;
+    begin
+      @(posedge clk);
+      req_valid <= 1'b1;
+      req_write <= 1'b1;
+      req_addr  <= addr;
+      req_wdata <= data;
+      req_wstrb <= strb;
+      @(posedge clk);
+      req_valid <= 1'b0;
+      req_write <= 1'b0;
+      req_addr  <= 32'h0;
+      req_wdata <= 32'h0;
+      req_wstrb <= 4'h0;
+    end
+  endtask
+
   task bus_read;
     input  [31:0] addr;
     output [31:0] data;
@@ -194,6 +216,23 @@ module spi_tb;
     bus_write(REG_CTRL, 32'h0000_0001);
     bus_read(REG_CTRL, rd);
     check32(rd, CTRL_BASE, "T1b CLAMP");
+
+    // T1c: byte-selective strobe (audit-pass4 M-3).
+    //   1) byte1-only write of cs_force=1 must set bit 8 without disturbing
+    //      byte0 (spi_en + clk_div_sel).  Pre-T1c state: ctrl_reg=0x0000_0005.
+    bus_write_strb(REG_CTRL, 32'h0000_0100, 4'b0010);
+    bus_read(REG_CTRL, rd);
+    check32(rd, 32'h0000_0105, "T1c byte1 set");
+    //   2) reserved-byte write (byte2/byte3) with byte0/byte1 strobes off
+    //      must NOT touch any defined bit — verifies upper bytes are RAZ/WI
+    //      and that byte-strobe gating is applied per byte (not per word).
+    bus_write_strb(REG_CTRL, 32'hFFFF_0000, 4'b1100);
+    bus_read(REG_CTRL, rd);
+    check32(rd, 32'h0000_0105, "T1c byte0 hold");
+    //   3) byte1-only clear of cs_force must drop bit 8 alone.
+    bus_write_strb(REG_CTRL, 32'h0000_0000, 4'b0010);
+    bus_read(REG_CTRL, rd);
+    check32(rd, 32'h0000_0005, "T1c byte1 clr");
 
     // T2: RDID sequence.
     bus_write(REG_CTRL, CTRL_CS_LOW);

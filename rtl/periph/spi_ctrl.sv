@@ -105,10 +105,22 @@ module spi_ctrl (
       end
 
       // CTRL is software writable at all times.
-      // R-M1 fix（2026-05-02 audit）：仅 wstrb[0] 命中 byte0 时才更新（CTRL 全部
-      // 字段在 ctrl_reg[7:0]），防止 byte-write 误清。
-      if (write_en && (addr_offset == REG_CTRL) && req_wstrb[0]) begin
-        ctrl_reg <= ctrl_write_data;
+      // R-M1 fix（2026-05-02 audit）：byte-selective update — byte0 holds
+      //   {cs_force_unused, cs_force_unused, ..., clk_div_sel[2:0], spi_en}
+      //   and byte1 holds {..., cs_force} at bit 8.  The earlier R-M1 patch
+      //   only let writes through when wstrb[0] was set, which made
+      //   cs_force unwritable via a strict byte-store path.  Audit-pass4 M-3
+      //   fix: gate each byte slice independently so SW can update
+      //   cs_force without rewriting clk_div_sel/spi_en, and vice versa.
+      //   Safety clamp on byte0 still applies; byte1 passes wdata directly
+      //   (clamp leaves bits[31:4] untouched anyway).
+      if (write_en && (addr_offset == REG_CTRL)) begin
+        if (req_wstrb[0]) begin
+          ctrl_reg[7:0] <= ctrl_write_data[7:0];
+        end
+        if (req_wstrb[1]) begin
+          ctrl_reg[15:8] <= req_wdata[15:8];
+        end
       end
 
       case (state)
