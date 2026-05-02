@@ -112,6 +112,9 @@ scripts/gen_paper_en.py
 doc/local_qa_assistant.md
 doc/GPT_audit_prompt_*.md
 doc/GPT_review_prompt_*.md
+# 例外：本轮 audit 给 GPT / Claude 的 prompt 留作 evidence
+!doc/GPT_audit_prompt_2026_05_02_main_and_fpga.md
+!doc/Claude_audit_prompt_2026_05_02_main_and_fpga.md
 sim/v2b_partial_write_invariant_test
 sim/*_test
 nul
