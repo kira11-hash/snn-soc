@@ -1,9 +1,26 @@
-# `feature/v2-fpga-e203` — Architecture
+# `feature/v2-fpga-e203` / `feature/v2-fpga-e203-conv` — Architecture
 
-**Status**：Phase G3 PASS（2026-04-25）— ZCU102 UART capture shows 10 samples × 10 counts bit-exact and final PASS
-**Branch**：`feature/v2-fpga-e203`（起点 `v2` @ `17693e4f`）
-**Sibling**：平行线 `main-fpga-e203-alpha`（V1 E203 on ZCU102，已上板 PASS）+ `v2-arm-fpga-demo-passed`（V2.B + ARM host）
-**Scope rule**：evidence branch，**不 merge 回 v2，不动 `main*` / `v2-arm-fpga-demo-passed`**。Gate 全绿后 tag `v2-fpga-e203-passed` 封存。
+**Status（Fashion-14×14 baseline，frozen）**：Phase G3 PASS（2026-04-25） — ZCU102 UART
+capture shows 10 samples × 10 counts bit-exact，frozen tag `v2-fpga-e203-passed`
+@ `e696dc39`。
+
+**Status（LeNet-5 CONV extension）**：板上 PASS（2026-05-02） — 同一条
+ZCU102 + E203 板级路径扩展到原生 LeNet-5（Conv1 → Conv2 → FC1(flatten) → FC2 →
+FC3）；50 MHz 闭合 `WNS=+2.774 ns`，10 样本 × 100 counts bit-exact，runtime tag
+`FPGA_V2_E203_LENET5_PASS`。详见 §4.3bis 与 `board_bringup_log_lenet5.txt`。
+
+**Branch**：
+- `feature/v2-fpga-e203`（起点 `v2` @ `17693e4f`，已封存）
+- `feature/v2-fpga-e203-conv`（起点 `v2-fpga-e203-passed @ e696dc39`，本评估分支，
+  仅追加 LeNet-5 CONV 路径，**不回 merge** 已封存的 Fashion baseline）
+
+**Sibling**：平行线 `main-fpga-e203-alpha`（V1 E203 on ZCU102，已上板 PASS）+
+`v2-arm-fpga-demo-passed`（V2.B + ARM host）+ `feature/v2-fpga-arm-conv`（V2.B
+CONV 在 ARM host 上的对位验证，是 conv 扩展的另一条平行支线）。
+
+**Scope rule**：evidence branch，**不 merge 回 v2，不动 `main*` /
+`v2-arm-fpga-demo-passed`**。Fashion baseline 已 tag `v2-fpga-e203-passed` 封存；
+LeNet-5 conv 扩展 PASS 后再决定是否需要新的 evidence tag。
 
 关联 plan：`C:\Users\24201\.claude\plans\d1-d3-idempotent-umbrella.md`（v11）。
 
@@ -500,6 +517,8 @@ FC-only smoke 扩展到 **原生 LeNet-5 CONV 执行** 时，为了让 Vivado
 
 ### Paper / 简历表述参考
 
+英文版（论文 / 英文简历直接可用）：
+
 > An E203 RISC-V soft-core was integrated into the V2.B multi-layer SNN
 > SoC (`snn_soc_v2b_top`) on a ZCU102 (XCZU9EG @ 50 MHz). Firmware compiled
 > from `fw/v2_e203_smoke/` was preloaded into 64 KB BRAM IMEM via Vivado
@@ -510,3 +529,22 @@ FC-only smoke 扩展到 **原生 LeNet-5 CONV 执行** 时，为了让 Vivado
 > programming pass; **all 100 per-class spike counts matched the Python
 > golden bit-exactly**. This validates the firmware-to-RTL integration
 > path that the future tape-out version will reuse.
+
+中文版（中文简历 / 答辩 / 内部材料用）：
+
+> 我们在 ZCU102（XCZU9EG @ 50 MHz）上将 E203 RISC-V 软核接入 V2.B 多层 SNN
+> SoC（`snn_soc_v2b_top`）：固件由 `fw/v2_e203_smoke/` 编译产出，通过 Vivado
+> `$readmemh` 预装入 64 KB BRAM IMEM。CPU 端到端驱动 PL 上的 CIM 阵列推理：
+> 包括逐样本的 Bresenham 编码、通过 MMIO 安装权重、两阶段 CIM MAC 调度、
+> stream-buffer 乒乓切换、LIF 神经元放电以及 count 回读。一次烧板即在 UART 端
+> 捕获到 10 个 Fashion-14×14 样本的全部 100 个 per-class spike count，与
+> Python golden 完全 bit-exact 对齐。这条 firmware → RTL 集成路径就是未来流片
+> 版本要复用的同一条路径。
+
+> **2026-05-02 续**：同一条 ZCU102 + E203 板级路径已扩展到原生 LeNet-5
+> CONV 执行（5 层：Conv1 → Conv2 → FC1(flatten) → FC2 → FC3）。在解决了
+> `fmap_flatten_reader_v2.sv` 与 `patch_unroller_v2.sv` 的局部地址算术
+> 锥导致的 `WNS=-10.200 ns` 超时序问题后（详见 §4.3bis），在 50 MHz 闭合
+> `WNS=+2.774 ns`。一次烧板即得 10 个 MNIST 样本 100/100 类别 bit-exact
+> 对齐，最终 runtime tag = `FPGA_V2_E203_LENET5_PASS`，证据见
+> `doc/v2-fpga-e203/board_bringup_log_lenet5.txt`。

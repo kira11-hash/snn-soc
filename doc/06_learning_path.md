@@ -6,24 +6,24 @@
 
 **参数口径**：本文涉及的默认参数与时序数值以 `rtl/top/snn_soc_pkg.sv` 为准，若与文档不一致以 pkg 为准。
 
-## 当前分支特别说明（feature/v2-fpga-e203）
+## 当前分支特别说明（feature/v2-fpga-e203 / feature/v2-fpga-e203-conv）
 
 **本文件是 main 分支 doc/06 的克隆版**，在保留 Part A/B/C 全部内容的基础上，在末尾追加了 **Part E：V2 E203 + V2.B FPGA SoC 集成**，用于本分支特有的 E203 RISC-V (PL fabric) + V2.B streamed-stage 加速器演示路径。
 
 | 元数据 | 值 |
 |------|------|
-| 当前分支 | `feature/v2-fpga-e203` |
-| 板级冻结 tag | `v2-fpga-e203-passed @ e696dc39`（2026-04-25） |
-| Claude 复核基线 HEAD | `6b0d7378`（在 `ae377d3c` WSTRB gate 后追加 doc/注释收口） |
-| 是否需要 reburn | **否** — HEAD 改动均为后向兼容（fw 全字写不触发 partial WSTRB） |
-| 板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_MULTILAYER_INFER_PASS` |
-| Bitstream SHA256 | `e5ae7936...`（Vivado 2022.2 build 3671981） |
-| Timing | 50 MHz @ WNS 4.837 ns，0 routing errors |
-| Util | LUT 21.59% / FF 2.51% / BRAM 10.53% / DSP 0.08% |
+| 当前分支 | `feature/v2-fpga-e203-conv`（在已封存的 Fashion baseline 上追加 LeNet-5 CONV 扩展）|
+| 父分支 / Fashion baseline | `feature/v2-fpga-e203` ＋ tag `v2-fpga-e203-passed @ e696dc39`（2026-04-25 已封存）|
+| Fashion baseline 板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_MULTILAYER_INFER_PASS`（10×10 spike count bit-exact，单次烧板）|
+| LeNet-5 CONV 扩展板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_LENET5_PASS`（10 个 MNIST 样本 × 10 类 = 100 counts bit-exact，单次烧板，2026-05-02）|
+| Fashion baseline Bitstream SHA256 | `e5ae7936...`（Vivado 2022.2 build 3671981）|
+| Fashion baseline Timing | 50 MHz @ WNS 4.837 ns，0 routing errors |
+| Fashion baseline Util | LUT 21.59% / FF 2.51% / BRAM 10.53% / DSP 0.08% |
+| LeNet-5 扩展 Timing | 50 MHz @ WNS +2.774 ns（首版原生 LeNet 实现 `WNS=-10.200 ns`，经 `fmap_flatten_reader_v2.sv` + `patch_unroller_v2.sv` 收口后闭合，详见 `doc/v2-fpga-e203/00_architecture.md` §4.3bis）|
 
 **学习时请按照"先 Part A → Part B → Part C（如需了解 ASIC 主线）→ Part E（本分支特有）"的顺序**。Part E 假设你已经熟悉 V1 主线 + V1.1 加固层 + E203 集成（Part B 阶段 12）。
 
-> **本分支独立性**：feature/v2-fpga-e203 是 evidence branch，目标是验证 "E203 RISC-V 软核（PL fabric） + V2.B 多层 streamed-stage 加速器" 端到端可板上跑通。它把 V1 main 的 E203 启动链 + V2.B 的多层推理流水线缝合在一起，形成第二条与 ARM PS 路径平行的演示。
+> **本分支独立性**：`feature/v2-fpga-e203` 是 Fashion baseline evidence branch，已 tag 封存；`feature/v2-fpga-e203-conv` 是它的 LeNet-5 扩展支线，仅向前追加 conv/flatten 算子和原生 LeNet-5 网络支持，**不回 merge 已封存的 Fashion baseline**，也不动 `main*` / `v2-arm-fpga-demo-passed`。两条路径都把 V1 main 的 E203 启动链 + V2.B 的多层推理流水线缝合在一起，形成与 ARM PS 路径平行的演示。
 
 ---
 
@@ -1705,18 +1705,23 @@ bus_interconnect_v2_e203 ← 固定 1-cycle 路径 (INSTR/DATA/UART) + 透传路
 
 ### 19.2 与 V1 main / v2-arm-fpga-demo 的关键区别
 
-| 维度 | V1 main (ASIC TO) | v2-arm-fpga-demo (FPGA) | **本分支 (v2-fpga-e203)** |
-|------|-----------------|----------------------|------------------------|
-| CPU | E203 RV32I (PL) | ARM A53 ×4 (PS) | **E203 RV32I (PL)** |
-| 启动 | mask ROM → SPI → INSTR_SRAM | DDR ELF | **BRAM 预装 firmware** |
-| 总线 | ICB → simple | AXI HPM0 → simple → v2b | **ICB → simple → v2b** |
-| 加速器 | V1 单层 64×20 | V2.B multilayer | **V2.B multilayer** |
-| 数据集 | MNIST 8×8 | Fashion-MNIST 14×14 | **Fashion-MNIST 14×14** |
-| FW 工具链 | riscv64-elf-gcc | aarch64-elf-gcc | **riscv64-elf-gcc 13.2.0** |
-| 烧写 | bitstream + BRAM init | bitstream + ELF | **bitstream + BRAM init** |
-| Bus 桥 | icb2simple | v2b_axi_wrapper | **icb2simple_bridge_v2b** |
+| 维度 | V1 main (ASIC TO) | v2-arm-fpga-demo (FPGA) | **本分支 Fashion baseline (v2-fpga-e203)** | **本分支 LeNet-5 扩展 (v2-fpga-e203-conv)** |
+|------|-----------------|----------------------|------------------------|------------------------|
+| CPU | E203 RV32I (PL) | ARM A53 ×4 (PS) | **E203 RV32I (PL)** | **E203 RV32I (PL)** |
+| 启动 | mask ROM → SPI → INSTR_SRAM | DDR ELF | **BRAM 预装 firmware** | **BRAM 预装 firmware**（IMEM 64 KB 已用满 ~55 KB）|
+| 总线 | ICB → simple | AXI HPM0 → simple → v2b | **ICB → simple → v2b** | **ICB → simple → v2b**（同 baseline，0 改）|
+| 加速器 | V1 单层 64×20 | V2.B multilayer + conv | **V2.B FC-only multilayer** | **V2.B multilayer + 原生 conv/flatten 算子（新增 `conv_ctrl_v2` / `fmap_flatten_reader_v2` / `patch_unroller_v2` / `fmap_sram_v2`）** |
+| 数据集 | MNIST 8×8 | Fashion-MNIST 14×14 + MNIST LeNet-5 | **Fashion-MNIST 14×14（FC-only）** | **MNIST 28×28 LeNet-5（5 层完整网络）** |
+| FW 工具链 | riscv64-elf-gcc | aarch64-elf-gcc | **riscv64-elf-gcc 13.2.0** | **riscv64-elf-gcc 13.2.0** |
+| 烧写 | bitstream + BRAM init | bitstream + ELF | **bitstream + BRAM init** | **bitstream + BRAM init** |
+| Bus 桥 | icb2simple | v2b_axi_wrapper | **icb2simple_bridge_v2b** | **icb2simple_bridge_v2b**（沿用 baseline）|
+| 调度器 | fw 直驱 reg_bank | `v2b_scheduler.c`（FC-only） | **`v2b_scheduler_e203.c` 包 `v2b_scheduler.c`** | **`v2b_conv_scheduler_e203.c` 包 `v2b_conv_scheduler.c`**（新增 conv layer + sparse weight 安装 + flatten FC 多 tile 调度）|
+
+> **重点**：LeNet-5 conv 扩展支线**没有动总线、没有动启动链、没有动 V1 main**，所有差异都集中在：(a) V2.B 加速器内部新增 conv 算子模块；(b) firmware 端新增 conv scheduler；(c) 新增 lenet5 ELF 与 linker script。这正是 evidence branch 的设计意图：让"换网络/换数据集"成为完全 additive 的扩展。
 
 ### 19.3 关键 RTL 文件（本分支独有）
+
+#### Fashion baseline（在 `feature/v2-fpga-e203` 上已封存）
 
 | 文件 | 用途 |
 |------|------|
@@ -1724,7 +1729,19 @@ bus_interconnect_v2_e203 ← 固定 1-cycle 路径 (INSTR/DATA/UART) + 透传路
 | [rtl/bus/icb2simple_bridge_v2b.sv](../rtl/bus/icb2simple_bridge_v2b.sv) | ICB → simple_bus 白名单转换（非白名单地址回 err） |
 | [rtl/bus/simple2v2btop_adapter.sv](../rtl/bus/simple2v2btop_adapter.sv) | simple_bus → v2b_bus 4-state FSM |
 | [rtl/top/snn_soc_v2b_e203_top.sv](../rtl/top/snn_soc_v2b_e203_top.sv) | SoC core: bridge + fabric + adapter + V2B top |
-| [rtl/top/snn_soc_v2b_top.sv](../rtl/top/snn_soc_v2b_top.sv) | V2.B accelerator wrapper（WSTRB 已修复） |
+| [rtl/top/snn_soc_v2b_top.sv](../rtl/top/snn_soc_v2b_top.sv) | V2.B accelerator wrapper（WSTRB 已修复 + LeNet-5 路径上新增 CONV MMIO 寄存器组）|
+
+#### LeNet-5 CONV 扩展新增（仅在 `feature/v2-fpga-e203-conv` 上引入）
+
+| 文件 | 用途 |
+|------|------|
+| [rtl/snn/conv_ctrl_v2.sv](../rtl/snn/conv_ctrl_v2.sv) | conv 主控 FSM：控制 patch 滑窗、weight 请求/握手、stage_engine 触发 |
+| [rtl/snn/fmap_flatten_reader_v2.sv](../rtl/snn/fmap_flatten_reader_v2.sv) | fmap → 流式 (h,w,c) 线性读取；**timing 收口主战场之一**（地址公式从 div/mod 改成线性 `flat_idx * stream_words + (t>>5)`）|
+| [rtl/snn/patch_unroller_v2.sv](../rtl/snn/patch_unroller_v2.sv) | 把 conv kernel patch 展开成 256-wide MAC lane；初始化阶段改为顺序减法 FSM 后才闭合 timing |
+| [rtl/snn/fmap_sram_v2.sv](../rtl/snn/fmap_sram_v2.sv) | conv 中间 fmap 缓冲（双 bank ping-pong，preload + commit 协议）|
+| [rtl/snn/cim_mac_behavioral_v2.sv](../rtl/snn/cim_mac_behavioral_v2.sv) | （已有，扩展为支持 conv 路径上的 sparse weight 流式安装）|
+
+> **timing 收口要点**：第一版原生 LeNet-5 综合后 `WNS=-10.200 ns`，最坏路径在 `fmap_flatten_reader` 的地址生成（旧代码先把 row-major 的 `flat_idx` 拆成 `chan/row/col/pixel` 再用 div/mod/mul 拼回去）。修复后转移到 `patch_unroller` 的 patch 索引计算，再做顺序化初始化后才闭合到 `WNS=+2.774 ns`。完整收口轨迹见 `doc/v2-fpga-e203/00_architecture.md` §4.3bis（中文版备忘录）。
 
 ### 检验标准
 
@@ -1788,10 +1805,13 @@ bus_interconnect_v2_e203 ← 固定 1-cycle 路径 (INSTR/DATA/UART) + 透传路
 riscv64-unknown-elf-gcc 13.2.0
 riscv64-unknown-elf-objcopy 13.2.0
 
-# Firmware 构建
+# Firmware 构建（一次构建三个 ELF：smoke / encoder / lenet5）
 cd fw/v2_e203_smoke
 bash build_v2_e203_smoke.sh             # 默认 SIM_FAST=0（board hex）
-# 输出：v2_e203_smoke.hex（用于 BRAM 预装）
+# 输出：
+#   out/v2_e203_smoke.hex     ← Fashion-14×14 baseline
+#   out/v2_e203_encoder.hex   ← encoder parity TB 用
+#   out/v2_e203_lenet5.hex    ← LeNet-5 CONV 扩展板烧
 
 # Vivado 工程构建
 cd fpga_synth/zcu102_v2_e203_demo
@@ -1799,6 +1819,8 @@ bash build_v2_e203_demo.sh
 vivado -mode batch -source build_v2_e203_demo.tcl
 # 输出：snn_soc_v2b_e203_fpga_top.bit
 ```
+
+> **三 ELF 共存的原因**：Fashion baseline 与 LeNet-5 CONV 扩展共用同一颗 bitstream，但是 BRAM 预装的 firmware 不同；构建脚本一次产出三套 hex，对应板级烧写时切换 BRAM init 文件即可在同一颗 bit 上跑两种 demo。LeNet-5 ELF 多链一份 `golden_lenet5.c`，IMEM 占用从 ~31 KB 增到 ~55 KB（仍在 64 KB 内），靠 sparse 编码（只存非零权重 `(lane, out_c, packed4+4)` 三元组）压下来。
 
 ### 21.2 Firmware 关键函数（v2_e203_smoke_main.c）
 
@@ -1835,9 +1857,90 @@ if (row_bits & (1u << j)) counts_out[j] += 1;
 - 必须用本分支地址映射：`fw/v2_e203_smoke/src/v2b_scheduler_e203.c` 定义 `V2B_SOC_BASE=0xA0000000u`，再 include 公共 `fw/src/v2b_scheduler.c` / `fw/include/v2b_soc_regs.h`
 - 全字 MMIO 写（避免 partial WSTRB 路径）
 
+### 21.2bis LeNet-5 CONV 固件（`feature/v2-fpga-e203-conv` 新增）
+
+LeNet-5 路径的 firmware 入口是 `fw/v2_e203_smoke/src/v2_e203_lenet5_main.c`，调度核心是 `fw/src/v2b_conv_scheduler.c`（FW 侧 portable C，可被 ARM 路径与 E203 路径同时复用），在 E203 build 中通过 `fw/v2_e203_smoke/src/v2b_conv_scheduler_e203.c` 这层薄壳直接 `#include` 进来：
+
+```c
+// fw/v2_e203_smoke/src/v2b_conv_scheduler_e203.c
+#include <stdint.h>
+#include "soc_regs_v2_e203.h"
+#include "golden_lenet5.h"
+#include "v2b_conv_scheduler.h"
+#include "../../src/v2b_conv_scheduler.c"   // 直接 include 共享 .c，避免再写一份
+```
+
+> **设计意图**：调度高层抽象（`v2b_run_lenet5_demo`、`v2b_run_conv_layer`、`v2b_run_fc_stage`、`v2b_count_stream_spikes`）放在 `fw/src/v2b_conv_scheduler.c`，在 ARM (aarch64) 与 E203 (rv32) 两条路径上字节级共享；只有 host 相关的 UART helper（`uart_puts/uart_put_dec/uart_put_hex32`）和 BUFFER_PTR/MARKER 协议才放在 host 专属文件里。
+
+LeNet-5 推理的 5 层调度：
+
+```
+1. Conv1   (28×28×1 → 28×28×6,  K=5 stride=1 pad=2,  th=8)   784 个 weight-req
+2. Conv2   (28×28×6 → 12×12×16, K=5 stride=2 pad=0,  th=16)  144 个 weight-req
+3. FC1     (flatten 12×12×16=2304 → 120,             th=7)   9 tile × 1 req
+4. FC2     (120 → 84,                                th=7)   1 tile（标准 FC stage）
+5. FC3     (84 → 10,                                 th=3)   1 tile（标准 FC stage）
+```
+
+`v2b_run_conv_layer` 的握手循环（来自 `fw/src/v2b_conv_scheduler.c`）：
+
+```c
+V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_START;
+for (uint32_t req = 0; req < requests_expected; req++) {
+    // 等 RTL 把 WEIGHT_REQ 拉高
+    if (v2b_wait_weight_req(&status) != 0) return -10;
+    // 从 status 解出当前 tile 索引
+    uint32_t tile_idx = V2B_SOC_CONV_STATUS_CUR_TILE(status);
+    // 把 sparse 权重三元组 (lane, out_c, packed) 装到 MAC array
+    v2b_switch_sparse_tile(layer, (uint16_t)tile_idx);
+    // 应答：WEIGHT_READY pulse
+    V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_WEIGHT_READY;
+}
+// 最后等整层 done
+v2b_wait_conv_done(&status);
+```
+
+每次 weight 请求都由 conv FSM 产生（不同输出像素需要不同 tile 的权重，所以是逐 patch 握手而不是一次性全装），`v2b_switch_sparse_tile` 内部带 `(layer, tile)` 缓存，命中时跳过重复装载。
+
+**E203 IMEM 64 KB 容量约束如何应对**
+
+| 项 | 大小（约）| 说明 |
+|---|---|---|
+| `.text` | 6 KB | LeNet 主循环 + scheduler + UART helper + crt0 |
+| `.rodata`：input sparse | 8.3 KB | 10 样本 × 1378 个非零像素的 `(idx, word)` 对 |
+| `.rodata`：conv1 sparse | 0.4 KB | 414 字节，每个非零 cell 3 字节 (lane/out_c/packed) |
+| `.rodata`：conv2 sparse | 5.6 KB | 5778 字节 |
+| `.rodata`：fc1 sparse | 33 KB | 33744 字节（9 tile，权重稀疏，但 fc1 仍是最大头） |
+| `.rodata`：fc2 sparse | 1.3 KB | 1257 字节 |
+| `.rodata`：fc3 sparse | 0.2 KB | 234 字节 |
+| `.rodata`：sample 元数据 | < 0.2 KB | 10 个 `v2b_lenet5_sample_t` |
+| **合计** | **~55 KB** | 在 64 KB IMEM 余 ~9 KB |
+
+为了把 LeNet-5（fc1 = 2304→120 全连接层）塞进 64 KB IMEM，权重表全部以 sparse 三元组存储，量化阈值刻意收紧到 `max_signed_level=3`（fc1）让大量 cell 归零。fc1 仍是最大单层，9 tile 占 33 KB；这也是为什么 IMEM 不能再小：再缩 firmware 必须改成"分段烧 BRAM + 运行时 SPI 流送权重"，但这要动启动链，故未在 LeNet-5 扩展中做。
+
+`fw/v2_e203_smoke/scripts/gen_lenet5_header.py` 自动从 Python golden manifest 生成 `golden_lenet5.h/.c`：每次 Python 重训后只要再跑一次脚本，就能保证 firmware 端常量、权重三元组、期望 spike count 与 RTL/Python golden 全部对齐。
+
+**linker layout**（`link_v2_e203_lenet5.ld`）
+
+```
+IMEM (rx) : ORIGIN = 0x00000000, LENGTH = 64K
+DMEM (rwx): ORIGIN = 0x00010000, LENGTH = 8K
+
+__marker_base   = ORIGIN(DMEM) + LENGTH(DMEM) - 0x100;  /* 0x0001_1F00 */
+__stack_top     = __marker_base - 4;                    /* 0x0001_1EFC */
+__stack_reserve = 0xC00;                                /* 3 KB */
+
+ASSERT(_ebss <= __stack_top - __stack_reserve + 1,
+       "DMEM overflow (lenet5): .bss collides with stack reserve")
+```
+
+DMEM 8 KB 的占用是"`g_input_words[784]`（3.1 KB scratch）+ `.bss` 几个全局 + 3 KB stack reserve + 256 B marker"；linker ASSERT 兜底防止 .bss 撞 stack。
+
 ### 21.3 phase G3 PASS 证据链
 
-[doc/v2-fpga-e203/00_architecture.md](v2-fpga-e203/00_architecture.md) §4 列出完整链：
+[doc/v2-fpga-e203/00_architecture.md](v2-fpga-e203/00_architecture.md) §4 列出完整链。
+
+#### Fashion-14×14 baseline（已封存）
 
 | 项 | 值 |
 |------|------|
@@ -1848,6 +1951,21 @@ if (row_bits & (1u << j)) counts_out[j] += 1;
 | Encoder hex SHA256 | `83fb301c...` |
 | UART log | `board_bringup_log.txt`（10 sample count + golden 对比） |
 | Golden match | 100/100 spike counts bit-exact |
+| Runtime tag | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_MULTILAYER_INFER_PASS` |
+
+#### LeNet-5 CONV 扩展（2026-05-02 板验通过）
+
+| 项 | 值 |
+|------|------|
+| 数据集 / 网络 | MNIST 28×28 / 5 层 LeNet-5（Conv1 + Conv2 + FC1(flatten) + FC2 + FC3）|
+| 样本 | 10 个 class-first MNIST test 样本（label=0..9 各一） |
+| Timing | 50 MHz @ WNS +2.774 ns（首版 `WNS=-10.200 ns`，地址锥重写后闭合） |
+| Bitstream | `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit` |
+| LeNet-5 hex | `fw/v2_e203_smoke/out/v2_e203_lenet5.hex`（IMEM 用量 ~55 KB / 64 KB）|
+| UART log | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt`（1324 行，含逐样本 input 装载、conv 握手、PASS/FAIL 比对）|
+| Golden 对齐 | 10 / 10 样本逐 class spike count 完全 bit-exact 对齐 `golden_lenet5[i].expected_counts` |
+| Argmax 准确率 | 10 / 10 样本 `pred == expected_class`（`expected_class` 来自 Python golden，不是 ground-truth label，所以这只能证明 firmware↔golden 一致，不直接证明 LeNet 推理精度；MNIST test set 上 quant_snn_test_accuracy=0.9303 由 Python 训练日志另行记录）|
+| Runtime tag | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_LENET5_PASS` |
 
 ### 21.4 HEAD vs 冻结 commit 改动分析
 
@@ -1872,6 +1990,10 @@ if (row_bits & (1u << j)) counts_out[j] += 1;
 - [ ] 能解释为什么 fw 必须全字 MMIO 写（避免 partial WSTRB）
 - [ ] 能复述 phase G3 PASS 证据链的 5 个关键 SHA / 标记
 - [ ] 能列举 HEAD 后改动里不触发 reburn 的判定依据
+- [ ] 能写出 `v2b_run_lenet5_demo` 5 层调度顺序（conv1 → conv2 → fc1 flatten → fc2 → fc3）
+- [ ] 能解释 conv 路径 weight-req / weight-ready 握手的必要性（为什么不能一次性把 weight 全装好）
+- [ ] 能算出 LeNet-5 sparse 编码后 IMEM 大致用量（~55 KB / 64 KB）以及哪一层占大头（fc1）
+- [ ] 能解释 `gen_lenet5_header.py` 在 Python golden 与 firmware 之间起的对齐作用
 
 ---
 
@@ -1939,6 +2061,14 @@ firmware 侧 cycle counter 或 logic analyzer/ILA 证据。
 
 ---
 
-*Part E 最后更新：2026-04-29（基于 v2-fpga-e203 Claude 复核基线 HEAD = 6b0d7378；本次 GPT 仅补 doc/TB gate，不影响 FPGA bitstream）*
+*Part E 最后更新：2026-05-02（在 `feature/v2-fpga-e203-conv` 上追加 LeNet-5 CONV 扩展板验记录、conv 调度器讲解、IMEM 容量分析、timing 收口提示。本次更新只动 docs / firmware / Python，不动总线、不动 V1 main，不重新综合 Fashion baseline bitstream）*
 
-**学习建议**：本分支是"evidence branch"，优先看 `doc/v2-fpga-e203/00_architecture.md`（650+ 行，Phase 0 → Phase G3 完整叙事）与板级证据日志，再回到 RTL 看实现。如果你已经看过 v2-arm-fpga-demo 分支的 Part D，那么阶段 20（V2.B 加速器）可以快速浏览，重点放在阶段 19（三层桥） + 阶段 21（E203 固件）这两块本分支特有内容上。
+**学习建议**：本分支是"evidence branch"，优先看 `doc/v2-fpga-e203/00_architecture.md`（700+ 行，Phase 0 → Phase G3 完整叙事 + §4.3bis LeNet-5 CONV 时序收口备忘）与两份板级证据日志（`board_bringup_log.txt` Fashion baseline + `board_bringup_log_lenet5.txt` LeNet-5 扩展），再回到 RTL 看实现。如果你已经看过 v2-arm-fpga-demo 分支的 Part D，那么阶段 20（V2.B 加速器）可以快速浏览，重点放在阶段 19（三层桥） + 阶段 21（E203 固件，含 LeNet-5 conv scheduler 子节）这两块本分支特有内容上。
+
+**剩余 limitation（已知，未来工作）**
+
+1. **bridge latency 未上板实测**：架构文档里写的"ICB → simple → V2B 读 round-trip ~5 cycle @ 50 MHz"来自 RTL/TB 推导，G3 board log 只证明了功能 bit-exact，没有上板 cycle counter / ILA 直接测；论文/答辩若要写"实测 5 cycle"必须先补 cycle counter 或逻辑分析仪证据。
+2. **LeNet-5 推理精度只验到 firmware↔golden 一致**：`expected_class` 是 Python golden 的 argmax，不是 MNIST 真 label；`v2b_lenet5_sample_t.label` 字段只用于 UART 打印，并未作为 PASS 判据。要证明 "LeNet-5 真精度 >X%" 需要扫更多 MNIST test 样本。
+3. **IMEM 64 KB 已经用满 ~55 KB**：再大的网络（如 CIFAR-10 plain_cnn4 / tiny_vgg）需要改启动链改成"分段烧 BRAM + SPI 流式装权重"，本分支没做这个改动。
+4. **DDR / SPI flash 路径未启用**：当前所有权重都在 BRAM-resident firmware 里，没有走 DDR；上板烧写仍然是 Vivado `$readmemh` 流程。
+5. **`simple2v2btop_adapter` 的 R14 技术债未修**：adapter 仍然依赖 single-outstanding + 固定延迟假设，本分支选择不动。流片版本之前需要重审 FSM。
