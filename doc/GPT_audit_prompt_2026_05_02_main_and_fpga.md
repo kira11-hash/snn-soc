@@ -221,6 +221,50 @@ git commit -m "docs(fpga): post-audit 2026-05-02 board verify UART logs (3-phase
 git push origin main-fpga-e203-alpha
 ```
 
+### 4.3.1 ★ 板验失败处理 — 修复必须**回流到 main**（如果同样是 main 的问题）
+
+如果上面 3 个 capture_uart.py 任一个 exit code != 0（FAIL / COM not found /
+timeout），说明你 audit pass 4 改 RTL/FW 之后有 regression，**必须停下来定位
++ 修复 + 再烧验**。处理流程：
+
+```
+板验失败  → 抓的 UART log 定位失败 phase
+          → 看是 RTL bug / FW bug / FPGA-specific bug
+
+(a) 失败根因是 FPGA-specific（仅在 fpga/ / fpga_synth/ / fw/e203_smoke/ 下，
+    不影响硅片路径）：
+       → 在 audit-fpga worktree 修
+       → commit + push origin main-fpga-e203-alpha
+       → 重 bitgen → 重烧 → 再抓 UART
+       → main 不动
+
+(b) 失败根因是 RTL / shared FW / shared sim / shared doc 问题（main 也存在）：
+    ☆☆☆ **必须双侧修，不只修 FPGA 支线** ☆☆☆
+       1. 先在 main worktree（"d:/SoC Design/SoC Design"）修文件
+       2. 跑 §4.5 sim regression 8 个核心 TB 必须全 PASS
+       3. main commit + push origin main
+       4. 切到 audit-fpga worktree:
+            cd "D:/SoC Design/audit-fpga"
+            git pull origin main-fpga-e203-alpha
+            git merge main      # 应该 fast-forward 拿到 main 上的 fix
+            git push origin main-fpga-e203-alpha
+       5. 跨分支一致性 sanity（必跑）：
+            git diff --name-only main main-fpga-e203-alpha | wc -l
+            # 必须 = 25，全部在 fpga/ / doc/main-fpga-e203/ / fw/e203_smoke/ 等
+            # FPGA-only 路径下；如果有第 26 个文件 → 你修错地方了
+       6. 重 bitgen → 重烧 → 再抓 UART
+       7. 直到 3 个 PASS marker 都抓到 + 跨分支 diff 仍 = 25 才算完事
+```
+
+为什么 (b) 路径必须双侧修：本项目硬约束是"main-fpga-e203-alpha = main +
+仅 FPGA 适配，其他完全一样"。如果 RTL 在 FPGA 上跑出问题、你只在 FPGA 支线
+patch 了 RTL，那 FPGA 支线就比 main 多了 patch；这 patch 又同样适用于硅片
+（因为 RTL 是流片对象），结果 main 上漏掉，硅片回来还会撞同一个 bug。
+
+**反面教训**：之前 main-fpga-e203-alpha 与 main 严重分叉到 108 文件 / ~12k
+行 diff，根因就是 FPGA 支线独立打了一堆 patch 没回流 main。本轮 audit 已经
+hard-reset 同步过一次，**绝对不要再让它分叉**。
+
 ### 4.4 烧写注意
 
 - **COM 口**：CP2108 J83 Interface 2 在本机会落在 COM3 / COM4 / COM5 / COM6
@@ -282,6 +326,13 @@ done
 
 ## sim regression 状态（必须全 PASS）
 - 8/8 核心 TB PASS
+
+## ★ 板验失败定位 + 双侧修复路径（如果跑了 §4.3.1）
+| 失败 phase | 根因 | 路径 (a) FPGA-only / (b) main 也有 | 修复 commit | 是否双侧 |
+|---|---|---|---|---|
+| (例) phase2 timeout | dma push_stall_cnt timeout 阈值太小 | (b) RTL shared | main 上 abc1234 + FPGA fast-forward def5678 | ✅ 双侧 |
+
+如果有 (b) 路径修复，必须双侧 commit 都列出来；跨分支 diff 仍必须 = 25 文件。
 
 ## ★ FPGA 板验状态（你的最终交付）
 - [x] bitgen PASS（snn_soc_fpga_top.bit @ <SHA256>）
