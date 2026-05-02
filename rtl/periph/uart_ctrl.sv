@@ -126,9 +126,16 @@ module uart_ctrl (
         //--------------------------------------------------------------------
         // ST_IDLE：等待 TXDATA 写入
         // 写操作和 tx_busy=0 同时满足时，加载数据、启动发送计时、进入起始位
+        //
+        // R-M1.1 fix（2026-05-02 audit-pass3）：补 wstrb[0] gate。
+        //   旧代码漏了 wstrb[0] 检查 → byte-write 高字节（如 wstrb=4'b1000）
+        //   到 REG_TXDATA 地址会误启动 TX 并发送 wdata[7:0]=0x00 一帧。
+        //   严格 byte-strobe correctness 要求只有 wstrb[0]=1 命中 byte0
+        //   时才启动事务。txdata_shadow 的写路径（line ~94）已 gate 住
+        //   wstrb[0]，启动路径必须保持一致，否则两路语义不对齐。
         //--------------------------------------------------------------------
         ST_IDLE: begin
-          if (write_en && (addr_off == REG_TXDATA) && !tx_busy) begin
+          if (write_en && (addr_off == REG_TXDATA) && !tx_busy && req_wstrb[0]) begin
             tx_shift <= req_wdata[7:0];     // 加载发送字节
             baud_div_active <= baud_div_reg; // 锁存本帧分频，避免发送中热更新
             baud_cnt <= baud_div_reg - 1;   // 从 baud_div-1 开始倒数

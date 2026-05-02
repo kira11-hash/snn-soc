@@ -98,6 +98,10 @@ fw/boot_rom/out/*.elf
 fw/boot_rom/out/*.o
 fw/boot_rom/out/*.map
 fw/boot_rom/out/*.dump
+# audit-pass3 (W-1b): chip_top_rom_smoke / chip_top_rom_hi_smoke TB 的现场
+# build firmware（每次 sim 重 build），不是流片对象，全部忽略。
+fw/boot_rom/out/rom_smoke_*
+fw/boot_rom/out/rom_hi_smoke_*
 fw/out/
 eassy-prompt/
 scripts/_patch_paper.py
