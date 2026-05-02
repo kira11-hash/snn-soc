@@ -532,6 +532,13 @@ def load_dataset(name: str, *, train: bool, download: bool):
             download=download,
             transform=transforms.ToTensor(),
         )
+    if name == "fashion_mnist":
+        return datasets.FashionMNIST(
+            root=str(DATA_DIR),
+            train=train,
+            download=download,
+            transform=transforms.ToTensor(),
+        )
     if name == "cifar10":
         return datasets.CIFAR10(
             root=str(DATA_DIR),
@@ -681,10 +688,11 @@ def train_proxy_checkpoint(
     download: bool = True,
     epochs_override: int | None = None,
     train_subset_override: int | None = None,
+    ckpt_suffix: str = "",
 ) -> dict:
     spec = NETWORKS[network]
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    ckpt_path = CKPT_DIR / f"{network}.pth"
+    ckpt_path = CKPT_DIR / f"{network}{ckpt_suffix}.pth"
     if ckpt_path.exists() and not force:
         return torch.load(ckpt_path, map_location="cpu")
 
@@ -755,12 +763,14 @@ def train_lenet5_head_checkpoint(
     download: bool = True,
     epochs_override: int | None = None,
     train_subset_override: int | None = None,
+    ckpt_suffix: str = "",
 ) -> dict:
-    ckpt_path = CKPT_DIR / "lenet5_snn.pth"
+    ckpt_path = CKPT_DIR / f"lenet5_snn{ckpt_suffix}.pth"
     if ckpt_path.exists() and not force:
         return torch.load(ckpt_path, map_location="cpu")
 
-    proxy_ckpt = train_proxy_checkpoint("lenet5", force=False, download=download)
+    proxy_ckpt = train_proxy_checkpoint("lenet5", force=False, download=download,
+                                        ckpt_suffix=ckpt_suffix)
     proxy = ConvNet("lenet5")
     proxy.load_state_dict(proxy_ckpt["state_dict"])
     proxy.eval()
@@ -773,8 +783,9 @@ def train_lenet5_head_checkpoint(
     subset_cfg = int(train_subset_override) if train_subset_override is not None else 4000
 
     set_deterministic(SEED + 200)
-    train_ds = load_dataset("mnist", train=True, download=download)
-    test_ds = load_dataset("mnist", train=False, download=download)
+    dataset_name = NETWORKS["lenet5"]["dataset"]
+    train_ds = load_dataset(dataset_name, train=True, download=download)
+    test_ds = load_dataset(dataset_name, train=False, download=download)
     train_subset = Subset(train_ds, list(range(min(subset_cfg, len(train_ds)))))
     train_loader = DataLoader(train_subset, batch_size=64, shuffle=True, num_workers=0,
                               generator=torch.Generator().manual_seed(SEED))
@@ -1337,16 +1348,20 @@ def generate_bundle(
     samples: int,
     epochs_override: int | None = None,
     train_subset_override: int | None = None,
+    tag: str = "",
 ) -> Path:
     spec = NETWORKS[network]
+    ckpt_suffix = tag  # e.g. "_fashion" → lenet5_fashion.pth, lenet5_snn_fashion.pth
     if network == "lenet5":
         ckpt = train_lenet5_head_checkpoint(
             force=force_train,
             download=download,
             epochs_override=epochs_override,
             train_subset_override=train_subset_override,
+            ckpt_suffix=ckpt_suffix,
         )
-        proxy_ckpt = train_proxy_checkpoint("lenet5", force=False, download=download)
+        proxy_ckpt = train_proxy_checkpoint("lenet5", force=False, download=download,
+                                            ckpt_suffix=ckpt_suffix)
         proxy = ConvNet("lenet5")
         proxy.load_state_dict(proxy_ckpt["state_dict"])
         proxy.eval()
@@ -1369,7 +1384,7 @@ def generate_bundle(
             "fc3": make_weight_tiles_from_matrix(head.export()[2].T),
         }
         quant_test_acc = float(ckpt["quant_snn_test_accuracy"])
-        checkpoint_ref = "../../checkpoints/lenet5_snn.pth"
+        checkpoint_ref = f"../../checkpoints/lenet5_snn{ckpt_suffix}.pth"
     else:
         proxy_ckpt = train_proxy_checkpoint(
             network,
@@ -1397,7 +1412,7 @@ def generate_bundle(
     selected_indices = class_first_indices(test_ds)[:samples]
     selected = [(idx, test_ds[idx][0], int(test_ds[idx][1])) for idx in selected_indices]
 
-    out_dir = RESULT_DIR / network
+    out_dir = RESULT_DIR / f"{network}{tag}"
     weight_dir = out_dir / "weights"
     out_dir.mkdir(parents=True, exist_ok=True)
     weight_dir.mkdir(parents=True, exist_ok=True)
@@ -1522,7 +1537,33 @@ def main(argv: Iterable[str] | None = None) -> int:
     ap.add_argument("--no-download", action="store_true")
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--train-subset", type=int, default=None)
+    ap.add_argument(
+        "--dataset-override",
+        choices=["mnist", "fashion_mnist", "cifar10"],
+        default=None,
+        help="Override the network's default dataset (e.g. lenet5 with fashion_mnist)",
+    )
+    ap.add_argument(
+        "--tag",
+        default="",
+        help="Suffix appended to checkpoint filename and output dir "
+             "(e.g. '_fashion' → checkpoints/lenet5_fashion.pth, "
+             "results_conv/lenet5_fashion/)",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
+
+    if args.dataset_override is not None:
+        # Mutate the global NETWORKS dict so all train_* / generate_bundle paths
+        # see the override consistently. Tag should also be set so checkpoints
+        # and results directories don't collide with the canonical run.
+        if not args.tag:
+            print(
+                "[GOLDEN] --dataset-override requires --tag to keep ckpt / "
+                "results separate from the canonical run; aborting.",
+                flush=True,
+            )
+            return 2
+        NETWORKS[args.network]["dataset"] = args.dataset_override
 
     generate_bundle(
         args.network,
@@ -1531,6 +1572,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         samples=args.samples,
         epochs_override=args.epochs,
         train_subset_override=args.train_subset,
+        tag=args.tag,
     )
     return 0
 
