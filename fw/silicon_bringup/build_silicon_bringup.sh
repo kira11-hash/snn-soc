@@ -41,8 +41,23 @@ if [ -n "${UART_BAUD_DIV_OVERRIDE:-}" ]; then
   CFLAGS_EXTRA+=("-DUART_BAUD_DIV=${UART_BAUD_DIV_OVERRIDE}")
 fi
 
+# BLOCKER FW-B1 fix（2026-05-02 audit）：silicon_bringup 必须链到 0x1000 而非
+# 0x0。流片 chip_top 配置 ENABLE_BOOT_ROM=1，物理 INSTR_SRAM 基址被 mask ROM
+# 占用 0x0..0xFFF 抢去，移到 0x1000；操作手册 doc/silicon_bringup_guide.md +
+# silicon_bringup_plan.md 也都明确指 `--load-addr 0x1000`。
+# 旧版用 link.ld（origin=0x0）链接的镜像在硅片上会因绝对地址错位 + 栈越界
+# 直接死在 Day 1 第一关 JTAG rescue。
+# link_app.ld 的 APPMEM 起始 0x00001000，与 boot_rom 的 ROM_APP_BASE / ROM_APP_END
+# (0x1000..0x4FFF) 一致，确保 boot_rom fallback jump 到 0x1000 时执行的就是
+# 编译时假定 PC=0x1000 的 silicon_bringup 镜像。
+#
+# ⚠ 升级该 link script 之后，silicon_bringup_tb.sv（默认 ENABLE_BOOT_ROM=0，
+# 把 hex 装到 instr_sram@0x0）会失配。修 TB 让它使用 chip_top 实例 +
+# ENABLE_BOOT_ROM=1，或者保留 silicon_bringup_tb.sv 但把 reset vector
+# pc_rtvec 改成 0x1000。两者都需要同步动一次，本次 audit fix 先改链接，
+# TB 同步修复列入 follow-up（保留 silicon_bringup_tb.sv 现状但加 TODO）。
 LDFLAGS=(
-  -T "$FW_DIR/link.ld"
+  -T "$FW_DIR/link_app.ld"
   -nostdlib
   -Wl,--gc-sections
   -Wl,--build-id=none

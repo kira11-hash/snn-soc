@@ -83,7 +83,15 @@ static uint32_t wait_prog_done_bound(void) {
     return poll_bit(&PROG_STATUS, PROG_STATUS_DONE_MASK, 1u);
 }
 
+/*
+ * CONCERN FW-C4 fix（2026-05-02 audit）：进 wfi 之前必须 uart_wait_idle，
+ * 否则 SILICON_BRINGUP_DIGITAL_PASS 末尾的 '\n' 在 TX shift register 还在
+ * 移最后一位 bit 时 CPU 进入 wfi，可能让外部抓 UART 的脚本（pyserial 等）
+ * 在收到换行立即关 port，丢掉最后 1 个字节。boot_rom 已用同样套路防御
+ * （fw/boot_rom/boot_rom_main.c:62-66、120）。
+ */
 static void hang(void) {
+    uart_wait_idle();
     for (;;) {
         __asm__ volatile ("wfi");
     }
