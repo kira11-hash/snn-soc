@@ -1,18 +1,43 @@
+/*
+ * fw/src/v2b_conv_scheduler.c — V2.B CONV 层调度器（v2-conv 分支主力）。
+ *
+ * 这个文件实现了 ARM 端按层串流跑 LeNet-5 的 5 步握手协议：
+ *   1) 写完 STAGE_CFG1/2 + CONV_CFG_HW/C/K_S_P/OUT_HW/T/TILE/FMAP_BASE/OUT_BASE
+ *      + MODE_CFG（启用 EN，必要时打开 FLATTEN_MODE / PP_SEL）
+ *   2) 清 DONE：CONV_STATUS = DONE_MASK
+ *   3) 启动：CONV_CTRL = START
+ *   4) tile-by-tile 等硬件 WAIT_WEIGHT_REQ → 写权重 → 发 WEIGHT_READY，
+ *      重复 requests_expected 次（每像素位置触发 1 次）
+ *   5) 等 DONE 并查 ERR
+ *
+ * 关键依赖（运行时由 fw/arm/src/v2b_conv_scheduler_arm.c 通过 include
+ * "golden_lenet5.h" 后再 include 本文件来满足）：
+ *   - LENET5_T_COUNT / LENET5_TH_* / LENET5_SUMMAX_* / LENET5_*_C_OUT 等宏
+ *   - lenet5_*_offsets / lenet5_*_entries 数组（每层 sparse 权重三元组）
+ *
+ * 外部 hook（由 ARM 主程序提供）：
+ *   - uart_puts / uart_put_dec / uart_put_hex32：板上调试输出
+ *   - g_arm_progress_code / aux0..aux2：JTAG 在卡死时通过 mrd 读出 firmware
+ *     最近一次抵达的进度码，便于异常诊断；本文件大量埋点（0x100/0x200/0x3xx 等）
+ */
 #include <stdint.h>
 #include "v2b_conv_scheduler.h"
 #include "v2b_soc_regs.h"
 
 #ifndef V2B_CONV_POLL_TIMEOUT
-#define V2B_CONV_POLL_TIMEOUT 4000000u
+#define V2B_CONV_POLL_TIMEOUT 4000000u   /* 单次轮询的硬上限 ≈ 4M 次循环 */
 #endif
 
 #ifndef V2B_STREAM_BUF_CLEAR_GUARD_ITERS
-#define V2B_STREAM_BUF_CLEAR_GUARD_ITERS 8192u
+#define V2B_STREAM_BUF_CLEAR_GUARD_ITERS 8192u   /* CLEAR 命令后的延迟保护 */
 #endif
 
 extern void uart_puts(const char *s);
-extern void uart_put_dec(int32_t v);
+/* G2 fix（2026-05-02）：统一为 uint32_t（arm uart_ps.c 与 e203 uart_printf_v2e203.c
+ * 双侧实现都已对齐）。所有调用方都传递 size/count/tile_idx 等无符号值。 */
+extern void uart_put_dec(uint32_t v);
 extern void uart_put_hex32(uint32_t v);
+/* JTAG 调试用：firmware 卡死时可以通过 mrd 直接读这些全局变量看走到哪一拍 */
 extern volatile uint32_t g_arm_progress_code;
 extern volatile uint32_t g_arm_progress_aux0;
 extern volatile uint32_t g_arm_progress_aux1;
@@ -92,7 +117,7 @@ void v2b_load_input_fmap_words(const uint32_t *words, uint32_t word_count, uint3
     g_arm_progress_code = 0x200u;
     g_arm_progress_aux0 = word_count;
     uart_puts("[TB] load_input_fmap_words start words=");
-    uart_put_dec((int32_t)word_count);
+    uart_put_dec((uint32_t)word_count);
     uart_puts("\n");
     v2b_clear_fmap_words(word_count, target_bank);
     for (uint32_t i = 0; i < word_count; ) {
@@ -125,9 +150,9 @@ void v2b_load_input_fmap_words(const uint32_t *words, uint32_t word_count, uint3
             g_arm_progress_aux2 = written;
             if (written < 16u) {
                 uart_puts("[TB] nz write src_idx=");
-                uart_put_dec((int32_t)i);
+                uart_put_dec((uint32_t)i);
                 uart_puts(" nz_idx=");
-                uart_put_dec((int32_t)written);
+                uart_put_dec((uint32_t)written);
                 uart_puts(" data=0x");
                 uart_put_hex32(words[i]);
                 uart_puts("\n");
@@ -138,7 +163,7 @@ void v2b_load_input_fmap_words(const uint32_t *words, uint32_t word_count, uint3
             g_arm_progress_code = 0x222u;
             if (written < 16u) {
                 uart_puts("[TB] nz write done idx=");
-                uart_put_dec((int32_t)written);
+                uart_put_dec((uint32_t)written);
                 uart_puts("\n");
             }
             i++;
@@ -146,14 +171,14 @@ void v2b_load_input_fmap_words(const uint32_t *words, uint32_t word_count, uint3
         }
         if ((written >= 8u && (written & 7u) == 0u) || i >= word_count) {
             uart_puts("[TB] load_input_fmap_words nz-progress=");
-            uart_put_dec((int32_t)written);
+            uart_put_dec((uint32_t)written);
             uart_puts("\n");
         }
     }
     g_arm_progress_code = 0x2FFu;
     g_arm_progress_aux2 = written;
     uart_puts("[TB] load_input_fmap_words done nz=");
-    uart_put_dec((int32_t)written);
+    uart_put_dec((uint32_t)written);
     uart_puts("\n");
 }
 
@@ -260,10 +285,24 @@ static int v2b_wait_conv_done(uint32_t *status_out)
     return -1;
 }
 
+/*
+ * 跑一层 conv（也支持 flatten 层）：
+ *   - cfg 携带 H/W/C_in/C_out/k/stride/pad/out_H/out_W/t_count/tile_count/threshold/sum_max/...
+ *   - layer 携带 sparse 权重三元组（每个 tile 一段）
+ *   - requests_expected：硬件总共会发出多少次 WAIT_WEIGHT_REQ
+ *     · conv 层：(out_H × out_W) 次（每像素位置请求一次）
+ *     · flatten 层：tile_count 次（每个 tile 请求一次）
+ *
+ * 返回值：0 = 成功；负数 = 错误码（-10=weight req 超时，-11=DONE 超时，
+ *         -100-err = CONV_STATUS 报告的硬件错误码 err）
+ */
 int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
                        const v2b_sparse_layer_t *layer,
                        uint32_t requests_expected)
 {
+    /* 拼 MODE_CFG：始终打开 EN；
+     *   FLATTEN_MODE：fc1 用，把 conv 输出按 row-major (h*W+w)*C+c 平铺给 stage_engine
+     *   FMAP_PP_SEL：选 ping/pong bank（stride>1 等需要写到另一个 bank 的层用） */
     uint32_t mode_cfg = V2B_SOC_CONV_MODE_EN;
     if (cfg->flatten_mode) mode_cfg |= V2B_SOC_CONV_FLATTEN_MODE;
     if (cfg->pp_sel) mode_cfg |= V2B_SOC_CONV_FMAP_PP_SEL;
@@ -318,9 +357,9 @@ int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
     V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_START;
     g_arm_progress_code = 0x30Fu;
     uart_puts("[TB] conv start reqs=");
-    uart_put_dec((int32_t)requests_expected);
+    uart_put_dec((uint32_t)requests_expected);
     uart_puts(" tiles=");
-    uart_put_dec((int32_t)cfg->tile_count);
+    uart_put_dec((uint32_t)cfg->tile_count);
     uart_puts("\n");
 
     for (uint32_t req = 0; req < requests_expected; req++) {
@@ -331,9 +370,9 @@ int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
         V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_WEIGHT_READY;
         if ((req < 4u) || (((req + 1u) & 63u) == 0u) || ((req + 1u) == requests_expected)) {
             uart_puts("[TB] conv weight-ready req=");
-            uart_put_dec((int32_t)(req + 1u));
+            uart_put_dec((uint32_t)(req + 1u));
             uart_puts(" tile=");
-            uart_put_dec((int32_t)tile_idx);
+            uart_put_dec((uint32_t)tile_idx);
             uart_puts(" status=");
             uart_put_hex32(status);
             uart_puts("\n");
@@ -386,6 +425,20 @@ void v2b_count_stream_spikes(int32_t *counts_out, uint32_t out_dim, uint32_t rea
     }
 }
 
+/*
+ * 跑完整 LeNet-5 推理（conv1 → conv2 → fc1(flatten) → fc2 → fc3）。
+ *
+ * 参数：
+ *   input_words：长度 LENET5_INPUT_WORDS 的 32-bit word 数组，packed 8-bit
+ *                bitplane 后的 28×28×T 输入 fmap。由 Python encode_image_to_spike_fmap +
+ *                pack_spike_fmap 生成，固化在 golden_lenet5.[hc] 里。
+ *   counts_out_10：输出每类 spike count（10 维），调用方比对 expected_counts 即可。
+ *
+ * 返回值：0 = 全部 PASS；-1..-5 = 第 N 层失败（-1 conv1，-2 conv2，-3 fc1，-4 fc2，-5 fc3）
+ *
+ * 注意：fc2/fc3 走 v2b_run_fc_stage（标准 stage 路径，单 tile），其余走 conv 调度。
+ *       fc1 是 flatten 层（tile_count=9，input_dim=2304），仍走 conv 调度但带 flatten_mode=1。
+ */
 int v2b_run_lenet5_demo(const uint32_t *input_words,
                         int32_t *counts_out_10)
 {
