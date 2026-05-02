@@ -174,6 +174,39 @@ topologies:
     weight_neg_hex: results_multilayer/196_64_10/weights/L1_neg.hex
 
 # ═══════════════════════════════════════════════════════════════════════
+# Fashion-MNIST 28×28 streamed rate (full-resolution ablation — same 2-FC
+# topology as 196_64_10 but raw 28×28 input, sum_max scales to 11760).
+# Used to answer "does the 14×14 avgpool downsample cost us accuracy?"
+# ═══════════════════════════════════════════════════════════════════════
+
+- name: '784_64_10'
+  role: v2_demo
+  dataset: fashion_mnist
+  input_encoding: streamed_rate
+  stream_timesteps: 64
+  adc_bits: 10
+  adc_full_scale: active_wl
+  num_fc_stages: 2
+  input_dim: 784
+  stages:
+  - in_dim: 784
+    out_dim: 64
+    timesteps: 1
+    use_bitplane: false
+    threshold: 16
+    sum_max: 11760            # 784 × 15
+    weight_pos_hex: results_multilayer/784_64_10/weights/L0_pos.hex
+    weight_neg_hex: results_multilayer/784_64_10/weights/L0_neg.hex
+  - in_dim: 64
+    out_dim: 10
+    timesteps: 1
+    use_bitplane: false
+    threshold: 8
+    sum_max: 960              # 64 × 15
+    weight_pos_hex: results_multilayer/784_64_10/weights/L1_pos.hex
+    weight_neg_hex: results_multilayer/784_64_10/weights/L1_neg.hex
+
+# ═══════════════════════════════════════════════════════════════════════
 # MNIST 14×14 streamed rate (same topology structure, easier task — for
 # comparison: on MNIST depth gap tends to be smaller but absolute numbers
 # are higher; tests if Fashion's low 52% is encoding/ADC or task difficulty)

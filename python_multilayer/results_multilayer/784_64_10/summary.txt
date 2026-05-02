@@ -1,0 +1,58 @@
+# Phase A V2.B streamed-rate training summary — Fashion-MNIST 28×28 raw-input ablation
+# Auto-generated 2026-05-03 (one-shot training run requested by user to compare
+# 28×28 raw input against 14×14 avgpool baseline on the same FC topology).
+
+topology:          784_64_10  (Fashion-MNIST raw 28×28, no avgpool downsample)
+experiment_id:     ad-hoc    (cross-resolution ablation, not in original P-series)
+label:             784_64_10 (784->64->10) on Fashion-MNIST 28×28 (vs. 14×14 82.38%)
+dataset:           fashion_mnist
+stream_timesteps:  64
+adc_bits:          10
+encoding:          streamed_rate (even_rate Bresenham accumulator)
+adc_full_scale:    active_wl
+reset_mode:        soft
+
+# ── Headline result ──────────────────────────────────────────────────
+test_accuracy:     0.8405     # best epoch (ep 28/30)
+final_epoch_acc:   0.8328     # ep 30/30
+trained_epochs:    30
+seed:              42
+
+# ── Comparison ──────────────────────────────────────────────────────
+fashion_14x14_baseline_196_64_10:  0.8238   # python_multilayer/results_multilayer/196_64_10/summary.txt
+gap_28x28_minus_14x14:             +0.0167  # 4× more pixels buys only ~1.67 pp
+mnist_14x14_same_topology:         0.9648   # cross-dataset reference
+
+# ── Calibration trace ────────────────────────────────────────────────
+# stage 0 threshold: 16 (locked through all 30 epochs)
+# stage 1 threshold:  8 (locked through all 30 epochs)
+# Spike rate at final calib (ep 25):
+#   stage 0: rate=0.210  theta=16
+#   stage 1: rate=0.130  theta=8
+
+# ── Provenance ───────────────────────────────────────────────────────
+training_command:  python run_streamed_rate_train.py --topology 784_64_10 --epochs 30 --seed 42
+log_file:          /tmp/fashion28_train.log (本机临时)
+model_file:        model.pt  (PyTorch state_dict; 4-bit weight QAT + integer RTL-like forward)
+
+# ── How to reproduce ─────────────────────────────────────────────────
+# 1. python run_streamed_rate_train.py --topology 784_64_10 --epochs 30 --seed 42
+#    （继承 topologies.yaml[784_64_10] 的 stream_timesteps=64 / adc=10-bit /
+#     2-stage FC 拓扑；input_dim=784 = 4 个 256-tile 触发 tile_mode=1 路径，
+#     但 Python 当前用 ideal matmul，未做 multi-tile partial-sum bit-exact）
+#
+# 2. 训练 ~35 分钟 / 30 epochs；threshold 在 ep 5/10/15/20/25 各做一次 EMA
+#    校准（本次都未触发自适应，rate 在 [0.13, 0.21] 区间内稳定）。
+
+# ── Conclusion ──────────────────────────────────────────────────────
+# 同拓扑同 ADC 同 T 下，Fashion-MNIST 28×28 raw 比 14×14 avgpool 只多 ~1.67
+# 个百分点（84.05% vs 82.38%）。这印证了"Fashion-MNIST 主要靠纹理特征而
+# 不是空间分辨率，14×14 avgpool 没有让 Fashion 任务变得不可解；82% 的瓶颈
+# 是 4-bit weight + 浅 FC + Fashion 任务本身的难度上限"。
+#
+# 板验路径：本结果不上板（V2.B 单 stage_engine 单 tile NUM_INPUTS=256；784
+# 输入需要 tile_mode=1 multi-tile partial-sum，Python 训练目前用 ideal matmul，
+# 未做 RTL bit-exact mapping。论文/简历叙事可引用此 84.05% 作为"如果未来把
+# tile_mode=1 FC 路径做完，Fashion 28×28 的训练精度 ceiling 大概在哪"，
+# 但**不能**当作板验数字使用——只有 #1 Fashion 14×14 的 82.38% 是有
+# byte-exact 板验背书的）。
