@@ -234,11 +234,113 @@ SILICON_BRINGUP_DIGITAL_PASS
 - [ ] Pick final ROM size (2 KB trampoline vs. 4 KB full self-test) after SPI-flash boot flow is frozen.
 - [ ] Decide whether tape-out ROM content is the full SPI bootloader (`fw/boot_rom/boot_rom_main.c`) or a smaller trampoline ROM.
 - [ ] Integrate `fpga_bringup_capture.sh` into the automation CI so any RTL change automatically re-runs Phase C on a physical board (requires remote board access infrastructure).
-- [ ] Decide whether `BYPASS_HANDSHAKE` should be gated by a hard fuse or production firmware lock so it cannot be abused in shipped silicon.
+- [x] Decide whether `BYPASS_HANDSHAKE` should be gated by a hard fuse or production firmware lock so it cannot be abused in shipped silicon. → **决策已在 §6 落地（2026-05-02 audit follow-up R-C9）**
 
 ---
 
-## 6. Paper-wording envelope
+## 6. BYPASS_HANDSHAKE 生命周期与生产固件 readback assert（R-C9 audit fix，2026-05-02）
+
+### 6.1 背景：为什么这个 bit 危险
+
+`PROG_CTRL.BYPASS_HANDSHAKE`（reg_bank.sv 中 PROG_CTRL[3]，CLAUDE.md 寄存器表 0x38）
+是 silicon bring-up 早期为隔离数字/模拟问题留的逃生门：**置 1 时，cim_program_ctrl
+跳过模拟侧真实 ADC verify 握手，强制使用一个落在 verify 窗口内的伪造 readback
+值 → 任何 cell 都判 PASS**。
+
+危险在于：硬件层面没有锁。`reg_bank.sv` 是普通 RW bit：
+```sv
+if (req_wstrb[0] && !prog_inflight) prog_handshake_bypass <= req_wdata[3];
+```
+任何固件 / JTAG 调试 / OTA 更新都可以把它置 1。一旦在生产固件里**意外**（bug、
+误操作、调试遗留）让它 = 1，硅片实际写错了权重也 silently 全 PASS，推理精度
+崩了用户都不知道。
+
+### 6.2 R-C9 决策：本 die **没有 efuse / OTP cell**，只能走软件 lock
+
+2026-05-02 audit 抓到 R-C9 时考虑过两条 mitigation：
+
+| 方案 | 强度 | 是否需 RTL/工艺改动 | 是否绕得过 |
+|---|---|---|---|
+| A. efuse / OTP 硬件锁 | 硬件强制 | 需要 die 上有 OTP cell + 改 RTL 加 efuse 信号 + chip_top pad | 不可绕过 |
+| B. 生产固件 readback assert | 仅靠固件自律 | 不需要 RTL 改动 | JTAG / 攻破固件可绕过 |
+
+**本项目当前 die 工艺不带 OTP cell**（已确认），所以**只能走方案 B**。
+方案 A 留作未来工艺升级时可选。
+
+### 6.3 BYPASS_HANDSHAKE 的三阶段生命周期
+
+| 阶段 | 数字 die | 模拟 die | BYPASS | 说明 |
+|---|---|---|---|---|
+| **Day 1-2 数字自检** | ✅ 上电 | ❌ 没接 / 没 ready | **= 1（必需）** | `bl_data` 是模拟侧 ADC，没接时 X 或悬空。BYPASS=0 会让所有 verify 因读到 X/0 而 FAIL，无法定位是数字 RTL 问题还是模拟未接。**silicon_bringup.c 默认走这条路径**，这是它存在的根本理由。 |
+| **Day 3+ 双 die 集成测试** | ✅ | ✅ PCB 互连 | **= 0（必需）** | `bl_data` 是真实 ADC 读回，cim_program_ctrl 走真实 verify 窗口判断 PASS/FAIL/RETRY。如果 BYPASS=1 你看到所有 cell 都 PASS，但其实没真测——自欺欺人。 |
+| **生产 / 出货** | ✅ | ✅ | **= 0 永久** | 终端用户跑推理。任何让 BYPASS=1 的路径都是 bug。 |
+
+### 6.4 生产固件 readback assert 的硬性要求
+
+**针对阶段 3（生产固件），强制实施**以下 readback assert 模式，不可省略：
+
+```c
+/*
+ * R-C9 audit fix（2026-05-02）：本 die 工艺不带 efuse / OTP cell，
+ * 没有硬件 lock 阻止 BYPASS_HANDSHAKE 被生产固件意外置 1。
+ * 替代方案：每次进入 program / verify 路径前 readback PROG_CTRL，
+ * 强制 BYPASS=0 否则 hard panic。本函数是 production firmware
+ * 的红线，不可被任何 caller 跳过。
+ */
+static void v2b_assert_no_bypass(void) {
+    uint32_t v = *(volatile uint32_t *)PROG_CTRL;
+    if (v & PROG_CTRL_BYPASS_HANDSHAKE_MASK) {
+        uart_puts("\n[FATAL] PROG_CTRL.BYPASS_HANDSHAKE=1 is FORBIDDEN in production\n");
+        uart_puts("[FATAL] R-C9 policy violation — refusing to program any cell.\n");
+        uart_puts("[FATAL] Halting CPU. Inspect firmware build and flash a clean image.\n");
+        uart_wait_idle();
+        for (;;) __asm__ volatile ("wfi");
+        // 不可达
+    }
+}
+
+/*
+ * 所有生产固件的 program 入口必须**先**调用 v2b_assert_no_bypass()。
+ * silicon_bringup.c 中允许 BYPASS=1（自检阶段），所以这个 assert 只
+ * 在生产固件里调用，不要回写到 silicon_bringup.c。
+ */
+void v2b_program_cell(uint8_t row, uint8_t col, uint8_t level) {
+    v2b_assert_no_bypass();   // ← 红线：每次都检查
+    // ...真实 program 序列
+}
+
+void v2b_program_array(const uint8_t *weights, size_t n) {
+    v2b_assert_no_bypass();   // ← 同样
+    for (size_t i = 0; i < n; i++) {
+        // ...
+    }
+}
+```
+
+### 6.5 落地清单（按时间顺序，绑定 tape-out 路径）
+
+- [ ] **硅片回来后 Day 3** 双 die 集成首次测试时：写一个 minimal integration test
+      firmware（`fw/integration_test/`），手动 `PROG_CTRL.BYPASS_HANDSHAKE = 0`，
+      跑几轮真实 program / verify 确认双 die 通了
+- [ ] **生产固件开发阶段**（V2 或后续）：建立 `fw/production/` 目录，所有 program
+      / verify API 入口必须调用 `v2b_assert_no_bypass()`
+- [ ] **CI lint 守口**：在 `production/` 目录下用 grep 模式匹配，禁止任何
+      `*PROG_CTRL = ... | BYPASS_HANDSHAKE_MASK` 类的写法
+- [ ] **出货前 review**：生产固件 .elf 反汇编 grep `BYPASS_HANDSHAKE_MASK`，确认
+      所有出现都是 **read** + **assert 0**，没有任何 **write 1** 的指令序列
+
+### 6.6 已知绕过路径（透明披露）
+
+- **JTAG 调试**：通过 jtag_mem_loader 直接写 PROG_CTRL，可以绕过固件 assert。
+  生产场景下 JTAG pad 不应连接（PCB 切断），是物理隔离防御。
+- **OTA 升级到带 BYPASS=1 的 firmware**：依赖 OTA 路径自身的签名验证；
+  如果 OTA 通道被攻破，软件层任何防御都失效。
+- **未来如有 die respin 加 efuse**：方案 A 上线后 readback assert 仍保留，
+  作为软件冗余（depth-in-defense）。
+
+---
+
+## 7. Paper-wording envelope
 
 Unchanged from `doc/main-fpga-e203/00_architecture.md`:
 
