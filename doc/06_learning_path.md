@@ -11,7 +11,7 @@
 | 维度 | 状态 |
 |------|------|
 | RTL 总行数 | ~8,700 行（rtl/ 全树） |
-| ASIC pad 冻结 | 55-pad（48 推理 + 7 外部编程；详见 `doc/15_asic_pad_map.md`） |
+| ASIC pad 冻结 | 55-pad（46 signal + 6 power + 3 ESD-reserved；signal 中 39 是原 V1 推理/IO + 7 外部编程 α' 新增；详见 `doc/15_asic_pad_map.md`） |
 | TO-intent 顶层 | `rtl/top/chip_top.sv`（ENABLE_E203=1 + ENABLE_BOOT_ROM=1 + ENABLE_PROGRAM_MODE=1 + ENABLE_EXT_CIM_IF=1） |
 | Boot 路径 | mask ROM @ 0x0 → bootloader → SPI 加载 app → INSTR_SRAM @ 0x1000 |
 | CIM 编程能力 | `cim_program_ctrl` + `cim_macro_arbiter`（写 / 擦除 / 全阵列擦 / verify retry） |
@@ -1477,7 +1477,7 @@ V1 数字芯片与模拟芯片是两个独立 die 通过 PCB 互联。模拟侧 
 
 | 新增 pad | 数量 | 含义 |
 |---------|------|------|
-| `prog_op[2:0]` | 3 | op 编码：000=inference / 100=full_array_erase / 101=erase_single / 110=write / 111=verify |
+| `prog_op[2:0]` | 3 | op 编码（**权威源 `rtl/top/snn_soc_top.sv` line 1264-1268**）：000=inference / 001=erase_single / 010=write / 011=verify / 100=erase_full_array。与 `doc/15` / `doc/03` / `doc/17` 一致 |
 | `prog_level[3:0]` | 4 | 目标电导等级（write 时有效，0~15） |
 | 总计 | 7 | 对应 doc/15 pads 46..52 |
 

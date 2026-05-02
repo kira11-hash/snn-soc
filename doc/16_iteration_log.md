@@ -6,6 +6,18 @@
 
 ## Iteration 12 — 2026-05-02 ARM ZCU102 LeNet-5 联调复盘（时序口径 + preload 根因）
 
+> **⚠ 范围声明（2026-05-02 audit 添加，DOC-B2）**：
+> 本节记录的是 `feature/v2-arm-fpga-demo-conv` 分支（V2.B FPGA evidence
+> track）上的调试经验，**不反映 main 分支当前 RTL 状态**。引用的 RTL
+> （`rtl/top/snn_soc_v2b_top.sv`）、固件（`fw/src/v2b_conv_scheduler.c`、
+> `fw/arm/src/*`）、commits（`48958da0` / `3719c3e7` / `5beca16b` /
+> `dea06766` 等）**仅在 V2.B 分支存在**，main 上不可达。
+> 保留本节的目的是把 V2.B 调试历史写回主线日志作为系统级经验参考——
+> ARM preload 时序错位 / PS-PL 时钟口径不一致这两个根因模式以后任何外设
+> 集成（包括 V1 silicon bring-up 的 PCB + chip-flow）都可能重演。
+> 论文叙事 / 简历引用时请明确标注"V2.B FPGA evidence path"，不要混淆为
+> V1 流片状态。
+
 ### 背景
 
 - 本节记录 `feature/v2-arm-fpga-demo-conv` 分支上，把原先“ARM PS 经 AXI-Lite 驱动 V2.B、只跑 bypass / scheduler”的板级链路，扩到“真 `conv1 -> conv2 -> fc1 -> fc2 -> fc3`”过程中踩到的几类坑。

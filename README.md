@@ -162,10 +162,18 @@ doc/   中文说明文档
 | `doc/15_asic_pad_map.md` | **ASIC Pad Map（55 pad 冻结真源）** |
 | `doc/17_cim_macro_handoff_cover.md` | **发给模拟 CIM macro 同学的封面说明（先读这份）** |
 | `doc/16_iteration_log.md` | 迭代变更日志（Phase 4 全外设接入记录） |
-| `eassy-prompt/17_ic_paper_prompt_shared.md` | IC 论文总控 prompt 共享模块（共性流程、真实性与门控） |
-| `eassy-prompt/18_ic_paper_prompt_A_fpga.md` | 模式 A：系统架构 / FPGA 原型验证论文 prompt 模块 |
-| `eassy-prompt/19_ic_paper_prompt_B1_digital_silicon.md` | 模式 B.1：数字流片成功论文 prompt 模块 |
-| `eassy-prompt/20_ic_paper_prompt_B2_dual_chip_silicon.md` | 模式 B.2：双芯片集成成功论文 prompt 模块 |
+<!--
+DOC-B3 fix（2026-05-02 audit）：原 4 份 IC 论文 prompt 模板（17/18/19/20）
+已从 `eassy-prompt/` 删除（且整目录在 .gitignore 中忽略），保留这 4 行索引
+会让读者按图索骥找不到文件。如未来恢复，需要：
+  (a) 把 `eassy-prompt/` 从 .gitignore 移出
+  (b) 重建这 4 份 prompt 文件
+  (c) 重新追加索引
+当前 `eassy-prompt/` 仅保留 2 份 GPT review 历史 prompt
+（gpt_review_2026-04-22 / gpt_review_2026-04-24），是 audit 工作日志，
+不属对外文档索引。
+-->
+
 
 ### 草稿文档（已整合到正式文档）
 - 早期 `develop docs` 草稿目录已从仓库移除，相关内容已整合到上述 `doc/*.md` 正式文档中；如需追溯演进过程，请查看 Git 历史。

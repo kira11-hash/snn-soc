@@ -12,8 +12,8 @@
 
 | 术语 | 物理实体 / 含义 |
 |---|---|
-| **数字 die** | 本项目的数字芯片（E203 + SNN SoC），pad 数 48 |
-| **模拟 die** | 分开流片的 CIM 模拟芯片（RRAM 阵列 + ADC），pad 数 48 |
+| **数字 die** | 本项目的数字芯片（E203 + SNN SoC），pad 数 **55**（46 signal + 6 power + 3 ESD-reserved；2026-04-24 由方案 α' 从 48 扩到 55）。详见 `doc/15_asic_pad_map.md` |
+| **模拟 die** | 分开流片的 CIM 模拟芯片（RRAM 阵列 + ADC），pad 数 ~48（与数字 die 不同，模拟侧由模拟同学独立 freeze） |
 | **Mask ROM** | 数字 die 上一小块（4 KB）只读存储区，内容在工厂流片时用掩膜层固化。地址 0x0000_0000~0x0000_0FFF |
 | **INSTR_SRAM** | 数字 die 上 16 KB 可读写指令存储。开启 Mask ROM 时位于 0x0000_1000~0x0000_4FFF |
 | **Bootloader** | 烧在 Mask ROM 里的一小段代码（~2 KB），负责从 SPI flash 读应用固件到 INSTR_SRAM 并跳转 |
