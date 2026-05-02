@@ -25,7 +25,10 @@
 //   T5: cfg_out_dim > P_N_OUT     → ERR_DIM_OUT_OF_RANGE
 //   T6: cfg_t_count > P_T_MAX     → ERR_DIM_OUT_OF_RANGE
 //   T7: cfg_input_src == cfg_output_dst (非 OUTPUT_FIFO) → ERR_SRC_DST_CONFLICT
-//   T8: 合法配置（regression）    → ERR_OK, busy=1, 正常跑完
+//   T8: cfg_input_src > V2B_BUF_SEL_FMAP_FLATTEN → ERR_DIM_OUT_OF_RANGE
+//   T9: PATCH_UNROLLER + cfg_conv_mode=0 → ERR_DYN_SRC_NEEDS_CONV_MODE
+//   T10: FMAP_FLATTEN + cfg_conv_mode=0 → ERR_DYN_SRC_NEEDS_CONV_MODE
+//   T11: 合法配置（regression）   → ERR_OK, busy=1, 正常跑完
 //
 // 【每条 case 检查】
 //   (a) done_pulse 触发 1 拍
@@ -266,6 +269,11 @@ module stage_engine_v2_invalid_cfg_tb;
     cfg_output_dst = V2B_BUF_SEL_STREAM_A;
     check_reject("T7 src==dst==STREAM_A", V2B_STAGE_ERR_SRC_DST_CONFLICT);
 
+    // ── T8: input_src 编码越界必须 reject（镜像 config_ok） ──
+    set_base_cfg();
+    cfg_input_src = V2B_BUF_SEL_W'(6);
+    check_reject("T8 cfg_input_src=6(out-of-range)", V2B_STAGE_ERR_DIM_OUT_OF_RANGE);
+
     // ── T9 (E2 fix, 2026-05-02): PATCH_UNROLLER + cfg_conv_mode=0 必须 reject ──
     // 旧版守口只检查 cfg_input_src 在编码范围内，不强制 cfg_conv_mode 一致性；
     // 这种组合下 dyn_wl_req_valid 永远拉不起来，FSM 进 S_DYN_WAIT 静默挂死。
@@ -282,7 +290,7 @@ module stage_engine_v2_invalid_cfg_tb;
     check_reject("T10 FMAP_FLATTEN+conv_mode=0",
                  V2B_STAGE_ERR_DYN_SRC_NEEDS_CONV_MODE);
 
-    // ── T8: Valid config AFTER all rejects must still work (non-wedge proof) ──
+    // ── T11: Valid config AFTER all rejects must still work (non-wedge proof) ──
     // If the bug were still present, prior rejects would have entered S_SETUP
     // and left the FSM in a non-IDLE state; a subsequent valid START would
     // collide. Here we expect FSM to be healthy and busy to pulse exactly
@@ -295,13 +303,13 @@ module stage_engine_v2_invalid_cfg_tb;
       // Valid config: wait for busy to go high (might take a cycle or two)
       @(posedge clk); @(posedge clk);
       if (busy_ever == 0) begin
-        $display("[FAIL] T8 valid-after-rejects: busy never asserted -> FSM wedged");
+        $display("[FAIL] T11 valid-after-rejects: busy never asserted -> FSM wedged");
         fail_count++;
       end else begin
         // Let it finish. MAC stub never fires mac_done so stage will hang
         // in S_MAC_RUN — that's fine, we only need to confirm it entered
         // a non-IDLE state (busy=1). FSM recovery after reject is proven.
-        $display("[PASS] T8 valid-after-rejects (busy asserted, FSM recovered)");
+        $display("[PASS] T11 valid-after-rejects (busy asserted, FSM recovered)");
         pass_count++;
       end
     end

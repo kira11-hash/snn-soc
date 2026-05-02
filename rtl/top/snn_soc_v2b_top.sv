@@ -38,7 +38,7 @@
 //   0x08  STAGE_CFG0       [15:0]=IN_DIM, [31:16]=OUT_DIM
 //   0x0C  STAGE_CFG1       [31:0]=THRESHOLD
 //   0x10  STAGE_CFG2       [31:0]=SUM_MAX
-//   0x14  STAGE_CFG3       [1:0]=INPUT_SRC, [9:8]=OUTPUT_DST,
+//   0x14  STAGE_CFG3       [2:0]=INPUT_SRC, [9:8]=OUTPUT_DST,
 //                          [16]=TILE_MODE, [17]=IS_TILE_FINAL,
 //                          [18]=PRESERVE_MEMBRANE
 //   0x18  STAGE_CFG4       reserved (weight base addr in full flow)
@@ -824,7 +824,9 @@ module snn_soc_v2b_top
                                   cmd_wdata, cmd_wstrb);
             if (cmd_wstrb[0] && cmd_wdata[0]) begin
               reg_conv_fmap_wr_commit_pulse <= 1'b1;
-              if (reg_conv_fmap_wr_auto_inc) reg_conv_fmap_wr_inc_pending <= 1'b1;
+              // 同一笔写事务若同时改 bit1(AUTO_INC) 和 bit0(COMMIT)，本次 commit
+              // 应按写后的 bit1 语义决定是否自增，而不是沿用旧寄存值。
+              if (word_v[1]) reg_conv_fmap_wr_inc_pending <= 1'b1;
             end
             reg_conv_fmap_wr_auto_inc <= word_v[1];
             reg_conv_fmap_wr_target_bank <= word_v[2];

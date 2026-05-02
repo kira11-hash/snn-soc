@@ -190,7 +190,7 @@ module v2b_soc_top_parity_tb;
   // Configure stage via bus and start
   task automatic run_stage_via_bus(
     input int in_dim, input int out_dim, input int threshold, input int sum_max,
-    input logic [1:0] input_src, input logic [1:0] output_dst
+    input logic [V2B_BUF_SEL_W-1:0] input_src, input logic [1:0] output_dst
   );
     logic [31:0] cfg3_val;
     begin
@@ -198,7 +198,7 @@ module v2b_soc_top_parity_tb;
       bus_write(A_STAGE_CFG1, threshold);
       bus_write(A_STAGE_CFG2, sum_max);
       cfg3_val = 32'h0;
-      cfg3_val[1:0] = input_src;
+      cfg3_val[V2B_BUF_SEL_W-1:0] = input_src;
       cfg3_val[9:8] = output_dst;
       cfg3_val[17]  = 1'b1;  // IS_TILE_FINAL (always single tile)
       bus_write(A_STAGE_CFG3, cfg3_val);
@@ -268,7 +268,9 @@ module v2b_soc_top_parity_tb;
   // Trace when stage_engine is in S_READ_WL with cfg_input_src=STREAM_A (stage 1)
   int sba_input_trace = 0;
   always @(posedge clk) begin
-    if (rst_n && dut.u_se.state == 4'd3 && dut.u_se.cfg_input_src == 2'd1 && sba_input_trace < 5) begin
+    if (rst_n && dut.u_se.state == 4'd3 &&
+        dut.u_se.cfg_input_src == V2B_BUF_SEL_STREAM_A &&
+        sba_input_trace < 5) begin
       $display("[SE-S_READ_WL stage1] t_idx=%0d sbA_rd_en_se=%0b sbA_rd_addr_se=%0d",
         dut.u_se.t_idx, dut.sbA_rd_en_se, dut.sbA_rd_addr_se);
       sba_input_trace++;

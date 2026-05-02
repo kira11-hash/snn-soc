@@ -153,7 +153,7 @@ void v2b_load_input_fmap_words(const uint32_t *words, uint32_t word_count, uint3
                 uart_put_dec((uint32_t)i);
                 uart_puts(" nz_idx=");
                 uart_put_dec((uint32_t)written);
-                uart_puts(" data=0x");
+                uart_puts(" data=");
                 uart_put_hex32(words[i]);
                 uart_puts("\n");
             }

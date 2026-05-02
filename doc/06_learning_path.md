@@ -17,9 +17,9 @@
 | 板级冻结 commit (v2 reburn, Fashion-MNIST 14×14) | `ea31be22`（WSTRB byte-mask 修复后重烧 PASS） |
 | **板级冻结 commit (v2-conv, LeNet-5 28×28)** | **`48958da0`（2026-05-01，CONV 扩展 + 5 层串流 PASS）** |
 | Claude 复核基线 HEAD | `48958da0`（"Fix conv fmap preload address increment" + work-around 回滚） |
-| 板验固件实际对应的 commit | `3719c3e7`（manifest 锁定；work-around 路径，板上跑出 PASS marker 的版本） |
+| manifest 内历史 build 记录的 commit 字段 | `3719c3e7`（仅指 `build_manifest_v2.txt` 自身仍保留的旧字段；**不是**当前 native LeNet-5 PASS 所引用的板验 commit） |
 | 当前审计修复是否需要 reburn | **否** — 本次仅做文档（doc/06 + arm-fpga-demo 系列）+ 中文化注释；不动 RTL/FW 行为，不影响 bitstream / ELF SHA |
-| HEAD（native conv1）路径是否需要 reburn | **是**（RTL + FW 已和 manifest commit 不同；上板留作后续工作，不在本评估周期 scope） |
+| HEAD（native conv1）路径是否需要 reburn | **否**（`48958da0` 已完成 clean rebuild + native 10/10 UART PASS；manifest 仅保留历史字段 caveat） |
 | 板级 PASS 标记（v2 Fashion） | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 | **板级 PASS 标记（v2-conv LeNet-5）** | **`ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample 全 PASS，counts byte-exact，argmax 全对）** |
 
@@ -2064,8 +2064,8 @@ bit-exact 合约：板上 ARM 跑完后 `counts_buf[0..9]` 与 `golden_lenet5[i]
 | `48958da0` | RTL 真修复 + work-around 回滚 | "Fix conv fmap preload address increment"：纠正 `snn_soc_v2b_top.sv` 中 `reg_conv_fmap_wr_addr` 的 auto-increment 时序（commit pulse 与 addr+1 同拍发出会让 RTL 看到旧地址，加 1 拍 pending 寄存器解决）；同时删除 5beca16b 的 work-around 头文件，启用 native conv1 路径 |
 
 **关键区分（重要）**：
-- 已板验 PASS = work-around 路径（manifest commit `3719c3e7`）：conv1 输出来自 Python 预算结果，conv2/FC 走 RTL；10/10 sample PASS 已锁定为不可变证据
-- 当前 HEAD = native conv1 路径（commit `48958da0`）：5 层完全走 RTL，但 HEAD vs manifest commit 之间有 RTL + FW 实质差异，bit/elf SHA 会变；HEAD 路径上板验证留作后续工作（不在本评估周期 scope）
+- 历史 manifest 字段仍停在 `3719c3e7`：这只说明 `build_manifest_v2.txt` 自身没有为 `48958da0` 单独重写过，不代表当前板验事实还停留在 work-around 路径
+- 当前板验 ground truth = native conv1 路径（commit `48958da0`）：5 层完全走 RTL，clean rebuild 后已在板上抓到 `ARM_FPGA_DEMO_LENET5_PASS`；论文 / 简历引用以 HEAD commit + board log + UART marker 为准
 
 详见 doc/arm-fpga-demo/00_architecture.md §12.7 / §12.7.1。
 

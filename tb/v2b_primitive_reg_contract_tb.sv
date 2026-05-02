@@ -136,7 +136,7 @@ module v2b_primitive_reg_contract_tb;
     begin
       cfg0 = ((out_dim & 32'hFFFF) << 16) | (in_dim & 32'hFFFF);
       cfg3 = 32'h0;
-      cfg3[1:0]  = V2B_BUF_SEL_INPUT_SRAM;
+      cfg3[V2B_BUF_SEL_W-1:0] = V2B_BUF_SEL_INPUT_SRAM;
       cfg3[9:8]  = V2B_BUF_SEL_STREAM_A;
       cfg3[17]   = 1'b1;               // IS_TILE_FINAL (single tile)
       bus_write(A_STAGE_CFG0, cfg0);
@@ -174,7 +174,7 @@ module v2b_primitive_reg_contract_tb;
       if (t_count_discarded < 0) $display("unreachable");
       cfg0 = ((out_dim & 32'hFFFF) << 16) | (in_dim & 32'hFFFF);
       cfg3 = 32'h0;
-      cfg3[1:0]  = V2B_BUF_SEL_INPUT_SRAM;
+      cfg3[V2B_BUF_SEL_W-1:0] = V2B_BUF_SEL_INPUT_SRAM;
       cfg3[9:8]  = V2B_BUF_SEL_STREAM_A;
       cfg3[17]   = 1'b1;
       bus_write(A_STAGE_CFG0, cfg0);

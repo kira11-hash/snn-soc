@@ -331,7 +331,7 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 
 **HEAD commit**：`48958da0`（2026-05-01）
 **板验 PASS 标记**：`ARM_FPGA_DEMO_LENET5_PASS`
-**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（已更新到 LeNet-5 重烧 SHA）
+**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（LeNet-5 时代的工具链/工件记录，文件顶部已注明其 commit/SHA 字段仍保留 `3719c3e7` 历史 caveat）
 **详细 UART 日志**：`doc/arm-fpga-demo/board_bringup_log_lenet5.txt`
 
 ### 12.1 为什么从 Fashion-MNIST 14×14 升级到 LeNet-5

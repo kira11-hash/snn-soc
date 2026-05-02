@@ -9,9 +9,16 @@
 //   T1 reset 后 busy=0, done=0, err=0
 //   T2 illegal config (T_count=0) → done + err=ERR_BAD_T
 //   T3 illegal config (KKC > V2B_CONV_MAX_KKC) → done + err=ERR_ILLEGAL_KKC
-//   T4 illegal config (C_out > V2B_MAX_OUT_NEURONS) → done + err=ERR_BAD_COUT
-//   T5 valid config → busy=1, FSM 进 S_WAIT_WEIGHT，weight_req 拉起
-//   T6 weight_ready_pulse 后 weight_req 清零
+//   T4 illegal config (tile_count / last_tile_valid_count mismatch) → ERR_TILE_CFG_MISMATCH
+//   T5 illegal config (stride=0) → ERR_BAD_GEOMETRY
+//   T6 illegal config (fmap base 越界) → ERR_FMAP_OOB
+//   T7 illegal config (C_out > V2B_MAX_OUT_NEURONS) → ERR_BAD_COUT
+//   T8 valid config → busy=1, FSM 进 S_WAIT_WEIGHT，weight_req 拉起
+//   T9 运行中 firmware 误发 fmap preload commit → ERR_FMAP_WRITE_WHILE_BUSY
+//   T10 weight_ready 长时间不来且 timeout_en=1 → ERR_WEIGHT_TIMEOUT
+//   T11 idle 态 firmware 写越界 fmap 地址再 commit → ERR_FMAP_WR_OOB
+//   T12 valid config → busy=1, FSM 进 S_WAIT_WEIGHT，weight_req 再次拉起
+//   T13 weight_ready_pulse 后 weight_req 清零
 //
 // 不覆盖（由 LeNet-5 cosim 兜底）：完整 spatial loop / fmap writeback /
 // 多 tile chain / spike packer / fmap auto-inc 时序
@@ -90,7 +97,11 @@ module conv_ctrl_v2_unit_tb;
   logic [31:0] fmap_wr_word_addr, fmap_wr_data;
   logic [3:0] fmap_wr_strb;
 
-  conv_ctrl_v2 dut (
+  localparam int BANK_WORDS = (V2B_CONV_FMAP_BANK_KIB * 1024) / 4;
+
+  conv_ctrl_v2 #(
+    .P_WEIGHT_TIMEOUT_CYCLES(8)
+  ) dut (
     .clk(clk), .rst_n(rst_n),
     .cfg_conv_mode(cfg_conv_mode), .cfg_flatten_mode(cfg_flatten_mode),
     .cfg_pp_sel(cfg_pp_sel), .cfg_weight_timeout_en(cfg_weight_timeout_en),
@@ -193,6 +204,21 @@ module conv_ctrl_v2_unit_tb;
     done_clear_pulse <= 1'b0;
   endtask
 
+  task automatic pulse_abort;
+    @(posedge clk);
+    abort_pulse <= 1'b1;
+    @(posedge clk);
+    abort_pulse <= 1'b0;
+  endtask
+
+  task automatic pulse_fmap_commit(input [31:0] addr_word);
+    fmap_wr_addr <= addr_word;
+    @(posedge clk);
+    fmap_wr_commit_pulse <= 1'b1;
+    @(posedge clk);
+    fmap_wr_commit_pulse <= 1'b0;
+  endtask
+
   initial begin
     bit ok;
     $display("[INFO] conv_ctrl_v2_unit_tb start");
@@ -237,43 +263,133 @@ module conv_ctrl_v2_unit_tb;
     cfg_C_in     <= 16'd4;
     cfg_last_tile_valid_count <= 16'd36;
 
-    // ── T4: C_out > V2B_MAX_OUT_NEURONS → ERR_BAD_COUT ──
+    // ── T4: tile_count mismatch → ERR_TILE_CFG_MISMATCH ──
+    cfg_tile_count <= 16'd2;
+    pulse_start();
+    wait_for_done(ok, 50);
+    if (!ok) begin
+      $display("[FAIL] T4 done_sticky never high after tile mismatch");
+      fail_count = fail_count + 1;
+    end else begin
+      check_int("T4 ERR_TILE_CFG_MISMATCH", err_code, 2);
+    end
+    clear_done();
+    cfg_tile_count <= 16'd1;
+
+    // ── T5: stride=0 → ERR_BAD_GEOMETRY ──
+    cfg_stride <= 4'd0;
+    pulse_start();
+    wait_for_done(ok, 50);
+    if (!ok) begin
+      $display("[FAIL] T5 done_sticky never high after bad geometry");
+      fail_count = fail_count + 1;
+    end else begin
+      check_int("T5 ERR_BAD_GEOMETRY (stride=0)", err_code, 3);
+    end
+    clear_done();
+    cfg_stride <= 4'd1;
+
+    // ── T6: fmap base 越界 → ERR_FMAP_OOB ──
+    cfg_fmap_base_word <= BANK_WORDS - 32'd32;
+    pulse_start();
+    wait_for_done(ok, 50);
+    if (!ok) begin
+      $display("[FAIL] T6 done_sticky never high after fmap OOB");
+      fail_count = fail_count + 1;
+    end else begin
+      check_int("T6 ERR_FMAP_OOB", err_code, 4);
+    end
+    clear_done();
+    cfg_fmap_base_word <= 32'd0;
+
+    // ── T7: C_out > V2B_MAX_OUT_NEURONS → ERR_BAD_COUT ──
     cfg_C_out <= 16'(V2B_MAX_OUT_NEURONS + 1);
     pulse_start();
     wait_for_done(ok, 50);
     if (!ok) begin
-      $display("[FAIL] T4 done_sticky never high after illegal C_out");
+      $display("[FAIL] T7 done_sticky never high after illegal C_out");
       fail_count = fail_count + 1;
     end else begin
-      check_int("T4 ERR_BAD_COUT", err_code, 6);  // ERR_BAD_COUT
+      check_int("T7 ERR_BAD_COUT", err_code, 6);  // ERR_BAD_COUT
     end
     clear_done();
     cfg_C_out <= 16'd8;
 
-    // ── T5: 合法配置 → busy + weight_req ──
+    // ── T8: 合法配置 → busy + weight_req ──
     pulse_start();
     wait_for_weight_req(ok, 50);
     if (!ok) begin
-      $display("[FAIL] T5 weight_req never asserted");
+      $display("[FAIL] T8 weight_req never asserted");
       fail_count = fail_count + 1;
     end else begin
-      $display("[PASS] T5 weight_req asserted on first tile");
+      $display("[PASS] T8 weight_req asserted on first tile");
       pass_count = pass_count + 1;
-      check_int("T5 busy=1 during S_WAIT_WEIGHT", busy, 1);
-      check_int("T5 err_code=0 on valid cfg", err_code, 0);
+      check_int("T8 busy=1 during S_WAIT_WEIGHT", busy, 1);
+      check_int("T8 err_code=0 on valid cfg", err_code, 0);
     end
 
-    // ── T6: weight_ready_pulse → weight_req cleared ──
+    // ── T9: busy 时 firmware preload commit → ERR_FMAP_WRITE_WHILE_BUSY ──
+    pulse_fmap_commit(32'd0);
+    wait_for_done(ok, 10);
+    if (!ok) begin
+      $display("[FAIL] T9 done_sticky never high after busy fmap write");
+      fail_count = fail_count + 1;
+    end else begin
+      check_int("T9 ERR_FMAP_WRITE_WHILE_BUSY", err_code, 7);
+    end
+    pulse_abort();
+    repeat (4) @(posedge clk);
+    clear_done();
+
+    // ── T10: timeout_en=1 且 weight_ready 不来 → ERR_WEIGHT_TIMEOUT ──
+    cfg_weight_timeout_en <= 1'b1;
+    pulse_start();
+    wait_for_done(ok, 40);
+    if (!ok) begin
+      $display("[FAIL] T10 done_sticky never high after weight timeout");
+      fail_count = fail_count + 1;
+    end else begin
+      check_int("T10 ERR_WEIGHT_TIMEOUT", err_code, 8);
+    end
+    clear_done();
+    cfg_weight_timeout_en <= 1'b0;
+
+    // ── T11: idle 态写越界 fmap 地址再 commit → ERR_FMAP_WR_OOB ──
+    pulse_fmap_commit(BANK_WORDS);
+    wait_for_done(ok, 10);
+    if (!ok) begin
+      $display("[FAIL] T11 done_sticky never high after fmap write OOB");
+      fail_count = fail_count + 1;
+    end else begin
+      check_int("T11 ERR_FMAP_WR_OOB", err_code, 9);
+    end
+    clear_done();
+    fmap_wr_addr <= '0;
+
+    // ── T12: 合法配置 → busy + weight_req（二次启动，证明 FSM 恢复） ──
+    pulse_start();
+    wait_for_weight_req(ok, 50);
+    if (!ok) begin
+      $display("[FAIL] T12 weight_req never asserted on rerun");
+      fail_count = fail_count + 1;
+    end else begin
+      $display("[PASS] T12 weight_req asserted again after prior errors");
+      pass_count = pass_count + 1;
+      check_int("T12 busy=1 during S_WAIT_WEIGHT", busy, 1);
+      check_int("T12 err_code=0 on valid rerun", err_code, 0);
+    end
+
+    // ── T13: weight_ready_pulse → weight_req cleared ──
     @(posedge clk);
     weight_ready_pulse <= 1'b1;
     @(posedge clk);
     weight_ready_pulse <= 1'b0;
     repeat (5) @(posedge clk);
     if (weight_req !== 1'b0) begin
-      $display("[FAIL] T6 weight_req still high after weight_ready_pulse");
+      $display("[FAIL] T13 weight_req still high after weight_ready_pulse");
       fail_count = fail_count + 1;
     end else begin
-      $display("[PASS] T6 weight_req cleared after weight_ready_pulse");
+      $display("[PASS] T13 weight_req cleared after weight_ready_pulse");
       pass_count = pass_count + 1;
     end
 

@@ -43,6 +43,8 @@
 //   T25 CONV_CFG_OUT_BASE byte slice merge
 //   T26 CONV_FMAP_WR_DATA byte slice merge
 //   T27 CONV_FMAP_WR_ADDR byte slice merge
+//   T28 CONV_FMAP_WR_CTRL 同拍写 AUTO_INC+COMMIT 时，本次 commit 后地址必须 +1
+//   T29 CONV_FMAP_WR_CTRL 同拍清 AUTO_INC+COMMIT 时，本次 commit 后地址不得 +1
 //
 // On the pre-fix RTL (v2-arm-fpga-demo-passed @ 8e51ae27), T1/T3/T4/T5
 // fail; on the post-fix RTL all invariant checks PASS. The B2 cases above
@@ -454,6 +456,23 @@ module v2b_partial_write_invariant_tb;
       check32("T27 CONV_FMAP_WR_ADDR byte2 merge",
               rd, 32'h77AA_8888);
     end
+
+    // ── T28: 同拍写 AUTO_INC+COMMIT，本次 commit 后地址必须自增 ──
+    do_write(O_CONV_FMAP_WR_ADDR, 32'h0000_0010, 4'b1111);
+    do_write(O_CONV_FMAP_WR_CTRL, 32'h0000_0003, 4'b0001);
+    repeat (3) @(posedge clk);
+    check32("T28 CONV_FMAP_WR_CTRL auto_inc+commit same write increments",
+            dut.reg_conv_fmap_wr_addr, 32'h0000_0011);
+
+    // ── T29: 同拍清 AUTO_INC+COMMIT，本次 commit 后地址不得自增 ──
+    do_write(O_CONV_FMAP_WR_ADDR, 32'h0000_0020, 4'b1111);
+    do_write(O_CONV_FMAP_WR_CTRL, 32'h0000_0003, 4'b0001);  // seed auto_inc=1
+    repeat (3) @(posedge clk);
+    do_write(O_CONV_FMAP_WR_ADDR, 32'h0000_0030, 4'b1111);
+    do_write(O_CONV_FMAP_WR_CTRL, 32'h0000_0001, 4'b0001);  // write bit1=0 + commit
+    repeat (3) @(posedge clk);
+    check32("T29 CONV_FMAP_WR_CTRL clear auto_inc+commit same write stays put",
+            dut.reg_conv_fmap_wr_addr, 32'h0000_0030);
 
     repeat (5) @(posedge clk);
     $display("");

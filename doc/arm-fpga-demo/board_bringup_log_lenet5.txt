@@ -148,6 +148,6 @@ ARM_FPGA_DEMO_LENET5_PASS
 - 训练复现性：seed=20260430（在 gen_convnet_golden.py 顶部硬编码），多次跑 .pth 应当字节级一致
 
 引用规则：
-- 论文叙事 / 简历 → 引用 v2-arm-fpga-demo-conv 分支 HEAD commit (48958da0) + 本日志 + manifest_v2 SHA
+- 论文叙事 / 简历 → 引用 v2-arm-fpga-demo-conv 分支 HEAD commit (48958da0) + 本日志 + UART PASS marker
 - 历史对比 → v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍可作为对照基线
 - 工具链 / 板验细节 → 详见 doc/arm-fpga-demo/build_manifest_v2.txt 与本文件

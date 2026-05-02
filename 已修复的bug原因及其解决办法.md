@@ -6,6 +6,30 @@
 
 ---
 
+## [2026-05-02] stage_engine_v2 非法 input_src 编码漏镜像到 sequential reject
+
+- **现象**：`stage_engine_v2` 的 `config_ok` 会拒绝 `cfg_input_src=6/7` 这类越界编码，但 sequential `S_IDLE` 校验块没同步这个条件；结果是 `next_state` 留在 `S_IDLE`，同时 `busy` 仍被置 1，形成“状态机没起跑、外部却看到 BUSY=1”的假忙挂死。
+- **根因**：`rtl/snn/stage_engine_v2.sv` 中 `config_ok` 含 `cfg_input_src <= V2B_BUF_SEL_FMAP_FLATTEN`，而 `S_IDLE` 分支只检查了 in/out/T 范围、src/dst 冲突和 dyn-src/conv-mode 一致性，没有镜像 input_src 编码范围。
+- **修复**：在 `S_IDLE` sequential reject 分支补上 `cfg_input_src > V2B_BUF_SEL_FMAP_FLATTEN` → `V2B_STAGE_ERR_DIM_OUT_OF_RANGE`；同时新增 SVA 和 `tb/stage_engine_v2_invalid_cfg_tb.sv` 的 T8 激励，稳定复现并验证 reject。
+- **影响范围**：`stage_engine_v2` 两条 evidence 支线共用 RTL；回归 `run_stage_engine_v2_invalid_cfg.sh` 现在 11/11 PASS，合法配置后的恢复启动也已验证。
+- **如何避免再犯**：凡是 `config_ok`/`validate_ok` 这种组合守口，必须同步维护一个明确的 mirror reject TB；不要只加组合门控而忘了 sequential 错误码路径。
+
+## [2026-05-02] CONV_FMAP_WR_CTRL 同拍写 AUTO_INC+COMMIT 语义取错旧值
+
+- **现象**：对 `CONV_FMAP_WR_CTRL` 发同一笔低字节写、同时设置 `AUTO_INC` 和 `COMMIT` 时，本次 commit 后地址不会按新配置自增；反过来，同拍清 `AUTO_INC` 再 `COMMIT` 时又可能仍按旧配置自增，和寄存器语义不一致。
+- **根因**：`rtl/top/snn_soc_v2b_top.sv` 中 `A_CONV_FMAP_WR_CTRL` decode 的 `reg_conv_fmap_wr_inc_pending` 仍读旧的 `reg_conv_fmap_wr_auto_inc`，而不是本次 `apply_wstrb()` 合并后的 `word_v[1]`。
+- **修复**：把 `if (reg_conv_fmap_wr_auto_inc)` 改为 `if (word_v[1])`，让同一写事务里的 `AUTO_INC` 新值对本次 `COMMIT` 生效；并在 `tb/v2b_partial_write_invariant_tb.sv` 新增 T28/T29，分别验证“同拍开 auto_inc + commit 会 +1”和“同拍清 auto_inc + commit 不会 +1”。
+- **影响范围**：两条 evidence 支线共用顶层寄存器 decode；回归 `run_v2b_partial_write_invariant.sh` 现为 35/35 PASS。该修复会进入 bitstream，属于需要重烧验证的 RTL 改动。
+- **如何避免再犯**：任何 W1P bit 和状态位共存的寄存器，如果允许同拍改配置再触发 pulse，就必须明确使用“写后值”还是“旧值”语义，并用单独 TB 固化。
+
+## [2026-05-02] 共享 CONV scheduler 调试日志重复打印 `0x` 前缀
+
+- **现象**：LeNet-5 preload 调试 UART 行会输出 `data=0x0x...`，日志可读性差，也让 board log 看起来像早期未修补版本。
+- **根因**：`fw/src/v2b_conv_scheduler.c` 里先手工打印了 `data=0x`，随后又调用自带 `0x` 前缀的 `uart_put_hex32()`。
+- **修复**：把前缀字符串改成 `data=`，保留 `uart_put_hex32()` 统一输出十六进制格式。
+- **影响范围**：ARM / E203 两条支线共用 scheduler；仅影响调试输出文本，不改变功能语义。因为该文件会进固件镜像，所以仍需要随本轮 RTL/FW reburn 一起复核。
+- **如何避免再犯**：日志格式化 helper 要么负责完整前缀，要么只负责裸值；不要两层都各自带格式前缀。
+
 ## [2026-04-21] V2.B Vivado 综合卡死链（5 处 FPGA-unfriendly 模式）
 
 ### 现象

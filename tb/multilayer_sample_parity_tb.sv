@@ -60,6 +60,8 @@ module multilayer_sample_parity_tb;
   logic [1:0]               cfg_output_dst;
   logic        cfg_tile_mode = 0, cfg_is_tile_final = 1, cfg_preserve_membrane = 0;
   logic [15:0] cfg_t_count = T[15:0];
+  logic        cfg_conv_mode = 1'b0;
+  logic        cfg_flatten_mode = 1'b0;
 
   // Inputs / outputs
   logic isr_rd_en;
@@ -168,6 +170,7 @@ module multilayer_sample_parity_tb;
     .cfg_input_src(cfg_input_src), .cfg_output_dst(cfg_output_dst),
     .cfg_tile_mode(cfg_tile_mode), .cfg_is_tile_final(cfg_is_tile_final),
     .cfg_preserve_membrane(cfg_preserve_membrane), .cfg_t_count(cfg_t_count),
+    .cfg_conv_mode(cfg_conv_mode), .cfg_flatten_mode(cfg_flatten_mode),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),
@@ -257,7 +260,7 @@ module multilayer_sample_parity_tb;
   // ── Run one stage and wait for done ─────────────────────────────────
   task automatic run_stage(
     input int stage_id,
-    input logic [1:0] input_src,
+    input logic [V2B_BUF_SEL_W-1:0] input_src,
     input logic [1:0] output_dst,
     input int in_dim, input int out_dim,
     input int threshold, input int sum_max
