@@ -34,7 +34,13 @@ module chip_top #(
   // 指令在 RV32I 上是非法 → trap）。仿真 / FPGA 必须显式传入 .hex 文件路径，
   // tape-out 由 mask ROM macro 取代。下方 initial 块在仿真时打 WARN，避免
   // 静默崩溃。
-  parameter BOOT_ROM_INIT_FILE = ""
+  // BLOCKER B-1 fix（2026-05-02 audit）：默认从 ""（空 → ROM 全 0 → 上电 trap）
+  // 改为指向 fw/boot_rom/out/boot_rom.hex（FPGA 仿真 + 默认综合都能用）。
+  // tape-out 真正流片时由 foundry mask ROM compiler 把这份 hex 烧进 mask ROM，
+  // 不再依赖 $readmemh，但参数语义保持一致：默认值必须是一个**有效**的 boot 镜像。
+  // 若实例化时确实想让 ROM 全 0（例如 lint-only），必须显式 override 成 ""，
+  // 配套 `initial $display` 警告在仿真打印（line 113-117）。
+  parameter BOOT_ROM_INIT_FILE = "fw/boot_rom/out/boot_rom.hex"
 ) (
   // 基础时钟复位（pad）
   input  logic clk_pad,

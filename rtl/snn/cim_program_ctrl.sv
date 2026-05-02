@@ -166,6 +166,22 @@ module cim_program_ctrl (
   logic [15:0] latched_pulse_width;
   logic [15:0] latched_erase_width;
 
+  // BLOCKER B-2 fix（2026-05-02 audit）：write verify 窗口边界。
+  // 旧实现 `ADC_BITS'(target * 16 ± 2)` 在 level=0（中心 0，下界 -2 → 8-bit
+  // wrap 到 254）和 level=15（中心 240，上界 242，但 LRS 实测 ADC 容易饱和
+  // 到 250+）都会漏判 PASS。这里用 32-bit 加宽计算后 clamp 到 [0, 255]，
+  // 让 corner level 在 ADC 噪声/饱和下也能正常 PASS。
+  //   center = target_level * (256 / PROG_LEVELS)
+  //   verify_lo = max(center - 2, 0)
+  //   verify_hi = min(center + 2, 255)
+  logic [31:0] verify_center, verify_lo, verify_hi;
+  always_comb begin
+    verify_center = ({28'h0, target_level}) * (32'd256 / PROG_LEVELS);
+    verify_lo     = (verify_center >= 32'd2) ? (verify_center - 32'd2) : 32'd0;
+    verify_hi     = (verify_center + 32'd2 > 32'd255) ? 32'd255
+                                                      : (verify_center + 32'd2);
+  end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state           <= ST_IDLE;
@@ -363,8 +379,16 @@ module cim_program_ctrl (
             // 而不是动态变化的 pulse_count；否则验证窗口会随每次 retry 向上漂，
             // 极端情况下永远不会到 PASS（每次 RETRY 后窗口又往后挪）→ 死循环
             // 直到 retry_limit 用完报 FAIL。这是个"窗口锚点选错"的经典 bug。
-            if (readback_val >= ADC_BITS'(int'(target_level) * (256 / PROG_LEVELS) - 2) &&
-                readback_val <= ADC_BITS'(int'(target_level) * (256 / PROG_LEVELS) + 2))
+            //
+            // BLOCKER B-2 fix（2026-05-02 audit）：旧实现 `ADC_BITS'(... ± 2)` 在
+            // level=0（中心 0，下界 = -2 → 8-bit truncation 254 → 永远 FAIL）和
+            // level=15（中心 240，上界 = 242 → ADC 饱和到 250+ 永远落不进窗口
+            // → 永远 FAIL）两端都漏判。现在用 32-bit 加宽计算 + 显式 clamp 到
+            // 8-bit ADC range [0, 255] 后再比较，level=0/15 corner 也能正常 PASS。
+            // verify_lo / verify_hi 在 always_comb 块（line ~250 周围）按 target_level
+            // 推算，永远落在 [0, 255] 区间。
+            if (({24'h0, readback_val} >= verify_lo) &&
+                ({24'h0, readback_val} <= verify_hi))
               state <= ST_PASS;
             else
               state <= ST_RETRY;
