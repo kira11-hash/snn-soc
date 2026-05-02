@@ -1,0 +1,35 @@
+main-fpga-e203-alpha FPGA board evidence
+Date: 2026-04-24
+
+Branch / HEAD
+- branch: main-fpga-e203-alpha
+- commit: 4e22e5f9
+
+Bitstream
+- relative path: fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
+- size_bytes: 26510901
+- last_write_time: 2026-04-24 03:29:17
+- sha256: EFE5B9FA25A25FC848F2194B74AC89DD8CAAF5BE5FE7D3BDA3C9C627CF448657
+
+UART full text
+UART_OK
+       FPGA_E203_BOOT_UART_PASS
+                               [PROG] full-array erase DONE
+                                                           [PROG] write subset rows=0..9 cols=0..9 PASS
+                       FPGA_E203_PROGRAM_ERASE_WRITE_PASS
+                                                         [INFER] neuron[0] hw=80 sw=80 OK
+         [INFER] neuron[1] hw=80 sw=80 OK
+                                         [INFER] neuron[2] hw=80 sw=80 OK
+                                                                         [INFER] neuron[3] hw=80 sw=80 OK
+                         [INFER] neuron[4] hw=80 sw=80 OK
+                                                         [INFER] neuron[5] hw=80 sw=80 OK
+         [INFER] neuron[6] hw=80 sw=80 OK
+                                         [INFER] neuron[7] hw=80 sw=80 OK
+                                                                         [INFER] neuron[8] hw=80 sw=80 OK
+                         [INFER] neuron[9] hw=80 sw=80 OK
+                                                         [INFER] total_spikes=800 mismatch=0
+            FPGA_E203_PROGRAMMED_INFERENCE_PASS
+
+Notes
+- This file archives the branch/head, bitstream path, and complete UART text requested on 2026-04-24.
+- User additionally captured PuTTY screenshots and board photos manually; those artifacts are not added here.

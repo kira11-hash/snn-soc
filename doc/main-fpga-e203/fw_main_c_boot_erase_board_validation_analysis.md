@@ -10,7 +10,7 @@
 ## 结论
 
 **`fw/main.c` 改动不需要重跑 FPGA 板上验证**。
-现有 `main-fpga-e203-alpha-passed` tag（完整板验日志见 `main-fpga-e203-alpha` 分支内的 `doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`）的证据链已经覆盖开机擦除路径。
+现有 `main-fpga-e203-alpha-passed` tag（见 [alpha_board_bringup_log_20260424.txt](alpha_board_bringup_log_20260424.txt)，在 `main-fpga-e203-alpha` 分支上）的证据链已经覆盖开机擦除路径。
 
 ## 理由
 
@@ -57,7 +57,7 @@ ROM bootloader (fw/boot_main.c) → 从 SPI flash 把 app 加载到 INSTR_SRAM �
 ROM bootloader 只负责搬码，不触碰 RRAM；app (fw/main.c) 才是真正做推理的代码。app 要想在"开机初始态是 HRS / LRS / 随机"的 cell 上跑出干净推理，**必须在跑推理前自己做一次全阵列擦除**。这就是 `e56c7c05` 加的事。
 
 `fw/main.c` 不是 FPGA 的 BRAM pre-init 固件，**它只在 tape-out silicon 上跑**。因此：
-- ✅ Icarus e203 smoke 覆盖了这条路径的数字语义（`E203_SMOKETEST_PASS`，新 `APP erase SEQ_DONE` 日志；这里的语义是“控制器完成 full-array erase 时序”，不是固件逐 cell spot-verify）
+- ✅ Icarus e203 smoke 覆盖了这条路径的数字语义（`E203_SMOKETEST_PASS`，新 APP erase DONE 日志）
 - ⏳ 真实 tape-out silicon 路径的物理验证，要等数字 die 回片 + PCB 装配 + 模拟 die 到位之后，一次性和 silicon_bringup、真实擦除、真实权重写入、真实推理一起做
 
 ## Regression 证据（本次 commits 之后）
@@ -66,11 +66,11 @@ ROM bootloader 只负责搬码，不触碰 RRAM；app (fw/main.c) 才是真正�
 - LIGHT / WEIGHTED / DMA / CIM_PROGRAM_CTRL
 - UART / SPI / PROG_PULSE_CFG / PROG_START_INTERLOCK
 - BOOT_ROM / SILICON_BRINGUP
-- **E203_SMOKETEST_PASS**（新：看到 `APP erase SEQ_DONE` + count=100 + neuron[0..9]=10 each）
+- **E203_SMOKETEST_PASS**（新：看到 `APP erase DONE` + count=100 + neuron[0..9]=10 each）
 - CHIP_TOP_ROM_SMOKE / PROG_BYPASS_LATCH / PROG_PAD_ENCODER / PROG_WL_PAD_ROUTE
 
 ### Alpha 分支 E203 smoke（cherry-pick 后）
-同样 `APP erase SEQ_DONE` + `E203_SMOKETEST_PASS`。alpha 分支整体以 `main-fpga-e203-alpha-passed` tag 为证据底座，tag 本身未动。
+同样 `APP erase DONE` + `E203_SMOKETEST_PASS`。alpha 分支整体以 `main-fpga-e203-alpha-passed` tag 为证据底座，tag 本身未动。
 
 ## 下次真正触发板上复验的条件
 

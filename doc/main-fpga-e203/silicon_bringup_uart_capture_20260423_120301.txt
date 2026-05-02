@@ -1,0 +1,78 @@
+feature/main-fpga-e203 silicon_bringup FPGA capture
+Date: 2026-04-23 12:03:01
+Branch: feature/main-fpga-e203
+
+Artifacts:
+- Bitstream: fpga_synth/zcu102_silicon_bringup/out/snn_soc_fpga_top.bit
+- Bitstream SHA256: FCD2B45C3022EC1CA6F95EB0E4EA500D7F960A8D90D5509C1F495B75EA7B2A9D
+- Firmware hex: fw/silicon_bringup/out/silicon_bringup.hex
+- Firmware hex SHA256: A6D7941CBDAABFF485E70CF14008CA8D273EE89CDA1041219616C7E3C2CC4B20
+
+Vivado result:
+- Firmware used by synth: fw/silicon_bringup/out/silicon_bringup.hex
+- Output dir: fpga_synth/zcu102_silicon_bringup/out
+- WNS: +4.628 ns at 50 MHz
+- TNS: 0.000 ns
+- WHS: +0.014 ns
+- Bitgen: Completed Successfully
+- DRC: 0 Errors, 1 non-blocking warning (E203 FIFO no-routable-load warning)
+
+Capture command:
+
+    bash scripts/fpga_bringup_capture.sh \
+      --python /c/Users/24201/AppData/Local/Python/bin/python.exe \
+      --xsct /d/Xilinx/Vitis/2022.2/bin/xsct.bat \
+      --bitstream fpga_synth/zcu102_silicon_bringup/out/snn_soc_fpga_top.bit \
+      --serial COM3 \
+      --baud 115200 \
+      --timeout 120 \
+      --tag "SILICON_BRINGUP_DIGITAL_PASS" \
+      --fail-tag "SILICON_BRINGUP_DIGITAL_FAIL"
+
+XSCT result:
+
+    Available targets:
+      1  PS TAP
+         2  PMU
+         3  PL
+      4  PSU
+         5  RPU (Reset)
+            6  Cortex-R5 #0 (RPU Reset)
+            7  Cortex-R5 #1 (RPU Reset)
+         8  APU (L2 Cache Reset)
+            9  Cortex-A53 #0 (APU Reset)
+           10  Cortex-A53 #1 (APU Reset)
+           11  Cortex-A53 #2 (APU Reset)
+           12  Cortex-A53 #3 (APU Reset)
+    Programming PL with bitstream...
+    === Bitstream programmed successfully ===
+
+UART capture from COM3:
+
+    SILICON_BRINGUP_START v1 build=Apr 23 2026
+    [STAGE_A] inference with test_mode=1, pos=100, neg=0
+    [STAGE_A] neuron[0] hw=80 sw=80 OK
+    [STAGE_A] neuron[1] hw=80 sw=80 OK
+    [STAGE_A] neuron[2] hw=80 sw=80 OK
+    [STAGE_A] neuron[3] hw=80 sw=80 OK
+    [STAGE_A] neuron[4] hw=80 sw=80 OK
+    [STAGE_A] neuron[5] hw=80 sw=80 OK
+    [STAGE_A] neuron[6] hw=80 sw=80 OK
+    [STAGE_A] neuron[7] hw=80 sw=80 OK
+    [STAGE_A] neuron[8] hw=80 sw=80 OK
+    [STAGE_A] neuron[9] hw=80 sw=80 OK
+    [STAGE_A] total_spikes=800 mismatch=0
+    [STAGE_B] programming FSM with bypass_handshake=1
+    [STAGE_B] bypass toggle readback PASS
+    [STAGE_B] full_array_erase PROG_STATUS=0x00000082
+    [STAGE_B] erase PROG_STATUS=0x00000082
+    [STAGE_B] write PROG_STATUS=0x00000082
+    SILICON_BRINGUP_DIGITAL_PASS
+
+Harness result:
+- Exit code: 0
+- Expected tag observed: SILICON_BRINGUP_DIGITAL_PASS
+- Fail tag not observed: SILICON_BRINGUP_DIGITAL_FAIL
+
+Conclusion:
+The silicon bring-up digital self-test path passed on ZCU102. This validates the PL-hosted E203 booting from BRAM, test_mode inference with bit-exact hardware/software spike counts, PROG_CTRL.BYPASS_HANDSHAKE readback/toggle behavior, full-array erase pass path, single-cell erase verify path, and single-cell write verify path without requiring an analog CIM response.
