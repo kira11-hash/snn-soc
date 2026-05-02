@@ -58,7 +58,7 @@
 
 - main:
   - `e46069a6` — audit-pass5(rtl,tb): R-M2.1 — clear push_stall_cnt at new-op entry + timeout exit + dma_tb T11
-  - `e6a24b53` — audit-pass5(doc): land Claude audit pass 5 report
+  - `595280ce` — audit-pass5(doc): land Claude audit pass 5 report
 - main-fpga-e203-alpha:
   - `2aae56ef` — Merge branch 'main' into main-fpga-e203-alpha (audit-pass5 R-M2.1 sync；FPGA 25 文件无独立改动)
   - `<FPGA doc merge>` — merge of `<doc commit>`
