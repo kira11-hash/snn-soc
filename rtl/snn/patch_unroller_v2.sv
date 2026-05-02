@@ -65,13 +65,14 @@ module patch_unroller_v2
   typedef enum logic [3:0] {
     S_IDLE       = 4'd0,
     S_CTX_LATCH  = 4'd1,
-    S_CTX_PREP   = 4'd2,
-    S_BUILD_CTX  = 4'd3,
-    S_WAIT_REQ   = 4'd4,
-    S_PREP_LANE  = 4'd5,
-    S_ISSUE_READ = 4'd6,
-    S_WAIT_READ  = 4'd7,
-    S_RESPOND    = 4'd8
+    S_WAIT_REQ   = 4'd2,
+    S_INIT0      = 4'd3,
+    S_INIT1      = 4'd4,
+    S_INIT2      = 4'd5,
+    S_PREP_LANE  = 4'd6,
+    S_ISSUE_READ = 4'd7,
+    S_WAIT_READ  = 4'd8,
+    S_RESPOND    = 4'd9
   } state_e;
 
   state_e state;
@@ -91,6 +92,18 @@ module patch_unroller_v2
   logic [8:0]  valid_count_q;
   logic [31:0] full_dim_q;
   logic [31:0] tile_base_q;
+  logic [31:0] init_div_work_q;
+  logic [31:0] init_klinear_q;
+  logic [31:0] init_kwork_q;
+  logic [15:0] init_chan_q;
+  logic [3:0]  init_kx_q;
+  logic [3:0]  init_ky_q;
+  logic signed [16:0] origin_h_base_q, origin_w_base_q;
+  logic signed [16:0] cur_h_q, cur_w_q;
+  logic [3:0]  cur_kx_q;
+  logic [15:0] cur_chan_q;
+  logic signed [31:0] stream_base_q;
+  logic [31:0] row_jump_q;
 
   assign dyn_wl_req_ready        = (state == S_WAIT_REQ);
   assign dyn_wl_resp_valid       = (state == S_RESPOND);
@@ -116,6 +129,25 @@ module patch_unroller_v2
     end
   endfunction
 
+  // 【架构注释：用移位加法替代可变乘法】
+  // cfg_stream_words 的合法范围来自 T_count，最大 8。这里不用 idx*cfg_stream_words，
+  // 而是 case 成移位加法，是为了让 Vivado 少推一个宽乘法器，
+  // 这类小优化对 50 MHz 也许不是必须，但能显著降低时序分析里的不确定性。
+  function automatic [31:0] scale_stream_words(input [31:0] idx);
+    begin
+      case (cfg_stream_words_q)
+        4'd1: scale_stream_words = idx;
+        4'd2: scale_stream_words = idx << 1;
+        4'd3: scale_stream_words = (idx << 1) + idx;
+        4'd4: scale_stream_words = idx << 2;
+        4'd5: scale_stream_words = (idx << 2) + idx;
+        4'd6: scale_stream_words = (idx << 2) + (idx << 1);
+        4'd7: scale_stream_words = (idx << 2) + (idx << 1) + idx;
+        default: scale_stream_words = idx << 3;
+      endcase
+    end
+  endfunction
+
   function automatic [31:0] calc_word_addr(input int unsigned src_h,
                                            input int unsigned src_w,
                                            input int unsigned chan,
@@ -124,7 +156,7 @@ module patch_unroller_v2
     begin
       linear_stream = (((src_h * cfg_W_q) + src_w) * cfg_C_in_q) + chan;
       calc_word_addr = cfg_fmap_base_word_q
-                     + (linear_stream * cfg_stream_words_q)
+                     + scale_stream_words(linear_stream)
                      + (timestep >> 5);
     end
   endfunction
@@ -173,6 +205,53 @@ module patch_unroller_v2
   logic [31:0] lane_addr;
   logic [4:0] lane_bit_idx;
 
+  // 【架构注释：共享实现选择 streaming address generator】
+  // 这条路径曾经重点处理 timing closure，所以我没有预先生成 256 项 lane 地址表，
+  // 而是用 advance_lane_state 逐 lane 推进 {h,w,kx,chan,stream_base}。这样少了
+  // 大数组扇出和 build 表写入，代价是初始化时要用 S_INIT0/1/2 把 tile_base
+  // 转成起始 channel/kx/ky。这个 trade-off 更适合小 FPGA 和较保守频率目标。
+  task automatic advance_lane_state(
+    input  logic signed [16:0] cur_h_in,
+    input  logic signed [16:0] cur_w_in,
+    input  logic [3:0]         cur_kx_in,
+    input  logic [15:0]        cur_chan_in,
+    input  logic signed [31:0] stream_base_in,
+    output logic signed [16:0] cur_h_out,
+    output logic signed [16:0] cur_w_out,
+    output logic [3:0]         cur_kx_out,
+    output logic [15:0]        cur_chan_out,
+    output logic signed [31:0] stream_base_out
+  );
+    logic [15:0] c_in_eff;
+    logic [3:0]  k_eff;
+    begin
+      c_in_eff = (cfg_C_in_q == 0) ? 16'd1 : cfg_C_in_q;
+      k_eff = (cfg_K_q == 0) ? 4'd1 : cfg_K_q;
+      cur_h_out = cur_h_in;
+      cur_w_out = cur_w_in;
+      cur_kx_out = cur_kx_in;
+      cur_chan_out = cur_chan_in;
+      stream_base_out = stream_base_in;
+
+      if ((cur_chan_in + 16'd1) < c_in_eff) begin
+        cur_chan_out = cur_chan_in + 16'd1;
+        stream_base_out = stream_base_in + 32'sd1;
+      end else begin
+        cur_chan_out = 16'd0;
+        if ((cur_kx_in + 4'd1) < k_eff) begin
+          cur_kx_out = cur_kx_in + 4'd1;
+          cur_w_out = cur_w_in + 17'sd1;
+          stream_base_out = stream_base_in + 32'sd1;
+        end else begin
+          cur_kx_out = 4'd0;
+          cur_h_out = cur_h_in + 17'sd1;
+          cur_w_out = origin_w_base_q;
+          stream_base_out = stream_base_in + $signed(row_jump_q);
+        end
+      end
+    end
+  endtask
+
 `ifndef SYNTHESIS
   // 【架构注释：仿真 cache 只优化速度，不改变握手语义】
   // unit/cosim 里连续请求多个 timestep 时，t[8:5] 相同代表同一个 32-bit word。
@@ -182,58 +261,7 @@ module patch_unroller_v2
   logic        cache_valid;
   logic [3:0]  cache_word_idx;
   integer      cache_lane;
-`else
-  // 【架构注释：ARM 分支综合路径先构建 lane 表】
-  // 这里我先在 S_BUILD_CTX 中把 256 个 lane 是否有效、base word 地址算好，
-  // 后续每个 timestep 只做 base+word_idx。这能减少每个 timestep 的重复几何计算，
-  // 但会引入一组 256 深度的寄存器表和 build 状态，面积/时序之间是折中。
-  // TODO优化方向：如果综合 timing 卡在 lane_can_read_q/lane_base_addr_q 扇出，
-  // 可以参考 E203 分支的 streaming address generator，逐 lane 递增状态而不是
-  // 预先存完整表。
-  logic        lane_can_read_q [0:P_N_IN-1];
-  logic [31:0] lane_base_addr_q [0:P_N_IN-1];
-  logic [8:0]  build_fill_idx_q;
-  logic [31:0] build_logical_idx_q;
-  logic [15:0] build_c_q;
-  logic [3:0]  build_kx_q, build_ky_q;
-  logic signed [17:0] ctx_src_h_base_q, ctx_src_w_base_q;
-  logic signed [17:0] cur_src_h_q, cur_src_w_q;
-  logic signed [31:0] row_stride_words_q, col_stride_words_q, row_wrap_delta_q;
-  logic signed [31:0] ctx_base_pos_q, cur_pos_base_q, cur_chan_base_q;
 `endif
-
-  function automatic signed [17:0] calc_src_origin(input [7:0] ctx_pos,
-                                                    input [3:0] stride,
-                                                    input [3:0] pad);
-    integer signed tmp;
-    begin
-      tmp = integer'(ctx_pos) * integer'(stride) - integer'(pad);
-      calc_src_origin = tmp[17:0];
-    end
-  endfunction
-
-  function automatic logic src_in_bounds(input signed [17:0] src_h,
-                                         input signed [17:0] src_w);
-    begin
-      src_in_bounds = (src_h >= 0) && (src_h < $signed({1'b0, cfg_H_q})) &&
-                      (src_w >= 0) && (src_w < $signed({1'b0, cfg_W_q}));
-    end
-  endfunction
-
-  function automatic signed [31:0] calc_signed_word_base(
-    input signed [17:0] src_h,
-    input signed [17:0] src_w,
-    input signed [31:0] row_stride_words,
-    input signed [31:0] col_stride_words
-  );
-    integer signed tmp;
-    begin
-      tmp = integer'(cfg_fmap_base_word_q)
-          + integer'(src_h) * integer'(row_stride_words)
-          + integer'(src_w) * integer'(col_stride_words);
-      calc_signed_word_base = tmp[31:0];
-    end
-  endfunction
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk or negedge rst_n) begin
@@ -310,9 +338,6 @@ module patch_unroller_v2
           end
         end
 
-        // 【Corner case：padding lane 和 last tile lane 都必须显式写 0】
-        // response 是 256-bit 宽总线，未赋值 bit 会在仿真里变 X，在硬件里保留旧值。
-        // 所以无论是超出 valid_count，还是 pad 到 fmap 外，我都主动把对应 lane 置 0。
         S_PREP_LANE: begin
           if (cache_valid && cache_word_idx == req_timestep_q[8:5]) begin
             for (cache_lane = 0; cache_lane < P_N_IN; cache_lane = cache_lane + 1) begin
@@ -378,21 +403,12 @@ module patch_unroller_v2
       req_timestep_q <= '0; lane_idx <= '0; read_lane_q <= '0; read_bit_idx_q <= '0;
       read_addr_q <= '0; resp_data_q <= '0; valid_count_q <= '0;
       full_dim_q <= '0; tile_base_q <= '0;
-      build_fill_idx_q <= '0;
-      build_logical_idx_q <= '0;
-      build_c_q <= '0;
-      build_kx_q <= '0;
-      build_ky_q <= '0;
-      ctx_src_h_base_q <= '0;
-      ctx_src_w_base_q <= '0;
-      cur_src_h_q <= '0;
-      cur_src_w_q <= '0;
-      row_stride_words_q <= '0;
-      col_stride_words_q <= '0;
-      row_wrap_delta_q <= '0;
-      ctx_base_pos_q <= '0;
-      cur_pos_base_q <= '0;
-      cur_chan_base_q <= '0;
+      init_div_work_q <= '0;
+      init_klinear_q <= '0; init_chan_q <= '0; init_kx_q <= '0; init_ky_q <= '0;
+      init_kwork_q <= '0;
+      origin_h_base_q <= '0; origin_w_base_q <= '0;
+      cur_h_q <= '0; cur_w_q <= '0; cur_kx_q <= '0; cur_chan_q <= '0;
+      stream_base_q <= '0; row_jump_q <= '0;
     end else begin
       case (state)
         S_IDLE: begin
@@ -416,77 +432,8 @@ module patch_unroller_v2
           end
         end
 
-        // 【架构注释：综合路径先计算行/列 stride】
-        // 这些 stride 在一个 ctx 内不变，我先寄存下来，后面 build lane 表时只做递增。
-        // 如果每个 lane 都重新乘 cfg_W*cfg_C*stream_words，时序会被宽乘法拖住。
         S_CTX_LATCH: begin
-          row_stride_words_q <= $signed({1'b0, (cfg_W_q * cfg_C_in_q * cfg_stream_words_q)});
-          col_stride_words_q <= $signed({1'b0, (cfg_C_in_q * cfg_stream_words_q)});
-          ctx_src_h_base_q <= calc_src_origin(ctx_h_q, cfg_stride_q, cfg_pad_q);
-          ctx_src_w_base_q <= calc_src_origin(ctx_w_q, cfg_stride_q, cfg_pad_q);
-          state <= S_CTX_PREP;
-        end
-
-        S_CTX_PREP: begin
-          row_wrap_delta_q <= row_stride_words_q
-                            - $signed({1'b0, ((cfg_K_q - 4'd1) * col_stride_words_q[15:0])});
-          ctx_base_pos_q <= calc_signed_word_base(ctx_src_h_base_q,
-                                                  ctx_src_w_base_q,
-                                                  row_stride_words_q,
-                                                  col_stride_words_q);
-          cur_pos_base_q <= calc_signed_word_base(ctx_src_h_base_q,
-                                                  ctx_src_w_base_q,
-                                                  row_stride_words_q,
-                                                  col_stride_words_q);
-          cur_chan_base_q <= calc_signed_word_base(ctx_src_h_base_q,
-                                                   ctx_src_w_base_q,
-                                                   row_stride_words_q,
-                                                   col_stride_words_q);
-          cur_src_h_q <= ctx_src_h_base_q;
-          cur_src_w_q <= ctx_src_w_base_q;
-          build_fill_idx_q <= '0;
-          build_logical_idx_q <= '0;
-          build_c_q <= '0;
-          build_kx_q <= '0;
-          build_ky_q <= '0;
-          state <= S_BUILD_CTX;
-        end
-
-        // 【架构注释：构建 256 lane 地址表】
-        // 我只把当前 tile 覆盖到的最多 256 个 logical_idx 写入 lane 表，超出 full_dim
-        // 后立即停止。这样后续每个 timestep 可复用同一张表，适合 T_count 较大的层。
-        S_BUILD_CTX: begin
-          if (build_logical_idx_q >= full_dim_q || build_fill_idx_q == 9'd256) begin
-            state <= S_WAIT_REQ;
-          end else begin
-            if (build_logical_idx_q >= tile_base_q && build_fill_idx_q < 9'd256) begin
-              lane_can_read_q[build_fill_idx_q[7:0]] <= src_in_bounds(cur_src_h_q, cur_src_w_q);
-              lane_base_addr_q[build_fill_idx_q[7:0]] <= cur_chan_base_q[31:0];
-              build_fill_idx_q <= build_fill_idx_q + 9'd1;
-            end
-            build_logical_idx_q <= build_logical_idx_q + 32'd1;
-            if (build_c_q + 16'd1 < cfg_C_in_q) begin
-              build_c_q <= build_c_q + 16'd1;
-              cur_chan_base_q <= cur_chan_base_q + $signed({1'b0, cfg_stream_words_q});
-            end else begin
-              build_c_q <= 16'd0;
-              if (build_kx_q + 4'd1 < cfg_K_q) begin
-                build_kx_q <= build_kx_q + 4'd1;
-                cur_src_w_q <= cur_src_w_q + 18'sd1;
-                cur_pos_base_q <= cur_pos_base_q + col_stride_words_q;
-                cur_chan_base_q <= cur_pos_base_q + col_stride_words_q;
-              end else begin
-                build_kx_q <= 4'd0;
-                cur_src_w_q <= ctx_src_w_base_q;
-                if (build_ky_q + 4'd1 < cfg_K_q) begin
-                  build_ky_q <= build_ky_q + 4'd1;
-                  cur_src_h_q <= cur_src_h_q + 18'sd1;
-                  cur_pos_base_q <= cur_pos_base_q + row_wrap_delta_q;
-                  cur_chan_base_q <= cur_pos_base_q + row_wrap_delta_q;
-                end
-              end
-            end
-          end
+          state <= S_WAIT_REQ;
         end
 
         S_WAIT_REQ: begin
@@ -506,32 +453,125 @@ module patch_unroller_v2
             tile_base_q <= ctx_tile_idx * P_N_IN;
             valid_count_q <= calc_valid_count(cfg_K * cfg_K * cfg_C_in,
                                               ctx_tile_idx * P_N_IN);
-            state <= S_CTX_LATCH;
-          end else if (dyn_wl_req_valid) begin
+          end
+          if (dyn_wl_req_valid) begin
             req_timestep_q <= dyn_wl_req_timestep;
             lane_idx <= '0;
             resp_data_q <= '0;
-            state <= S_PREP_LANE;
+            init_div_work_q <= tile_base_q;
+            init_klinear_q <= 32'd0;
+            init_kwork_q <= 32'd0;
+            init_chan_q <= 16'd0;
+            init_kx_q <= 4'd0;
+            init_ky_q <= 4'd0;
+            state <= S_INIT0;
           end
         end
 
+        // 【架构注释：把 tile_base 除以 C_in 拆成多拍】
+        // 这里用减法循环替代一个可变除法器，是为了避免综合出很深的组合除法路径。
+        // 因为 tile_base 每个 stage 只初始化一次，多花几个 cycle 比牺牲 Fmax 更划算。
+        S_INIT0: begin
+          logic [15:0] c_in_eff;
+          c_in_eff = (cfg_C_in_q == 0) ? 16'd1 : cfg_C_in_q;
+          if (init_div_work_q >= c_in_eff) begin
+            init_div_work_q <= init_div_work_q - c_in_eff;
+            init_klinear_q <= init_klinear_q + 32'd1;
+          end else begin
+            init_chan_q <= init_div_work_q[15:0];
+            init_kwork_q <= init_klinear_q;
+            init_ky_q <= 4'd0;
+            state <= S_INIT1;
+          end
+        end
+
+        // 【架构注释：继续把 k_linear 拆成 ky/kx】
+        // 同样用小循环而不是除法/取模。这个设计让 timing 更可控，代价是 tile 起点
+        // 初始化 latency 与 tile_base 有关；在 demo 规模下这部分远小于 MAC 总时间。
+        S_INIT1: begin
+          logic [3:0] k_eff;
+          k_eff = (cfg_K_q == 0) ? 4'd1 : cfg_K_q;
+          if (init_kwork_q >= k_eff) begin
+            init_kwork_q <= init_kwork_q - k_eff;
+            init_ky_q <= init_ky_q + 4'd1;
+          end else begin
+            init_kx_q <= init_kwork_q[3:0];
+            state <= S_INIT2;
+          end
+        end
+
+        S_INIT2: begin
+          logic signed [16:0] base_h_v;
+          logic signed [16:0] base_w_v;
+          logic signed [31:0] stream_base_v;
+          base_h_v = $signed({1'b0, ctx_h_q}) * $signed({13'd0, cfg_stride_q})
+                   - $signed({13'd0, cfg_pad_q});
+          base_w_v = $signed({1'b0, ctx_w_q}) * $signed({13'd0, cfg_stride_q})
+                   - $signed({13'd0, cfg_pad_q});
+          origin_h_base_q <= base_h_v;
+          origin_w_base_q <= base_w_v;
+          cur_h_q <= base_h_v + $signed({13'd0, init_ky_q});
+          cur_w_q <= base_w_v + $signed({13'd0, init_kx_q});
+          cur_kx_q <= init_kx_q;
+          cur_chan_q <= init_chan_q;
+          row_jump_q <= ((cfg_W_q - cfg_K_q) * cfg_C_in_q) + 32'd1;
+          stream_base_v = (($signed(base_h_v + $signed({13'd0, init_ky_q})) * $signed({16'd0, cfg_W_q}))
+                         + $signed(base_w_v + $signed({13'd0, init_kx_q})))
+                         * $signed({16'd0, cfg_C_in_q})
+                         + $signed({16'd0, init_chan_q});
+          stream_base_q <= stream_base_v;
+          state <= S_PREP_LANE;
+        end
+
+        // 【Corner case：padding lane 和 last tile lane 都必须显式写 0】
+        // response 是 256-bit 宽总线，未赋值 bit 会在仿真里变 X，在硬件里保留旧值。
+        // 所以无论是超出 valid_count，还是 pad 到 fmap 外，我都主动把对应 lane 置 0。
         // 【Corner case：综合路径同样要 zero-fill 无效 lane】
-        // lane_can_read_q=false 代表 padding 区，lane_idx>=valid_count_q 代表 last tile
-        // 空洞。两者都不能发 SRAM 读，否则负坐标会经截断变成大正地址，引发 OOB。
+        // lane_idx>=valid_count_q 是 last tile 空洞，cur_h/cur_w 越界是 padding。
+        // 两者都不能发 SRAM 读，否则负坐标会参与地址计算并可能变成 bank 内旧数据。
         S_PREP_LANE: begin
           if (lane_idx == 9'd256) begin
             state <= S_RESPOND;
           end else if (lane_idx >= valid_count_q) begin
+            logic signed [16:0] next_h_v;
+            logic signed [16:0] next_w_v;
+            logic [3:0] next_kx_v;
+            logic [15:0] next_chan_v;
+            logic signed [31:0] next_stream_base_v;
             resp_data_q[lane_idx[7:0]] <= 1'b0;
-            lane_idx <= lane_idx + 9'd1;
-          end else if (!lane_can_read_q[lane_idx[7:0]]) begin
-            resp_data_q[lane_idx[7:0]] <= 1'b0;
+            advance_lane_state(cur_h_q, cur_w_q, cur_kx_q, cur_chan_q, stream_base_q,
+                               next_h_v, next_w_v, next_kx_v, next_chan_v, next_stream_base_v);
+            cur_h_q <= next_h_v;
+            cur_w_q <= next_w_v;
+            cur_kx_q <= next_kx_v;
+            cur_chan_q <= next_chan_v;
+            stream_base_q <= next_stream_base_v;
             lane_idx <= lane_idx + 9'd1;
           end else begin
-            read_addr_q <= lane_base_addr_q[lane_idx[7:0]] + {27'd0, req_timestep_q[8:5]};
-            read_lane_q <= lane_idx[7:0];
-            read_bit_idx_q <= req_timestep_q[4:0];
-            state <= S_ISSUE_READ;
+            if (cur_h_q >= 0 && cur_h_q < $signed({1'b0, cfg_H_q}) &&
+                cur_w_q >= 0 && cur_w_q < $signed({1'b0, cfg_W_q})) begin
+              read_addr_q <= cfg_fmap_base_word_q
+                           + scale_stream_words(stream_base_q[31:0])
+                           + (req_timestep_q >> 5);
+              read_lane_q <= lane_idx[7:0];
+              read_bit_idx_q <= req_timestep_q[4:0];
+              state <= S_ISSUE_READ;
+            end else begin
+              logic signed [16:0] next_h_v;
+              logic signed [16:0] next_w_v;
+              logic [3:0] next_kx_v;
+              logic [15:0] next_chan_v;
+              logic signed [31:0] next_stream_base_v;
+              resp_data_q[lane_idx[7:0]] <= 1'b0;
+              advance_lane_state(cur_h_q, cur_w_q, cur_kx_q, cur_chan_q, stream_base_q,
+                                 next_h_v, next_w_v, next_kx_v, next_chan_v, next_stream_base_v);
+              cur_h_q <= next_h_v;
+              cur_w_q <= next_w_v;
+              cur_kx_q <= next_kx_v;
+              cur_chan_q <= next_chan_v;
+              stream_base_q <= next_stream_base_v;
+              lane_idx <= lane_idx + 9'd1;
+            end
           end
         end
 
@@ -540,7 +580,19 @@ module patch_unroller_v2
         end
 
         S_WAIT_READ: begin
+          logic signed [16:0] next_h_v;
+          logic signed [16:0] next_w_v;
+          logic [3:0] next_kx_v;
+          logic [15:0] next_chan_v;
+          logic signed [31:0] next_stream_base_v;
           resp_data_q[read_lane_q] <= fmap_rd_data[read_bit_idx_q];
+          advance_lane_state(cur_h_q, cur_w_q, cur_kx_q, cur_chan_q, stream_base_q,
+                             next_h_v, next_w_v, next_kx_v, next_chan_v, next_stream_base_v);
+          cur_h_q <= next_h_v;
+          cur_w_q <= next_w_v;
+          cur_kx_q <= next_kx_v;
+          cur_chan_q <= next_chan_v;
+          stream_base_q <= next_stream_base_v;
           lane_idx <= lane_idx + 9'd1;
           state <= S_PREP_LANE;
         end

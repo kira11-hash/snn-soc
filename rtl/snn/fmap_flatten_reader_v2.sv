@@ -54,16 +54,14 @@ module fmap_flatten_reader_v2
   // flatten 看起来只是 row-major 地址递增，但它仍然要处理 last tile、BRAM
   // 1-cycle latency、dyn_wl ready/valid 背压，以及仿真 cache。用 FSM 把这些
   // 时序显式表达出来，比把 256 个地址组合展开更适合 FPGA timing。
-  typedef enum logic [3:0] {
-    S_IDLE       = 4'd0,
-    S_CTX_LATCH  = 4'd1,
-    S_CTX_PREP   = 4'd2,
-    S_BUILD_CTX  = 4'd3,
-    S_WAIT_REQ   = 4'd4,
-    S_PREP_LANE  = 4'd5,
-    S_ISSUE_READ = 4'd6,
-    S_WAIT_READ  = 4'd7,
-    S_RESPOND    = 4'd8
+  typedef enum logic [2:0] {
+    S_IDLE       = 3'd0,
+    S_CTX_LATCH  = 3'd1,
+    S_WAIT_REQ   = 3'd2,
+    S_PREP_LANE  = 3'd3,
+    S_ISSUE_READ = 3'd4,
+    S_WAIT_READ  = 3'd5,
+    S_RESPOND    = 3'd6
   } state_e;
 
   state_e state;
@@ -95,13 +93,6 @@ module fmap_flatten_reader_v2
   logic        cache_valid;
   logic [3:0]  cache_word_idx;
   integer      cache_lane;
-`else
-  logic [31:0] lane_base_addr_q [0:P_N_IN-1];
-  logic [8:0]  build_fill_idx_q;
-  logic [31:0] build_logical_idx_q;
-  logic [15:0] build_row_q, build_col_q, build_chan_q;
-  logic signed [31:0] row_stride_words_q, col_stride_words_q, row_wrap_delta_q;
-  logic signed [31:0] cur_pixel_base_q, cur_chan_base_q;
 `endif
 
   // 【Corner case：FC 输入维度不是 256 的整数倍】
@@ -120,29 +111,33 @@ module fmap_flatten_reader_v2
     end
   endfunction
 
-  // 【架构注释：row-major flatten 地址公式】
-  // flat_idx 先拆成 channel 和 pixel，再拆 row/col，最后回到 fmap_sram 的
-  // (((row*W+col)*C+chan)*stream_words + timestep_word) 布局。这里保留公式化
-  // 写法，是为了让仿真路径和设计文档一眼能对上。
+  // 【架构注释：共享实现把 stream_words 乘法展开成移位加法】
+  // cfg_stream_words 最大 8，不值得让综合器推一个宽乘法器。case 形式更啰嗦，
+  // 但 timing 更确定，也和 patch_unroller_v2 的地址路径保持一致。
+  function automatic [31:0] scale_stream_words(input [31:0] idx);
+    begin
+      case (cfg_stream_words_q)
+        4'd1: scale_stream_words = idx;
+        4'd2: scale_stream_words = idx << 1;
+        4'd3: scale_stream_words = (idx << 1) + idx;
+        4'd4: scale_stream_words = idx << 2;
+        4'd5: scale_stream_words = (idx << 2) + idx;
+        4'd6: scale_stream_words = (idx << 2) + (idx << 1);
+        4'd7: scale_stream_words = (idx << 2) + (idx << 1) + idx;
+        default: scale_stream_words = idx << 3;
+      endcase
+    end
+  endfunction
+
+  // 【架构注释：共享实现的 flatten 地址可以直接线性化】
+  // 这里利用上层已经把 fmap 按 row-major HWC 线性存放，flat_idx 本身就是
+  // linear_stream，因此只需要 base + flat_idx*stream_words + timestep_word。
+  // 这比反拆 row/col/channel 更短，是这条 FPGA timing 分支的特化优化。
   function automatic [31:0] calc_word_addr(input int unsigned flat_idx,
                                            input [8:0] timestep);
-    int unsigned c_eff;
-    int unsigned w_eff;
-    int unsigned chan;
-    int unsigned pixel;
-    int unsigned row;
-    int unsigned col;
-    int unsigned linear_stream;
     begin
-      c_eff = (cfg_C_q == 0) ? 1 : cfg_C_q;
-      w_eff = (cfg_W_q == 0) ? 1 : cfg_W_q;
-      chan = flat_idx % c_eff;
-      pixel = flat_idx / c_eff;
-      row = pixel / w_eff;
-      col = pixel % w_eff;
-      linear_stream = (((row * cfg_W_q) + col) * cfg_C_q) + chan;
       calc_word_addr = cfg_fmap_base_word_q
-                     + (linear_stream * cfg_stream_words_q)
+                     + scale_stream_words(flat_idx)
                      + (timestep >> 5);
     end
   endfunction
@@ -188,6 +183,10 @@ module fmap_flatten_reader_v2
           state <= S_WAIT_REQ;
         end
 
+        // 【Corner case：ctx_valid 可以覆盖当前等待态配置】
+        // conv_ctrl_v2 会在每个 tile 发新 ctx。若 reader 正在 WAIT_REQ，说明上一条
+        // WL 已消费完，我允许新 ctx 覆盖旧 ctx；若正在读 SRAM，则不会接收新 ctx，
+        // 避免一次 response 里混入两个 tile 的地址。
         S_WAIT_REQ: begin
           if (ctx_valid) begin
             flat_tile_idx_q <= flat_tile_idx;
@@ -210,6 +209,10 @@ module fmap_flatten_reader_v2
           end
         end
 
+        // 【Corner case：cache hit、last tile、正常读三条路径要互斥】
+        // cache 命中时直接从 lane_word_cache 取 bit；lane_idx>=valid_count_q 时
+        // 主动补 0；只有真实 lane 才发 SRAM 读。这个顺序不能反过来，否则 last tile
+        // 的空 lane 可能错误命中旧 cache。
         S_PREP_LANE: begin
           if (cache_valid && cache_word_idx == req_timestep_q[8:5]) begin
             for (cache_lane = 0; cache_lane < P_N_IN; cache_lane = cache_lane + 1) begin
@@ -258,12 +261,6 @@ module fmap_flatten_reader_v2
     end
   end
 `else
-  // 【架构注释：ARM 分支综合路径预构建 flatten lane base 地址】
-  // 对同一个 flat_tile，256 个 lane 的 base word 与 timestep 无关，我先构建
-  // lane_base_addr_q，后续每个 timestep 只加 word_idx。这对 T_count 较大时有效，
-  // 代价是多一组 256 深度寄存器和 build 状态。
-  // TODO优化方向：如果 lane_base_addr_q 成为布线热点，可改成 E203 分支那种
-  // 直接用 flat_idx 计算/递增的 streaming 实现。
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state <= S_IDLE;
@@ -273,16 +270,6 @@ module fmap_flatten_reader_v2
       flat_dim_q <= '0; tile_base_q <= '0; valid_count_q <= '0;
       req_timestep_q <= '0; lane_idx <= '0; read_lane_q <= '0; read_bit_idx_q <= '0;
       read_addr_q <= '0; resp_data_q <= '0;
-      build_fill_idx_q <= '0;
-      build_logical_idx_q <= '0;
-      build_row_q <= '0;
-      build_col_q <= '0;
-      build_chan_q <= '0;
-      row_stride_words_q <= '0;
-      col_stride_words_q <= '0;
-      row_wrap_delta_q <= '0;
-      cur_pixel_base_q <= '0;
-      cur_chan_base_q <= '0;
     end else begin
       case (state)
         S_IDLE: begin
@@ -302,64 +289,9 @@ module fmap_flatten_reader_v2
         end
 
         S_CTX_LATCH: begin
-          row_stride_words_q <= $signed({1'b0, (cfg_W_q * cfg_C_q * cfg_stream_words_q)});
-          col_stride_words_q <= $signed({1'b0, (cfg_C_q * cfg_stream_words_q)});
-          state <= S_CTX_PREP;
+          state <= S_WAIT_REQ;
         end
 
-        // 【架构注释：综合路径预计算 row/col 步进】
-        // flat reader 的地址是连续 HWC，但跨列/跨行时仍要跳回正确 base。我把
-        // row_stride_words/col_stride_words 先算好，后续 build 表只做加法。
-        S_CTX_PREP: begin
-          row_wrap_delta_q <= row_stride_words_q
-                            - $signed({1'b0, ((cfg_W_q - 16'd1) * col_stride_words_q[15:0])});
-          cur_pixel_base_q <= $signed({1'b0, cfg_fmap_base_word_q});
-          cur_chan_base_q <= $signed({1'b0, cfg_fmap_base_word_q});
-          build_fill_idx_q <= '0;
-          build_logical_idx_q <= '0;
-          build_row_q <= '0;
-          build_col_q <= '0;
-          build_chan_q <= '0;
-          state <= S_BUILD_CTX;
-        end
-
-        // 【架构注释：只构建当前 tile 需要的 256 个 lane】
-        // build_logical_idx_q 从 0 扫到 flat_dim，但只有 >=tile_base 的项写入表。
-        // 这样 tile_base 不必参与后续每个 timestep 的地址运算。
-        S_BUILD_CTX: begin
-          if (build_logical_idx_q >= flat_dim_q || build_fill_idx_q == 9'd256) begin
-            state <= S_WAIT_REQ;
-          end else begin
-            if (build_logical_idx_q >= tile_base_q && build_fill_idx_q < 9'd256) begin
-              lane_base_addr_q[build_fill_idx_q[7:0]] <= cur_chan_base_q[31:0];
-              build_fill_idx_q <= build_fill_idx_q + 9'd1;
-            end
-            build_logical_idx_q <= build_logical_idx_q + 32'd1;
-            if (build_chan_q + 16'd1 < cfg_C_q) begin
-              build_chan_q <= build_chan_q + 16'd1;
-              cur_chan_base_q <= cur_chan_base_q + $signed({1'b0, cfg_stream_words_q});
-            end else begin
-              build_chan_q <= 16'd0;
-              if (build_col_q + 16'd1 < cfg_W_q) begin
-                build_col_q <= build_col_q + 16'd1;
-                cur_pixel_base_q <= cur_pixel_base_q + col_stride_words_q;
-                cur_chan_base_q <= cur_pixel_base_q + col_stride_words_q;
-              end else begin
-                build_col_q <= 16'd0;
-                if (build_row_q + 16'd1 < cfg_H_q) begin
-                  build_row_q <= build_row_q + 16'd1;
-                  cur_pixel_base_q <= cur_pixel_base_q + row_wrap_delta_q;
-                  cur_chan_base_q <= cur_pixel_base_q + row_wrap_delta_q;
-                end
-              end
-            end
-          end
-        end
-
-        // 【Corner case：ctx_valid 可以覆盖当前等待态配置】
-        // conv_ctrl_v2 会在每个 tile 发新 ctx。若 reader 正在 WAIT_REQ，说明上一条
-        // WL 已消费完，我允许新 ctx 覆盖旧 ctx；若正在读 SRAM，则不会接收新 ctx，
-        // 避免一次 response 里混入两个 tile 的地址。
         S_WAIT_REQ: begin
           if (ctx_valid) begin
             flat_tile_idx_q <= flat_tile_idx;
@@ -372,8 +304,8 @@ module fmap_flatten_reader_v2
             tile_base_q <= flat_tile_idx * P_N_IN;
             valid_count_q <= calc_valid_count(cfg_H * cfg_W * cfg_C,
                                               flat_tile_idx * P_N_IN);
-            state <= S_CTX_LATCH;
-          end else if (dyn_wl_req_valid) begin
+          end
+          if (dyn_wl_req_valid) begin
             req_timestep_q <= dyn_wl_req_timestep;
             lane_idx <= '0;
             resp_data_q <= '0;
@@ -391,7 +323,7 @@ module fmap_flatten_reader_v2
             resp_data_q[lane_idx[7:0]] <= 1'b0;
             lane_idx <= lane_idx + 9'd1;
           end else begin
-            read_addr_q <= lane_base_addr_q[lane_idx[7:0]] + {27'd0, req_timestep_q[8:5]};
+            read_addr_q <= calc_word_addr(tile_base_q + lane_idx, req_timestep_q);
             read_lane_q <= lane_idx[7:0];
             read_bit_idx_q <= req_timestep_q[4:0];
             state <= S_ISSUE_READ;

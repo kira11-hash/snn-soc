@@ -24,7 +24,7 @@
 //   32-bit timestep-packed fmap layout 写回 fmap_sram_v2。
 //
 // 【关键指标和取舍】
-// 目标是 ZCU102/ARM demo 上 50 MHz 单时钟域稳定跑通，吞吐以“每个空间点
+// 目标是 ZCU102 FPGA demo 上 50 MHz 单时钟域稳定跑通，吞吐以“每个空间点
 // 每个 tile 启动一次 stage_engine”为基本粒度；控制路径不追求一拍发射，而
 // 是优先保证权重 preload、动态 WL 读取、BRAM 1-cycle latency 和写回顺序
 // 都可解释、可调试。后续如果要冲更高频率，应优先把大乘法/除法从校验或
@@ -491,9 +491,9 @@ module conv_ctrl_v2
           end
         end
 
-        // 【架构注释：ARM 分支使用递增 cursor，少放组合乘除在写回热路径】
+        // 【架构注释：共享实现使用递增 cursor，少放组合乘除在写回热路径】
         // 每个输出像素的 fmap 地址是 (((h*out_W+w)*C_out+c)*stream_words+s)。
-        // 在 ARM FPGA demo 这条分支里，我把 pixel_base_word_q 和 write_addr_cursor_q
+        // 在 FPGA demo 这条路径里，我把 pixel_base_word_q 和 write_addr_cursor_q
         // 提前寄存，让 S_WRITEBACK 每拍基本只做 +1 和小计数器更新，降低时序压力。
         // trade-off 是控制寄存器多一点，必须在空间点切换时维护 cursor；如果漏掉
         // pixel_base_word_q 更新，会出现所有像素写到同一块地址的灾难性覆盖。

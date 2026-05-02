@@ -6,6 +6,14 @@
 
 ---
 
+## [2026-05-02] CONV 共享 RTL 在 ARM/E203 evidence 分支间漂移
+
+- **现象**：二轮审查做跨分支 byte-level diff 时，`rtl/snn/patch_unroller_v2.sv`、`rtl/snn/fmap_flatten_reader_v2.sv`、`rtl/snn/conv_ctrl_v2.sv` 和 `fw/include/v2b_conv_scheduler.h` 在 ARM / E203 两条 CONV evidence 支线不一致。虽然两边各有 unit TB 和板级 evidence，但这会破坏“CPU 路径不同、CONV RTL/FW 共享”的审查口径。
+- **根因**：E203 timing closure 期间引入了 streaming reader/unroller 地址生成优化，ARM 分支保留了旧的 lane-table reader；ARM 分支的 `conv_ctrl_v2` 又引入了写回 cursor 优化，而 E203 分支保留公式化除/模写回。两组优化没有在两条 worktree 之间回灌同步。
+- **修复**：把 reader/unroller 收敛到 timing 友好的 streaming 地址生成实现，把 `conv_ctrl_v2` 收敛到递增 cursor 写回实现；同时把 `v2b_conv_scheduler.h` 的设计注释同步，去掉分支专属路径描述。
+- **影响范围**：影响两条 evidence 支线的 CONV RTL。需要跑 4 个 CONV unit TB、stage/partial-write regression，并因 RTL 进入 bitstream，后续需要重新 bitgen + 上板抓 UART。
+- **如何避免再犯**：每次在 evidence 支线做 timing 或 bring-up 局部优化后，必须立即跑共享文件 byte diff；如果确实需要分支差异，必须在架构文档里显式标注“非共享 RTL”，否则默认共享文件 diff 为 0。
+
 ## [2026-05-02] stage_engine_v2 非法 input_src 编码漏镜像到 sequential reject
 
 - **现象**：`stage_engine_v2` 的 `config_ok` 会拒绝 `cfg_input_src=6/7` 这类越界编码，但 sequential `S_IDLE` 校验块没同步这个条件；结果是 `next_state` 留在 `S_IDLE`，同时 `busy` 仍被置 1，形成“状态机没起跑、外部却看到 BUSY=1”的假忙挂死。
