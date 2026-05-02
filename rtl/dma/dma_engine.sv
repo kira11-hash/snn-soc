@@ -206,6 +206,9 @@ module dma_engine (
 
   logic done_sticky;
   logic err_sticky;
+  // R-M2 fix（2026-05-02 audit）：FIFO 满时累积计数，超过阈值视为下游消费者
+  // 卡死，set err_sticky + done_sticky 让 fw 看到 ERR 而不是永远 BUSY。
+  logic [23:0] push_stall_cnt;
 
   // -----------------------------------------------------------------------
   // 预计算辅助信号
@@ -269,8 +272,9 @@ module dma_engine (
       words_rem   <= 32'h0;
       word0_reg   <= 32'h0;
       word1_reg   <= 32'h0;
-      done_sticky <= 1'b0;
-      err_sticky  <= 1'b0;
+      done_sticky    <= 1'b0;
+      err_sticky     <= 1'b0;
+      push_stall_cnt <= 24'd0;  // R-M2 fix
     end else begin
       // ── W1C 清零 ──────────────────────────────────────────────────────
       if (write_en && (addr_offset == REG_DMA_CTRL) && req_wstrb[0]) begin
@@ -343,14 +347,27 @@ module dma_engine (
         ST_PUSH: begin
           if (!in_fifo_full) begin
             words_rem <= words_rem - 32'd2;
+            push_stall_cnt <= 24'd0;  // 命中一次有效 push 就清零 stall 计数
             if (words_rem == 32'd2) begin
               done_sticky <= 1'b1;
               state       <= ST_IDLE;
             end else begin
               state <= ST_RD0;
             end
+          end else begin
+            // R-M2 fix（2026-05-02 audit）：FIFO 满时不再无限期原地等待。
+            // 累计 push_stall_cnt；超过 V2B_DMA_PUSH_TIMEOUT_CYCLES 视为
+            // 下游消费者卡死（CIM 推理 hang / FIFO drain 永不发生），
+            // 设 err_sticky + done_sticky 让 fw 看到 ERR 而不是永远 BUSY。
+            // 流片影响：硅片如果 fifo 卡住，fw polling DONE 永远不归 1 →
+            // fw 必须有 timeout 路径处理；不修则系统级死锁无可见错误。
+            push_stall_cnt <= push_stall_cnt + 24'd1;
+            if (push_stall_cnt >= 24'(V2B_DMA_PUSH_TIMEOUT_CYCLES)) begin
+              err_sticky  <= 1'b1;
+              done_sticky <= 1'b1;
+              state       <= ST_IDLE;
+            end
           end
-          // FIFO 满时原地等待
         end
 
         // ── WR：写单个 word 到目标 SRAM（WEIGHT_BUF / INSTR_SRAM）────────

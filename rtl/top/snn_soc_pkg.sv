@@ -209,6 +209,12 @@ package snn_soc_pkg;
   parameter int PROG_ROWS    = NUM_INPUTS;   // = 64，可编程行（= WL 数）
   parameter int PROG_COLS    = ADC_CHANNELS; // = 20，可编程列（= ADC 通道/BL）
 
+  // R-M2 fix（2026-05-02 audit）：DMA push input_fifo 卡 FIFO 满超时阈值。
+  // 超过这个累积 stall 周期数后 dma_engine set err_sticky + done_sticky，
+  // 避免硅片下游 CIM 卡死时 fw polling DONE 永远不归 1 的系统级死锁。
+  // 1M cycles @50MHz = 20 ms，远长于正常 CIM tile 推理时间。
+  parameter int V2B_DMA_PUSH_TIMEOUT_CYCLES = 1_048_576;  // 2^20 cycles
+
   // 写入脉冲宽度三档（1us / 10us / 100us @ 50MHz 系统时钟）。
   // 器件实际编程窗口待实验标定，因此给三档灵活选择；擦除固定 1ms。
   parameter int PROG_WRITE_PULSE_1US_CYC   = 50;    // 1  us * 50 MHz =   50 cycles

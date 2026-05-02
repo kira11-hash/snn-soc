@@ -59,8 +59,9 @@ module spi_ctrl (
                               ? {req_wdata[31:4], 3'd2, req_wdata[0]}
                               : req_wdata;
 
-  // req_wstrb is intentionally ignored in this V1 peripheral.
-  wire _unused = &{1'b0, req_wstrb, req_addr[31:8]};
+  // R-M1 fix（2026-05-02 audit）：req_wstrb 现在被 REG_CTRL / REG_TXDATA 写
+  // 路径使用，防止 byte-write 误清字段（详见下面 always_ff 的 byte 选择）。
+  wire _unused = &{1'b0, req_addr[31:8]};
   wire _unused_shift_bits = &{1'b0, tx_shift[7], rx_shift[7]};
 
   // clk_div mapping: 0..7 -> divide by 2/4/8/16/32/64/128/256.
@@ -104,7 +105,9 @@ module spi_ctrl (
       end
 
       // CTRL is software writable at all times.
-      if (write_en && (addr_offset == REG_CTRL)) begin
+      // R-M1 fix（2026-05-02 audit）：仅 wstrb[0] 命中 byte0 时才更新（CTRL 全部
+      // 字段在 ctrl_reg[7:0]），防止 byte-write 误清。
+      if (write_en && (addr_offset == REG_CTRL) && req_wstrb[0]) begin
         ctrl_reg <= ctrl_write_data;
       end
 
@@ -115,7 +118,9 @@ module spi_ctrl (
           div_cnt <= 8'h00;
 
           // TXDATA write starts one 8-bit full-duplex transaction.
-          if (write_en && (addr_offset == REG_TXDATA) && spi_en) begin
+          // R-M1 fix（2026-05-02 audit）：仅 wstrb[0] 命中 byte0 时才启动事务，
+          // 防止 byte-write byte1/2/3 误触发。
+          if (write_en && (addr_offset == REG_TXDATA) && spi_en && req_wstrb[0]) begin
             tx_shadow <= req_wdata[7:0];
             tx_shift  <= req_wdata[7:0];
             rx_shift  <= 8'h00;

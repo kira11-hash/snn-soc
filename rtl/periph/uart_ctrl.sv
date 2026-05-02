@@ -40,7 +40,7 @@ module uart_ctrl (
   input  logic        req_write,  // 1=写，0=读
   input  logic [31:0] req_addr,   // 字节地址（低8位用作寄存器 offset）
   input  logic [31:0] req_wdata,  // 写数据（32位，实际使用 [7:0] 或 [15:0]）
-  input  logic [3:0]  req_wstrb,  // 字节写使能（V1 忽略，按整字处理）
+  input  logic [3:0]  req_wstrb,  // 字节写使能（R-M1 fix：byte0 控制 TXDATA / CTRL[7:0]，byte1 控制 CTRL[15:8]）
   output logic [31:0] rdata,      // 读返回数据（组合输出）
 
   // ── UART 物理接口 ─────────────────────────────────────────────────────────
@@ -89,10 +89,20 @@ module uart_ctrl (
       if (write_en) begin
         case (addr_off)
           // TXDATA：忙时写入忽略（由 TX FSM 单独处理 tx_shift 的加载）
-          REG_TXDATA: if (!tx_busy) txdata_shadow <= req_wdata[7:0];
+          // R-M1 fix（2026-05-02 audit）：仅 wstrb[0] 命中时才更新 TXDATA[7:0]，
+          // 防止 byte-write 误清字段。
+          REG_TXDATA: if (!tx_busy && req_wstrb[0]) txdata_shadow <= req_wdata[7:0];
           // CTRL：任何时候均可更新波特率（发送中写入在下一帧生效）
           // 防御：写 0 视为非法配置，钳位到 1，避免 baud_cnt 装载为 16'hFFFF
-          REG_CTRL:   baud_div_reg <= (req_wdata[15:0] == 16'd0) ? 16'd1 : req_wdata[15:0];
+          // R-M1 fix：CTRL[15:0] 只有当 wstrb[0] || wstrb[1] 命中时才更新，
+          // 且按 byte 选择性更新。
+          REG_CTRL: begin
+            logic [15:0] new_ctrl;
+            new_ctrl = baud_div_reg;
+            if (req_wstrb[0]) new_ctrl[7:0]  = req_wdata[7:0];
+            if (req_wstrb[1]) new_ctrl[15:8] = req_wdata[15:8];
+            baud_div_reg <= (new_ctrl == 16'd0) ? 16'd1 : new_ctrl;
+          end
           default: ;
         endcase
       end
@@ -198,6 +208,8 @@ module uart_ctrl (
   end
 
   // ── 哑线：抑制未使用信号 lint 告警 ───────────────────────────────────────
-  wire _unused = &{1'b0, uart_rx, req_wstrb, req_addr[31:8], req_wdata[31:16]};
+  // R-M1 fix（2026-05-02 audit）：req_wstrb 现在被 REG_TXDATA / REG_CTRL 写
+  // 路径使用，不再列入 unused。
+  wire _unused = &{1'b0, uart_rx, req_addr[31:8], req_wdata[31:16]};
 
 endmodule
