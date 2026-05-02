@@ -11,7 +11,18 @@ MODE="${1:---smoke}"
 case "$MODE" in
   --smoke) SAMPLES=1 ;;
   --full)  SAMPLES=10 ;;
-  *) echo "usage: $0 [--smoke|--full]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--smoke|--full] [lenet5|lenet5_fashion]" >&2; exit 2 ;;
+esac
+
+# Optional 2nd arg selects the golden bundle directory under results_conv/.
+# Default "lenet5" matches the canonical M4 MNIST artifacts; "lenet5_fashion"
+# points at the Fashion-MNIST 28x28 ablation produced by `gen_convnet_golden.py
+# --network lenet5 --dataset-override fashion_mnist --tag _fashion`.
+BUNDLE="${2:-lenet5}"
+case "$BUNDLE" in
+  lenet5)         GEN_OVERRIDE=() ;;
+  lenet5_fashion) GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion) ;;
+  *) echo "usage: $0 [--smoke|--full] [lenet5|lenet5_fashion]" >&2; exit 2 ;;
 esac
 
 RUN_DIR=$(mktemp -d "$SCRIPT_DIR/.lenet5_cosim_run.XXXXXX")
@@ -21,10 +32,10 @@ trap cleanup EXIT
 LOG="$SCRIPT_DIR/lenet5_cosim_sim.log"
 : > "$LOG"
 
-echo "[INFO] Generating/checking LeNet5 golden bundle" | tee -a "$LOG"
-run_python ../python_multilayer/gen_convnet_golden.py --network lenet5 --samples 10 | tee -a "$LOG"
+echo "[INFO] Generating/checking LeNet5 golden bundle (bundle=$BUNDLE)" | tee -a "$LOG"
+run_python ../python_multilayer/gen_convnet_golden.py --network lenet5 --samples 10 "${GEN_OVERRIDE[@]}" | tee -a "$LOG"
 
-GOLDEN_DIR="$SCRIPT_DIR/../python_multilayer/results_conv/lenet5"
+GOLDEN_DIR="$SCRIPT_DIR/../python_multilayer/results_conv/$BUNDLE"
 MANIFEST="$GOLDEN_DIR/lenet5_golden_manifest.json"
 GOLDEN_DIR_HOST=$(to_windows_path "$GOLDEN_DIR")
 MANIFEST_HOST=$(to_windows_path "$MANIFEST")
@@ -92,11 +103,11 @@ echo "[SHA] lenet5_rtl_counts_dump=$RTL_SHA" | tee -a "$LOG"
 
 if grep -q "LENET5_COSIM_TB_PASS" "$LOG"; then
   echo "============================================" | tee -a "$LOG"
-  echo "[RESULT] LENET5_COSIM_TB_PASS mode=$MODE samples=$SAMPLES" | tee -a "$LOG"
+  echo "[RESULT] LENET5_COSIM_TB_PASS mode=$MODE bundle=$BUNDLE samples=$SAMPLES" | tee -a "$LOG"
   echo "============================================" | tee -a "$LOG"
 else
   echo "============================================" | tee -a "$LOG"
-  echo "[RESULT] LENET5_COSIM_TB_FAIL mode=$MODE samples=$SAMPLES" | tee -a "$LOG"
+  echo "[RESULT] LENET5_COSIM_TB_FAIL mode=$MODE bundle=$BUNDLE samples=$SAMPLES" | tee -a "$LOG"
   echo "============================================" | tee -a "$LOG"
   exit 1
 fi
