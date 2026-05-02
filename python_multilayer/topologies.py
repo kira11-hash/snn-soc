@@ -28,9 +28,14 @@ logger = logging.getLogger(__name__)
 # V2.B REV 2 (2026-04-20) expands array to 256×256. Phase 1 Python can use
 # these V2 bounds even before RTL is updated; legacy 64×128 topologies still
 # pass because their dims are within the larger bounds.
-HW_NUM_INPUTS: int = 256      # Max WL count (V2.B: 256; V1 legacy was 64)
+HW_NUM_INPUTS: int = 256      # Max WL count per single-tile FC stage (V2.B: 256)
 HW_MAX_BL_SCAN: int = 256     # Max BL scan count (V2.B: 256 = up to 128 out_dim)
 HW_MAX_LAYERS: int = 4        # Max FC stages
+# Multi-tile FC upper bound: tile_mode=1 splits the WL count into N tiles each
+# ≤ HW_NUM_INPUTS and accumulates partial-sums. Used by 28×28 raw-input
+# Fashion-MNIST / MNIST ablations (in_dim=784 = 4 tiles of 196). Not yet wired
+# bit-exact through Python forward (treat as ideal-forward training accuracy).
+HW_NUM_INPUTS_TILED_MAX: int = 1024
 
 
 class StageConfig(BaseModel):
@@ -67,9 +72,14 @@ class StageConfig(BaseModel):
     @field_validator("in_dim")
     @classmethod
     def _in_dim_range(cls, v: int) -> int:
-        if not 1 <= v <= HW_NUM_INPUTS:
+        # Single-tile path: v ≤ HW_NUM_INPUTS (256). Multi-tile (tile_mode=1)
+        # path: v ≤ HW_NUM_INPUTS_TILED_MAX (1024 = 4 tiles of 256). Python
+        # forward currently uses ideal matmul for both — only single-tile is
+        # bit-exact against RTL.
+        if not 1 <= v <= HW_NUM_INPUTS_TILED_MAX:
             raise ValueError(
-                f"in_dim must be in [1, {HW_NUM_INPUTS}] (NUM_INPUTS upper bound), got {v}"
+                f"in_dim must be in [1, {HW_NUM_INPUTS_TILED_MAX}] "
+                f"(tiled upper bound), got {v}"
             )
         return v
 
@@ -130,9 +140,10 @@ class TopologyConfig(BaseModel):
     @field_validator("input_dim")
     @classmethod
     def _input_dim_range(cls, v: int) -> int:
-        if not 1 <= v <= HW_NUM_INPUTS:
+        if not 1 <= v <= HW_NUM_INPUTS_TILED_MAX:
             raise ValueError(
-                f"input_dim must be in [1, {HW_NUM_INPUTS}] (NUM_INPUTS), got {v}"
+                f"input_dim must be in [1, {HW_NUM_INPUTS_TILED_MAX}] "
+                f"(tiled upper bound), got {v}"
             )
         return v
 

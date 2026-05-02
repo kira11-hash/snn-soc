@@ -46,6 +46,8 @@ def _load_data(topology: TopologyConfig):
         target_size = 8
     elif topology.input_dim == 196:
         target_size = 14
+    elif topology.input_dim == 784:
+        target_size = 28
     else:
         raise ValueError(f"Unsupported input_dim {topology.input_dim}")
 
