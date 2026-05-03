@@ -296,7 +296,11 @@ def run_rescue_load_command_check() -> None:
         dmem = temp / "dmem.hex"
         imem.write_text("12345678\n9abcdef0\n", encoding="utf-8")
         dmem.write_text("4a544147\n", encoding="utf-8")
-        args = SimpleNamespace(imem_hex=str(imem), data_hex=str(dmem))
+        args = SimpleNamespace(
+            imem_hex=str(imem),
+            data_hex=str(dmem),
+            load_addr=JTAG_RESCUE.ADDR_INSTR_BASE,
+        )
         rc = JTAG_RESCUE.cmd_rescue_load(client, args)
         assert_equal(rc, 0, "rescue_load_rc")
         assert_equal(client.read_word(JTAG_RESCUE.ADDR_INSTR_BASE), 0x12345678, "rescue_imem_word0")

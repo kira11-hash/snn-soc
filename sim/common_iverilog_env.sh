@@ -212,3 +212,90 @@ find_vendor_e203_rtl_dir() {
 
   find "$root_dir" -type d -path '*/e203_hbirdv2-master/rtl' -print -quit 2>/dev/null || true
 }
+
+ensure_vendor_e203_alias() {
+  local root_dir="$1"
+  local alias_dir="$root_dir/rtl/vendor_e203"
+  local alias_win
+  local vendor_src_posix
+  local vendor_src_win
+
+  VENDOR_E203_ALIAS_CREATED="${VENDOR_E203_ALIAS_CREATED:-0}"
+  VENDOR_E203_ALIAS_PATH="${VENDOR_E203_ALIAS_PATH:-}"
+
+  if [ -e "$alias_dir" ]; then
+    VENDOR_E203_ALIAS_PATH="$alias_dir"
+    return 0
+  fi
+
+  vendor_src_posix="$(find_vendor_e203_rtl_dir "$root_dir")"
+  if [ -z "$vendor_src_posix" ]; then
+    echo "[ERROR] Unable to locate e203_hbirdv2-master/rtl under repo root: $root_dir" >&2
+    return 1
+  fi
+
+  alias_win="$(to_windows_path "$alias_dir")"
+  alias_win="${alias_win//\//\\}"
+  vendor_src_win="$(to_windows_path "$vendor_src_posix")"
+  vendor_src_win="${vendor_src_win//\//\\}"
+
+  if ! command -v powershell.exe >/dev/null 2>&1; then
+    echo "[ERROR] powershell.exe not found; cannot create rtl/vendor_e203 junction" >&2
+    return 1
+  fi
+
+  powershell.exe -NoProfile -Command \
+    "if (-not (Test-Path '$alias_win')) { New-Item -ItemType Junction -Path '$alias_win' -Target '$vendor_src_win' | Out-Null }"
+
+  VENDOR_E203_ALIAS_CREATED=1
+  VENDOR_E203_ALIAS_PATH="$alias_dir"
+}
+
+cleanup_vendor_e203_alias() {
+  local alias_path="${VENDOR_E203_ALIAS_PATH:-}"
+  local alias_win
+
+  if [ "${VENDOR_E203_ALIAS_CREATED:-0}" -ne 1 ] || [ -z "$alias_path" ]; then
+    return 0
+  fi
+
+  alias_win="$(to_windows_path "$alias_path")"
+  alias_win="${alias_win//\//\\}"
+  MSYS2_ARG_CONV_EXCL='*' cmd.exe /c rmdir "$alias_win" > /dev/null 2>&1 || true
+}
+
+run_in_repo_wsl() {
+  local root_dir="$1"
+  shift
+  local repo_wsl
+  local repo_win
+  local drive
+  local rest
+
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    repo_wsl="$root_dir"
+    bash -lc "cd '$repo_wsl' && $*"
+    return $?
+  fi
+
+  if ! command -v wsl.exe >/dev/null 2>&1; then
+    echo "[ERROR] wsl.exe not found; cannot run repo command in WSL" >&2
+    return 127
+  fi
+
+  repo_win="$(to_windows_path "$root_dir")"
+  if [[ "$repo_win" =~ ^([A-Za-z]):\\(.*)$ ]]; then
+    drive="${BASH_REMATCH[1]}"
+    drive="${drive,,}"
+    rest="${BASH_REMATCH[2]//\\//}"
+    repo_wsl="/mnt/$drive/$rest"
+  else
+    repo_wsl="$(wsl.exe wslpath -a "$repo_win" 2>/dev/null | tr -d '\r')"
+    if [ -z "$repo_wsl" ]; then
+      echo "[ERROR] unable to resolve WSL path for repo root: $root_dir" >&2
+      return 1
+    fi
+  fi
+
+  wsl.exe bash -lc "cd '$repo_wsl' && $*"
+}

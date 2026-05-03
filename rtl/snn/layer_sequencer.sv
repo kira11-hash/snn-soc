@@ -1,4 +1,68 @@
 `timescale 1ns/1ps
+// =============================================================================
+// 【面试讲解 cheat sheet · layer_sequencer.sv】 —— 设计者视角
+//
+// 一、它在 V2.B multilayer 路径里的位置
+//   它是"硬件层调度大脑"。CPU 一次写入 4 套层描述符 + START，本模块自动
+//   按层序执行：层 0 → spike_feedback 回注 → 层 1 → ... → 最后一层把
+//   spike 写到 output_fifo。如果不上这个调度器，FW 必须在每层之间手动
+//   ping-pong：发 START → 轮询 DONE → 切换 input source → 清膜电位 →
+//   再发 START，bus 开销大、容易漏步骤。
+//
+// 二、面试最容易被深问的 3 个点
+//   1) 为什么 FSM 要 8 个状态而不是 3 个？
+//      最少能跑：IDLE → RUN_LAYER → DONE。但实际要分这么细：
+//      - LOAD_DESC：从 4×layer_cfg/timing/threshold/neuron_cfg 寄存器
+//        阵列里取出当前 layer_idx 的描述符，需要单独一拍让 reg fanout
+//        被 mux 选中并寄存（不寄会让长 mux 出现在 ctrl_* 输出路径上）。
+//      - RUN_LAYER：发 ctrl_start_pulse 一拍 strobe（必须独立拍，不能
+//        和 LOAD_DESC 合并，否则 cim_array_ctrl 看到 cfg 还没稳定）。
+//      - WAIT_DONE：等 cim_array_ctrl 推理完成。
+//      - WAIT_ALU：等 lif_neuron_alu 把所有 neuron 遍历完（ALU 是串行
+//        扫描各 neuron 累计 spike，可能比推理 done 晚几拍）。
+//      - FEEDBACK：触发 spike_feedback 把本层 spike 转成下一层输入。
+//      - CLEAR_MEM：清 ALU 膜电位，准备下一层。
+//      - ALL_DONE/IDLE：层间 vs 整体完成的边界。
+//      把每件事拆独立状态，单拍语义清楚，bug 时打个 state trace 就能
+//      定位卡在哪一步——这是 V2 多层任务里 silicon bring-up 的关键。
+//
+//   2) 为什么 layer_cfg 不放进 SRAM 用 BRAM 推断，而是放成 unpacked
+//      array of 32-bit reg？
+//      MAX_LAYERS=4 → 16 个 32-bit reg = 64 bytes，太小不值得 BRAM
+//      推断（Vivado 阈值 ~64 word）；用 LUT/FF 实现，访问 latency 0
+//      （组合 mux）。同时 layer 描述符是 CPU 配置阶段一次性写入，运行
+//      时只读，不需要专门读端口——直接 mux 选 layer_idx 就好，FSM 一拍
+//      LOAD_DESC 把 mux 输出寄存住即可避免长路径。
+//
+//   3) 中间层 use_bitplane=0 怎么和层 0 的 use_bitplane=1 共存？
+//      use_bitplane 由 layer_timing 字段位 [8] 编码。FSM 在 LOAD_DESC
+//      期间把这位驱动到 ctrl_binary_mode（=!use_bitplane）。
+//      - 层 0：DMA 灌入的是 bit-plane 编码的输入（pixel 拆 8 bit），
+//        ctrl_binary_mode=0，cim_array_ctrl 走标准 8 子时间步。
+//      - 中间层：上一层的 spike 是 binary（每 timestep 1 bit），由
+//        spike_feedback 直接写 input_fifo，ctrl_binary_mode=1，跳过
+//        bit-plane 加权（bitplane_shift=0），单拍 timestep。
+//      这条 trade-off：用 1 个 bit 切换两种工作模式，节省第二套 cim
+//      数据通路；代价：cim_array_ctrl 内部要做 use_bitplane mux。
+//
+// 三、关键设计指标
+//   - 最大 4 层（MAX_LAYERS=4），每层最多 MAX_NEURONS=128 个 neuron。
+//   - 单层 latency 主要由 cim_array_ctrl 决定，layer_sequencer 只增加
+//     ~8 cycle (FSM 状态切换)。
+//   - 4 层端到端额外开销 ≈ 32 cycle，对 ms 级推理完全可忽略。
+//
+// 四、Corner case
+//   - num_layers 编码：0→1层，1→2层，...，3→4层。FW 写 num_layers=0
+//     表示单层，layer_sequencer 退化到"装作没有 spike_feedback"行为
+//     ——和 V1 单层路径行为等价。
+//   - soft_reset_pulse 在任意状态都会清回 IDLE：不只是 ALU 膜电位被清，
+//     当前 layer_idx 也清零。如果 SW 在中间层 reset 又不重新 START，
+//     系统永远不会再跑——这是设计契约：reset 等价于"重置整个推理意图"。
+//   - feedback_valid / alu_busy 这些握手必须电平等待，不能边沿采样——
+//     spike_feedback 内部跑串行扫描可能持续几十拍，FSM 必须循环停在
+//     WAIT_ALU/FEEDBACK 状态而不是单拍判完。
+// =============================================================================
+
 //======================================================================
 // 文件名: layer_sequencer.sv
 // 模块名: layer_sequencer
