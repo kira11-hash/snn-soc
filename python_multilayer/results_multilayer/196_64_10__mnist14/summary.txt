@@ -1,0 +1,56 @@
+# Phase A V2.B streamed-rate training summary — MNIST 14×14 cross-dataset ablation
+# Auto-generated 2026-05-02 (one-shot training run requested by user to compare
+# Fashion-MNIST baseline against same-architecture MNIST baseline).
+
+topology:          196_64_10  (with --dataset-override mnist --tag _mnist14)
+experiment_id:     ad-hoc    (cross-dataset ablation, not in original P-series)
+label:             196_64_10 (196->64->10) on MNIST 14×14 (vs. Fashion-MNIST 82.38%)
+dataset:           mnist
+stream_timesteps:  64
+adc_bits:          10
+encoding:          streamed_rate (even_rate Bresenham accumulator)
+adc_full_scale:    active_wl
+reset_mode:        soft
+
+# ── Headline result ──────────────────────────────────────────────────
+test_accuracy:     0.9648     # best epoch (ep 26/30)
+final_epoch_acc:   0.9629     # ep 30/30
+trained_epochs:    30
+seed:              42
+
+# ── Comparison ──────────────────────────────────────────────────────
+fashion_baseline_196_64_10:  0.8238   # python_multilayer/results_multilayer/196_64_10/summary.txt
+gap_mnist_minus_fashion:     +0.1410  # MNIST is ~14 pp easier on same architecture
+
+# ── Calibration trace ────────────────────────────────────────────────
+# stage 0 threshold: 16 (locked through all 30 epochs)
+# stage 1 threshold:  8 (locked through all 30 epochs)
+# Spike rate at final calib (ep 25):
+#   stage 0: rate=0.217  theta=16
+#   stage 1: rate=0.107  theta=8
+
+# ── Provenance ───────────────────────────────────────────────────────
+training_command:  python run_streamed_rate_train.py --topology 196_64_10 --dataset-override mnist --tag _mnist14 --epochs 30 --seed 42
+log_file:          /tmp/mnist14_train.log (本机临时)
+model_file:        model.pt  (PyTorch state_dict; 4-bit weight QAT + integer RTL-like forward)
+
+# ── How to reproduce ─────────────────────────────────────────────────
+# 1. python run_streamed_rate_train.py --topology 196_64_10 \
+#        --dataset-override mnist --tag _mnist14 \
+#        --epochs 30 --seed 42
+#    （继承 topologies.yaml[196_64_10] 的 stream_timesteps=64 / adc=10-bit /
+#     2-stage FC topology）
+#
+# 2. 训练 ~10 分钟 / 30 epochs；threshold 在 ep 5/10/15/20/25 各做一次 EMA
+#    校准（本次都未触发自适应，rate 在 [0.10, 0.22] 区间内稳定）。
+
+# ── Conclusion ──────────────────────────────────────────────────────
+# 同拓扑 / 同 ADC / 同 T 下，MNIST 比 Fashion-MNIST 训练精度高 ~14 个百分点；
+# 这印证了"V2.B 在简单 dataset 上做 multi-layer FC SNN 完全够用，Fashion 的
+# 82% 不是路径瓶颈而是任务难度+量化堆栈的联合上限"。
+#
+# 板验路径：本结果不上板（main FC baseline 板验已在 frozen tag
+# v2-arm-fpga-demo-v2-passed @ 03a39a61 上完成 Fashion-MNIST 路径；MNIST 路径
+# 是同拓扑 ablation，论文/简历叙事可引用此 96.48% 作为"同 V2.B 路径在 MNIST 上
+# 训练精度参考点"，不需要重新板验—因为 RTL 路径没变，bit-exact 已被 Fashion
+# baseline 板验证明）。

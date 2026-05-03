@@ -7,7 +7,7 @@
 > 最新的 T-extension trade-off 三组（T=10/30/50 sweep on LeNet-5 Fashion + MNIST），
 > 并给出文献对照让读者知道这些数字"拿不拿得出手"。
 >
-> **状态**：2026-05-03 update（新增 §6 T-extension trade-off 表 — 3 组新 ablation
+> **状态**：2026-05-03 update（新增 §5 T-extension trade-off 表 — 3 组新 ablation
 > 全部 cosim bit-exact PASS）。新增训练结果时在末尾追加，**不重写历史行**。
 
 ---
@@ -169,8 +169,10 @@ python gen_convnet_golden.py --network lenet5 \
 #         + sample_NN_*.hex / weights/ (10 个 class-first sample 的整数 golden)
 #         + cosim_full_log.txt (LENET5_COSIM_TB_PASS marker)
 # RTL bit-exact 验证（与 #3 共用同一 cosim TB，仅换 bundle）：
-bash sim/run_lenet5_cosim.sh --full lenet5_fashion
-# 通过标准：LENET5_COSIM_TB_PASS bundle=lenet5_fashion samples=10
+# 该 evidence branch 不携带历史 wrapper `sim/run_lenet5_cosim.sh`；
+# 归档的 full cosim 输出见：
+#   python_multilayer/results_conv/lenet5_fashion/cosim_full_log.txt
+# 通过标准：LENET5_COSIM_TB_PASS mode=--full bundle=lenet5_fashion samples=10
 # 关键 SHA（golden ↔ rtl 必须相等）：
 #   golden_counts_concat = rtl_counts_dump =
 #     d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627
@@ -181,22 +183,26 @@ bash sim/run_lenet5_cosim.sh --full lenet5_fashion
 # MNIST T=30:
 python gen_convnet_golden.py --network lenet5 \
     --tag _t30 --t-override 30 --samples 10
-bash sim/run_lenet5_cosim.sh --smoke lenet5_t30
+# 归档 smoke cosim 输出：
+#   python_multilayer/results_conv/lenet5_t30/cosim_smoke_log.txt
 #   quant_snn_test_acc=0.9355, cosim SHA=45273d4bea77ee129446380d5f851e7bd962efe6fb1805f48310a846012a934d
 # MNIST T=50:
 python gen_convnet_golden.py --network lenet5 \
     --tag _t50 --t-override 50 --samples 10
-bash sim/run_lenet5_cosim.sh --smoke lenet5_t50
+# 归档 smoke cosim 输出：
+#   python_multilayer/results_conv/lenet5_t50/cosim_smoke_log.txt
 #   quant_snn_test_acc=0.9281, cosim SHA=aa1c33289d92e22abdb954e43cfb2f01626b295d676d0c2d66ad5319938a3d80
 # Fashion T=30:
 python gen_convnet_golden.py --network lenet5 \
     --dataset-override fashion_mnist --tag _fashion_t30 --t-override 30 --samples 10
-bash sim/run_lenet5_cosim.sh --smoke lenet5_fashion_t30
+# 归档 smoke cosim 输出：
+#   python_multilayer/results_conv/lenet5_fashion_t30/cosim_smoke_log.txt
 #   quant_snn_test_acc=0.8288, cosim SHA=f5ed992337659bcb3609a0f0640a2f4d83915d6c67a348f2b4b6f6c404d25bc3
 # Fashion T=50:
 python gen_convnet_golden.py --network lenet5 \
     --dataset-override fashion_mnist --tag _fashion_t50 --t-override 50 --samples 10
-bash sim/run_lenet5_cosim.sh --smoke lenet5_fashion_t50
+# 归档 smoke cosim 输出：
+#   python_multilayer/results_conv/lenet5_fashion_t50/cosim_smoke_log.txt
 #   quant_snn_test_acc=0.8194, cosim SHA=5ea5515990f9578640e7de2e6dbee35ed9f63762ffee85a04045b611c6f68525
 ```
 

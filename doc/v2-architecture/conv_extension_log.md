@@ -36,10 +36,10 @@
 | Selected accuracy（10 个 class-first samples） | 1.0（10/10 全部 predicted=label） |
 | Layer chain | conv1 (28×28×1→28×28×6, K=5) → conv2 (28×28×6→12×12×16, K=5 S=2) → fc1 (2304→120, 9 tiles) → fc2 (120→84) → fc3 (84→10) |
 | max_signed_level（layer-wise） | conv1=8 / conv2=16 / fc1=7 / fc2=7 / fc3=3 |
-| Cosim TB | `tb/lenet5_cosim_tb.sv`（不在 main，仅 evidence 分支） |
+| Cosim TB | 历史使用 `tb/lenet5_cosim_tb.sv`（位于 umbrella `feature/v2-conv-extension`；当前 evidence 分支保留结果日志而不再携带 TB wrapper） |
 | Cosim PASS marker | `LENET5_COSIM_TB_PASS` |
 | ARM 板验 PASS marker | `ARM_FPGA_DEMO_LENET5_PASS`（10 行 [PASS] sample N） |
-| E203 板验 PASS marker | `FPGA_V2_E203_BOOT_UART_PASS` + 10 行 [PASS] sample N + V2_E203_LENET5_PASS |
+| E203 板验 PASS marker | `FPGA_V2_E203_BOOT_UART_PASS` + 10 行 [PASS] sample N + `FPGA_V2_E203_LENET5_PASS` |
 
 ### 2.1bis. LeNet-5 Fashion-MNIST 28×28 ablation（2026-05-03 新增）— quantization-stack ceiling 证据
 
@@ -53,9 +53,9 @@
 | Quant SNN test accuracy（与 #3 同 RTL 路径）| **81.99%**（vs proxy −8.95 pp，4-bit weight + T=10 + 8-bit ADC 量化栈损失）|
 | Selected accuracy（10 个 class-first sample）| 0.9（9/10 argmax==label） |
 | Layer chain | conv1 (28×28×1→28×28×6, K=5) → conv2 (28×28×6→12×12×16, K=5 S=2) → fc1 (2304→120, 9 tiles) → fc2 (120→84) → fc3 (84→10)（与 #3 完全一致） |
-| Cosim TB | `tb/lenet5_cosim_tb.sv`（umbrella `feature/v2-conv-extension`，evidence 分支不携带；与 #3 同一份）|
-| Cosim 命令 | `bash sim/run_lenet5_cosim.sh --full lenet5_fashion`（umbrella 上 commit `a6591518` 加了 bundle 参数）|
-| Cosim 结果 | `LENET5_COSIM_TB_PASS bundle=lenet5_fashion samples=10` |
+| Cosim TB | `tb/lenet5_cosim_tb.sv`（umbrella `feature/v2-conv-extension`，当前 evidence 分支不携带）|
+| Cosim 入口 | 当前 evidence branch 保留归档日志 `python_multilayer/results_conv/lenet5_fashion/cosim_full_log.txt` |
+| Cosim 结果 | `LENET5_COSIM_TB_PASS mode=--full bundle=lenet5_fashion samples=10` |
 | `golden_counts_concat` SHA256 | `d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627` |
 | `rtl_counts_dump` SHA256 | `d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627`（与 golden 完全一致 → byte-exact）|
 | Per-sample argmax 比对 | RTL `argmax(counts)` == Python `argmax(counts)` for **all 10 samples** |
@@ -95,7 +95,7 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
 1. `gen_convnet_golden.py` 新增 `--t-override N` flag（mutate `NETWORKS[lenet5]['t']`）
 2. `train_lenet5_head_checkpoint` 修复 hardcoded `forward_stream(xb, 10)` → 改读 `NETWORKS["lenet5"]["t"]`（之前的 hardcode 让 `--t-override` silent no-op，必须 fix 才能让 ablation 有意义）
 3. `tb/lenet5_cosim_tb.sv` 把 `T` 从 `localparam int T = 10` 改为 `int T = 10` + plusarg `+T_COUNT=N`；fmap intermediate buffer 字数 `× stream_words = ceil(T/32)`（T=10 stream_words=1，byte-exact 不变；T>32 stream_words≥2 自动扩展）
-4. `sim/run_lenet5_cosim.sh` 加 bundle 别名 `lenet5_t50` / `lenet5_fashion_t30` / `lenet5_fashion_t50`，从 manifest 读 `t_count` 并 pass `+T_COUNT` 给 vvp
+4. 历史 wrapper `sim/run_lenet5_cosim.sh` 曾加过 `lenet5_t50` / `lenet5_fashion_t30` / `lenet5_fashion_t50` bundle alias；当前 evidence branch 只保留归档 `cosim_full_log.txt` / `cosim_smoke_log.txt`
 
 **叙事用法**：
 - ✅ 论文：T-sweep 是 quantization-stack-ceiling narrative 的最强 ablation 证据 — 把"加 T 能不能救 Fashion"这个潜在 reviewer 质疑直接做掉，并且 cosim 全 PASS 证明数据是 RTL bit-exact 拿出来的，不是空想
@@ -121,10 +121,10 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
 
 ## 3. 两条 evidence 分支 — 板验证据
 
-| 分支 | CPU 路径 | 当前 HEAD | 板验 commit | UART log |
+| 分支 | CPU 路径 | 当前 HEAD | 板验证据锚点 | UART log |
 |---|---|---|---|---|
-| `feature/v2-arm-fpga-demo-conv` | ARM Cortex-A53 (PS) + AXI-Lite | `e5d43a05` | `48958da0`（native conv1 fix）clean rebuild | `doc/arm-fpga-demo/board_bringup_log_lenet5.txt` |
-| `feature/v2-fpga-e203-conv` | E203 RISC-V (PL soft-core) + BRAM init | `8642c84e` | `e2635967` 之后 audit-pass-2 series | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` |
+| `feature/v2-arm-fpga-demo-conv` | ARM Cortex-A53 (PS) + AXI-Lite | `537ad3b1` | `doc/arm-fpga-demo/board_bringup_log_lenet5.txt` + `doc/arm-fpga-demo/build_manifest_v2.txt` |
+| `feature/v2-fpga-e203-conv` | E203 RISC-V (PL soft-core) + BRAM init | `b98b9000` | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + committed `fw/v2_e203_smoke/out/*` / `fpga_synth/zcu102_v2_e203_demo/out/*` |
 
 ### 3.1 ARM 分支板验细节
 
@@ -170,7 +170,7 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
 | ID | 修复内容 | arm commit | e203 commit |
 |---|---|---|---|
 | edge guards | conv RTL 边界守口 + audit gaps（fix conv edge cases + evidence gap fixes） | `592092fc` | `2407c7a1` |
-| RTL converge | shared conv RTL 跨 evidence 分支字节级一致 | `e5d43a05` | `8642c84e` |
+| RTL converge | shared conv RTL 跨 evidence 分支字节级一致 | `e5d43a05`（ARM branch converge point） | `8642c84e`（E203 branch converge point） |
 
 GPT 还独立做了 FPGA 重烧 + UART 抓三段 PASS marker 的板验，证据保留在两条分支
 的 `doc/<branch>-fpga-demo|fpga-e203/board_bringup_log_lenet5.txt`（UART 完整 trace）。
@@ -196,8 +196,8 @@ GPT 还独立做了 FPGA 重烧 + UART 抓三段 PASS marker 的板验，证据�
 
 | Tag | 指向 | 说明 |
 |---|---|---|
-| `v2-arm-fpga-demo-conv-passed` | `e5d43a05`（arm-conv HEAD） | M7 evidence seal — ARM Cortex-A53 path LeNet-5 板验 + 双轮 audit + GPT 重烧验证完整通过 |
-| `v2-fpga-e203-conv-passed` | `8642c84e`（e203-conv HEAD） | M7 evidence seal — E203 RISC-V path LeNet-5 板验 + 双轮 audit + GPT 重烧验证完整通过 |
+| `v2-arm-fpga-demo-conv-passed` | `dabcaf0d`（frozen tag peeled commit） | M7 evidence seal — ARM Cortex-A53 path LeNet-5 板验 + 双轮 audit + GPT 重烧验证完整通过 |
+| `v2-fpga-e203-conv-passed` | `a1c0c828`（frozen tag peeled commit） | M7 evidence seal — E203 RISC-V path LeNet-5 板验 + 双轮 audit + GPT 重烧验证完整通过 |
 
 > 注：plan REV 5 §M7 写"tag `v2-conv-evidence-passed`"是 singular，但实际有
 > 两条 evidence 分支各承载独立的 CPU 路径 evidence。延续既有命名风格
@@ -223,8 +223,8 @@ GPT 还独立做了 FPGA 重烧 + UART 抓三段 PASS marker 的板验，证据�
   - "V2.B CONV extension validated on ZCU102 FPGA with bit-exact LeNet-5 inference
     (10/10 sample byte-exact match against integer reference) on two independent
     CPU paths (ARM Cortex-A53 + E203 RISC-V soft-core)."
-  - "Evidence sealed at tags `v2-arm-fpga-demo-conv-passed @ e5d43a05` and
-    `v2-fpga-e203-conv-passed @ 8642c84e`."
+  - "Evidence sealed at tags `v2-arm-fpga-demo-conv-passed @ dabcaf0d` and
+    `v2-fpga-e203-conv-passed @ a1c0c828`."
 
 - **不可写**（M5 主动收兵相关）：
   - ❌ "We trained Tiny VGG / Plain-CNN-4 on the V2.B accelerator."

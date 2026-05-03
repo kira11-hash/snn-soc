@@ -6,8 +6,8 @@
                                   --fail ARM_FPGA_DEMO_LENET5_FAIL
 
 或 e203 板验：
-  python scripts/capture_uart.py --pass V2_E203_LENET5_PASS \
-                                  --fail V2_E203_LENET5_FAIL
+  python scripts/capture_uart.py --pass FPGA_V2_E203_LENET5_PASS \
+                                  --fail FPGA_V2_E203_LENET5_FAIL
 
 完整选项：
   --pass MARKER   抓到这个字符串立即退出，return 0

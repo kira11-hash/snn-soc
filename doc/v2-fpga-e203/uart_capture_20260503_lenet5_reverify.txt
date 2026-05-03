@@ -1,0 +1,1325 @@
+# capture from COM3 @ 115200 starting Sun May  3 12:39:43 2026
+FPGA_V2_E203_BOOT_UART_PASS
+[TB] v2_e203_lenet5 start - 10 LeNet-5 samples via E203 + CONV
+[TB] V2B_SOC_BASE=0xA0000000
+[OK] MMIO round-trip CFG1
+[TB] sample 00 start nz=186
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=125 nz_idx=0 data=0x0000016A
+[TB] nz write done idx=0
+[TB] nz write src_idx=126 nz_idx=1 data=0x000003FE
+[TB] nz write done idx=1
+[TB] nz write src_idx=127 nz_idx=2 data=0x000001EE
+[TB] nz write done idx=2
+[TB] nz write src_idx=128 nz_idx=3 data=0x00000100
+[TB] nz write done idx=3
+[TB] nz write src_idx=152 nz_idx=4 data=0x00000040
+[TB] nz write done idx=4
+[TB] nz write src_idx=153 nz_idx=5 data=0x000003FE
+[TB] nz write done idx=5
+[TB] nz write src_idx=154 nz_idx=6 data=0x000003FE
+[TB] nz write done idx=6
+[TB] nz write src_idx=155 nz_idx=7 data=0x000003FE
+[TB] nz write done idx=7
+[TB] nz write src_idx=156 nz_idx=8 data=0x00000294
+[TB] nz write done idx=8
+[TB] nz write src_idx=180 nz_idx=9 data=0x000002EE
+[TB] nz write done idx=9
+[TB] nz write src_idx=181 nz_idx=10 data=0x000003FE
+[TB] nz write done idx=10
+[TB] nz write src_idx=182 nz_idx=11 data=0x000003FE
+[TB] nz write done idx=11
+[TB] nz write src_idx=183 nz_idx=12 data=0x000003FE
+[TB] nz write done idx=12
+[TB] nz write src_idx=184 nz_idx=13 data=0x00000294
+[TB] nz write done idx=13
+[TB] nz write src_idx=206 nz_idx=14 data=0x00000254
+[TB] nz write done idx=14
+[TB] nz write src_idx=207 nz_idx=15 data=0x00000376
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=64
+[TB] load_input_fmap_words done nz=186
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 00 label=0 pred=0 counts=[8 0 0 0 0 0 0 4 0 2]
+[TB] sample 01 start nz=57
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=128 nz_idx=0 data=0x00000040
+[TB] nz write done idx=0
+[TB] nz write src_idx=129 nz_idx=1 data=0x000003FE
+[TB] nz write done idx=1
+[TB] nz write src_idx=130 nz_idx=2 data=0x00000294
+[TB] nz write done idx=2
+[TB] nz write src_idx=156 nz_idx=3 data=0x00000124
+[TB] nz write done idx=3
+[TB] nz write src_idx=157 nz_idx=4 data=0x000003FE
+[TB] nz write done idx=4
+[TB] nz write src_idx=158 nz_idx=5 data=0x00000248
+[TB] nz write done idx=5
+[TB] nz write src_idx=184 nz_idx=6 data=0x000002AA
+[TB] nz write done idx=6
+[TB] nz write src_idx=185 nz_idx=7 data=0x000003FE
+[TB] nz write done idx=7
+[TB] load_input_fmap_words nz-progress=8
+[TB] nz write src_idx=211 nz_idx=8 data=0x00000020
+[TB] nz write done idx=8
+[TB] nz write src_idx=212 nz_idx=9 data=0x000003FE
+[TB] nz write done idx=9
+[TB] nz write src_idx=213 nz_idx=10 data=0x0000016A
+[TB] nz write done idx=10
+[TB] nz write src_idx=239 nz_idx=11 data=0x00000248
+[TB] nz write done idx=11
+[TB] nz write src_idx=240 nz_idx=12 data=0x000003FE
+[TB] nz write done idx=12
+[TB] nz write src_idx=241 nz_idx=13 data=0x00000110
+[TB] nz write done idx=13
+[TB] nz write src_idx=267 nz_idx=14 data=0x000001EE
+[TB] nz write done idx=14
+[TB] nz write src_idx=268 nz_idx=15 data=0x0000037E
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=16
+[TB] load_input_fmap_words done nz=57
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 01 label=1 pred=1 counts=[0 7 1 0 1 0 0 0 0 0]
+[TB] sample 02 start nz=145
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=94 nz_idx=0 data=0x00000154
+[TB] nz write done idx=0
+[TB] nz write src_idx=95 nz_idx=1 data=0x00000154
+[TB] nz write done idx=1
+[TB] nz write src_idx=96 nz_idx=2 data=0x000001B6
+[TB] nz write done idx=2
+[TB] nz write src_idx=97 nz_idx=3 data=0x000003FE
+[TB] nz write done idx=3
+[TB] nz write src_idx=98 nz_idx=4 data=0x000003FE
+[TB] nz write done idx=4
+[TB] nz write src_idx=99 nz_idx=5 data=0x0000016A
+[TB] nz write done idx=5
+[TB] nz write src_idx=100 nz_idx=6 data=0x00000124
+[TB] nz write done idx=6
+[TB] nz write src_idx=121 nz_idx=7 data=0x000002DA
+[TB] nz write done idx=7
+[TB] nz write src_idx=122 nz_idx=8 data=0x000003FE
+[TB] nz write done idx=8
+[TB] nz write src_idx=123 nz_idx=9 data=0x000003FE
+[TB] nz write done idx=9
+[TB] nz write src_idx=124 nz_idx=10 data=0x000003FE
+[TB] nz write done idx=10
+[TB] nz write src_idx=125 nz_idx=11 data=0x000003FE
+[TB] nz write done idx=11
+[TB] nz write src_idx=126 nz_idx=12 data=0x000003FE
+[TB] nz write done idx=12
+[TB] nz write src_idx=127 nz_idx=13 data=0x000003FE
+[TB] nz write done idx=13
+[TB] nz write src_idx=128 nz_idx=14 data=0x000003BE
+[TB] nz write done idx=14
+[TB] nz write src_idx=129 nz_idx=15 data=0x00000100
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=16
+[TB] load_input_fmap_words done nz=145
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 02 label=2 pred=2 counts=[0 0 7 2 0 2 1 0 0 0]
+[TB] sample 03 start nz=187
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=119 nz_idx=0 data=0x00000040
+[TB] nz write done idx=0
+[TB] nz write src_idx=120 nz_idx=1 data=0x000001AA
+[TB] nz write done idx=1
+[TB] nz write src_idx=121 nz_idx=2 data=0x000001AA
+[TB] nz write done idx=2
+[TB] nz write src_idx=122 nz_idx=3 data=0x00000020
+[TB] nz write done idx=3
+[TB] nz write src_idx=146 nz_idx=4 data=0x000002AA
+[TB] nz write done idx=4
+[TB] nz write src_idx=147 nz_idx=5 data=0x000003FE
+[TB] nz write done idx=5
+[TB] nz write src_idx=148 nz_idx=6 data=0x000003FE
+[TB] nz write done idx=6
+[TB] nz write src_idx=149 nz_idx=7 data=0x000003FE
+[TB] nz write done idx=7
+[TB] nz write src_idx=150 nz_idx=8 data=0x000003FE
+[TB] nz write done idx=8
+[TB] nz write src_idx=151 nz_idx=9 data=0x000002DA
+[TB] nz write done idx=9
+[TB] nz write src_idx=173 nz_idx=10 data=0x000002AA
+[TB] nz write done idx=10
+[TB] nz write src_idx=174 nz_idx=11 data=0x000003FE
+[TB] nz write done idx=11
+[TB] nz write src_idx=175 nz_idx=12 data=0x000003FE
+[TB] nz write done idx=12
+[TB] nz write src_idx=176 nz_idx=13 data=0x000003FE
+[TB] nz write done idx=13
+[TB] nz write src_idx=177 nz_idx=14 data=0x000003FE
+[TB] nz write done idx=14
+[TB] nz write src_idx=178 nz_idx=15 data=0x000003FE
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=32
+[TB] load_input_fmap_words nz-progress=40
+[TB] load_input_fmap_words nz-progress=48
+[TB] load_input_fmap_words nz-progress=56
+[TB] load_input_fmap_words nz-progress=80
+[TB] load_input_fmap_words done nz=187
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 03 label=3 pred=3 counts=[0 2 2 3 0 3 0 0 0 0]
+[TB] sample 04 start nz=106
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=150 nz_idx=0 data=0x00000020
+[TB] nz write done idx=0
+[TB] nz write src_idx=151 nz_idx=1 data=0x000002FE
+[TB] nz write done idx=1
+[TB] nz write src_idx=159 nz_idx=2 data=0x00000088
+[TB] nz write done idx=2
+[TB] nz write src_idx=160 nz_idx=3 data=0x00000100
+[TB] nz write done idx=3
+[TB] nz write src_idx=178 nz_idx=4 data=0x00000154
+[TB] nz write done idx=4
+[TB] nz write src_idx=179 nz_idx=5 data=0x000003FE
+[TB] nz write done idx=5
+[TB] nz write src_idx=187 nz_idx=6 data=0x0000016A
+[TB] nz write done idx=6
+[TB] nz write src_idx=188 nz_idx=7 data=0x000002DA
+[TB] nz write done idx=7
+[TB] load_input_fmap_words nz-progress=8
+[TB] nz write src_idx=206 nz_idx=8 data=0x000002EE
+[TB] nz write done idx=8
+[TB] nz write src_idx=207 nz_idx=9 data=0x000003FE
+[TB] nz write done idx=9
+[TB] nz write src_idx=215 nz_idx=10 data=0x000000A4
+[TB] nz write done idx=10
+[TB] nz write src_idx=216 nz_idx=11 data=0x000003DE
+[TB] nz write done idx=11
+[TB] nz write src_idx=233 nz_idx=12 data=0x00000088
+[TB] nz write done idx=12
+[TB] nz write src_idx=234 nz_idx=13 data=0x000003FE
+[TB] nz write done idx=13
+[TB] nz write src_idx=235 nz_idx=14 data=0x000002AA
+[TB] nz write done idx=14
+[TB] nz write src_idx=243 nz_idx=15 data=0x00000154
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=40
+[TB] load_input_fmap_words nz-progress=80
+[TB] load_input_fmap_words nz-progress=88
+[TB] load_input_fmap_words nz-progress=104
+[TB] load_input_fmap_words done nz=106
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 04 label=4 pred=4 counts=[0 0 0 0 8 0 0 0 0 1]
+[TB] sample 05 start nz=158
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=130 nz_idx=0 data=0x00000020
+[TB] nz write done idx=0
+[TB] nz write src_idx=131 nz_idx=1 data=0x00000020
+[TB] nz write done idx=1
+[TB] nz write src_idx=132 nz_idx=2 data=0x00000020
+[TB] nz write done idx=2
+[TB] nz write src_idx=134 nz_idx=3 data=0x000002AA
+[TB] nz write done idx=3
+[TB] nz write src_idx=135 nz_idx=4 data=0x00000248
+[TB] nz write done idx=4
+[TB] nz write src_idx=136 nz_idx=5 data=0x00000020
+[TB] nz write done idx=5
+[TB] nz write src_idx=155 nz_idx=6 data=0x00000048
+[TB] nz write done idx=6
+[TB] nz write src_idx=156 nz_idx=7 data=0x0000016A
+[TB] nz write done idx=7
+[TB] nz write src_idx=157 nz_idx=8 data=0x000003BE
+[TB] nz write done idx=8
+[TB] nz write src_idx=158 nz_idx=9 data=0x000003FE
+[TB] nz write done idx=9
+[TB] nz write src_idx=159 nz_idx=10 data=0x000003FE
+[TB] nz write done idx=10
+[TB] nz write src_idx=160 nz_idx=11 data=0x000003FE
+[TB] nz write done idx=11
+[TB] nz write src_idx=161 nz_idx=12 data=0x000003BE
+[TB] nz write done idx=12
+[TB] nz write src_idx=162 nz_idx=13 data=0x000003FE
+[TB] nz write done idx=13
+[TB] nz write src_idx=163 nz_idx=14 data=0x000003FE
+[TB] nz write done idx=14
+[TB] nz write src_idx=164 nz_idx=15 data=0x000003FE
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=16
+[TB] load_input_fmap_words nz-progress=56
+[TB] load_input_fmap_words nz-progress=144
+[TB] load_input_fmap_words done nz=158
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 05 label=5 pred=5 counts=[2 0 2 0 2 5 4 0 0 0]
+[TB] sample 06 start nz=158
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=95 nz_idx=0 data=0x000001EE
+[TB] nz write done idx=0
+[TB] nz write src_idx=96 nz_idx=1 data=0x000003FE
+[TB] nz write done idx=1
+[TB] nz write src_idx=97 nz_idx=2 data=0x000001B6
+[TB] nz write done idx=2
+[TB] nz write src_idx=122 nz_idx=3 data=0x0000016A
+[TB] nz write done idx=3
+[TB] nz write src_idx=123 nz_idx=4 data=0x000003FE
+[TB] nz write done idx=4
+[TB] nz write src_idx=124 nz_idx=5 data=0x000003FE
+[TB] nz write done idx=5
+[TB] nz write src_idx=125 nz_idx=6 data=0x00000154
+[TB] nz write done idx=6
+[TB] nz write src_idx=149 nz_idx=7 data=0x00000154
+[TB] nz write done idx=7
+[TB] nz write src_idx=150 nz_idx=8 data=0x000003FE
+[TB] nz write done idx=8
+[TB] nz write src_idx=151 nz_idx=9 data=0x00000376
+[TB] nz write done idx=9
+[TB] nz write src_idx=152 nz_idx=10 data=0x00000210
+[TB] nz write done idx=10
+[TB] nz write src_idx=177 nz_idx=11 data=0x000002AA
+[TB] nz write done idx=11
+[TB] nz write src_idx=178 nz_idx=12 data=0x000003FE
+[TB] nz write done idx=12
+[TB] nz write src_idx=179 nz_idx=13 data=0x00000154
+[TB] nz write done idx=13
+[TB] nz write src_idx=205 nz_idx=14 data=0x0000035A
+[TB] nz write done idx=14
+[TB] nz write src_idx=206 nz_idx=15 data=0x000003FE
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=80
+[TB] load_input_fmap_words nz-progress=88
+[TB] load_input_fmap_words nz-progress=96
+[TB] load_input_fmap_words nz-progress=112
+[TB] load_input_fmap_words done nz=158
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 06 label=6 pred=6 counts=[2 0 3 0 3 0 7 0 0 0]
+[TB] sample 07 start nz=105
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=202 nz_idx=0 data=0x00000248
+[TB] nz write done idx=0
+[TB] nz write src_idx=203 nz_idx=1 data=0x00000376
+[TB] nz write done idx=1
+[TB] nz write src_idx=204 nz_idx=2 data=0x0000035A
+[TB] nz write done idx=2
+[TB] nz write src_idx=205 nz_idx=3 data=0x0000016A
+[TB] nz write done idx=3
+[TB] nz write src_idx=206 nz_idx=4 data=0x00000110
+[TB] nz write done idx=4
+[TB] nz write src_idx=207 nz_idx=5 data=0x00000080
+[TB] nz write done idx=5
+[TB] nz write src_idx=230 nz_idx=6 data=0x0000037E
+[TB] nz write done idx=6
+[TB] nz write src_idx=231 nz_idx=7 data=0x000003FE
+[TB] nz write done idx=7
+[TB] nz write src_idx=232 nz_idx=8 data=0x000003FE
+[TB] nz write done idx=8
+[TB] nz write src_idx=233 nz_idx=9 data=0x000003FE
+[TB] nz write done idx=9
+[TB] nz write src_idx=234 nz_idx=10 data=0x000003FE
+[TB] nz write done idx=10
+[TB] nz write src_idx=235 nz_idx=11 data=0x000003FE
+[TB] nz write done idx=11
+[TB] nz write src_idx=236 nz_idx=12 data=0x000002EE
+[TB] nz write done idx=12
+[TB] nz write src_idx=237 nz_idx=13 data=0x000002EE
+[TB] nz write done idx=13
+[TB] nz write src_idx=238 nz_idx=14 data=0x000002EE
+[TB] nz write done idx=14
+[TB] nz write src_idx=239 nz_idx=15 data=0x000002EE
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=56
+[TB] load_input_fmap_words nz-progress=80
+[TB] load_input_fmap_words nz-progress=88
+[TB] load_input_fmap_words done nz=105
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 07 label=7 pred=7 counts=[2 0 0 0 0 0 0 8 0 2]
+[TB] sample 08 start nz=165
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=153 nz_idx=0 data=0x00000020
+[TB] nz write done idx=0
+[TB] nz write src_idx=154 nz_idx=1 data=0x00000020
+[TB] nz write done idx=1
+[TB] nz write src_idx=155 nz_idx=2 data=0x00000020
+[TB] nz write done idx=2
+[TB] nz write src_idx=180 nz_idx=3 data=0x00000294
+[TB] nz write done idx=3
+[TB] nz write src_idx=181 nz_idx=4 data=0x000003FE
+[TB] nz write done idx=4
+[TB] nz write src_idx=182 nz_idx=5 data=0x000003FE
+[TB] nz write done idx=5
+[TB] nz write src_idx=183 nz_idx=6 data=0x000003FE
+[TB] nz write done idx=6
+[TB] nz write src_idx=184 nz_idx=7 data=0x000003DE
+[TB] nz write done idx=7
+[TB] nz write src_idx=185 nz_idx=8 data=0x000003DE
+[TB] nz write done idx=8
+[TB] nz write src_idx=186 nz_idx=9 data=0x000003DE
+[TB] nz write done idx=9
+[TB] nz write src_idx=187 nz_idx=10 data=0x000003DE
+[TB] nz write done idx=10
+[TB] nz write src_idx=188 nz_idx=11 data=0x0000016A
+[TB] nz write done idx=11
+[TB] nz write src_idx=189 nz_idx=12 data=0x00000088
+[TB] nz write done idx=12
+[TB] nz write src_idx=207 nz_idx=13 data=0x00000376
+[TB] nz write done idx=13
+[TB] nz write src_idx=208 nz_idx=14 data=0x000003FE
+[TB] nz write done idx=14
+[TB] nz write src_idx=209 nz_idx=15 data=0x000003FE
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=40
+[TB] load_input_fmap_words nz-progress=144
+[TB] load_input_fmap_words done nz=165
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 08 label=8 pred=8 counts=[0 0 5 0 0 4 0 0 6 0]
+[TB] sample 09 start nz=111
+[TB] LeNet conv1 start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] load_input_fmap_words start words=784
+[TB] load_input init ADDR
+[TB] load_input init ADDR done
+[TB] load_input init CTRL
+[TB] load_input init CTRL done
+[TB] nz write src_idx=180 nz_idx=0 data=0x0000016A
+[TB] nz write done idx=0
+[TB] nz write src_idx=181 nz_idx=1 data=0x000002EE
+[TB] nz write done idx=1
+[TB] nz write src_idx=206 nz_idx=2 data=0x00000124
+[TB] nz write done idx=2
+[TB] nz write src_idx=207 nz_idx=3 data=0x000002FE
+[TB] nz write done idx=3
+[TB] nz write src_idx=208 nz_idx=4 data=0x000003FE
+[TB] nz write done idx=4
+[TB] nz write src_idx=209 nz_idx=5 data=0x000003FE
+[TB] nz write done idx=5
+[TB] nz write src_idx=233 nz_idx=6 data=0x00000200
+[TB] nz write done idx=6
+[TB] nz write src_idx=234 nz_idx=7 data=0x000003FE
+[TB] nz write done idx=7
+[TB] nz write src_idx=235 nz_idx=8 data=0x000003FE
+[TB] nz write done idx=8
+[TB] nz write src_idx=236 nz_idx=9 data=0x000003FE
+[TB] nz write done idx=9
+[TB] nz write src_idx=237 nz_idx=10 data=0x000003FE
+[TB] nz write done idx=10
+[TB] nz write src_idx=238 nz_idx=11 data=0x000002DA
+[TB] nz write done idx=11
+[TB] nz write src_idx=261 nz_idx=12 data=0x000001AA
+[TB] nz write done idx=12
+[TB] nz write src_idx=262 nz_idx=13 data=0x000003FE
+[TB] nz write done idx=13
+[TB] nz write src_idx=263 nz_idx=14 data=0x000003FE
+[TB] nz write done idx=14
+[TB] nz write src_idx=264 nz_idx=15 data=0x000003FE
+[TB] nz write done idx=15
+[TB] load_input_fmap_words nz-progress=32
+[TB] load_input_fmap_words nz-progress=40
+[TB] load_input_fmap_words nz-progress=72
+[TB] load_input_fmap_words done nz=111
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=784 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00070205
+[TB] conv weight-ready req=128 tile=0 status=0x000F0405
+[TB] conv weight-ready req=192 tile=0 status=0x00170605
+[TB] conv weight-ready req=256 tile=0 status=0x00030905
+[TB] conv weight-ready req=320 tile=0 status=0x000B0B05
+[TB] conv weight-ready req=384 tile=0 status=0x00130D05
+[TB] conv weight-ready req=448 tile=0 status=0x001B0F05
+[TB] conv weight-ready req=512 tile=0 status=0x00071205
+[TB] conv weight-ready req=576 tile=0 status=0x000F1405
+[TB] conv weight-ready req=640 tile=0 status=0x00171605
+[TB] conv weight-ready req=704 tile=0 status=0x00031905
+[TB] conv weight-ready req=768 tile=0 status=0x000B1B05
+[TB] conv weight-ready req=784 tile=0 status=0x001B1B05
+[TB] conv done status=0x001B1B02
+[TB] LeNet conv2 start
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=144 tiles=1
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=0 status=0x00010005
+[TB] conv weight-ready req=3 tile=0 status=0x00020005
+[TB] conv weight-ready req=4 tile=0 status=0x00030005
+[TB] conv weight-ready req=64 tile=0 status=0x00030505
+[TB] conv weight-ready req=128 tile=0 status=0x00070A05
+[TB] conv weight-ready req=144 tile=0 status=0x000B0B05
+[TB] conv done status=0x000B0B02
+[TB] LeNet fc1(flatten) start
+[TB] clear_stream_buffers
+[TB] clear_stream_buffers done
+[TB] conv cfg begin
+[TB] conv cfg STAGE_CFG1
+[TB] conv cfg STAGE_CFG2
+[TB] conv cfg MODE(defer)
+[TB] conv cfg HW
+[TB] conv cfg C
+[TB] conv cfg KSP
+[TB] conv cfg OUT_HW
+[TB] conv cfg T
+[TB] conv cfg TILE
+[TB] conv cfg FMAP_BASE
+[TB] conv cfg OUT_BASE
+[TB] conv cfg MODE
+[TB] conv cfg STATUS_CLR
+[TB] conv cfg CTRL_START
+[TB] conv start reqs=9 tiles=9
+[TB] conv weight-ready req=1 tile=0 status=0x00000005
+[TB] conv weight-ready req=2 tile=1 status=0x01000005
+[TB] conv weight-ready req=3 tile=2 status=0x02000005
+[TB] conv weight-ready req=4 tile=3 status=0x03000005
+[TB] conv weight-ready req=9 tile=8 status=0x08000005
+[TB] conv done status=0x08000002
+[TB] LeNet fc2 start
+[TB] LeNet fc3 start
+[PASS] sample 09 label=9 pred=9 counts=[0 0 0 0 3 0 0 1 0 5]
+FPGA_V2_E203_LENET5_PASS

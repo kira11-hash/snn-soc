@@ -9,18 +9,23 @@ ZCU102 + E203 板级路径扩展到原生 LeNet-5（Conv1 → Conv2 → FC1(flat
 FC3）；50 MHz 闭合 `WNS=+2.774 ns`，10 样本 × 100 counts bit-exact，runtime tag
 `FPGA_V2_E203_LENET5_PASS`。详见 §4.3bis 与 `board_bringup_log_lenet5.txt`。
 
+**2026-05-03 re-verify note**：当前 active branch HEAD = `b98b9000`。本分支已新增
+`doc/v2-fpga-e203/build_manifest_lenet5.txt` 记录当前 committed bit/hex/elf hash，并
+在 ZCU102 上重新抓到一份 fresh UART trace：
+`doc/v2-fpga-e203/uart_capture_20260503_lenet5_reverify.txt`。
+
 **Branch**：
 - `feature/v2-fpga-e203`（起点 `v2` @ `17693e4f`，已封存）
 - `feature/v2-fpga-e203-conv`（起点 `v2-fpga-e203-passed @ e696dc39`，本评估分支，
   仅追加 LeNet-5 CONV 路径，**不回 merge** 已封存的 Fashion baseline）
 
 **Sibling**：平行线 `main-fpga-e203-alpha`（V1 E203 on ZCU102，已上板 PASS）+
-`v2-arm-fpga-demo-passed`（V2.B + ARM host）+ `feature/v2-fpga-arm-conv`（V2.B
-CONV 在 ARM host 上的对位验证，是 conv 扩展的另一条平行支线）。
+`feature/v2-arm-fpga-demo-conv`（V2.B CONV 的 ARM Cortex-A53 证据分支）。
 
 **Scope rule**：evidence branch，**不 merge 回 v2，不动 `main*` /
-`v2-arm-fpga-demo-passed`**。Fashion baseline 已 tag `v2-fpga-e203-passed` 封存；
-LeNet-5 conv 扩展 PASS 后再决定是否需要新的 evidence tag。
+`feature/v2-arm-fpga-demo-conv`**。Fashion baseline 已 tag `v2-fpga-e203-passed`
+封存；LeNet-5 CONV 扩展证据在当前 active branch 上继续维护，frozen Fashion tag
+保持不动。
 
 关联 plan：`C:\Users\24201\.claude\plans\d1-d3-idempotent-umbrella.md`（v11）。
 

@@ -18,7 +18,7 @@
 | Exp | Dataset | Topo      | T    | Best Acc | 备注 |
 |-----|---------|-----------|-----:|---------:|------|
 | P1  | MNIST   | 196_10    |  64  | **84.11%** | single baseline |
-| P2  | MNIST   | 196_64_10 |  64  | **96.14%** | multi（gap +12.03 ✅）|
+| P2  | MNIST   | 196_64_10 |  64  | **96.14%** | multi（历史早期 run；当前论文/训练 source-of-truth 已由 `196_64_10__mnist14/summary.txt` 的 **96.48%** supersede）|
 | P3  | Fashion | 196_10    |  64  | **52.42%** | single baseline |
 | P4  | Fashion | 196_64_10 |  64  | **82.38%** | multi（gap +29.96 ✅）|
 | P5  | MNIST   | 196_10    | 256  | 84.29% | T=256 ≈ T=64 for single |

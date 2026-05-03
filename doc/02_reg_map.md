@@ -89,27 +89,22 @@
 | 0x48 | ML_CTRL | num_layers | [1:0] | RW | 0 | 层数 - 1（0=1层，1=2层，...，3=4层） |
 | 0x48 | ML_CTRL | enable | [8] | RW | 0 | 多层使能（1=启用 layer_sequencer） |
 
-**层描述符**：每层占 4 个 32-bit 寄存器（16 字节），Layer N 基地址 = `0x50 + N × 0x10`。
+**当前 standalone V2.B register map（取代旧 `LAYER_*` 原型口径）**：
 
-| 层内偏移 | 名称 | 字段 | 位段 | 访问 | 说明 |
+| 地址 | 名称 | 字段 | 位段 | 访问 | 说明 |
 |---:|---|---|---|---|---|
-| +0x00 | LAYER_CFG | wl_offset | [7:0] | RW | WL 起始偏移（**D1-007**：当前 RTL 未使用，为未来硬件 sub-array 多层保留字段。V2 时间多层由固件全阵列操作，不需要 offset） |
-| +0x00 | LAYER_CFG | wl_count | [15:8] | RW | WL 数量（本层输入维度，如 64）|
-| +0x00 | LAYER_CFG | bl_offset | [23:16] | RW | BL 起始偏移（**D1-007**：同 wl_offset，当前保留） |
-| +0x00 | LAYER_CFG | bl_count | [31:24] | RW | 本层扫描的 BL 通道数（Scheme B 含正负列）。有效范围为偶数 2~`MAX_BL_SCAN`=128；差分后输出维度 = bl_count/2。超出 2~128 时 adc_ctrl 会安全钳位回 V1 默认 20；固件应避免配置奇数 bl_count |
-| +0x04 | LAYER_TIMING | timesteps | [7:0] | RW | 本层时间步数 |
-| +0x04 | LAYER_TIMING | use_bitplane | [8] | RW | 1=bit-plane 编码输入，0=binary spike 输入 |
-| +0x08 | LAYER_THRESHOLD | threshold | [31:0] | RW | 本层 LIF 阈值 |
-| +0x0C | LAYER_NEURON_CFG | neuron_count | [7:0] | RW | 本层活跃神经元数量 |
+| 0x50 | MAC_W_LOAD_ADDR | lane_i | [7:0] | RW | 当前写入的 lane index |
+| 0x50 | MAC_W_LOAD_ADDR | out_c_j | [14:8] | RW | 当前写入的输出通道 index |
+| 0x54 | MAC_W_LOAD_DATA | pos | [3:0] | RW | 正权 4-bit 电导等级 |
+| 0x54 | MAC_W_LOAD_DATA | neg | [7:4] | RW | 负权 4-bit 电导等级 |
+| 0x58 | MAC_W_LOAD_CTRL | WRITE_STROBE | [0] | W1P | 提交一次权重写入 |
+| 0x60 | STREAM_BUF_CTRL | swap / clear_* | [3:0] | W1P | stream A/B 交换与清零控制 |
+| 0x64 | STATE_CTRL | clear_membrane / clear_all | [1:0] | W1P | 神经元状态清零 |
 
-**层描述符绝对地址映射**：
-
-| Layer | CFG | TIMING | THRESHOLD | NEURON_CFG |
-|---|---|---|---|---|
-| 0 | 0x50 | 0x54 | 0x58 | 0x5C |
-| 1 | 0x60 | 0x64 | 0x68 | 0x6C |
-| 2 | 0x70 | 0x74 | 0x78 | 0x7C |
-| 3 | 0x80 | 0x84 | 0x88 | 0x8C |
+> 说明：早期 `ML_CTRL / LAYER_CFG / LAYER_TIMING / LAYER_THRESHOLD /
+> LAYER_NEURON_CFG` 原型口径已被 current standalone V2.B top 取代；`0x050 /
+> 0x054 / 0x058` 的真实冻结语义是 `MAC_W_LOAD_*`，以
+> `fw/include/v2b_soc_regs.h` 和 `rtl/top/snn_soc_v2b_top.sv` 为准。
 
 ## dma_regs（base = 0x4000_0100）
 | OFFSET | 名称 | 字段 | 位段 | 访问 | 默认 | 说明 |
