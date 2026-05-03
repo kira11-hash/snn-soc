@@ -6,21 +6,16 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/common_iverilog_env.sh"
 resolve_iverilog_tools
+resolve_repo_host_paths "$ROOT_DIR"
 if command -v wslpath >/dev/null 2>&1; then
-  REPO_WSL="$ROOT_DIR"
-  REPO_WIN="$(wslpath -w "$REPO_WSL" | tr -d '\r')"
   run_in_wsl() {
     bash -lc "cd '$REPO_WSL' && $1"
   }
 else
-  REPO_WIN="$(cd .. && pwd -W)"
-  REPO_WIN="${REPO_WIN//\//\\}"
-  REPO_WSL="$(wsl.exe wslpath -a "$REPO_WIN" 2>/dev/null | tr -d '\r')"
   run_in_wsl() {
     wsl.exe bash -lc "cd '$REPO_WSL' && $1"
   }
 fi
-REPO_WIN="${REPO_WIN//\//\\}"
 VENDOR_ASCII_WIN="${REPO_WIN}\\rtl\\vendor_e203"
 VENDOR_SRC_POSIX="$(find_vendor_e203_rtl_dir "$ROOT_DIR")"
 

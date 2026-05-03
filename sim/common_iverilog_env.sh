@@ -44,6 +44,24 @@ resolve_python_tool() {
   fi
 }
 
+resolve_repo_host_paths() {
+  local repo_root="$1"
+
+  if command -v wslpath >/dev/null 2>&1; then
+    REPO_WSL="$repo_root"
+    REPO_WIN="$(wslpath -w "$REPO_WSL" | tr -d '\r')"
+  else
+    REPO_WIN="$(cd "$repo_root" && pwd -W)"
+    REPO_WSL="$(wsl.exe wslpath -a "$REPO_WIN" 2>/dev/null | tr -d '\r')"
+    if [ -z "$REPO_WSL" ]; then
+      echo "[ERROR] Unable to translate repo path for WSL: $REPO_WIN" >&2
+      return 1
+    fi
+  fi
+
+  REPO_WIN="${REPO_WIN//\//\\}"
+}
+
 to_host_path() {
   local path="$1"
   local abs

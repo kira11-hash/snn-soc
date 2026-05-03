@@ -48,9 +48,19 @@ module reset_sync #(
 
   (* async_reg = "TRUE" *) logic [STAGES-1:0] sync_chain;
 
+`ifndef SYNTHESIS
+  initial begin
+    if (STAGES < 1) begin
+      $fatal(1, "[reset_sync] STAGES must be >= 1");
+    end
+  end
+`endif
+
   always_ff @(posedge clk or negedge rst_n_async) begin
     if (!rst_n_async) begin
       sync_chain <= '0;                                        // async assert
+    end else if (STAGES == 1) begin
+      sync_chain[0] <= 1'b1;                                   // STAGES=1 has no shift tail
     end else begin
       sync_chain <= {sync_chain[STAGES-2:0], 1'b1};            // sync release: walk a 1 in
     end
