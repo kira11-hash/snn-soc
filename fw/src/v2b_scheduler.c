@@ -42,6 +42,20 @@
 
 #define V2B_STAGE_ERR_TIMEOUT 0xFEu
 
+static uint8_t v2b_wait_stage_done_fresh(uint32_t poll_timeout) {
+    uint32_t guard = 0u;
+    while (guard < poll_timeout) {
+        uint32_t ctrl = V2B_SOC_STAGE_CTRL;
+        if ((ctrl & V2B_SOC_STAGE_CTRL_DONE) != 0u) {
+            uint8_t err = (uint8_t)V2B_SOC_STAGE_ERR(V2B_SOC_STAGE_STATUS);
+            V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE; /* W1C DONE sticky */
+            return err;
+        }
+        guard++;
+    }
+    return V2B_STAGE_ERR_TIMEOUT;
+}
+
 /* ── even_rate Bresenham encoder — MUST match Python
  *    snn_engine_multilayer.encode_pixel_to_spike_stream ── */
 void v2b_encode_pixel_even_rate(const uint8_t *pixels, uint32_t in_dim,
@@ -114,19 +128,13 @@ uint8_t v2b_run_stage(uint32_t in_dim, uint32_t out_dim,
     V2B_SOC_STAGE_CFG3 = cfg3;
     V2B_SOC_STAGE_CFG5 = T_COUNT;
 
+    /* Clear stale DONE before launching a new stage. START does not auto-clear it. */
+    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
     V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_START;
 
-    /* Poll STATUS.BUSY. On board, a missing clock/reset/address-map issue
-     * should report a firmware-visible timeout instead of hanging silently. */
-    uint32_t guard = 0u;
-    while (V2B_SOC_STAGE_BUSY(V2B_SOC_STAGE_STATUS)) {
-        if (++guard >= V2B_STAGE_POLL_TIMEOUT) return V2B_STAGE_ERR_TIMEOUT;
-    }
-    uint8_t err = (uint8_t)V2B_SOC_STAGE_ERR(V2B_SOC_STAGE_STATUS);
-
-    /* Clear DONE sticky (W1C) */
-    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
-    return err;
+    /* Wait for a fresh DONE. This catches both normal long-running stages and
+     * short/stale-launch corner cases where BUSY may never be observed high. */
+    return v2b_wait_stage_done_fresh(V2B_STAGE_POLL_TIMEOUT);
 }
 
 /* ── Read stage 1 output (stream_buf_B) and count spikes per class ── */

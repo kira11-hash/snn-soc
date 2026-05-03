@@ -285,6 +285,21 @@ static int v2b_wait_conv_done(uint32_t *status_out)
     return -1;
 }
 
+static uint8_t v2b_wait_fc_stage_done_fresh(void)
+{
+    uint32_t guard = 0u;
+    while (guard < V2B_CONV_POLL_TIMEOUT) {
+        uint32_t ctrl = V2B_SOC_STAGE_CTRL;
+        if ((ctrl & V2B_SOC_STAGE_CTRL_DONE) != 0u) {
+            uint8_t err = (uint8_t)V2B_SOC_STAGE_ERR(V2B_SOC_STAGE_STATUS);
+            V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
+            return err;
+        }
+        guard++;
+    }
+    return 0xFEu;
+}
+
 /*
  * 跑一层 conv（也支持 flatten 层）：
  *   - cfg 携带 H/W/C_in/C_out/k/stride/pad/out_H/out_W/t_count/tile_count/threshold/sum_max/...
@@ -402,16 +417,9 @@ uint8_t v2b_run_fc_stage(uint32_t in_dim, uint32_t out_dim,
     V2B_SOC_STAGE_CFG2 = sum_max;
     V2B_SOC_STAGE_CFG3 = cfg3;
     V2B_SOC_STAGE_CFG5 = LENET5_T_COUNT;
+    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
     V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_START;
-
-    for (uint32_t guard = 0; guard < V2B_CONV_POLL_TIMEOUT; guard++) {
-        if (!V2B_SOC_STAGE_BUSY(V2B_SOC_STAGE_STATUS)) {
-            uint8_t err = (uint8_t)V2B_SOC_STAGE_ERR(V2B_SOC_STAGE_STATUS);
-            V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
-            return err;
-        }
-    }
-    return 0xFEu;
+    return v2b_wait_fc_stage_done_fresh();
 }
 
 void v2b_count_stream_spikes(int32_t *counts_out, uint32_t out_dim, uint32_t read_stream_b)
