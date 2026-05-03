@@ -77,10 +77,18 @@ MNIST 已饱和，T 加长产生 −0.22 pp 噪声级 regression。
 | Bundle | dataset | T | quant_snn_test_acc | vs T=10 baseline | cosim PASS marker | golden_counts SHA = rtl_counts SHA |
 |---|---|---|---|---|---|---|
 | `lenet5` (M4 canonical) | MNIST 28×28 | 10 | 93.03% | (baseline) | ✅ board-verified | (M4 frozen) |
-| `lenet5_t50` | MNIST 28×28 | **50** | **92.81%** | **−0.22 pp** | ✅ smoke | `aa1c33289d92e22abdb954e43cfb2f01626b295d676d0c2d66ad5319938a3d80` |
+| `lenet5_t30` | MNIST 28×28 | **30** | **93.55%** | **+0.52 pp**（sweet spot）| ✅ smoke | `45273d4bea77ee129446380d5f851e7bd962efe6fb1805f48310a846012a934d` |
+| `lenet5_t50` | MNIST 28×28 | **50** | **92.81%** | **−0.22 pp**（plateau）| ✅ smoke | `aa1c33289d92e22abdb954e43cfb2f01626b295d676d0c2d66ad5319938a3d80` |
 | `lenet5_fashion` (§2.1bis) | Fashion 28×28 | 10 | 81.99% | (baseline) | ✅ full | `d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627` |
 | `lenet5_fashion_t30` | Fashion 28×28 | **30** | **82.88%** | **+0.89 pp**（sweet spot）| ✅ smoke | `f5ed992337659bcb3609a0f0640a2f4d83915d6c67a348f2b4b6f6c404d25bc3` |
 | `lenet5_fashion_t50` | Fashion 28×28 | **50** | **81.94%** | **−0.05 pp**（plateau）| ✅ smoke | `5ea5515990f9578640e7de2e6dbee35ed9f63762ffee85a04045b611c6f68525` |
+
+**T-sweep 矩阵补全（2026-05-03）**：原 5 行表只覆盖 MNIST {T=10, T=50} 和 Fashion
+{T=10, T=30, T=50}，缺 MNIST T=30。后补 `lenet5_t30` bundle 把 2×3 矩阵填满，发现
+**T=30 在两个 dataset 上都是 sweet spot**（MNIST +0.52 pp，Fashion +0.89 pp），
+**T=50 都掉头**（MNIST −0.22 pp，Fashion −0.05 pp）。曲线形状一致说明这是 head
+training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被时间步稀释
+的普适现象，不是 dataset 特有问题。
 
 **关键工程改动**（commit `1de8dd2c` on `feature/v2-conv-extension`）：
 
