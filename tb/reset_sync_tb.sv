@@ -3,14 +3,13 @@
 // Purpose: Unit test for rtl/sys/reset_sync.sv
 //
 // Coverage:
-//   T1. Async assert: when rst_n_async drops mid-cycle, rst_n_sync must
-//       fall in the same simulation timestep (async path).
-//   T2. Sync release: when rst_n_async rises, rst_n_sync must stay low
-//       for STAGES clk cycles, then rise on the STAGES+1-th rising edge.
-//   T3. Glitch immunity: if rst_n_async pulses low for less than 1 clk
-//       cycle, downstream rst_n_sync still drops (async assert sees it).
-//   T4. Repeated resets: assert/release cycle multiple times, verify
-//       STAGES-cycle release latency every time.
+//   T1. Async assert clears every DUT instance immediately.
+//   T2. Sync release latency matches STAGES for STAGES=1/2/3.
+//   T3. Sub-cycle reset pulse still asynchronously asserts and then
+//       re-releases with the expected latency.
+//   T4. Repeated reset cycles keep the latency contract intact.
+//   T5. Near-edge reset release (1 ns before posedge) still deasserts on
+//       the expected synchronized cycle.
 //
 // Pass marker: RESET_SYNC_TB_PASS
 // -----------------------------------------------------------------------------
@@ -19,29 +18,44 @@
 
 module reset_sync_tb;
 
-  localparam int STAGES = 2;
+  localparam int STAGES_1 = 1;
+  localparam int STAGES_2 = 2;
+  localparam int STAGES_3 = 3;
 
   logic clk = 1'b0;
   logic rst_n_async = 1'b1;
-  logic rst_n_sync;
+  logic rst_n_sync_1;
+  logic rst_n_sync_2;
+  logic rst_n_sync_3;
 
   // 100 MHz clk → 10 ns period
   always #5 clk = ~clk;
 
-  reset_sync #(.STAGES(STAGES)) dut (
+  reset_sync #(.STAGES(STAGES_1)) dut_stages_1 (
     .clk         (clk),
     .rst_n_async (rst_n_async),
-    .rst_n_sync  (rst_n_sync)
+    .rst_n_sync  (rst_n_sync_1)
+  );
+
+  reset_sync #(.STAGES(STAGES_2)) dut_stages_2 (
+    .clk         (clk),
+    .rst_n_async (rst_n_async),
+    .rst_n_sync  (rst_n_sync_2)
+  );
+
+  reset_sync #(.STAGES(STAGES_3)) dut_stages_3 (
+    .clk         (clk),
+    .rst_n_async (rst_n_async),
+    .rst_n_sync  (rst_n_sync_3)
   );
 
   int errors = 0;
-  int t_release_latency;
-  bit done4;     // T4 loop-exit flag (declared at module scope to ensure fresh init each iter)
 
   task automatic check(input string label, input bit cond);
     begin
       if (!cond) begin
-        $display("[FAIL] %s @ time=%0t  rst_n_sync=%0b", label, $time, rst_n_sync);
+        $display("[FAIL] %s @ time=%0t  s1=%0b s2=%0b s3=%0b",
+                 label, $time, rst_n_sync_1, rst_n_sync_2, rst_n_sync_3);
         errors++;
       end else begin
         $display("[OK]   %s @ time=%0t", label, $time);
@@ -49,77 +63,79 @@ module reset_sync_tb;
     end
   endtask
 
+  task automatic check_all_low(input string label);
+    begin
+      check({label, " (STAGES=1)"}, rst_n_sync_1 === 1'b0);
+      check({label, " (STAGES=2)"}, rst_n_sync_2 === 1'b0);
+      check({label, " (STAGES=3)"}, rst_n_sync_3 === 1'b0);
+    end
+  endtask
+
+  task automatic check_release_latencies(input string label);
+    int cycle;
+    int lat_1;
+    int lat_2;
+    int lat_3;
+    begin
+      lat_1 = -1;
+      lat_2 = -1;
+      lat_3 = -1;
+      for (cycle = 1; cycle <= 8; cycle++) begin
+        @(posedge clk); #1;
+        if ((lat_1 < 0) && (rst_n_sync_1 === 1'b1)) lat_1 = cycle;
+        if ((lat_2 < 0) && (rst_n_sync_2 === 1'b1)) lat_2 = cycle;
+        if ((lat_3 < 0) && (rst_n_sync_3 === 1'b1)) lat_3 = cycle;
+      end
+      check($sformatf("%s latency STAGES=1 == 1", label), lat_1 == STAGES_1);
+      check($sformatf("%s latency STAGES=2 == 2", label), lat_2 == STAGES_2);
+      check($sformatf("%s latency STAGES=3 == 3", label), lat_3 == STAGES_3);
+    end
+  endtask
+
   initial begin
-    // Initial state: rst_n_async high, but flops uninitialised.
-    // First assert reset to bring chain to known 0.
+    // Initial state: assert reset first so every DUT starts from a known zeroed chain.
     rst_n_async = 1'b0;
-    #2;  // T1: assert async — rst_n_sync should drop within this delta cycle
-    check("T1 async-assert: rst_n_sync drops with rst_n_async",
-          rst_n_sync === 1'b0);
+    #1;
+    check_all_low("T1 async-assert clears outputs");
 
-    // Hold reset for several clks
-    repeat (5) @(posedge clk);
-    check("T1 hold: rst_n_sync stays low while rst_n_async low",
-          rst_n_sync === 1'b0);
+    repeat (4) @(posedge clk); #1;
+    check_all_low("T1 hold keeps outputs low");
 
-    // T2: release reset on a clean clk edge, count cycles until rst_n_sync rises
-    // Use #1 after @(posedge clk) to let NBA apply before observing.
-    @(negedge clk);     // align release to mid-cycle so rst is valid for next posedge
+    // T2: release from mid-cycle and verify stage-dependent latency.
+    @(negedge clk);
     rst_n_async = 1'b1;
-    t_release_latency = 0;
-    begin
-      bit done = 1'b0;
-      while (!done) begin
-        @(posedge clk); #1;
-        t_release_latency++;
-        if (rst_n_sync === 1'b1)  done = 1'b1;
-        if (t_release_latency >= 10) done = 1'b1;
-      end
-    end
-    check($sformatf("T2 sync-release latency = STAGES (%0d cycles)", STAGES),
-          t_release_latency == STAGES);
+    check_release_latencies("T2 mid-cycle release");
 
-    // T3: glitch test — drop rst_n_async for sub-cycle pulse
-    repeat (3) @(posedge clk);
+    // T3: sub-cycle glitch must still assert asynchronously and re-release cleanly.
+    repeat (2) @(posedge clk);
     rst_n_async = 1'b0;
-    #1;     // 1 ns pulse, much shorter than 10 ns clk period
-    check("T3 glitch async-assert: rst_n_sync drops on sub-cycle pulse",
-          rst_n_sync === 1'b0);
+    #1;
+    check_all_low("T3 sub-cycle pulse asserts reset");
     rst_n_async = 1'b1;
-    // After glitch release, sync chain must walk 1 back through STAGES clks
-    t_release_latency = 0;
-    begin
-      bit done3 = 1'b0;
-      while (!done3) begin
-        @(posedge clk); #1;
-        t_release_latency++;
-        if (rst_n_sync === 1'b1)     done3 = 1'b1;
-        if (t_release_latency >= 10) done3 = 1'b1;
-      end
-    end
-    check($sformatf("T3 post-glitch sync-release latency = STAGES (%0d)", STAGES),
-          t_release_latency == STAGES);
+    check_release_latencies("T3 post-glitch release");
 
-    // T4: repeated cycles
-    for (int i = 0; i < 3; i++) begin
+    // T4: repeat the whole sequence several times to catch stale-state issues.
+    for (int i = 0; i < 2; i++) begin
       @(negedge clk);
       rst_n_async = 1'b0;
-      repeat (3) @(posedge clk);
-      check($sformatf("T4 iter %0d: rst_n_sync low while reset asserted", i),
-            rst_n_sync === 1'b0);
+      #1;
+      check_all_low($sformatf("T4 iter %0d async-assert", i));
+      repeat (2) @(posedge clk); #1;
+      check_all_low($sformatf("T4 iter %0d hold", i));
       @(negedge clk);
       rst_n_async = 1'b1;
-      t_release_latency = 0;
-      done4 = 1'b0;
-      while (!done4) begin
-        @(posedge clk); #1;
-        t_release_latency++;
-        if (rst_n_sync === 1'b1)     done4 = 1'b1;
-        if (t_release_latency >= 10) done4 = 1'b1;
-      end
-      check($sformatf("T4 iter %0d: release latency = STAGES (%0d)", i, STAGES),
-            t_release_latency == STAGES);
+      check_release_latencies($sformatf("T4 iter %0d release", i));
     end
+
+    // T5: release 1 ns before a posedge to approximate a recovery/removal corner.
+    @(negedge clk);
+    rst_n_async = 1'b0;
+    #1;
+    check_all_low("T5 near-edge assert");
+    @(negedge clk);
+    #4;
+    rst_n_async = 1'b1;
+    check_release_latencies("T5 near-edge release");
 
     if (errors == 0) $display("RESET_SYNC_TB_PASS");
     else             $display("RESET_SYNC_TB_FAIL errors=%0d", errors);

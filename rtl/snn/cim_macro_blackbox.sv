@@ -322,13 +322,12 @@ module cim_macro_blackbox #(
   // =========================================================================
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+      // Unprogrammed array must boot in erased/HRS state.
+      // Keeping the legacy 2/1 seed here masks missing-weight-programming
+      // bugs and makes verify/readback semantics diverge from hardware.
       for (int r = 0; r < P_NUM_INPUTS; r++) begin
         for (int c = 0; c < P_ADC_CHANNELS; c++) begin
-          // Default weights: V1-compatible popcount-based initialization
-          if (c < NUM_OUTPUTS)
-            weight_mem[r][c] <= ADC_BITS'(2);   // pos columns: small positive
-          else
-            weight_mem[r][c] <= ADC_BITS'(1);   // neg columns: smaller
+          weight_mem[r][c] <= '0;
           prog_pulse_acc[r][c] <= 4'd0;
         end
       end

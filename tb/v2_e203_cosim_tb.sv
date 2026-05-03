@@ -129,8 +129,10 @@ module v2_e203_cosim_tb;
   int errors;
 
   initial begin
-    $dumpfile("waves/v2_e203_cosim.vcd");
-    $dumpvars(0, v2_e203_cosim_tb);
+    if ($test$plusargs("DUMP_VCD")) begin
+      $dumpfile("waves/v2_e203_cosim.vcd");
+      $dumpvars(0, v2_e203_cosim_tb);
+    end
   end
 
   task automatic wait_dmem_eq(input int word_offset, input logic [31:0] exp_val,

@@ -345,6 +345,19 @@ module dma_engine (
   //         = addr_ptr - 4（即刚才读出 word0_reg 的位置）。
   // 写数据：word0_reg（ST_RD0 捕获）。
   // 字节使能：全字写（4'hF）。
+  //
+  // 【DMA dst SRAM 的 byte offset 语义】（claude-fix F9，非功能性注释）
+  //   DMA 写到 weight_sram / instr_sram 时，**地址偏移直接来自 source pointer
+  //   的低 ADDR_BITS+2 bit**（被 sram_simple 内部截断到 word_addr）。
+  //   工程含义：
+  //     - DMA 不能"指定独立 dst 起始地址"——dst SRAM 的写位置完全由
+  //       DMA_SRC_ADDR 的低位决定（一种"按 src 偏移镜像复制"语义）；
+  //     - 实际工作时，DMA src 通常是 data_sram @ 0x0001_0000 + payload_off，
+  //       sram_simple 只取 [ADDR_BITS+1:2]，相当于把 payload 写到 dst SRAM
+  //       的 byte offset = payload_off & ((MEM_BYTES-1) & ~3)；
+  //     - 若 payload_off 超出 dst SRAM 容量会被静默回卷（wrap-around），
+  //       软件应自行保证 payload 大小不超过 dst SRAM 容量。
+  //   alpha-passed bitstream 与本注释行为一致；仅注释新增，无 RTL 改动。
   // -----------------------------------------------------------------------
   always_comb begin
     weight_wr_en   = 1'b0;

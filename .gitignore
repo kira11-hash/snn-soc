@@ -58,7 +58,12 @@ sim/*.vvp
 
 # Vivado FPGA build artifacts (large timestamped project dirs, keep reports/)
 fpga_synth/v2b_synth_*/
+fpga_synth/v2b_arm_demo_ooc_*/
+fpga_synth/zcu102_bd_sanity_*/
+fpga_synth/zcu102_arm_demo/
 fpga_synth/zcu102_v2_e203_demo/out*/
+fpga_synth/v2b_arm_demo_ooc.xdc
+fpga_synth/reports_ooc_arm_demo/
 fpga_synth/*.jou
 fpga_synth/*.log
 fpga_synth/.Xil/
@@ -67,8 +72,10 @@ fpga_synth/vivado_*.backup.log
 fpga_synth/webtalk*
 fpga_synth/xrun_*
 iter_*CongestedCLBsAndNets.txt
+fpga_synth/*.xsa
 
 # firmware build outputs
+fw/arm/out/
 fw/v2_e203_smoke/out/
 fw/boot_rom/out/
 fw/silicon_bringup/out/
