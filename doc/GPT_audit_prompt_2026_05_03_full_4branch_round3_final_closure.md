@@ -18,20 +18,34 @@
 
 ---
 
-## 0. 关键背景：你接手的是 round 2 的尾巴，不是从零开始
+## 0. 关键背景：本轮是终极收口轮 — 不留任何尾巴
 
-上一个 GPT round 2 已经完成全维度审查 + 已经在 4 条 worktree 做了 fix-on-sight，
-但**所有修改还在 worktree dirty 状态**，没 commit / 没 push。本轮你的核心任务：
+上一个 GPT round 2 已经完成"已知问题"维度审查 + 已经在 4 条 worktree 做了
+fix-on-sight，但：
+- **所有修改还在 worktree dirty 状态**，没 commit / 没 push
+- round 2 finding 表 §1 全是 firmware / doc 类，**没一条 CDC / RTL / Python ↔ RTL
+  parity 类**——这强烈暗示 round 2 浅过了 4 个维度
 
-1. **独立验证** round 2 GPT 在 worktree 里做的修改是否真的正确（不要盲信）
-2. **commit + push** 验证通过的修改（带 `git commit -s`）
-3. **autonomous board reverify**：alpha + e203-conv 必须重烧 ZCU102（GPT round 2 已
-   把 firmware 改了）
-4. **闭环 verdict**：要么进 paper handoff，要么列出无法本机闭环的 fallback 命令
-5. **顺手再扫一遍**：round 2 漏审的 LOW / 新冒出的小问题
+本轮你的核心任务（全部硬要求，**不接受任何"留给下一轮"或"留给用户"的借口**，
+除非本机真做不到 vivado/ZCU102 在线那一项明确列 fallback 命令）：
 
-不要重新跑 round 2 的全维度审查（那个已经做完了）；本轮主要是 verify + commit +
-板验 + 最后清扫。
+1. **独立验证** round 2 GPT 在 worktree 里做的修改是否真的正确（Agent A/B/C，
+   不要盲信 round 2 自报）
+2. **补 round 2 漏审的 4 个维度**（Agent I Python parity / Agent J RTL bug
+   非 CDC / Agent K Firmware 深度 / Agent L Doc 全套 sweep）
+3. **CDC 深度审查**新加的 reset_sync + sync_2ff（Agent H 4 个子任务）
+4. **fix-on-sight HARD RULE**：任何 sub-agent 发现真问题（finding 不是 FP）必须
+   **立刻**自己修 + commit -s + push origin。**不允许**只报告不修，**不允许**
+   "留给下一轮"
+5. **commit + push** 全部修改（Agent F）
+6. **autonomous board reverify HARD RULE**：alpha + e203-conv 必须重烧 ZCU102；
+   任何 Agent J/K trigger 的 RTL/fw 改动落到 FPGA 分支必须**自动追加**到 reverify
+   队列；fresh UART capture 必须 commit
+7. **闭环 verdict**：要么进 paper handoff（§5.7），要么列出无法本机闭环的 fallback
+8. **必须输出下一轮 round 4 prompt**（§11.bis hard gate，无论 verdict 如何）
+
+**13 个 sub-agent 必须全部 spawn，全部完成**（Agent A-H + Agent I-M）。任何
+sub-agent 跳过 = 本轮未完成。
 
 ---
 
@@ -155,12 +169,26 @@ DCO governance from main `850c3cae`. Any new commit lacking `Signed-off-by:` is 
 
 ---
 
-## 4. 子代理分工（**必须 spawn 8 个并行 sub-agent**）
+## 4. 子代理分工（**必须 spawn 13 个并行 sub-agent**）
 
 > **本轮特别提示**：round 2 GPT 报告的 12 个 finding 全是 firmware / doc /
-> shared-infra issues，**没一条 CDC 或 reset_sync 类**。这说明 round 2 可能浅过了
-> CDC 审查。本轮 Agent H 专门补审 CDC + reset_sync + sync_2ff，**重点**包括但不限于
-> 2026-05-03 新加的代码。
+> shared-infra issues，**没一条 CDC 或 reset_sync 类，没一条 RTL 类，没一条 Python
+> ↔ RTL parity 类，没一条 TB coverage 类**。这强烈暗示 round 2 浅过了多个维度。
+> 本轮 13 个 sub-agent 是为了把所有可能的死角全打掉，绝对不留尾巴：
+> - Agent A-G + H：接 round 2 尾巴 + CDC 深度 + 板验
+> - Agent I-M（**本轮新增**）：补 round 2 没专门做的 5 个维度
+>   - Agent I：Python ↔ RTL parity + manifest SHA
+>   - Agent J：RTL bug hunt 非 CDC 维度（FP-001~FP-005 类）
+>   - Agent K：Firmware 深度 audit 非 round-2-finding 项
+>   - Agent L：Doc cross-consistency 全套 sweep
+>   - Agent M：TB coverage 全栈审查 + Reproducibility 验证
+>
+> **fix-on-sight + autonomous board reverify 是本轮硬要求**：任何 sub-agent 发现
+> 真问题（finding 不是 FP）必须**立刻**自己修 + commit -s + push origin；任何
+> firmware/RTL 改动落到 alpha / arm-conv / e203-conv 上后**必须**触发对应分支的
+> board reverify（vivado bitgen + xsct + UART capture + commit fresh evidence）。
+> **不接受**"留给下一轮""留给用户"——除非本机真做不到（vivado/ZCU102 不在线），
+> 那一项明确列 fallback 命令。
 
 ### Agent A：Verify F001/F002/F003/F004（HIGH + 关键 MEDIUM 修复正确性）
 
@@ -415,16 +443,413 @@ spi_miso 单 clk 域因为 SCK = clk/N 等）
 
 ---
 
-### Agent G：Autonomous board reverify（**仅 alpha + e203-conv**）
+### Agent I：Python ↔ RTL parity + Manifest SHA verification（**round 2 没做**）
+
+> ⚠ round 2 finding 表 §1 没有任何 Python ↔ RTL parity 类项目——意味着本维度
+> 可能完全没审。论文 evidence chain 的核心就是"manifest 数字 = doc 数字 = 实际
+> 文件 SHA = cosim PASS marker"，本 sub-agent 必须独立 verify。
 
 任务：
+
+**I.1 Manifest 内部数字一致性**
+
+对每个 manifest（4 条 conv 分支共 ~10 个）：
+```bash
+ls python_multilayer/results_conv/lenet5*/lenet5_golden_manifest.json
+```
+读取每个 manifest，验证：
+- `quant_snn_test_accuracy` / `selected_accuracy` / `t_count` / `samples` 字段存在
+- `samples[N].output_counts` 引用的相对路径文件真实存在
+- 每个 sample 的 `prediction` 与 `expected_prediction` 字段（如有）一致
+
+**I.2 Manifest ↔ doc 数字一致性**
+
+读 `doc/19_training_accuracy_summary.md` + `doc/v2-architecture/conv_extension_log.md`
+里的精度表格。每一个引用到 manifest 的数字（quant_snn_test_acc / selected_acc /
+SHA256）必须**字节级匹配** manifest。
+
+不一致 → 自己修 doc 或 manifest（看哪个是 ground truth）→ commit -s → push
+
+**I.3 Cosim PASS marker + SHA 自洽**
+
+对每个有 cosim_*_log.txt 的 bundle：
+```bash
+grep "LENET5_COSIM_TB_PASS" python_multilayer/results_conv/lenet5*/cosim_*_log.txt
+grep "lenet5_golden_counts_concat=" python_multilayer/results_conv/lenet5*/cosim_*_log.txt
+grep "lenet5_rtl_counts_dump=" python_multilayer/results_conv/lenet5*/cosim_*_log.txt
+```
+- 每个 bundle 的 cosim PASS marker 必须存在
+- `golden_counts_concat` SHA 必须 == `rtl_counts_dump` SHA（byte-exact match 证据）
+- 这两个 SHA 必须与 doc 引用值一致
+
+**I.4 Topologies.yaml ↔ summary.txt ↔ doc 一致性**
+
+```bash
+ls python_multilayer/results_multilayer/*/summary.txt
+```
+对每个 summary.txt（FC SNN 的 ablation 数据），验证：
+- summary.txt 里的 `test_accuracy` / `final_epoch_acc` / `seed` / `epochs` 与
+  doc/19 表里数字一致
+- summary.txt 引用的 topology name 在 `python_multilayer/topologies.yaml` 里存在
+- topology 字段（threshold / sum_max / stream_timesteps / adc_bits / dataset）
+  与 summary.txt 自报字段一致
+
+**I.5 独立 SHA256 重算（不只信 manifest 自报）**
+
+```bash
+# 抽 2-3 个 bundle 重算 sample_NN_output_counts.txt 的 SHA256
+sha256sum python_multilayer/results_conv/lenet5_fashion/sample_*_output_counts.txt | sha256sum
+# 对比 manifest 里 records 的总 SHA
+```
+- 任何独立重算结果与 manifest / doc 不一致 → 自己修 → commit → push
+
+**输出**：`agent_i_python_rtl_parity.md` + finding + 修复 commit hash 列表。
+
+---
+
+### Agent J：RTL bug hunt 非 CDC 维度（**round 2 没专门做 — FP-001~FP-005 类**）
+
+> ⚠ round 2 finding 表 §1 没有任何 RTL bug 类项目——意味着 RTL 非 CDC 维度
+> 没专门审。流片在即（V1 main），任何 FP-001 ~ FP-005 类残留 bug 都是 tape-out
+> 风险。本 sub-agent **必须**做完整的 RTL bug hunt。
+
+任务：
+
+**J.1 全 RTL signed/unsigned 链审查（FP-001 类）**
+
+```bash
+# 找所有 $signed() / <<< / >>> 出现的地方
+grep -rEn "\\\$signed|<<<|>>>" rtl/
+```
+对每个出现：读完整赋值链 + 对照 SV LRM §6.24.1 + 验证位宽匹配。重点：
+- `lif_neurons.sv`（已有 FP-001 案例，验证 fix 还在）
+- `cim_macro_blackbox.sv`（Scheme B 差分计算）
+- `tile_partial_buf.sv`（V2.B partial sum 累加）
+- 任何 V2.B CONV path 涉及负数累加的位置
+
+**J.2 全 RTL 位宽审查（FP-002 类）**
+
+```bash
+# 找所有 logic [N:0] 声明
+grep -rnE "logic\s+\[\d+:0\]" rtl/ | head -50
+# 找位宽截断 / 拼接
+grep -rnE "\{.*,.*\}|\\[\\d+:\\d+\\]" rtl/ | head -50
+```
+对每个 reg / wire 验证：
+- 位宽与 `snn_soc_pkg.sv` 里的 parameter 派生一致
+- 任何 `data_width = $clog2(N)` 类用法验证 N 与 width 匹配
+- output FIFO width = $clog2(NUM_OUTPUTS) — 验证 NUM_OUTPUTS=10 → width=4 OK
+
+**J.3 全 RTL FSM 审查（阻塞 vs 非阻塞 — FP-003 类）**
+
+```bash
+# 找所有 always_ff 块里的 FSM
+grep -rnE "always_ff" rtl/ | head -30
+```
+对每个 FSM：
+- state encoding 是否 onehot / binary / gray
+- illegal state handling 是否有 default + reset 到 IDLE
+- 阻塞赋值 `=` 出现在 always_ff 里 → 必须解释为什么（一般是错的）
+- 地址 `+/-` 类 timing 是否正确（参考 dma_engine FP-003 案例）
+
+**J.4 边界条件审查（FP-004 类）**
+
+对所有"零长度 / 极小输入 / 极大输入"路径：
+- DMA: zero-length transfer（FP-004 案例验证 fix 还在）
+- CIM: bl_sel = NUM_OUTPUTS-1 → MUX boundary
+- LIF: threshold = 0 / threshold = MAX
+- stage_engine: tile_count = 1 / tile_count = 9
+- input fmap 全 0 / 全 1
+
+**J.5 假 CDC 报告排除（FP-005 类）**
+
+如果你在审查中**发现疑似 CDC 问题**（例如 fifo_sync 跨域）—— 必须先确认：
+- 该模块真的有多个时钟域？还是单时钟（FP-005）
+- 任何 "name 含 sync" 的模块默认是单时钟
+- 跨时钟域只在 jtag_tck path 真存在（已有 sync）
+
+**J.6 SVA 完整性 + 保护**
+
+- 所有 SVA assertion 必须在 `ifdef VCS` / `ifndef SYNTHESIS` 保护下
+- Icarus 跑 sim 时必须能 elaborate 通过（SVA 跳过）
+- VCS 跑 sim 时必须 0 assertion failure
+
+**所有 J.1-J.6 finding 必须遵循 CLAUDE.md "RTL 漏洞报告规范"**：
+```
+【缺陷描述】
+【触发条件】
+【仿真激励】
+【预期异常现象】
+```
+**写不出可触发激励的 bug 必须标"疑似误报"，不计入修复列表**（防止 FP-001~FP-005
+重复发生）。
+
+发现真 bug → 自己修 → commit -s → push → 触发对应分支板验（如 RTL 改动落到
+FPGA 分支）
+
+**输出**：`agent_j_rtl_bugs.md` + finding + 修复 commit hash + 任何触发的板验
+trigger 标记（给 Agent G）。
+
+---
+
+### Agent K：Firmware 深度 audit（非 round-2-finding 项）
+
+> ⚠ round 2 finding 表 §1 集中在 fw（F001 alpha smoke / F002 boot / F003
+> silicon_bringup / F004 e203 scheduler / F006 timeout drift / F007 uart）
+> ——但 round 2 是按"已知问题列表"修，本 sub-agent 必须做**穷举式**深审。
+
+任务：
+
+**K.1 PROG_CTRL 写法穷举**
+
+```bash
+# round 2 已修部分；本轮验证 0 残留
+grep -rn "PROG_CTRL = 0x" fw/
+grep -rn "PROG_CTRL =" fw/ | grep -v "preserve_retry\|prog_ctrl_start_preserve_retry"
+```
+任何残留 → 改用 helper → commit → push → trigger 对应分支板验
+
+**K.2 W1P / W1C 寄存器读写模式穷举**
+
+```bash
+# 找所有 W1P 寄存器写入（CTRL 类）
+grep -rnE "(CTRL|CMD)\s*=\s*0" fw/
+# 必须每次写都 wait DONE 才继续；找无 wait 的写
+```
+逐个验证 W1P 写后是否有对应 wait_done() 或 status poll。
+
+**K.3 busy-loop timeout 穷举**
+
+```bash
+# round 2 修了 boot SPI/UART; 本轮找还有没有其他 busy-loop 没 timeout
+grep -rnE "while\s*\([^)]*BUSY|while\s*\([^)]*VALID|while\s*\([^)]*RDY" fw/
+```
+每个 busy-loop 必须有 bounded poll + timeout banner。
+
+**K.4 UART helper 全栈审查**
+
+- main: `fw/uart_printf.c`
+- alpha: `fw/uart_printf.c`（应与 main 字节级一致）
+- arm-conv: `fw/uart_printf.c` + `fw/arm/uart_ps.c`
+- e203-conv: `fw/uart_printf.c` + `fw/v2_e203_smoke/src/uart_printf_v2e203.c`
+
+逐个验证：
+- string buffer overflow 风险（snprintf vs strcat / sprintf）
+- 字符串边界处理
+- printf-format-string injection 风险（如果有用户输入）
+
+**K.5 boot rom / crt0 sanity**
+
+- `fw/boot_rom/boot_rom_main.c` + `fw/boot_rom/out/boot_rom.{bin,hex}`
+- `fw/boot_main.c`
+- crt0 / startup code（如果有）
+- 验证：reset vector / bss clear / stack init / cpu_local_rst_n 释放顺序
+
+**K.6 ARM firmware（fw/arm/）专项**
+
+round 2 fw audit 集中在 E203 / smoke 路径，ARM firmware 可能漏审：
+- `fw/arm/src/v2b_scheduler.c`
+- `fw/arm/src/v2b_inference.c`
+- `fw/arm/build_arm_firmware.sh`
+- 验证 ARM 路径有相同等级的 timeout / error handling 严谨度
+
+**所有 K.1-K.6 finding 必须遵循 CLAUDE.md "RTL 漏洞报告规范"**（fw 类同样需要
+可触发激励 — 一般是 unit test / 静态分析）。
+
+发现真 bug → 自己修 → 重 build → commit -s → push → trigger 对应分支板验
+
+**输出**：`agent_k_fw_deep.md` + finding + 修复 + 重 build artifact SHA256 +
+触发的板验 trigger 标记。
+
+---
+
+### Agent L：Doc cross-consistency 全套 sweep
+
+> ⚠ round 2 finding 表 §1 doc 类只到 F005/F008/F009/F011（4 个点），但项目
+> 共有 ~30+ doc 文件，本 sub-agent 必须做**全套** doc 一致性 sweep。
+
+任务：
+
+**L.1 跨 doc 互相引用一致性**
+
+每个 doc 里"详见 docXX §Y" 类引用：
+- 引用的 doc 必须存在
+- 引用的 § 必须存在
+- 引用的内容必须仍然描述对应主题（不是 stale）
+
+```bash
+grep -rnE "详见|参考|see|cf\\.|参见" doc/ | head -50
+```
+
+**L.2 commit hash 引用一致性**
+
+每个 doc 里 quote 的 commit hash（包括 frozen tag peeled commit）：
+- `git cat-file -e <hash>` 必须存在
+- 如果是 tag peeled commit，必须用 `git rev-parse <tag>^{}` 一致
+
+**L.3 文件路径引用一致性**
+
+每个 doc 里 quote 的文件路径：
+- `ls <path>` 必须存在
+- 如果是 evidence 文件（UART capture / manifest / SHA），必须真实存在
+
+**L.4 数字引用一致性**
+
+每个 doc 里 quote 的精度数字 / cycle 数 / SHA256：
+- 与 source-of-truth 文件（manifest / summary.txt / cosim_log）字节级一致
+- 与其他 doc 里 cross-quote 的同一数字一致
+
+**L.5 main vs alpha doc 一致性**
+
+```bash
+for d in doc/*.md doc/v2-architecture/*.md; do
+    diff <(git -C "<main>" show HEAD:"$d" 2>/dev/null) \
+         <(git -C "<alpha>" show HEAD:"$d" 2>/dev/null) > /dev/null || echo "$d DRIFT"
+done
+```
+任何漂移（除 doc/main-fpga-e203/ 路径外）→ 自己同步 → commit → push
+
+**L.6 arm-conv vs e203-conv doc 一致性**
+
+```bash
+for d in doc/19_training_accuracy_summary.md doc/06_learning_path.md \
+         doc/v2-architecture/conv_extension_log.md doc/v2-architecture/non_linearity_proof.md; do
+    diff <(git -C "<arm-conv>" show HEAD:"$d" 2>/dev/null) \
+         <(git -C "<e203-conv>" show HEAD:"$d" 2>/dev/null) > /dev/null || echo "$d DRIFT"
+done
+```
+共享 doc 必须字节级一致。
+
+**L.7 CLAUDE.md ↔ 实际状态一致性**
+
+CLAUDE.md 里的所有"项目核心参数"表格 / "寄存器地址表" / "误报经验知识库"
+等内容必须与实际代码 / RTL / fw 一致。
+
+发现 doc 漂移 → 自己修（决定 doc 还是源是 ground truth）→ commit -s → push
+
+**输出**：`agent_l_doc_sweep.md` + 所有 doc 一致性 verdict + 修复 commit hash。
+
+---
+
+### Agent M：TB coverage 全栈审查 + Reproducibility 验证
+
+> ⚠ round 2 sim sweep 全 PASS 不代表 TB 覆盖度足够 — 只代表"现有 TB 写的 case
+> 全 PASS"。本 sub-agent 补审 TB **本身**够不够 + 项目能否在 clean checkout
+> 上 reproducibility build。
+
+任务：
+
+**M.1 关键 TB coverage 审查**
+
+对每条分支的关键 TB（不只 reset_sync_tb / sync_2ff_tb）逐个审查：
+- 每个 TB 的 case 列表（grep `task automatic check` / `if` / `assert` 数量估算）
+- 每个 TB 是否覆盖：normal path / boundary / error path / random stress
+- 重点 TB（必审）：
+  - main: `tb/top_tb.sv`, `tb/top_tb_adc_sat_counter.sv`,
+    `tb/cim_program_ctrl_tb.sv`, `tb/dma_engine_tb.sv`, `tb/lif_neurons_tb.sv`,
+    `tb/e203_tb.sv`
+  - arm-conv: `tb/conv_ctrl_v2_tb.sv`, `tb/v2b_partial_write_invariant_tb.sv`,
+    `tb/fw_cosim_resident_14x14_tb.sv`
+  - e203-conv: `tb/v2_e203_cosim_tb.sv`, `tb/icb2simple_bridge_v2b_tb.sv`,
+    `tb/simple2v2btop_adapter_tb.sv`
+- 任何关键路径 TB **case 数过少 / 仅 happy path / 无 error path** → 列为
+  finding "TB coverage gap @ <file>"
+- **不强制要求自己补 TB**（那是大工程），但必须列出"应补但未补"的 case 清单
+  给下一轮 / 用户决定
+
+**M.2 Reproducibility — clean checkout 试 build**
+
+```bash
+# 模拟 clean checkout
+cd /tmp
+rm -rf snn-soc-clean
+git clone <origin url> snn-soc-clean
+cd snn-soc-clean
+
+# 试 build 主要 firmware
+git checkout main
+bash fw/boot_rom/build_boot_rom.sh           # main boot rom
+bash fw/silicon_bringup/build_silicon_bringup.sh  # main silicon bringup
+
+git checkout main-fpga-e203-alpha
+bash fw/e203_smoke/build_e203_smoke.sh       # alpha e203 smoke
+
+git checkout feature/v2-arm-fpga-demo-conv
+bash fw/arm/build_arm_firmware.sh            # arm fw
+
+git checkout feature/v2-fpga-e203-conv
+bash fw/v2_e203_smoke/build_v2_e203_smoke.sh  # e203 v2 fw
+
+# 试 build 主要 sim
+git checkout main
+bash sim/run_chip_top_rom_smoke.sh
+bash sim/run_e203_icarus.sh
+
+# ... 等等
+```
+
+任何 build 失败 → root cause（缺依赖 / 缺 toolchain / 缺 path 配置） → 自己修
+build script（加 fallback / 文档化依赖）→ commit -s → push
+
+**M.3 SHA256 一致性 — 重 build 后 binary 是否 byte-exact**
+
+对每个 fw build 后生成的 binary（.bin / .hex / .elf）：
+```bash
+# 重 build 后 SHA256
+sha256sum fw/<feature>/out/*.bin
+
+# 与已 commit 的 binary 比较
+git diff fw/<feature>/out/*.bin
+```
+任何漂移说明 build 不可复现（坏！）→ 自己修 → commit → push
+
+**M.4 sim PASS marker 一致性**
+
+清 checkout 后，跑全部 sim/run_*.sh，验证每个 PASS marker 仍然出现：
+```bash
+for sh in sim/run_*.sh; do
+    timeout 1800 bash "$sh" 2>&1 | grep -E "_PASS|_FAIL"
+done
+```
+任何 PASS 不一致（之前 PASS 现在 FAIL，或 FAIL 现在 PASS）说明项目状态不
+self-consistent → finding。
+
+**输出**：`agent_m_tb_repro.md`：
+- TB coverage gap 清单（按重要性排序）
+- Build script 修复 commit hash（如有）
+- Reproducibility verdict per branch（✅ clean build PASS / ⚠ partial / ❌ broken）
+- 任何 sim PASS 不一致 finding
+
+---
+
+### Agent G：Autonomous board reverify（**alpha + e203-conv** + Agent J/K trigger 的额外分支）
+
+任务：
+
+**G.1 基线重烧矩阵（round 2 finding 直接触发）**
 
 | 分支 | 是否需要重烧 | 理由 |
 |---|---|---|
 | `main` | ❌ 不需要 | V1 ASIC pre-tape-out，无 FPGA bitstream |
 | `main-fpga-e203-alpha` | ✅ **必须** | F001 改了 alpha smoke firmware PASS gating；F003 改了 silicon_bringup PROG_CTRL 写法；现有 UART evidence 失真 |
-| `feature/v2-arm-fpga-demo-conv` | ❌ 不需要 | round 2 实锤问题不在 ARM board inference 路径上（仅 doc + shared infra sync） |
+| `feature/v2-arm-fpga-demo-conv` | ⚠ **依 Agent J/K 结果**：如果 RTL 或 ARM fw 有改动 → 必须重烧；否则 round 2 verdict 是 NO | 见 G.2 |
 | `feature/v2-fpga-e203-conv` | ✅ **必须** | F004 改了 v2_e203_smoke_main.c 返回码处理；F006 同步了 V2B_STAGE_POLL_TIMEOUT；现有 UART evidence 失真 |
+
+**G.2 动态触发矩阵（Agent J/K 在 verify 过程中改了 RTL/fw 的 trigger）**
+
+Agent J（RTL bug hunt）+ Agent K（fw 深度 audit）任何 commit 落到 FPGA 分支
+（alpha / arm-conv / e203-conv），必须**自动追加**到本 sub-agent 的 reverify
+队列。具体规则：
+
+| Agent J/K commit 落点 | 必须 trigger 的板验 |
+|---|---|
+| 改 `rtl/` 任何文件 → 落到 alpha | alpha 重烧 + UART capture |
+| 改 `rtl/` 任何文件 → 落到 arm-conv | arm-conv 重烧 + UART capture |
+| 改 `rtl/` 任何文件 → 落到 e203-conv | e203-conv 重烧 + UART capture |
+| 改 `fw/e203_smoke/` → 落到 alpha | alpha 重烧 + UART capture |
+| 改 `fw/arm/` → 落到 arm-conv | arm-conv 重烧 + UART capture |
+| 改 `fw/v2_e203_smoke/` 或 `fw/src/` → 落到 e203-conv | e203-conv 重烧 + UART capture |
+| 仅改 doc / sim / TB → 落到任何分支 | 不 trigger 板验 |
 
 **对每条需要重烧的分支 autonomous 完成**：
 
@@ -646,11 +1071,15 @@ python scripts/capture_uart.py --port /dev/ttyUSB0 --baud 115200 \
 
 ## 9. 时间预算
 
-- Sub-agent A-E + H 并行 verify（CDC 加 H）：~3-4 小时
-- Sub-agent F commit + push：~30 分钟
-- Sub-agent G board reverify（alpha + e203-conv 并行）：~2-4 小时
-- Synthesize + 写 final report：~1 小时
-- **总 ETA：6-9 小时**
+- Sub-agent A-E + H + I + J + K + L + M 并行 verify（12 个 verify agent）：~5-7 小时
+- Sub-agent F commit + push（含 J/K/M 自动修的 commit）：~1 小时
+- Sub-agent G board reverify（alpha + e203-conv 并行 + 任何 J/K 触发的额外分支）：~3-5 小时
+- Synthesize + 写 final report + 写 round 4 prompt：~1-2 小时
+- **总 ETA：10-15 小时**
+
+如果你机器跑不完整（例如 vivado 占内存太大 / ZCU102 不在线），按"先完成所有
+verify + commit + push，最后未完成的板验项明确列 fallback 命令"的优先级处理；
+**不要为了赶时间跳过任何 sub-agent**——13 个 sub-agent 是 paper handoff 的硬要求。
 
 如果某些步骤本机做不了，**列入 finding + fallback 命令**，不要假装做了。
 
@@ -672,14 +1101,23 @@ python scripts/capture_uart.py --port /dev/ttyUSB0 --baud 115200 \
 ## 11. 终止条件
 
 满足以下**全部**条件 → 进 paper handoff：
-- 0 BLOCKER + 0 HIGH + 0 MEDIUM + ≤ 3 LOW
+- 0 BLOCKER + 0 HIGH + 0 MEDIUM + ≤ 3 LOW（合计 12 个 sub-agent 输出）
 - 4 条支线 worktree 全 commit + push（0 dirty）
 - 4 条支线全 sim regression PASS
 - alpha + e203-conv 板验 PASS（含 fresh UART evidence commit）
+- 任何 Agent J / Agent K trigger 的额外板验也 PASS
 - Round 2 finding 表 §1 全部 verify ✅
-- **Agent H CDC 深度审查 ≤ 3 LOW，无 BLOCKER/HIGH/MEDIUM CDC finding**
-  （新代码 textbook 正确 + 接线无残留 + 全 RTL async sweep 无漏审入口 +
-  H.2bis cross-branch 一致性 + FP-007/FP-008 排除）
+- **Agent H CDC 深度审查 ≤ 3 LOW**（新代码 textbook 正确 + 接线无残留 + 全 RTL
+  async sweep 无漏审入口 + H.2bis cross-branch 一致性 + FP-007/FP-008 排除）
+- **Agent I Python ↔ RTL parity 0 不一致**（manifest / doc / cosim PASS marker /
+  独立 SHA 重算全部 byte-exact）
+- **Agent J 全 RTL bug hunt ≤ 3 LOW**（FP-001 ~ FP-005 全排除 + SVA 完整）
+- **Agent K Firmware 深度 audit ≤ 3 LOW**（PROG_CTRL / W1P/W1C / busy-loop /
+  UART / boot rom / ARM fw 全清）
+- **Agent L Doc cross-consistency ≤ 3 LOW**（互引用 / commit hash / 文件路径 /
+  数字 / main vs alpha / arm vs e203 / CLAUDE.md vs 实际状态全一致）
+- **Agent M TB coverage + reproducibility ≤ 3 LOW**（关键 TB 无 critical
+  coverage gap + clean checkout build PASS + binary SHA byte-exact 可复现）
 - Round 1 closure 复审仍 ⚠ partial 是 OK（已经 documented）
 
 ### 11.bis 下一轮 prompt 生成（**强制 hard gate，无论本轮是否闭合**）
