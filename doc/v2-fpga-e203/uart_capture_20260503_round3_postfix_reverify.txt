@@ -1,3 +1,4 @@
+﻿# capture from COM3 @ 115200 starting 05/03/2026 19:45:10
 FPGA_V2_E203_BOOT_UART_PASS
 [TB] v2_e203_lenet5 start - 10 LeNet-5 samples via E203 + CONV
 [TB] V2B_SOC_BASE=0xA0000000

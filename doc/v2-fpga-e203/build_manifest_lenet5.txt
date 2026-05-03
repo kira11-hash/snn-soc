@@ -1,7 +1,8 @@
 # feature/v2-fpga-e203-conv LeNet-5 build manifest
 Generated UTC: 2026-05-03T04:14:34Z
 Git branch: feature/v2-fpga-e203-conv
-Git commit: b98b9000c38ff18d15bdae05a17de6215781ede1
+Git commit: 131f0d00f30a46926a4624b0506f8027972348a6
+Commit note: Git commit above is the round 3 artifact build commit; later doc/evidence-only commits may move branch HEAD without changing the bit/hex/elf hashes below.
 
 Vivado tool path: /d/Xilinx/Vivado/2022.2/bin/vivado.bat
 Vivado version: Vivado v2022.2 (64-bit) | SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022 | IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
@@ -32,5 +33,6 @@ UART PASS markers:
 - FPGA_V2_E203_LENET5_PASS
 
 Evidence pairing:
+- Raw UART re-verify trace: doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt
 - Human-readable runtime trace: doc/v2-fpga-e203/board_bringup_log_lenet5.txt
 - Fashion baseline frozen evidence: doc/v2-fpga-e203/board_bringup_log.txt

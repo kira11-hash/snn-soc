@@ -233,6 +233,40 @@ S_IDLE + reset: 同样 pattern
 4. 若需要重构，重构后跑全回归（9 个 V2.B TB 必须仍 bit-exact PASS）
 5. P&R + 上板（Phase D 真正的 FPGA validation）
 
+---
+
+## 8. 验证完整性硬前置（claude-fix F10）
+
+### 8.1 SVA 覆盖差距（Icarus 局限）
+
+- 仓库内的生产 RTL 把 SVA 断言放在 `` `ifdef VCS `` 守卫里
+  （例如 `dma_engine.sv` 的状态/时序断言、`reg_bank.sv` 的 W1P/W1C
+  竞态守卫等），Icarus 通过 `-gno-assertions` 把它们整体跳过；
+  详见 `doc/09_smoke_test_checklist.md` §3.3 "VCS + Verdi 带权重仿真"。
+- **结论**：Phase A Icarus 9 gate + Phase B Vivado synth 这两层
+  能证明功能正确性 + 可综合性，但**不能**自动捕获协议时序违例或
+  W1P/W1C 竞态。
+
+### 8.2 ASIC signoff 启动前的硬前置
+
+进入 STA / DFT / P&R 签核之前，至少要做一次 VCS + SVA 全回归，
+通过标准是：
+- `WEIGHTED_SIM_PASS` + 零 assertion failure；并且
+- `CIM_PROGRAM_CTRL_PASS`（带 SVA）+ 零 assertion failure。
+
+操作命令参考 `doc/09_smoke_test_checklist.md` §3.4 "运行 VCS 仿真"。
+Phase G3 板上证据不替代 SVA 跑通——板上很难命中所有 W1P/W1C race
+或 FIFO underflow 这类边角断言。
+
+### 8.3 当前 arm-fpga-demo 分支适用性
+
+`v2-arm-fpga-demo-passed` 的 Phase G3 板上证据对**功能合约**已闭环
+（10/10 Fashion-MNIST bit-exact）；本节是给 ASIC main 后端流程留下
+的"仿真完整性差距"提醒，**不是** arm 上板回归的 reburn 阻塞项；
+本 fix 仅文档新增，不动 RTL/接口/参数，alpha-passed bitstream 不变。
+
+---
+
 **本文档作者**：Claude (session 2026-04-20)
 **Review needed**：GPT + 用户
 **实施前 approver**：用户
