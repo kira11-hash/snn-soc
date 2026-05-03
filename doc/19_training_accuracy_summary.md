@@ -178,6 +178,16 @@ bash sim/run_lenet5_cosim.sh --full lenet5_fashion
 # fmap hex 不同），#3 已 byte-exact 板验通过。本 ablation 不重烧 ZCU102。
 
 # (6) T-extension trade-off ablation（T=10 → T=30 → T=50 sweep）
+# MNIST T=30:
+python gen_convnet_golden.py --network lenet5 \
+    --tag _t30 --t-override 30 --samples 10
+bash sim/run_lenet5_cosim.sh --smoke lenet5_t30
+#   quant_snn_test_acc=0.9355, cosim SHA=45273d4bea77ee129446380d5f851e7bd962efe6fb1805f48310a846012a934d
+# MNIST T=50:
+python gen_convnet_golden.py --network lenet5 \
+    --tag _t50 --t-override 50 --samples 10
+bash sim/run_lenet5_cosim.sh --smoke lenet5_t50
+#   quant_snn_test_acc=0.9281, cosim SHA=aa1c33289d92e22abdb954e43cfb2f01626b295d676d0c2d66ad5319938a3d80
 # Fashion T=30:
 python gen_convnet_golden.py --network lenet5 \
     --dataset-override fashion_mnist --tag _fashion_t30 --t-override 30 --samples 10
@@ -188,11 +198,6 @@ python gen_convnet_golden.py --network lenet5 \
     --dataset-override fashion_mnist --tag _fashion_t50 --t-override 50 --samples 10
 bash sim/run_lenet5_cosim.sh --smoke lenet5_fashion_t50
 #   quant_snn_test_acc=0.8194, cosim SHA=5ea5515990f9578640e7de2e6dbee35ed9f63762ffee85a04045b611c6f68525
-# MNIST T=50:
-python gen_convnet_golden.py --network lenet5 \
-    --tag _t50 --t-override 50 --samples 10
-bash sim/run_lenet5_cosim.sh --smoke lenet5_t50
-#   quant_snn_test_acc=0.9281, cosim SHA=aa1c33289d92e22abdb954e43cfb2f01626b295d676d0c2d66ad5319938a3d80
 ```
 
 每次跑都用 `--seed 42` 固定 RNG；多次跑可复现（已在 conv_extension_log §1
@@ -205,11 +210,12 @@ bash sim/run_lenet5_cosim.sh --smoke lenet5_t50
 > **目的**：回答"加长 SNN 时间步 T (10→30→50) 能否补上 4-bit 量化栈在 Fashion 上
 > 的 9 pp 缺口（PyTorch float 90.94% → quant SNN 81.99%）"。
 
-### 5.1 完整数据
+### 5.1 完整数据（T=10/30/50 × {MNIST, Fashion}，2×3 矩阵）
 
 | 网络 | dataset | T | quant SNN test | vs T=10 | cosim PASS | cosim SHA |
 |---|---|---|---|---|---|---|
 | LeNet-5 | MNIST 28×28 | 10 | 93.03% | (baseline) | ✅ #3 board-verified | (M4 canonical) |
+| LeNet-5 | MNIST 28×28 | **30** | **93.55%** | **+0.52 pp** | ✅ smoke | `45273d4b` |
 | LeNet-5 | MNIST 28×28 | **50** | **92.81%** | **−0.22 pp** | ✅ smoke | `aa1c3328` |
 | LeNet-5 | Fashion 28×28 | 10 | 81.99% | (baseline) | ✅ full | `d952f218` |
 | LeNet-5 | Fashion 28×28 | **30** | **82.88%** | **+0.89 pp** | ✅ smoke | `f5ed9923` |
@@ -217,13 +223,21 @@ bash sim/run_lenet5_cosim.sh --smoke lenet5_t50
 
 ### 5.2 解读
 
-**两个发现**：
+**核心发现：T=30 是普适 sweet spot，T=50 在两个 dataset 上都不再 buy 任何东西**：
 
-1. **MNIST 已饱和在 T=10**：T 升 5x 不涨反降（−0.22 pp，量级在训练噪声内）。说明
-   V2.B 4-bit / T=10 / ADC=8 stack 在 MNIST 上**已榨到天花板** ~93%，再加时间步无意义。
-2. **Fashion 在 T=30 见到 sweet spot 然后掉头**：T=10 → T=30 涨 +0.89 pp，T=30 → T=50
-   反而降 −0.94 pp 回到 baseline。说明 T 不是 Fashion 的解药，**+1 pp 就是这个 lever
-   能给的全部**。
+| Dataset | 形状 | 解读 |
+|---|---|---|
+| MNIST | T=10 → +0.52 → −0.22 | 已接近饱和，T=30 给最后一点 marginal gain，T=50 进入训练噪声区 |
+| Fashion | T=10 → +0.89 → −0.05 | T=30 更明显涨，T=50 全消失 |
+
+两个 dataset 的曲线**形状一致**（T=30 sweet spot 然后掉头），只是绝对位置不同。这说明：
+
+1. **T=30 是这套 8-epoch head training + 4000 train_subset 配置下的最优 T**——再多就把
+   有限 head 训练预算分摊到太多时间步上，每个 timestep 的 surrogate gradient 信号变弱
+2. **T-extension 不是 Fashion 9 pp 缺口的解药**——最高 +0.89 pp，离 PyTorch float
+   90.94% 还有 8 pp。瓶颈在 4-bit weight + LIF spike 编码本身，不在时间步数
+3. **这是工程上有用的 trade-off 信息**：如果将来 cosim 预算允许再多 3x runtime，
+   把 T=10 升到 T=30 是稳赚 +0.5～0.9 pp 的；但 T=50 不要做
 
 ### 5.3 性能 trade-off
 
@@ -240,26 +254,26 @@ fix（commit `1de8dd2c` 把 buffer 改成 `× stream_words`，T=10 byte-exact �
 
 ### 5.4 论文/简历叙事用法
 
-**论文**：T-sweep 是 quantization-stack-ceiling narrative 的**关键** ablation 证据：
-> "On Fashion-MNIST, increasing the SNN timestep count T from 10 to 30 yields +0.89 pp
-> (81.99% → 82.88%); a further increase to T=50 regresses to 81.94%, indicating the
-> 4-bit weight + LIF cascade quantization stack saturates well below the PyTorch float
-> proxy of 90.94%. On MNIST, T=10 is already at the stack ceiling (93.03%), with T=50
-> showing a slight regression (-0.22 pp). T-extension is therefore not the lever that
-> closes the Fashion accuracy gap; further accuracy improvement on this dataset would
-> require widening the weight bit-width or moving to graded spikes — both architectural
-> changes outside V2.B's scope."
+**论文**：T-sweep 2×3 矩阵是 quantization-stack-ceiling narrative 的**关键** ablation 证据：
+> "Across MNIST and Fashion-MNIST, the LeNet-5 SNN exhibits a consistent T-extension
+> behaviour: T=30 yields a small lift (+0.52 pp on MNIST, +0.89 pp on Fashion) and
+> T=50 regresses (−0.22 pp on MNIST, −0.05 pp on Fashion). The Fashion gap to PyTorch
+> float (90.94%) remains open by 8 pp at the best T, indicating that T-extension is
+> not the lever that closes it; further accuracy improvement on Fashion would require
+> widening the weight bit-width or moving to graded spikes — both architectural
+> changes outside V2.B's 4-bit / 1-bit-spike scope."
 
-**简历**：T-sweep 不是简历的核心 number。引用时**只引用** Fashion T=30 = 82.88% 作为"我
-跑了 T 曲线，知道 sweet spot 在哪"的工程严谨性表达，**不要**单独 quote 任何 T 值
-当 baseline。
+**简历**：T-sweep 不是简历的核心 number。引用时**只引用** MNIST T=30 = 93.55% 或
+Fashion T=30 = 82.88% 作为"我跑了完整 2×3 T-sweep 曲线，知道 sweet spot 在哪"的工程
+严谨性表达，**不要**单独 quote 任何 T=50 值（都是负 trade-off）。
 
 ### 5.5 红线（T-sweep 特有）
 
-- ❌ "T=50 给 Fashion 加 ~5 pp" — 反了，T=50 反而降回 baseline
-- ❌ "MNIST T=50 加成 ~1 pp" — 反了，MNIST 已饱和，T 加长反而 −0.22 pp
-- ❌ "T 是 Fashion 的解药" — 反了，最高 +0.89 pp（T=30），T=50 全消失
-- ✅ "T-sweep ablation 证明 quant stack 是 Fashion 的瓶颈，不是 T" — 正确叙事
+- ❌ "T=50 给 Fashion / MNIST 加成" — 都不行，两个 dataset 在 T=50 都掉头
+- ❌ "T 是 Fashion 的解药" — 反了，最高 +0.89 pp（T=30），不够补 8 pp 缺口
+- ❌ "MNIST T=10 已经天花板" — 不准确，T=30 还能再涨 +0.52 pp，但 T=50 才真饱和
+- ✅ "T=30 是普适 sweet spot；T=50 在两个 dataset 都不 buy 任何东西" — 正确叙事
+- ✅ "T-sweep 2×3 矩阵证明 quant stack 是 Fashion 的瓶颈，不是 T" — 正确叙事
 
 ---
 
