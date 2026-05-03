@@ -24,5 +24,7 @@
 ../rtl/periph/spi_ctrl.sv
 ../rtl/periph/jtag_mem_loader.sv
 ../rtl/top/e203_min_wrap.sv
+../rtl/sys/sync_2ff.sv
+../rtl/sys/reset_sync.sv
 ../rtl/top/snn_soc_top.sv
 ../rtl/top/chip_top.sv

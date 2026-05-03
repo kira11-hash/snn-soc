@@ -75,6 +75,8 @@
 ../rtl/vendor_e203/e203/core/e203_reset_ctrl.v
 ../rtl/vendor_e203/e203/core/e203_srams.v
 ../rtl/vendor_e203/e203/subsys/e203_subsys_nice_core.v
+../rtl/sys/sync_2ff.sv
+../rtl/sys/reset_sync.sv
 ../rtl/top/snn_soc_v2b_e203_top.sv
 
 ../tb/v2_e203_cosim_tb.sv

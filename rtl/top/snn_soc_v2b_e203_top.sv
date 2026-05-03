@@ -43,6 +43,23 @@ module snn_soc_v2b_e203_top #(
   import snn_soc_pkg::*;
 
   // ================================================================
+  // Async-assert / sync-release reset (2026-05-03 added，pre-tape-out fix)
+  //
+  //  rst_n 来自外部（FPGA 板级 reset 或 BD-level PS_RST 派生）。pre-tape-out
+  //  audit 发现 V2.B SoC 之前直接把 pad-level rst_n 喂给所有 always_ff，缺
+  //  sync release。这里加 reset_sync 做 async-assert / sync-release，下游
+  //  E203 core / ICB bridge / V2.B SoC 收到的就是干净的 rst_n_sync。
+  //  影响：所有下游 reset 释放比之前晚 2 个 clk；功能不变；FPGA 重烧后以
+  //  fresh UART evidence 为准。
+  // ================================================================
+  logic rst_n_sync;
+  reset_sync #(.STAGES(2)) u_reset_sync (
+    .clk         (clk),
+    .rst_n_async (rst_n),
+    .rst_n_sync  (rst_n_sync)
+  );
+
+  // ================================================================
   // E203 core wrap
   // ================================================================
   logic [31:0] inspect_pc;       // 供 TB / debug，不接板
@@ -61,7 +78,7 @@ module snn_soc_v2b_e203_top #(
 
   e203_min_wrap u_e203 (
     .clk(clk),
-    .rst_n(rst_n),
+    .rst_n(rst_n_sync),
     .cpu_local_rst_n(1'b1),
     .inspect_pc(inspect_pc),
     .core_wfi(core_wfi),
@@ -91,7 +108,7 @@ module snn_soc_v2b_e203_top #(
   logic        br_busy;
 
   icb2simple_bridge_v2b u_bridge (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .i_icb_cmd_valid(cpu_mem_icb_cmd_valid),
     .i_icb_cmd_ready(cpu_mem_icb_cmd_ready),
     .i_icb_cmd_addr (cpu_mem_icb_cmd_addr),
@@ -133,7 +150,7 @@ module snn_soc_v2b_e203_top #(
   logic [31:0] v2b_m_rdata;
 
   bus_interconnect_v2_e203 u_fabric (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .m_valid(br_m_valid), .m_write(br_m_write), .m_addr(br_m_addr),
     .m_wdata(br_m_wdata), .m_wstrb(br_m_wstrb),
     .m_ready(br_m_ready), .m_rdata(br_m_rdata), .m_rvalid(br_m_rvalid),
@@ -166,7 +183,7 @@ module snn_soc_v2b_e203_top #(
     .INIT_FILE(INSTR_INIT_FILE)
 `endif
   ) u_instr_sram (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .req_valid(instr_req_valid),
     .req_write(instr_req_write),
     .req_addr (instr_req_addr),
@@ -180,7 +197,7 @@ module snn_soc_v2b_e203_top #(
   // DATA_SRAM (8 KB @ 0x0001_0000)
   // ================================================================
   sram_simple #(.MEM_BYTES(int'(V2E203_DATA_BYTES))) u_data_sram (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .req_valid(data_req_valid),
     .req_write(data_req_write),
     .req_addr (data_req_addr),
@@ -194,7 +211,7 @@ module snn_soc_v2b_e203_top #(
   // UART (@ 0x0002_0000)
   // ================================================================
   uart_ctrl u_uart (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .req_valid(uart_req_valid),
     .req_write(uart_req_write),
     .req_addr (uart_req_addr),
@@ -217,7 +234,7 @@ module snn_soc_v2b_e203_top #(
   logic [31:0] v2b_rsp_rdata;
 
   simple2v2btop_adapter u_adapter (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .m_valid(v2b_m_valid), .m_write(v2b_m_write), .m_addr(v2b_m_addr),
     .m_wdata(v2b_m_wdata), .m_wstrb(v2b_m_wstrb),
     .m_ready(v2b_m_ready), .m_rdata(v2b_m_rdata), .m_rvalid(v2b_m_rvalid),
@@ -229,7 +246,7 @@ module snn_soc_v2b_e203_top #(
   );
 
   snn_soc_v2b_top u_v2b (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n_sync),
     .cmd_valid(v2b_cmd_valid), .cmd_ready(v2b_cmd_ready),
     .cmd_addr (v2b_cmd_addr),  .cmd_write(v2b_cmd_write),
     .cmd_wdata(v2b_cmd_wdata), .cmd_wstrb(v2b_cmd_wstrb),
