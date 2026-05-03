@@ -29,6 +29,12 @@
 #define SILICON_BRINGUP_BUILD_ID "frozen"
 #endif
 
+#ifdef SILICON_BRINGUP_SIM_FAST
+#define SBR_VERBOSE_LOG(...) ((void)0)
+#else
+#define SBR_VERBOSE_LOG(...) uart_printf(__VA_ARGS__)
+#endif
+
 // ---------------------------------------------------------------------------
 // Self-test parameters
 // ---------------------------------------------------------------------------
@@ -107,8 +113,8 @@ int main(void) {
     // Stage A — Digital inference datapath via REG_CIM_TEST (test_mode=1)
     // Bypasses analog CIM + ADC; exercises every digital stage downstream.
     // --------------------------------------------------------------------
-    uart_printf("[STAGE_A] inference with test_mode=1, pos=%u, neg=%u\n",
-                BRINGUP_TEST_POS, BRINGUP_TEST_NEG);
+    SBR_VERBOSE_LOG("[STAGE_A] inference with test_mode=1, pos=%u, neg=%u\n",
+                    BRINGUP_TEST_POS, BRINGUP_TEST_NEG);
 
     // Reset membrane potentials before test
     CIM_CTRL = CIM_CTRL_SOFT_RESET_MASK;
@@ -175,16 +181,17 @@ int main(void) {
 
     uint32_t infer_mismatch = 0u;
     for (uint32_t k = 0u; k < 10u; ++k) {
-        uart_printf("[STAGE_A] neuron[%u] hw=%u sw=%u %s\n",
-                    k, hist[k], expected[k],
-                    (hist[k] == expected[k]) ? "OK" : "MISMATCH");
+        SBR_VERBOSE_LOG("[STAGE_A] neuron[%u] hw=%u sw=%u %s\n",
+                        k, hist[k], expected[k],
+                        (hist[k] == expected[k]) ? "OK" : "MISMATCH");
         if (hist[k] != expected[k]) infer_mismatch++;
     }
-    uart_printf("[STAGE_A] total_spikes=%u mismatch=%u\n", out_count, infer_mismatch);
+    SBR_VERBOSE_LOG("[STAGE_A] total_spikes=%u mismatch=%u\n", out_count, infer_mismatch);
     if (infer_mismatch != 0u) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_INFER\n");
         hang();
     }
+    uart_printf("[STAGE_A] PASS\n");
 
     // Disable test_mode for clean follow-up
     REG_CIM_TEST = 0u;
@@ -194,7 +201,7 @@ int main(void) {
     // Exercises cim_program_ctrl state transitions WITHOUT a responding macro.
     // Verify PASS path for both ERASE and WRITE ops.
     // --------------------------------------------------------------------
-    uart_printf("[STAGE_B] programming FSM with bypass_handshake=1\n");
+    SBR_VERBOSE_LOG("[STAGE_B] programming FSM with bypass_handshake=1\n");
 
     // B0: runtime 0->1->0 bypass readback toggle.  This is intentionally
     // performed while the FSM is idle; in-flight policy remains "do not touch
@@ -209,7 +216,7 @@ int main(void) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_BYPASS_CLR\n");
         hang();
     }
-    uart_printf("[STAGE_B] bypass toggle readback PASS\n");
+    SBR_VERBOSE_LOG("[STAGE_B] bypass toggle readback PASS\n");
 
     // B1: full-array erase path.  This intentionally covers the special
     // "skip verify" path in cim_program_ctrl; B2 below covers bypassed erase
@@ -226,7 +233,7 @@ int main(void) {
     {
         uint32_t ps = PROG_STATUS;
         PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C
-        uart_printf("[STAGE_B] full_array_erase PROG_STATUS=0x%x\n", ps);
+        SBR_VERBOSE_LOG("[STAGE_B] full_array_erase PROG_STATUS=0x%x\n", ps);
         if ((ps & PROG_STATUS_FAIL_MASK) || !(ps & PROG_STATUS_PASS_MASK)) {
             uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_ERASE\n");
             hang();
@@ -251,7 +258,7 @@ int main(void) {
     {
         uint32_t ps = PROG_STATUS;
         PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C
-        uart_printf("[STAGE_B] erase PROG_STATUS=0x%x\n", ps);
+        SBR_VERBOSE_LOG("[STAGE_B] erase PROG_STATUS=0x%x\n", ps);
         if ((ps & PROG_STATUS_FAIL_MASK) || !(ps & PROG_STATUS_PASS_MASK)) {
             uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_CELL_ERASE\n");
             hang();
@@ -270,12 +277,13 @@ int main(void) {
     {
         uint32_t ps = PROG_STATUS;
         PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C
-        uart_printf("[STAGE_B] write PROG_STATUS=0x%x\n", ps);
+        SBR_VERBOSE_LOG("[STAGE_B] write PROG_STATUS=0x%x\n", ps);
         if ((ps & PROG_STATUS_FAIL_MASK) || !(ps & PROG_STATUS_PASS_MASK)) {
             uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_WRITE\n");
             hang();
         }
     }
+    uart_printf("[STAGE_B] PASS\n");
 
     // Turn bypass off again — any subsequent production use should start clean
     prog_ctrl_write_low_preserve_retry(0u);
