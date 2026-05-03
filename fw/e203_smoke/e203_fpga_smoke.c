@@ -28,25 +28,65 @@
 #define SMOKE_WEIGHT_PER_CELL 16
 #define SMOKE_ACTIVE_ROWS     10
 #define SMOKE_DIFF_VAL        (SMOKE_WEIGHT_PER_CELL * SMOKE_ACTIVE_ROWS) // 160
+#define SMOKE_POLL_TIMEOUT    0x02000000u
 
 // Input buffer in BSS (DATA_SRAM, accessible by DMA)
 static uint32_t input_buf[DMA_LEN_VALUE];
 
-// Wait for CIM inference DONE (polls CIM_CTRL bit[7])
-static void wait_cim_done(void) {
-    while ((CIM_CTRL & CIM_CTRL_DONE_MASK) == 0u) {}
+static uint32_t wait_cim_done_bound(void) {
+    for (uint32_t guard = 0u; guard < SMOKE_POLL_TIMEOUT; ++guard) {
+        if ((CIM_CTRL & CIM_CTRL_DONE_MASK) != 0u) {
+            return 1u;
+        }
+    }
+    return 0u;
+}
+
+static uint32_t wait_dma_done_bound(uint32_t *ctrl_out) {
+    uint32_t ctrl = 0u;
+    for (uint32_t guard = 0u; guard < SMOKE_POLL_TIMEOUT; ++guard) {
+        ctrl = DMA_CTRL;
+        if ((ctrl & DMA_CTRL_DONE_MASK) != 0u) {
+            if (ctrl_out) {
+                *ctrl_out = ctrl;
+            }
+            return 1u;
+        }
+    }
+    if (ctrl_out) {
+        *ctrl_out = ctrl;
+    }
+    return 0u;
+}
+
+static inline void prog_status_clear_done(void) {
+    PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C DONE
 }
 
 // Wait for programming DONE (polls PROG_STATUS bit[7])
-static inline uint32_t wait_prog_done(void) {
-    while ((PROG_STATUS & PROG_STATUS_DONE_MASK) == 0u) {}
-    uint32_t ps = PROG_STATUS;
-    PROG_STATUS = PROG_STATUS_DONE_MASK; // W1C DONE
-    return ps;
+static inline uint32_t wait_prog_done_bound(uint32_t *status_out) {
+    uint32_t ps = 0u;
+    for (uint32_t guard = 0u; guard < SMOKE_POLL_TIMEOUT; ++guard) {
+        ps = PROG_STATUS;
+        if ((ps & PROG_STATUS_DONE_MASK) != 0u) {
+            prog_status_clear_done();
+            if (status_out) {
+                *status_out = ps;
+            }
+            return 1u;
+        }
+    }
+    if (status_out) {
+        *status_out = ps;
+    }
+    return 0u;
 }
 
 // Clear low control bits for the next START while preserving RETRY_LIMIT[10:8].
 static inline void prog_ctrl_start_preserve_retry(uint32_t low_bits) {
+    // PROG_STATUS.DONE is W1C sticky in reg_bank; START does not auto-clear it.
+    // Clear it up front so a warm-reset rerun cannot consume stale completion.
+    prog_status_clear_done();
     uint32_t pc = PROG_CTRL;
     PROG_CTRL = (pc & ~PROG_CTRL_LOW_MASK) | low_bits | PROG_CTRL_START_MASK;
 }
@@ -62,22 +102,42 @@ int main(void) {
     // ---------------------------------------------------------------
     // Phase 1 — Programming gate
     // ---------------------------------------------------------------
+    if ((PROG_STATUS & PROG_STATUS_FSM_PRESENT_MASK) == 0u) {
+        uart_puts("[PROG] programming FSM missing\n");
+        uart_puts("FPGA_E203_PROGRAM_ERASE_WRITE_FAIL\n");
+        uart_wait_idle();
+        while (1) {}
+    }
 
     // Step 1a: full-array erase
     // Clear BYPASS/LEVEL low bits for erase, but keep RETRY_LIMIT[10:8].
     prog_ctrl_start_preserve_retry(PROG_CTRL_ERASE_MASK | PROG_CTRL_FULL_ARRAY_MASK);
-    (void)wait_prog_done();
-    uart_puts("[PROG] full-array erase DONE\n");
+    uint32_t prog_fail = 0u;
+    uint32_t erase_status = 0u;
+    if (!wait_prog_done_bound(&erase_status)) {
+        prog_fail = 1u;
+        uart_puts("[PROG] full-array erase TIMEOUT\n");
+    } else if ((erase_status & PROG_STATUS_FAIL_MASK) != 0u) {
+        prog_fail = 1u;
+        uart_printf("[PROG] full-array erase FAIL status=0x%x\n", erase_status);
+    } else {
+        uart_puts("[PROG] full-array erase DONE\n");
+    }
 
     // Step 1b: write rows 0..9 × cols 0..9 at level 1
     // Reuse the same low-byte clear path so RETRY_LIMIT[10:8] survives.
     uint32_t write_fail = 0u;
-    for (uint32_t r = 0u; r < SMOKE_ROWS; r++) {
+    for (uint32_t r = 0u; r < SMOKE_ROWS && prog_fail == 0u; r++) {
         for (uint32_t c = 0u; c < SMOKE_COLS; c++) {
+            uint32_t ps = 0u;
             PROG_ROW = r;
             PROG_COL = c;
             prog_ctrl_start_preserve_retry(SMOKE_LEVEL << PROG_CTRL_LEVEL_SHIFT);
-            uint32_t ps = wait_prog_done();
+            if (!wait_prog_done_bound(&ps)) {
+                prog_fail = 1u;
+                uart_printf("[PROG] write TIMEOUT row=%u col=%u\n", r, c);
+                break;
+            }
             if ((ps & PROG_STATUS_FAIL_MASK) != 0u) {
                 write_fail++;
             }
@@ -86,9 +146,15 @@ int main(void) {
 
     if (write_fail != 0u) {
         uart_printf("[PROG] write FAIL count=%u\n", write_fail);
-    } else {
-        uart_puts("[PROG] write subset rows=0..9 cols=0..9 PASS\n");
+        prog_fail = 1u;
     }
+    if (prog_fail != 0u) {
+        uart_puts("FPGA_E203_PROGRAM_ERASE_WRITE_FAIL\n");
+        uart_wait_idle();
+        while (1) {}
+    }
+
+    uart_puts("[PROG] write subset rows=0..9 cols=0..9 PASS\n");
     uart_puts("FPGA_E203_PROGRAM_ERASE_WRITE_PASS\n");
 
     // ---------------------------------------------------------------
@@ -134,12 +200,25 @@ int main(void) {
     DMA_LEN_WORDS = DMA_LEN_VALUE;
     DMA_DST_SEL   = DMA_DST_INPUT_FIFO;
     DMA_CTRL      = DMA_CTRL_START_MASK;
-    while ((DMA_CTRL & DMA_CTRL_DONE_MASK) == 0u) {}
+    {
+        uint32_t dma_status = 0u;
+        if (!wait_dma_done_bound(&dma_status)) {
+            uart_printf("[INFER] DMA TIMEOUT ctrl=0x%x\n", dma_status);
+            uart_puts("FPGA_E203_PROGRAMMED_INFERENCE_FAIL\n");
+            uart_wait_idle();
+            while (1) {}
+        }
+    }
     DMA_CTRL = DMA_CTRL_DONE_MASK; // W1C
 
     // Start CIM inference
     CIM_CTRL = CIM_CTRL_START_MASK;
-    wait_cim_done();
+    if (!wait_cim_done_bound()) {
+        uart_puts("[INFER] CIM TIMEOUT\n");
+        uart_puts("FPGA_E203_PROGRAMMED_INFERENCE_FAIL\n");
+        uart_wait_idle();
+        while (1) {}
+    }
 
     // Pop output FIFO and build spike-count histogram
     uint32_t out_count = REG_OUT_COUNT;

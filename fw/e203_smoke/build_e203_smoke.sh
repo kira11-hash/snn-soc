@@ -15,11 +15,29 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FW_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$FW_DIR/.." && pwd)"
 OUT_DIR="$SCRIPT_DIR/out"
 CROSS="${CROSS:-riscv64-unknown-elf}"
 BOOT_IMEM_WORDS=4096  # 16KB INSTR_SRAM / 4 bytes per word
 
 mkdir -p "$OUT_DIR"
+
+if ! command -v "$CROSS"-gcc >/dev/null 2>&1; then
+  if command -v wsl.exe >/dev/null 2>&1 && [ -z "${E203_SMOKE_WSL_REEXEC:-}" ]; then
+    ROOT_WIN="$(cd "$ROOT_DIR" && pwd -W 2>/dev/null || true)"
+    if [ -n "$ROOT_WIN" ]; then
+      ROOT_WSL="$(wsl.exe wslpath -a "$ROOT_WIN" 2>/dev/null | tr -d '\r')"
+      if [ -n "$ROOT_WSL" ] && \
+         wsl.exe bash -lc "command -v '$CROSS-gcc' >/dev/null 2>&1 && command -v '$CROSS-objcopy' >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1"; then
+        echo "[INFO] local $CROSS toolchain not found; retrying build inside WSL"
+        wsl.exe bash -lc "cd '$ROOT_WSL' && E203_SMOKE_WSL_REEXEC=1 CROSS='$CROSS' UART_BAUD_DIV_OVERRIDE='${UART_BAUD_DIV_OVERRIDE:-}' bash 'fw/e203_smoke/build_e203_smoke.sh'"
+        exit $?
+      fi
+    fi
+  fi
+  echo "[ERROR] missing $CROSS-gcc. Install the toolchain locally or make it available inside WSL." >&2
+  exit 127
+fi
 
 CFLAGS=(
   -march=rv32i_zicsr_zifencei
