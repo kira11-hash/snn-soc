@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR"
 resolve_iverilog_tools
 resolve_python_tool
 
-USAGE="usage: $0 [--smoke|--full] [lenet5|lenet5_fashion|lenet5_fashion_t30|lenet5_fashion_t50|lenet5_t50]"
+USAGE="usage: $0 [--smoke|--full] [lenet5|lenet5_fashion|lenet5_t30|lenet5_t50|lenet5_fashion_t30|lenet5_fashion_t50]"
 MODE="${1:---smoke}"
 case "$MODE" in
   --smoke) SAMPLES=1 ;;
@@ -19,16 +19,18 @@ esac
 # Default "lenet5" matches the canonical M4 MNIST artifacts. The other
 # bundles are ablations:
 #   lenet5_fashion       — MNIST → Fashion-MNIST swap (T=10, conv_extension_log §2.1bis)
+#   lenet5_t30           — MNIST + T-extension to 30 (T trade-off, sweet spot per dataset)
+#   lenet5_t50           — MNIST + T-extension to 50 (T trade-off, control showing saturation)
 #   lenet5_fashion_t30   — Fashion + T-extension to 30 (T trade-off curve mid-point)
 #   lenet5_fashion_t50   — Fashion + T-extension to 50 (T trade-off curve endpoint)
-#   lenet5_t50           — MNIST + T-extension to 50 (T trade-off control: does MNIST saturate?)
 BUNDLE="${2:-lenet5}"
 case "$BUNDLE" in
   lenet5)               GEN_OVERRIDE=() ;;
   lenet5_fashion)       GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion) ;;
+  lenet5_t30)           GEN_OVERRIDE=(--tag _t30 --t-override 30) ;;
+  lenet5_t50)           GEN_OVERRIDE=(--tag _t50 --t-override 50) ;;
   lenet5_fashion_t30)   GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion_t30 --t-override 30) ;;
   lenet5_fashion_t50)   GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion_t50 --t-override 50) ;;
-  lenet5_t50)           GEN_OVERRIDE=(--tag _t50 --t-override 50) ;;
   *) echo "$USAGE" >&2; exit 2 ;;
 esac
 
