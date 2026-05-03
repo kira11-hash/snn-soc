@@ -8,6 +8,10 @@
 #include <stdint.h>
 #include "soc_regs_v2_e203.h"
 
+#ifndef UART_TX_TIMEOUT
+#define UART_TX_TIMEOUT 1000000u
+#endif
+
 void uart_init(void)
 {
     UART_CTRL = UART_BAUD_DIV;
@@ -15,8 +19,13 @@ void uart_init(void)
 
 static void uart_tx_byte(uint8_t b)
 {
-    while (UART_STATUS & UART_STATUS_TX_BUSY) { /* spin */ }
-    UART_TXDATA = (uint32_t)b;
+    uint32_t guard = 0u;
+    while ((UART_STATUS & UART_STATUS_TX_BUSY) && guard < UART_TX_TIMEOUT) {
+        guard++;
+    }
+    if (guard < UART_TX_TIMEOUT) {
+        UART_TXDATA = (uint32_t)b;
+    }
 }
 
 void uart_putc(char c)

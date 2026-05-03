@@ -82,18 +82,26 @@ int main(void)
 #endif
     uint32_t mismatch = 0u;
     for (uint32_t k = 0; k < NUM_COSIM_SAMPLES; k++) {
-        int32_t counts[10];
-        (void)v2b_infer_resident_14x14(
+        int32_t counts[10] = {0};
+        int infer_rc = v2b_infer_resident_14x14(
             golden_fashion10[k].pixel_196,
             golden_s0_w_pos, golden_s0_w_neg,
             golden_s1_w_pos, golden_s1_w_neg,
             counts);
+        if (infer_rc < 0) {
+            mismatch = 1u;
+            uart_puts("FPGA_V2_E203_STAGE_ERR sample=");
+            uart_put_sample_idx(k);
+            uart_puts(" rc=");
+            uart_put_count_value(infer_rc);
+            uart_puts("\n");
+        }
 
         /* Write per-sample counts into the shared counts buffer, then
          * raise the sample-done flag so TB can poll in order. */
         for (uint32_t j = 0; j < 10u; j++) {
             __smoke_counts_base[k * 10u + j] = (uint32_t)counts[j];
-            if (counts[j] != golden_fashion10[k].expected_counts[j]) {
+            if (infer_rc >= 0 && counts[j] != golden_fashion10[k].expected_counts[j]) {
                 mismatch = 1u;
                 uart_puts("FPGA_V2_E203_COUNT_MISMATCH sample=");
                 uart_put_sample_idx(k);
@@ -107,7 +115,9 @@ int main(void)
             }
         }
         __sample_done_flags[k] = 1u;
-        uart_put_counts_line(k, counts);
+        if (infer_rc >= 0) {
+            uart_put_counts_line(k, counts);
+        }
     }
 
     if (mismatch) {
