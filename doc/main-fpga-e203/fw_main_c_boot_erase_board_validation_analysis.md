@@ -13,7 +13,7 @@
 但 Round 3 为了修 `fw/e203_smoke/e203_fpga_smoke.c` 的 `PROG_CTRL` RMW /
 `RETRY_LIMIT` 问题，已经在 `main-fpga-e203-alpha` worktree 上重新 bitgen 并补做了
 一次板级 smoke re-verify。最新原始 UART capture 见
-`doc/main-fpga-e203/uart_capture_20260503_alpha_reverify.txt`。
+`doc/main-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt`。
 
 ## 理由
 
@@ -45,7 +45,13 @@ FPGA_E203_PROGRAM_ERASE_WRITE_PASS
 ...
 FPGA_E203_PROGRAMMED_INFERENCE_PASS
 ```
-"全阵列擦除 → 写 → verify → 推理" 整条链路**已经在 FPGA 上实测过**。器件老师今天的"开机必须擦除"确认，对 FPGA 路径是"已经这么做了"，不是新需求。
+"全阵列擦除 → 写 subset → 推理" 整条链路**已经在 FPGA 上实测过**，最终以
+`FPGA_E203_PROGRAM_ERASE_WRITE_PASS` 和 `FPGA_E203_PROGRAMMED_INFERENCE_PASS`
+收口。器件老师今天的"开机必须擦除"确认，对 FPGA 路径是"已经这么做了"，不是新需求。
+当前 smoke firmware 还额外收紧了 Gate C1 语义：只有 full-array erase 与 subset
+write 都没有 `PROG_STATUS_FAIL` 时才会打印 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS`；
+失败路径会显式打印 `FPGA_E203_PROGRAM_ERASE_WRITE_FAIL` 并停机，不再出现
+"先报 FAIL count，随后仍给 PASS marker" 的假阳性。
 
 ### 为什么还要改 `fw/main.c`？
 

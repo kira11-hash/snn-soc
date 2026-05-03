@@ -39,14 +39,14 @@ histogram against SW-simulated LIF expected counts
 `IBUFDS` (DIFF_TERM=TRUE) + `MMCME4_ADV` (MULT=4.0, DIV=24.0, VCO=1200 MHz)
 + `BUFG`. Clock input: USER_SI570 on pins AL8 (P) / AL7 (N).
 
-### D5: UART via PMOD J55 (external USB-TTL adapter)
+### D5: UART via on-board CP2108 J83
 
-A20 = FPGA TX, B20 = FPGA RX. LVCMOS33. Not routed via CP2108.
-Requires external USB-TTL adapter (CP2102/CH340/PL2303, 3.3V).
+F13 = FPGA TX, E13 = FPGA RX, routed to CP2108 Interface 2 on J83.
+On the reference development PC this enumerates as COM3 at 115200 8N1.
 
 ### D6: Branch from `main @ 4c5de4eb`
 
-Evidence branch. Tags `main-fpga-e203-passed` when all three gates pass.
+Evidence branch. Tags `main-fpga-e203-alpha-passed` when all three gates pass.
 Default does NOT merge to main.
 
 ## File Map
@@ -117,23 +117,33 @@ xsct scripts/program_zcu102_e203.tcl \
      fpga_synth/zcu102_e203_demo/out/snn_soc_fpga_top.bit
 ```
 
-Expected UART stream (one continuous capture, save as
-`doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`):
+Expected UART stream (latest raw re-verify:
+`doc/main-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt`; archival board
+log: `doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`):
 
 ```
 UART_OK
 FPGA_E203_BOOT_UART_PASS                       ← Gate C0
 [PROG] full-array erase DONE
-[PROG] verify all-zero subset PASS
-[PROG] write rows=0..9 cols=0..9 level=1 PASS
-[PROG] verify programmed subset PASS
+[PROG] write subset rows=0..9 cols=0..9 PASS
 FPGA_E203_PROGRAM_ERASE_WRITE_PASS             ← Gate C1
-[INFER] all-ones input, T=10, ratio=1
-[INFER] spike counts = [80 80 80 80 80 80 80 80 80 80]
+[INFER] neuron[0] hw=80 sw=80 OK
+[INFER] neuron[1] hw=80 sw=80 OK
+[INFER] neuron[2] hw=80 sw=80 OK
+[INFER] neuron[3] hw=80 sw=80 OK
+[INFER] neuron[4] hw=80 sw=80 OK
+[INFER] neuron[5] hw=80 sw=80 OK
+[INFER] neuron[6] hw=80 sw=80 OK
+[INFER] neuron[7] hw=80 sw=80 OK
+[INFER] neuron[8] hw=80 sw=80 OK
+[INFER] neuron[9] hw=80 sw=80 OK
+[INFER] total_spikes=800 mismatch=0
 FPGA_E203_PROGRAMMED_INFERENCE_PASS            ← Gate C2
 ```
 
-All three tags ⇒ tag `main-fpga-e203-passed` on this branch.
+Gate C1 现在只有在 full-array erase 与 subset write 全部无 `PROG_STATUS_FAIL`
+时才会打印；失败路径会显式给出 `FPGA_E203_PROGRAM_ERASE_WRITE_FAIL` 并停机。
+All three tags ⇒ tag `main-fpga-e203-alpha-passed` on this branch.
 
 ## Inference Expected Counts
 
