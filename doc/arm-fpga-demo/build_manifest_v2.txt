@@ -1,19 +1,19 @@
 # v2-arm-fpga-demo build manifest v2
-Generated UTC: 2026-05-03T04:14:34Z
+Generated UTC: 2026-05-03T11:38:56Z
 Git branch: feature/v2-arm-fpga-demo-conv
-Git commit: 537ad3b10d890d4c7f594e344bd9f4828c972ca3
+Git commit: e7ea6125e33b0cb5dc278b71b973fe50dded6e12
 
 Vivado tool path: /d/Xilinx/Vivado/2022.2/bin/vivado.bat
-Vivado version: Vivado v2022.2 (64-bit) | SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022 | IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
-Resolved psu_init.tcl: /mnt/d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl
+Vivado version: Vivado v2022.2 (64-bit) SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022|IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
+Resolved psu_init.tcl: /d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl
 
 AArch64 toolchain path: /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
 AArch64 GCC version: aarch64-xilinx-elf-gcc.exe (GCC) 11.2.0
 V2B_SOC_BASE override: <unset>
 
-Bitstream path: /mnt/d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit
-Bitstream SHA256: 1d26e2e3bfc22a8a1028839ab810d7293642db4c3534dcc55ce917662cd7bcc7
-XSA path: /mnt/d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo.xsa
-XSA SHA256: 790d567a0735a48e0b6eded6e1d2c351f0bbcd82ffac42428e1b9bb72a86d0fa
-ELF path: /mnt/d/SoC Design/audit-v2/fw/arm/out/v2b_arm_demo.elf
-ELF SHA256: 964e620f5e04e93b4c295a5615175b1b5de7ea7c027514ca5e0f5c3afbb5b12b
+Bitstream path: /d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit
+Bitstream SHA256: 57863f1cbd41054e7677358f815926a08f23c98a23453ef61d3030aa3da35be9
+XSA path: /d/SoC Design/audit-v2/fpga_synth/zcu102_arm_demo.xsa
+XSA SHA256: 13b68ece958b8d6a45806eef4ac466e9fd2c2c8f60c0186a4853044986437afe
+ELF path: /d/SoC Design/audit-v2/fw/arm/out/v2b_arm_demo.elf
+ELF SHA256: 639f934dab238cd10416a930a3f6f5cb2b57d36b997a5898d195ac6f8796f1ee

@@ -6,7 +6,7 @@
 - **Phase C0 本地静态 sanity — ✅ OOC 综合 PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 经 HPM0_FPD 已锁**（完整 bitgen + 板上 smoke 在用户 sign-off + 有板子时执行）
 - **Phase C0/C1 板级验证（frozen v1，Fashion-MNIST 14×14）—✅ PASS**（tag `v2-arm-fpga-demo-passed` @ `8e51ae27`，2026-04-22 sign-off）
 - **Fix wave F1（WSTRB partial-write 修复）—✅ RTL/TB PASS + 重 bitgen PASS + 重烧 PASS**（tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
-- **CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv）—✅ PASS**（当前分支 HEAD `537ad3b1`，原生 conv1 root-cause fix commit = `48958da0`，最新 re-verify PASS marker = `ARM_FPGA_DEMO_LENET5_PASS`，详见 §12）
+- **CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv）—✅ PASS**（当前分支 HEAD `bf56e942`；LeNet-5 closure/evidence anchor = `d50b7d37`；prior bit/XSA build commit = `537ad3b1`；原生 conv1 root-cause fix commit = `48958da0`；最新 re-verify PASS marker = `ARM_FPGA_DEMO_LENET5_PASS`，详见 §12）
 
 **Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。frozen v1 与 v2 fix wave 通过双 tag 并存：
 
@@ -329,11 +329,15 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 
 ## 12. CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv 子分支）
 
-**当前分支 HEAD**：`537ad3b1`（2026-05-03）
+**当前分支 HEAD**：`bf56e942`（2026-05-03；async-assert/sync-release reset +
+cim_done CDC sync）
+**LeNet-5 closure/evidence anchor**：`d50b7d37`（2026-05-03；docs/evidence
+alignment + ARM ELF rebuild hash re-check）
+**prior bit/XSA build commit**：`537ad3b1`（bit/XSA provenance；ELF 在 closure HEAD 重建后 SHA 不变）
 **原生 conv1 root-cause fix commit**：`48958da0`（历史关键修复点，不再是当前 HEAD）
 **板验 PASS 标记**：`ARM_FPGA_DEMO_LENET5_PASS`
-**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（已刷新为当前分支 HEAD 与当前 artifact hash）
-**最新 UART capture**：`doc/arm-fpga-demo/uart_capture_20260503_lenet5_reverify.txt`
+**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（记录 closure HEAD、prior bit/XSA build commit 与当前 artifact hash）
+**最新 UART capture**：`doc/arm-fpga-demo/uart_capture_20260503_round3_postfix_reverify.txt`
 **历史长日志**：`doc/arm-fpga-demo/board_bringup_log_lenet5.txt`
 
 ### 12.1 为什么从 Fashion-MNIST 14×14 升级到 LeNet-5
@@ -463,7 +467,7 @@ fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 
 ### 12.7.1 板验路径已统一为 native conv1（commit 48958da0）
 
-| 维度 | 当前板验状态（active branch HEAD = `537ad3b1`；原生 conv1 root-cause fix = `48958da0`） |
+| 维度 | 当前板验状态（active branch HEAD = `bf56e942`；LeNet-5 closure/evidence anchor = `d50b7d37`；prior bit/XSA build commit = `537ad3b1`；原生 conv1 root-cause fix = `48958da0`） |
 |------|---------------------------------------------|
 | conv1 数据来源 | 完全走 RTL（conv_ctrl_v2 + fmap_sram_v2 + patch_unroller_v2） |
 | conv2 / FC1-3 | 完全走 RTL（与 conv1 同一调度链） |
@@ -483,10 +487,10 @@ fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 | Vivado bitstream / XSA | ✅ `build_manifest_v2.txt` 记录当前 committed artifact hash |
 | ARM ELF 链接 + 大小检查 | ✅ `v2b_arm_demo.elf` 已存在且 manifest 已刷新 |
 | xsct JTAG 烧写 | ✅ [program_zcu102_c0] CORE_0_RUNNING |
-| UART 抓 LeNet-5 PASS marker | ✅ `ARM_FPGA_DEMO_LENET5_PASS`（2026-05-03 re-verify，capture 见 `uart_capture_20260503_lenet5_reverify.txt`） |
-| Manifest 文件本体 | ✅ `build_manifest_v2.txt` 已与当前分支 HEAD 和当前 artifact hash 对齐 |
+| UART 抓 LeNet-5 PASS marker | ✅ `ARM_FPGA_DEMO_LENET5_PASS`（2026-05-03 round 3 postfix re-verify，capture 见 `uart_capture_20260503_round3_postfix_reverify.txt`） |
+| Manifest 文件本体 | ✅ `build_manifest_v2.txt` 已在 closure HEAD `d50b7d37` 刷新；bit/XSA hash 与 prior build commit `537ad3b1` 对齐，ARM ELF rebuild hash 不变 |
 | native conv1 路径板验事实 | ✅ 当前 artifact set 重新抓到 10/10 `ARM_FPGA_DEMO_LENET5_PASS` |
-| 板验日志 | ✅ 历史长日志 `board_bringup_log_lenet5.txt` + 最新 raw capture `uart_capture_20260503_lenet5_reverify.txt` |
+| 板验日志 | ✅ 历史长日志 `board_bringup_log_lenet5.txt` + 最新 raw capture `uart_capture_20260503_round3_postfix_reverify.txt` |
 
 ### 12.9 仍未做 / 计划但未上板
 
@@ -499,7 +503,7 @@ fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 
 ### 12.10 引用规则
 
-- **论文 / 简历**：引用 `feature/v2-arm-fpga-demo-conv @ 537ad3b1` + `build_manifest_v2.txt` + `uart_capture_20260503_lenet5_reverify.txt`
+- **论文 / 简历**：引用当前 round 3 evidence commit + `build_manifest_v2.txt` + `uart_capture_20260503_round3_postfix_reverify.txt`；bit/XSA/ELF provenance 以 manifest 当前 hash 为准
 - **历史对照**：v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍是合法基线
 - **复现命令**：详见 `board_bringup_log_lenet5.txt` 末节
 

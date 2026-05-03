@@ -47,14 +47,14 @@ topologies:
     out_dim: 24
     timesteps: 10
     use_bitplane: true
-    threshold: 12000
+    threshold: 2550
     weight_pos_hex: results_multilayer/64_24_10/weights/L0_pos.hex
     weight_neg_hex: results_multilayer/64_24_10/weights/L0_neg.hex
   - in_dim: 24
     out_dim: 10
     timesteps: 1
-    use_bitplane: true
-    threshold: 2550
+    use_bitplane: false
+    threshold: 2
     weight_pos_hex: results_multilayer/64_24_10/weights/L1_pos.hex
     weight_neg_hex: results_multilayer/64_24_10/weights/L1_neg.hex
 - name: '64_32_10'
@@ -66,14 +66,14 @@ topologies:
     out_dim: 32
     timesteps: 10
     use_bitplane: true
-    threshold: 10000
+    threshold: 2550
     weight_pos_hex: results_multilayer/64_32_10/weights/L0_pos.hex
     weight_neg_hex: results_multilayer/64_32_10/weights/L0_neg.hex
   - in_dim: 32
     out_dim: 10
     timesteps: 1
-    use_bitplane: true
-    threshold: 2550
+    use_bitplane: false
+    threshold: 2
     weight_pos_hex: results_multilayer/64_32_10/weights/L1_pos.hex
     weight_neg_hex: results_multilayer/64_32_10/weights/L1_neg.hex
 - name: '64_64_10'
@@ -104,21 +104,21 @@ topologies:
     out_dim: 32
     timesteps: 10
     use_bitplane: true
-    threshold: 4000
+    threshold: 2550
     weight_pos_hex: results_multilayer/64_32_16_10/weights/L0_pos.hex
     weight_neg_hex: results_multilayer/64_32_16_10/weights/L0_neg.hex
   - in_dim: 32
     out_dim: 16
     timesteps: 1
-    use_bitplane: true
-    threshold: 2550
+    use_bitplane: false
+    threshold: 2
     weight_pos_hex: results_multilayer/64_32_16_10/weights/L1_pos.hex
     weight_neg_hex: results_multilayer/64_32_16_10/weights/L1_neg.hex
   - in_dim: 16
     out_dim: 10
     timesteps: 1
-    use_bitplane: true
-    threshold: 2550
+    use_bitplane: false
+    threshold: 6
     weight_pos_hex: results_multilayer/64_32_16_10/weights/L2_pos.hex
     weight_neg_hex: results_multilayer/64_32_16_10/weights/L2_neg.hex
 

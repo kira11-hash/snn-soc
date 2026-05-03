@@ -19,7 +19,7 @@
 | **M2** Pre-RTL FC tile_mode=1 gate（0.5 周）| ✅ 完成 | `tile_mode_1_e2e_tb` PASS + 9 个现有 V2 sim gate FC 字节级一致 |
 | **M3** CONV RTL + 19 sim gate（2-3 周）| ✅ 完成 | 4 个新 RTL（fmap_sram_v2 / patch_unroller_v2 / fmap_flatten_reader_v2 / conv_ctrl_v2）+ stage_engine_v2 dynamic-WL 扩展 + byte-mask invariant 60 sub-test 全 PASS |
 | **M4** LeNet-5 Bit-exact Cosim + ZCU102 板验（1 周）| ✅ 完成 | 10/10 sample 字节级 byte-exact match Python integer reference；ARM Cortex-A53 + E203 RISC-V 双 CPU 路径都板验通过 |
-| **M5** Tiny VGG + Plain-CNN-4 Bit-exact（1-2 周）| ❌ **主动收兵** | 训练精度卡 ~13%（CIFAR-10），判定为冻结 V2.B 架构上限——非 bit-exact 路径 bug，纯 accuracy ceiling。论文叙事如实表达，不掩饰 |
+| **M5** Tiny VGG + Plain-CNN-4 Bit-exact（1-2 周）| ❌ **主动收兵** | 只留下开发期 exploratory note；当前仓库未保留 checkpoint / manifest / training log / cosim bundle，因此不把 `~13%` 当 formal result。结论仅保留为"V2.B 不继续追 CIFAR topology，留给 v3" |
 | **M6** Phase D port to evidence branches（1 周）| ✅ 完成 | 两条 evidence 分支独立 bitgen + JTAG 烧 + UART 抓 PASS marker；详见 §3 |
 | **M7** Closure / Evidence Seal（0.5 天）| ✅ **本文件 + 两个 tag** | 详见 §6 |
 
@@ -63,7 +63,7 @@
 
 **叙事用法**：
 - ✅ 论文用 #5 配 #1/#3 一起做 quantization-stack-ceiling 三角证据：FC vs LeNet-5 在 Fashion 同一栈下都收敛到 ~82%，而 MNIST 在两个架构下分别 96/93%；Fashion 的低数字不是路径或架构问题，是量化栈与任务难度的乘积上限
-- ✅ 这是 **#2.2 CIFAR-10 plateau 现象（13%）的 Fashion 版本**：不同 dataset 在 V2.B 4-bit / T=10/64 / ADC=8/10 stack 下有各自的天然天花板（MNIST ≈ 93-96%，Fashion ≈ 82%，CIFAR-10 ≈ 13%）
+- ✅ 这和 **#2.2 的 CIFAR exploratory note** 指向同一类容量叙事：不同 dataset 在 V2.B 4-bit / T=10/64 / ADC=8/10 stack 下会撞到各自的任务上限（MNIST ≈ 93-96%，Fashion ≈ 82%；CIFAR 侧当前只保留开发期 `~13%` note，不作为 formal result）
 - ❌ **不可**写"加 conv 让 Fashion 跑到 90%+" — 本 ablation 直接反证
 - ❌ **不可**用 selected_accuracy=0.9 当 90% test set 精度 — 它是 10 个 class-first sample 的子集
 
@@ -103,16 +103,16 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
 - ❌ **不可**写"T=50 让 Fashion 跑到 90%"或"加时间步就能解决 4-bit 损失"——本 ablation 直接反证
 - ❌ **不可**单独 quote T=30 的 82.88% 或 T=50 的 81.94% 作为 baseline；引用时必须**同时给 T=10 的 81.99%** 做对照，让读者看到 "T-sweep 是为了证明 T 不是瓶颈"
 
-### 2.2 Tiny VGG / Plain-CNN-4（CIFAR-10 32×32，T=64）— M5 主动收兵
+### 2.2 Tiny VGG / Plain-CNN-4（CIFAR-10 32×32，T=64）— exploratory note only（未保留 artifact bundle）
 
-| 网络 | 训练精度 | 判定 | 论文措辞 |
+| 网络 | 当前证据状态 | 可引用结论 | 论文措辞 |
 |---|---|---|---|
-| Tiny VGG | ~13%（near random for 10-class） | 冻结架构上限：4-bit weights + 8-bit ADC + ratio_code=1 + T=10/64 在 CIFAR 数据集上无法收敛 | "Tiny VGG / Plain-CNN-4 attempted on V2.B CONV extension; accuracy plateaued at ~13% indicating architectural capacity ceiling for this stack. Validated bit-exact path (LeNet-5) remains the headline result; richer topologies would require a v3 stack with wider weights / higher ADC precision / longer T—not in scope." |
-| Plain-CNN-4 | ~13% | 同上 | 同上 |
+| Tiny VGG | 开发期 note 记录曾在 ~13% 附近停滞；当前仓库未保留 checkpoint / manifest / training log / cosim bundle | 不能当 formal result；只能保留为“V2.B 未继续追 CIFAR topology，留作 v3” | "Tiny VGG / Plain-CNN-4 were explored during V2.B bring-up, but no publication-grade evidence bundle was preserved. LeNet-5 remains the headline validated topology; richer CIFAR-10-class accuracy targets require a v3 stack with wider weights / higher ADC precision / longer T." |
+| Plain-CNN-4 | 同上 | 同上 | 同上 |
 
 判定根据：
 - 不是 bit-exact path bug（infrastructure 在 LeNet-5 上 10/10 PASS 已证明 bit-exact path 健康）
-- 是 V2.B 量化堆栈在 CIFAR 这种 dataset 上的 capacity 上限
+- 当前仓库**未保留**支撑该数值的 checkpoint / manifest / training log / cosim bundle，因此 round 2 起不再把 `~13%` 当 formal evidence
 - 不应作为论文 contribution；不写"我们成功跑了 VGG/Plain-CNN-4 on chip"
 - 写"V2.B CONV extension 可端到端 inference，bit-exact 验证基于 LeNet-5；CIFAR
   级 dataset 需 v3 stack（wider weights / higher ADC / longer T），留作 future work"
@@ -123,15 +123,15 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
 
 | 分支 | CPU 路径 | 当前 HEAD | 板验证据锚点 | UART log |
 |---|---|---|---|---|
-| `feature/v2-arm-fpga-demo-conv` | ARM Cortex-A53 (PS) + AXI-Lite | `537ad3b1` | `doc/arm-fpga-demo/board_bringup_log_lenet5.txt` + `doc/arm-fpga-demo/build_manifest_v2.txt` |
-| `feature/v2-fpga-e203-conv` | E203 RISC-V (PL soft-core) + BRAM init | `b98b9000` | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + committed `fw/v2_e203_smoke/out/*` / `fpga_synth/zcu102_v2_e203_demo/out/*` |
+| `feature/v2-arm-fpga-demo-conv` | ARM Cortex-A53 (PS) + AXI-Lite | current round 3 artifact build `e7ea6125` | `doc/arm-fpga-demo/board_bringup_log_lenet5.txt` + `doc/arm-fpga-demo/build_manifest_v2.txt` | `doc/arm-fpga-demo/uart_capture_20260503_round3_postfix_reverify.txt` |
+| `feature/v2-fpga-e203-conv` | E203 RISC-V (PL soft-core) + BRAM init | current round 3 artifact build `131f0d00` | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + `doc/v2-fpga-e203/build_manifest_lenet5.txt` | `doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt` |
 
 ### 3.1 ARM 分支板验细节
 
 - **Bitstream**：`fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit`
   - SHA256：`1d26e2e3bfc22a8a1028839ab810d7293642db4c3534dcc55ce917662cd7bcc7`
 - **ELF**：`fw/arm/out/v2b_arm_demo.elf`
-  - SHA256：`964e620f5e04e93b4c295a5615175b1b5de7ea7c027514ca5e0f5c3afbb5b12b`
+  - SHA256：`0a3a7c5e29358eaf2cf602ba8d514efa0c92124fd6c3a209541ee8e6c4cfa4f6`
 - **Vivado**：v2022.2 (64-bit) SW Build 3671981 / IP Build 3669848
 - **AArch64 GCC**：11.2.0
 - **板**：ZCU102 (Zynq UltraScale+ XCZU9EG)
@@ -145,7 +145,7 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
   - SHA256：`8ead9baa1d797314c2dba211d62e56d33cdd00ef366dd2777ac602eb7817e74f`
 - **Vivado**：v2022.2（同 ARM）
 - **riscv32 GCC**：riscv64-unknown-elf 工具链（用 -march=rv32imc）
-- **PASS marker**：`FPGA_V2_E203_BOOT_UART_PASS` + 10 行 `[PASS] sample N`
+- **PASS marker**：`FPGA_V2_E203_BOOT_UART_PASS` + 10 行 `[PASS] sample N` + `FPGA_V2_E203_LENET5_PASS`
 
 ---
 
@@ -210,8 +210,8 @@ GPT 还独立做了 FPGA 重烧 + UART 抓三段 PASS marker 的板验，证据�
 |---|---|---|
 | `v2-arm-fpga-demo-passed` | 早期 v1 | Fashion-MNIST 14×14 baseline，WSTRB 漏洞潜伏期 |
 | `v2-arm-fpga-demo-v2-passed` | `03a39a61` | F1 修后 Fashion-MNIST 14×14 完整版 |
-| `v2-fpga-e203-passed` | 早期版本 | E203 path Fashion-MNIST baseline |
-| `v2-permanent-gate-2026-04-25` | 早期版本 | 永久 byte-mask invariant gate |
+| `v2-fpga-e203-passed` | `e696dc39` | E203 path Fashion-MNIST baseline |
+| `v2-permanent-gate-2026-04-25` | `3e8905c0` | 永久 byte-mask invariant gate |
 
 ---
 
@@ -230,10 +230,10 @@ GPT 还独立做了 FPGA 重烧 + UART 抓三段 PASS marker 的板验，证据�
   - ❌ "We trained Tiny VGG / Plain-CNN-4 on the V2.B accelerator."
   - ❌ "Demonstrated CIFAR-10 inference on V2.B chip."
   - ✅ 替换为："V2.B CONV extension can run multi-layer CNN topologies bit-exact;
-    LeNet-5 was used as the headline benchmark. CIFAR-10-class topologies
-    plateaued at ~13% accuracy with the V2.B 4-bit/8-bit/T=10-64 quantization
-    stack; richer accuracy targets are out of scope and would require a v3
-    architectural rev."
+    LeNet-5 was used as the headline benchmark. CIFAR-10-class topologies were
+    explored during development, but no publication-grade evidence bundle was
+    preserved under the V2.B 4-bit/8-bit/T=10-64 stack; richer accuracy targets
+    are out of scope and would require a v3 architectural rev."
 
 ### 简历
 
@@ -259,7 +259,7 @@ GPT 还独立做了 FPGA 重烧 + UART 抓三段 PASS marker 的板验，证据�
    weight-stationary 把 weight load 从 H·W·N_tiles 降到 N_tiles，约 H·W× 加速
 2. **CIFAR-10 capacity**：要么扩 weight bit-width（4-bit → 6-bit/8-bit），要么扩
    ADC 精度（8-bit → 10-bit），要么扩 T（10/64 → 256），任选其一或组合，让 V3
-   能 break 13% 上限
+   能突破当前开发期 note 暗示的 `~13%` 级别 ceiling，并补齐可复现实验 bundle
 3. **Spikformer / Transformer-like attention**：本架构无 element-wise add；v3 需要
 4. **Residual sum / batchnorm / dropout / pool 专用算子**：当前用 stride 替代 pool，
    ResNet 没法做

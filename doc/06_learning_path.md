@@ -15,11 +15,12 @@
 | 当前分支 | `feature/v2-arm-fpga-demo-conv` |
 | 板级冻结 tag (v1, Fashion-MNIST 14×14) | `v2-arm-fpga-demo-passed @ 8e51ae27`（2026-04-22） |
 | 板级冻结 commit (v2 reburn, Fashion-MNIST 14×14) | `ea31be22`（WSTRB byte-mask 修复后重烧 PASS） |
-| **板级冻结 commit (v2-conv, LeNet-5 28×28)** | **`48958da0`（2026-05-01，CONV 扩展 + 5 层串流 PASS）** |
-| Claude 复核基线 HEAD | `48958da0`（"Fix conv fmap preload address increment" + work-around 回滚） |
-| manifest 内历史 build 记录的 commit 字段 | `3719c3e7`（仅指 `build_manifest_v2.txt` 自身仍保留的旧字段；**不是**当前 native LeNet-5 PASS 所引用的板验 commit） |
-| 当前审计修复是否需要 reburn | **否** — 本次仅做文档（doc/06 + arm-fpga-demo 系列）+ 中文化注释；不动 RTL/FW 行为，不影响 bitstream / ELF SHA |
-| HEAD（native conv1）路径是否需要 reburn | **否**（`48958da0` 已完成 clean rebuild + native 10/10 UART PASS；manifest 仅保留历史字段 caveat） |
+| **当前 LeNet-5 closure HEAD** | **`d50b7d37`（docs/evidence alignment + ARM ELF rebuild hash re-check；bit/XSA provenance 不变）** |
+| prior bit/XSA build commit (v2-conv, LeNet-5 28×28) | `537ad3b1`（2026-05-03 UART raw capture re-verify 的硬件 artifact 锚点） |
+| 原生 conv1 root-cause fix commit | `48958da0`（"Fix conv fmap preload address increment" + work-around 回滚；历史关键修复点，不再是当前 HEAD） |
+| manifest 内 commit 字段 | closure HEAD `d50b7d37` + prior bit/XSA build commit `537ad3b1` note（`build_manifest_v2.txt` 已刷新为当前 artifact hash） |
+| 当前审计修复是否需要 reburn | **否** — 2026-05-03 已对 artifact set 重新抓到 `ARM_FPGA_DEMO_LENET5_PASS` |
+| HEAD（native conv1）路径是否需要 reburn | **否**（当前 `d50b7d37` 只触碰 docs/evidence 和 ARM ELF rebuild；prior bit/XSA build commit `537ad3b1` 已完成 10/10 UART re-verify，ELF SHA 不变） |
 | 板级 PASS 标记（v2 Fashion） | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 | **板级 PASS 标记（v2-conv LeNet-5）** | **`ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample 全 PASS，counts byte-exact，argmax 全对）** |
 
@@ -1389,7 +1390,7 @@ V1 原本只做"推理"，把权重通过 `weight_pos.hex` / `weight_neg.hex` �
 
 | 偏移 | 名称 | 关键位 | 说明 |
 |------|------|--------|------|
-| 0x38 | PROG_CTRL | [0]=START W1P, [1]=ERASE RW^1, [2]=FULL_ARRAY RW^1, [3]=BYPASS_HANDSHAKE RW^1, [7:4]=LEVEL RW^1, [10:8]=RETRY_LIMIT RW^1 | 启动一次编程操作；BYPASS=1 跳过 handshake（仿真用），生产固件保持 0 |
+| 0x38 | PROG_CTRL | [0]=START W1P, [1]=ERASE RW^1, [2]=FULL_ARRAY RW^1, [3]=BYPASS_HANDSHAKE RW^1, [7:4]=LEVEL RW^1, [10:8]=RETRY_LIMIT RW^1 | 启动一次编程操作；BYPASS=1 跳过 handshake（仅仿真 / silicon Day-1 自检用），生产固件保持 0 |
 | 0x3C | PROG_ROW | [5:0]=row | 目标行（0~63） |
 | 0x40 | PROG_COL | [4:0]=col | 目标列（0~19） |
 | 0x44 | PROG_STATUS | [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [6]=PROG_FSM_PRESENT RO, [7]=DONE W1C | 状态/完成位；bit[6] 表示 ENABLE_PROGRAM_MODE 是否在硬件上启用，固件用此位代替 BUSY 探测 |
@@ -1890,7 +1891,7 @@ xsct program_zcu102_arm_demo.tcl
 | Tag | 指向 | 状态 |
 |-----|------|------|
 | `v2-arm-fpga-demo-passed` | `8e51ae27` (v1 frozen) | 永久保留，论文/简历可引用 |
-| `v2-arm-fpga-demo-v2-passed` | `03a39a61`（annotated tag；artifact-bearing reburn log 从 `ea31be22` 开始） | F1 修复后重烧 PASS 基线 |
+| `v2-arm-fpga-demo-v2-passed` | annotated tag `75c200bf` → peeled commit `03a39a61`（artifact-bearing reburn log 从 `ea31be22` 开始） | F1 修复后重烧 PASS 基线 |
 
 **复现优先用 v2 tag**：因为 v1 有 partial WSTRB 协议问题（虽然不触发，但讲解时容易让评审困惑）。**对比研究可用 v1 tag**：保留早期版本不可变性。
 
@@ -2253,12 +2254,15 @@ bit-exact 合约：板上 ARM 跑完后 `counts_buf[0..9]` 与 `golden_lenet5[i]
 | Commit | 阶段 | 说明 |
 |--------|------|------|
 | `5beca16b` | work-around | 临时把 Python 端 conv1 reference 直接塞进 ARM header（`fw/arm/include/conv1_ref_all_samples.h`），绕开 conv1 RTL 路径，先确保下游 conv2 / FC 调度上板可验 |
-| `3719c3e7` | checkpoint | 保留 work-around 状态；**当前 build_manifest_v2.txt 锁定的板验固件基于这个 commit 构建** |
+| `3719c3e7` | checkpoint | 保留 work-around 状态；仅作为 native root-cause fix 之前的历史 checkpoint |
 | `48958da0` | RTL 真修复 + work-around 回滚 | "Fix conv fmap preload address increment"：纠正 `snn_soc_v2b_top.sv` 中 `reg_conv_fmap_wr_addr` 的 auto-increment 时序（commit pulse 与 addr+1 同拍发出会让 RTL 看到旧地址，加 1 拍 pending 寄存器解决）；同时删除 5beca16b 的 work-around 头文件，启用 native conv1 路径 |
 
 **关键区分（重要）**：
-- 历史 manifest 字段仍停在 `3719c3e7`：这只说明 `build_manifest_v2.txt` 自身没有为 `48958da0` 单独重写过，不代表当前板验事实还停留在 work-around 路径
-- 当前板验 ground truth = native conv1 路径（commit `48958da0`）：5 层完全走 RTL，clean rebuild 后已在板上抓到 `ARM_FPGA_DEMO_LENET5_PASS`；论文 / 简历引用以 HEAD commit + board log + UART marker 为准
+- `build_manifest_v2.txt` 已刷新到 closure HEAD `d50b7d37`，并显式记录 prior
+  bit/XSA build commit `537ad3b1`；不再保留旧的 `3719c3e7` manifest caveat
+- 当前板验 ground truth = native conv1 路径：root-cause fix 来自 `48958da0`，当前
+  closure / UART re-verify 锚点是 `feature/v2-arm-fpga-demo-conv @ d50b7d37` +
+  `build_manifest_v2.txt` + `uart_capture_20260503_round3_postfix_reverify.txt`
 
 详见 doc/arm-fpga-demo/00_architecture.md §12.7 / §12.7.1。
 

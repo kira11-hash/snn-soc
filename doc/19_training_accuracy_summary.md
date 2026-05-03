@@ -16,7 +16,7 @@
 
 | # | 网络 / 数据集 | 拓扑 | 关键配置 | 训练精度 | 板验状态 |
 |---|---|---|---|---|---|
-| **1** | **Fashion-MNIST 14×14**（V2.B FC baseline，frozen） | 2 层 FC SNN：196 → 64 → 10 | T=64, ADC=10, weight=4-bit signed [-7,+7] | **82.38%** | ✅ ZCU102 板验通过（tag `v2-arm-fpga-demo-v2-passed @ 03a39a61` + `v2-fpga-e203-passed`），10/10 sample 与 Python golden byte-exact |
+| **1** | **Fashion-MNIST 14×14**（V2.B FC baseline，frozen） | 2 层 FC SNN：196 → 64 → 10 | T=64, ADC=10, weight=4-bit signed [-7,+7] | **82.38%** | ✅ ZCU102 板验通过（tag `v2-arm-fpga-demo-v2-passed @ 03a39a61` + `v2-fpga-e203-passed @ e696dc39`），10/10 sample 与 Python golden byte-exact |
 | **2** | **MNIST 14×14**（同 196→64→10 拓扑，本次 ablation） | 2 层 FC SNN：196 → 64 → 10 | T=64, ADC=10, weight=4-bit signed [-7,+7] | **96.48%** | ❌ 不上板（路径与 #1 完全一致，bit-exact 已被 #1 板验证明；MNIST 重烧无新工程价值） |
 | **3** | **LeNet-5 (MNIST 28×28)**（V2.B CONV extension） | 5 层 LeNet-5：Conv1+Conv2+FC1+FC2+FC3 | T=10, ADC=8, weight=4-bit signed [-7,+7] | **93.03%** | ✅ ZCU102 板验通过（tag `v2-arm-fpga-demo-conv-passed @ dabcaf0d` + `v2-fpga-e203-conv-passed @ a1c0c828`），10/10 sample byte-exact |
 | **4** | **Fashion-MNIST 28×28**（同 196→64→10 拓扑放大到 784→64→10，本次 ablation） | 2 层 FC SNN：784 → 64 → 10 | T=64, ADC=10, weight=4-bit signed [-7,+7] | **84.05%** | ❌ 不上板（Python ideal matmul 训练，未做 multi-tile bit-exact；784 输入需要 V2.B tile_mode=1 FC 路径整合后才能 byte-exact 板验，超本计划 scope） |
@@ -89,7 +89,7 @@
 | #3 **MNIST 28×28 LeNet-5, 93.03%** | ✅ **拿得出手**（中段，注意低于 #2） | 看似比 #2 低 ~3 pp 反直觉，但因为 (a) T 从 64 缩到 10（4 倍少时间步） (b) ADC 从 10-bit 缩到 8-bit (c) 网络深 5 层有 cascaded 量化误差累积。在 4-bit / T=10 / ADC=8 约束下 LeNet-5 跑到 93% 可接受；如果想冲 96%+ 需要 T 加到 30-50 + ADC=10。这是 **trade-off 透明叙事**而不是缺点 |
 | #1 **Fashion-MNIST 14×14, 82.38%** | ⚠ **拿得出手但要小心叙事** | Fashion-MNIST 14×14 + 浅 FC 在文献里通常是 87-92%，82% 偏低。原因主要是 14×14 下采样让 Fashion 类间纹理特征丢失（Fashion 比 MNIST 更依赖纹理）。**不要单独 quote 82%**——配合 #2（同拓扑 MNIST 96.48%）和 #4（同拓扑 Fashion 28×28 84.05%）一起出现，能说明"82% 不是路径瓶颈，是 Fashion + 14×14 + 4-bit 三者交集的任务难度上限"。论文里写"Fashion 14×14 demonstrates the streaming FC pipeline functions correctly; absolute accuracy is task/quantization-bound, not infrastructure-bound." |
 | #4 **Fashion-MNIST 28×28, 84.05%** | ⚠ **拿得出手但要小心叙事，同时是关键 ablation 证据** | 把 #1 的 14×14 input 升到原始 28×28 raw（拓扑保持 2-FC，仅首层 in_dim 从 196 升到 784）只买到 +1.67 pp（82.38% → 84.05%）。这是"Fashion 14×14 不是分辨率瓶颈"的直接证据：4× 像素只换 1.67 pp 说明瓶颈在 4-bit weight + 浅 FC + Fashion 任务难度，不在 avgpool 下采样。**论文里**：用 #4 反驳"82% 是不是因为下采样太狠"的潜在 reviewer 质疑——同拓扑放大 input 也只到 84%，下采样不背锅。**简历里**：通常不单独 quote 84.05%，可作为 #1 的旁证；如果需要单独提，说明清楚"Python ideal matmul 训练精度，未板验"。 |
-| #5 **LeNet-5 (Fashion-MNIST 28×28), 81.99%** | ⚠ **拿得出手但同时是 quantization-stack ceiling 证据** | PyTorch float LeNet-5 baseline 90.94% → quant SNN 81.99%（4-bit weight + T=10 + 8-bit ADC 量化栈丢 -8.95 pp）。这与 #1 / #4 在同一个量化天花板（~82-84%）撞上：**不论换 FC 还是 LeNet-5 conv，Fashion-MNIST 在 V2.B 4-bit / T=10 / ADC=8/10 stack 下都收敛到 ~82%**。论文里：(a) **不**说"加 conv 就能解决 Fashion 82%"——本 ablation 直接反证；(b) **要**说"V2.B 量化栈在 MNIST 上还有头部空间（93-96%），在 Fashion 上撞了量化天花板，与 CIFAR-10 上的 13% plateau 是同一现象的不同程度（详见 conv_extension_log.md §2.2）"；(c) 为什么这个数仍 valuable：是 V2.B CONV 路径**已 board-verified bit-exact**（#3）的同路径运行，10/10 sample byte-exact 自洽（cosim PASS golden_counts SHA = rtl_counts SHA = `d952f218...`），把"路径正确性"和"任务精度"分开 — 体现工程严谨性。**简历里**：通常不单独 quote 81.99%；和 #3 一起出现说"同路径 dataset swap，MNIST 93% / Fashion 82%，是 quant stack 在两个任务上的天然差距，不是路径问题"。 |
+| #5 **LeNet-5 (Fashion-MNIST 28×28), 81.99%** | ⚠ **拿得出手但同时是 quantization-stack ceiling 证据** | PyTorch float LeNet-5 baseline 90.94% → quant SNN 81.99%（4-bit weight + T=10 + 8-bit ADC 量化栈丢 -8.95 pp）。这与 #1 / #4 在同一个量化天花板（~82-84%）撞上：**不论换 FC 还是 LeNet-5 conv，Fashion-MNIST 在 V2.B 4-bit / T=10 / ADC=8/10 stack 下都收敛到 ~82%**。论文里：(a) **不**说"加 conv 就能解决 Fashion 82%"——本 ablation 直接反证；(b) **要**说"V2.B 量化栈在 MNIST 上还有头部空间（93-96%），在 Fashion 上撞了量化天花板；更高难度 dataset 的 CIFAR exploratory note 也指向同类容量约束，但仓库未保留完整 checkpoint / manifest / log，因此不作为正式结果"；(c) 为什么这个数仍 valuable：是 V2.B CONV 路径**已 board-verified bit-exact**（#3）的同路径运行，10/10 sample byte-exact 自洽（cosim PASS golden_counts SHA = rtl_counts SHA = `d952f218...`），把"路径正确性"和"任务精度"分开 — 体现工程严谨性。**简历里**：通常不单独 quote 81.99%；和 #3 一起出现说"同路径 dataset swap，MNIST 93% / Fashion 82%，是 quant stack 在两个任务上的天然差距，不是路径问题"。 |
 
 ---
 
@@ -126,8 +126,9 @@
 
 - ❌ "demonstrates state-of-the-art accuracy" / "best-in-class" — 不是
 - ❌ "outperforms TrueNorth / Loihi" — 没做严格对比，体量也不同
-- ❌ "tested on CIFAR-10" — Tiny VGG/Plain-CNN-4 主动收兵了（plateau ~13%），
-  论文不当 contribution（详见 `doc/v2-architecture/conv_extension_log.md` §2.2）
+- ❌ "tested on CIFAR-10" — 仓库里只保留 Tiny VGG / Plain-CNN-4 的 exploratory
+  note，未保留可复现实验 bundle；论文不当 contribution（详见
+  `doc/v2-architecture/conv_extension_log.md` §2.2）
 - ❌ "selected_accuracy = 1.0 means 100% MNIST accuracy" — 不是；那是
   byte-exact match Python golden 的 10 个样本，不是 test set 精度
 
@@ -295,7 +296,7 @@ Fashion T=30 = 82.88% 作为"我跑了完整 2×3 T-sweep 曲线，知道 sweet 
 | LeNet-5 + ADC 升 10-bit | 93.03% → ~95-96% | 改 RTL 重新综合 + 板验，估计 3-5 天 |
 | LeNet-5 + T 升 30-50 | 93.03% → ~95% | 仅训练 + cosim，但 board verify 时间显著拉长 |
 | 784_128_10 / 784_256_10 大 FC（参考） | Fashion 84.05% → ~86-88% | 需要更多 hardware MAC capacity 或 weight memory，超出 V2.B 加速器单 stage 容量 |
-| Plain-CNN-4 / Tiny VGG on CIFAR-10 with 6-bit weights + ADC=10 | 13% → 60-70% | **不在 V2.B scope**（量化堆栈上限），是 v3 工作 |
+| Plain-CNN-4 / Tiny VGG on CIFAR-10 with 6-bit weights + ADC=10 | exploratory note（当前仓库未保留 bundle）→ 60-70% | **不在 V2.B scope**（量化堆栈上限），是 v3 工作 |
 
 ---
 

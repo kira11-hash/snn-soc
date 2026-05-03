@@ -30,7 +30,7 @@ inference engine**。"non-linearity" 在以下三个 axis 上证明：
 
 | Layer kind | RTL primitive | Validated by |
 |---|---|---|
-| FC（fully-connected） | stage_engine_v2 + cim_mac_behavioral_v2 + lif_neuron_alu | V2 baseline frozen tag `v2-permanent-gate-2026-04-25` |
+| FC（fully-connected） | stage_engine_v2 + cim_mac_behavioral_v2 + lif_neuron_alu | V2 baseline frozen tag `v2-permanent-gate-2026-04-25 @ 3e8905c0` |
 | CONV | stage_engine_v2 + patch_unroller_v2 + dynamic WL ready/valid | M3-M4 LeNet-5 conv1 / conv2，详见 conv_extension_log.md |
 | CONV→FC flatten | fmap_flatten_reader_v2（row-major gather） | M3-M4 LeNet-5 fc1（2304→120, 9 tiles） |
 | LIF threshold | lif_neuron_alu（spike vs membrane） | 所有 stage 共享 |
@@ -122,8 +122,8 @@ multi-tile 数学等价于单 tile（如果 KKC ≤ 256）的 LIF compare。
 - M0 spec frozen（dynamic WL ready/valid + 32-bit padded fmap + WAIT_WEIGHT handshake）
 - M3 RTL 4 个新模块 + stage_engine 扩展 + 19 sim gate 全 PASS
 - M4 LeNet-5 cosim 10/10 byte-exact + ZCU102 ARM + E203 双路径板验 PASS
-- M5 Tiny VGG / Plain-CNN-4 主动收兵（13% 训练精度上限，非 path bug）—— 论文
-  叙事不当 contribution
+- M5 Tiny VGG / Plain-CNN-4 只保留 exploratory note（当前仓库未封存
+  checkpoint / manifest / log bundle）；不视为 path bug，也不作为论文 contribution
 - M6 Phase D port 到两条 evidence 分支完成
 - M7 closure tag + 本文件 + `conv_extension_log.md` evidence seal
 
