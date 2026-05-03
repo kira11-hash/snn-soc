@@ -227,6 +227,9 @@ report_timing_summary \
 report_utilization \
     -file $out_dir/utilization.rpt
 
+report_drc \
+    -file $out_dir/drc.rpt
+
 # Check WNS
 set wns [get_property SLACK [get_timing_paths -max_paths 1]]
 puts "=== WNS = $wns ns ==="
@@ -247,5 +250,6 @@ puts "=== Build complete ==="
 puts "Bitstream : $out_dir/snn_soc_fpga_top.bit"
 puts "Timing    : $out_dir/timing_summary.rpt"
 puts "Util      : $out_dir/utilization.rpt"
+puts "DRC       : $out_dir/drc.rpt"
 puts ""
 puts "Program board: xsct scripts/program_zcu102_e203.tcl $out_dir/snn_soc_fpga_top.bit"
