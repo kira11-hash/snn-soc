@@ -1433,7 +1433,7 @@ V1 原本只做"推理"，把权重通过 `weight_pos.hex` / `weight_neg.hex` �
 
 | 偏移 | 名称 | 关键位 | 说明 |
 |------|------|--------|------|
-| 0x38 | PROG_CTRL | [0]=START W1P, [1]=ERASE RW^1, [2]=FULL_ARRAY RW^1, [3]=BYPASS_HANDSHAKE RW^1, [7:4]=LEVEL RW^1, [10:8]=RETRY_LIMIT RW^1 | 启动一次编程操作；BYPASS=1 跳过 handshake（仿真用），生产固件保持 0 |
+| 0x38 | PROG_CTRL | [0]=START W1P, [1]=ERASE RW^1, [2]=FULL_ARRAY RW^1, [3]=BYPASS_HANDSHAKE RW^1, [7:4]=LEVEL RW^1, [10:8]=RETRY_LIMIT RW^1 | 启动一次编程操作；BYPASS=1 跳过 handshake（仅仿真 / silicon Day-1 自检用），生产固件保持 0 |
 | 0x3C | PROG_ROW | [5:0]=row | 目标行（0~63） |
 | 0x40 | PROG_COL | [4:0]=col | 目标列（0~19） |
 | 0x44 | PROG_STATUS | [0]=BUSY RO, [1]=PASS RO, [2]=FAIL RO, [5:3]=RETRY_COUNT RO, [6]=PROG_FSM_PRESENT RO, [7]=DONE W1C | 状态/完成位；bit[6] 表示 ENABLE_PROGRAM_MODE 是否在硬件上启用，固件用此位代替 BUSY 探测 |

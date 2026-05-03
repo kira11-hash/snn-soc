@@ -13,8 +13,9 @@
 > **核心硬约束**（CLAUDE.md 已写明，本 prompt 再强调）：
 > - main-fpga-e203-alpha 分支 = main + 仅 FPGA 适配，**其他内容必须完全一样**
 > - 任何 audit fix 在 main 上做了，FPGA 支线必须同步（除非 fix 本身是 FPGA-only）
+> - DCO / closure 收尾一律 forward-only：只能追加 commit / merge；不要 `reset`、`rebase`、`force-push`、改 tag（除非用户明确授权）
 > - frozen tags 永远不动：`main-fpga-e203-alpha-passed @ 2adc327b`、
->   `feature/v2-arm-fpga-demo-v2-passed`、`feature/v2-fpga-e203-passed`、
+>   `v2-arm-fpga-demo-v2-passed`、`v2-fpga-e203-passed`、
 >   `v2-permanent-gate-2026-04-25`
 > - V1 SNN ASIC **未流片**，main RTL 仍是流片对象，audit 严苛度按 pre-tape-out
 >   最后一关执行
