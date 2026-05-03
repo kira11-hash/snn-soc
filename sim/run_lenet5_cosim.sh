@@ -7,22 +7,29 @@ cd "$SCRIPT_DIR"
 resolve_iverilog_tools
 resolve_python_tool
 
+USAGE="usage: $0 [--smoke|--full] [lenet5|lenet5_fashion|lenet5_fashion_t30|lenet5_fashion_t50|lenet5_t50]"
 MODE="${1:---smoke}"
 case "$MODE" in
   --smoke) SAMPLES=1 ;;
   --full)  SAMPLES=10 ;;
-  *) echo "usage: $0 [--smoke|--full] [lenet5|lenet5_fashion]" >&2; exit 2 ;;
+  *) echo "$USAGE" >&2; exit 2 ;;
 esac
 
 # Optional 2nd arg selects the golden bundle directory under results_conv/.
-# Default "lenet5" matches the canonical M4 MNIST artifacts; "lenet5_fashion"
-# points at the Fashion-MNIST 28x28 ablation produced by `gen_convnet_golden.py
-# --network lenet5 --dataset-override fashion_mnist --tag _fashion`.
+# Default "lenet5" matches the canonical M4 MNIST artifacts. The other
+# bundles are ablations:
+#   lenet5_fashion       — MNIST → Fashion-MNIST swap (T=10, conv_extension_log §2.1bis)
+#   lenet5_fashion_t30   — Fashion + T-extension to 30 (T trade-off curve mid-point)
+#   lenet5_fashion_t50   — Fashion + T-extension to 50 (T trade-off curve endpoint)
+#   lenet5_t50           — MNIST + T-extension to 50 (T trade-off control: does MNIST saturate?)
 BUNDLE="${2:-lenet5}"
 case "$BUNDLE" in
-  lenet5)         GEN_OVERRIDE=() ;;
-  lenet5_fashion) GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion) ;;
-  *) echo "usage: $0 [--smoke|--full] [lenet5|lenet5_fashion]" >&2; exit 2 ;;
+  lenet5)               GEN_OVERRIDE=() ;;
+  lenet5_fashion)       GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion) ;;
+  lenet5_fashion_t30)   GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion_t30 --t-override 30) ;;
+  lenet5_fashion_t50)   GEN_OVERRIDE=(--dataset-override fashion_mnist --tag _fashion_t50 --t-override 50) ;;
+  lenet5_t50)           GEN_OVERRIDE=(--tag _t50 --t-override 50) ;;
+  *) echo "$USAGE" >&2; exit 2 ;;
 esac
 
 RUN_DIR=$(mktemp -d "$SCRIPT_DIR/.lenet5_cosim_run.XXXXXX")
@@ -42,7 +49,7 @@ MANIFEST_HOST=$(to_windows_path "$MANIFEST")
 RTL_COUNTS="$RUN_DIR/lenet5_rtl_counts.txt"
 RTL_COUNTS_HOST=$(to_windows_path "$RTL_COUNTS")
 
-read -r TH_CONV1 TH_CONV2 TH_FC1 TH_FC2 TH_FC3 GOLDEN_SHA <<<"$(run_python - "$MANIFEST_HOST" "$SAMPLES" <<'PY'
+read -r TH_CONV1 TH_CONV2 TH_FC1 TH_FC2 TH_FC3 T_COUNT GOLDEN_SHA <<<"$(run_python - "$MANIFEST_HOST" "$SAMPLES" <<'PY'
 import hashlib
 import json
 import sys
@@ -51,11 +58,13 @@ from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
 samples = int(sys.argv[2])
 ths = {layer["name"]: layer["threshold"] for layer in manifest["layers"]}
+t_count = int(manifest["t_count"])
 h = hashlib.sha256()
 for sample in manifest["samples"][:samples]:
     h.update((Path(sys.argv[1]).parent / sample["output_counts"]).read_bytes())
 print(
     ths["conv1"], ths["conv2"], ths["fc1"], ths["fc2"], ths["fc3"],
+    t_count,
     h.hexdigest(),
 )
 PY
@@ -74,6 +83,7 @@ run_vvp "$RUN_DIR/lenet5_cosim_tb.out" \
   "+GOLDEN_DIR=$GOLDEN_DIR_HOST" \
   "+RTL_COUNTS=$RTL_COUNTS_HOST" \
   "+SAMPLES=$SAMPLES" \
+  "+T_COUNT=$T_COUNT" \
   "+TH_CONV1=$TH_CONV1" \
   "+TH_CONV2=$TH_CONV2" \
   "+TH_FC1=$TH_FC1" \

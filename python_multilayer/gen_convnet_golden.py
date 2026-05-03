@@ -783,11 +783,16 @@ def train_lenet5_head_checkpoint(
     best_state = None
     best_acc = 0.0
     t0 = time.time()
+    # Read T from the (possibly mutated) NETWORKS dict so --t-override
+    # actually flows into both training and eval streams. Hardcoding 10 here
+    # silently masks T-extension ablations (proxy doesn't depend on T, so the
+    # head trajectory is identical to T=10 if you forget to read spec).
+    head_t = int(NETWORKS["lenet5"]["t"])
     for epoch in range(1, epochs + 1):
         head.train()
         for xb, yb in train_loader:
             with torch.no_grad():
-                stream = front.forward_stream(xb, 10)
+                stream = front.forward_stream(xb, head_t)
             logits = head(stream)
             loss = ce(logits, yb)
             opt.zero_grad(set_to_none=True)
@@ -798,7 +803,7 @@ def train_lenet5_head_checkpoint(
         total = 0
         with torch.no_grad():
             for xb, yb in test_loader:
-                logits = head(front.forward_stream(xb, 10))
+                logits = head(front.forward_stream(xb, head_t))
                 pred = logits.argmax(dim=1)
                 correct += int((pred == yb).sum().item())
                 total += int(yb.numel())
@@ -1537,6 +1542,15 @@ def main(argv: Iterable[str] | None = None) -> int:
              "(e.g. '_fashion' → checkpoints/lenet5_fashion.pth, "
              "results_conv/lenet5_fashion/)",
     )
+    ap.add_argument(
+        "--t-override",
+        type=int,
+        default=None,
+        help="Override the network's default stream timestep count T. "
+             "lenet5 default T=10 (MNIST/Fashion); a longer T (e.g. 30/50) "
+             "trades runtime for accuracy by giving LIF more cycles to "
+             "accumulate spike count precision.",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     if args.dataset_override is not None:
@@ -1551,6 +1565,26 @@ def main(argv: Iterable[str] | None = None) -> int:
             )
             return 2
         NETWORKS[args.network]["dataset"] = args.dataset_override
+
+    if args.t_override is not None:
+        if args.t_override < 1 or args.t_override > 256:
+            print(
+                f"[GOLDEN] --t-override={args.t_override} out of range [1, 256]; aborting.",
+                flush=True,
+            )
+            return 2
+        if not args.tag:
+            print(
+                "[GOLDEN] --t-override requires --tag to keep ckpt / results "
+                "separate from the canonical run; aborting.",
+                flush=True,
+            )
+            return 2
+        NETWORKS[args.network]["t"] = int(args.t_override)
+        print(
+            f"[GOLDEN] T-override: NETWORKS[{args.network}]['t'] = {args.t_override}",
+            flush=True,
+        )
 
     generate_bundle(
         args.network,

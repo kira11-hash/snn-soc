@@ -2,7 +2,14 @@
 module lenet5_cosim_tb;
   import snn_soc_pkg::*;
 
-  localparam int T = 10;
+  // T can be overridden from the cosim runner via +T_COUNT=N plusarg, so the
+  // same TB drives both the canonical M4 LeNet-5 (T=10) and the longer-T
+  // ablation bundles (e.g. lenet5_fashion_t30 / lenet5_fashion_t50). When the
+  // plusarg is absent T defaults to 10 to preserve M4-era behaviour.
+  // stream_words = ceil(T/32): the 32-bit padded fmap stream word count per
+  // (h,w,c) cell. Set in the initial block after reading +T_COUNT.
+  int T = 10;
+  int stream_words = 1;
   localparam int P_BANK_WORDS = (V2B_CONV_FMAP_BANK_KIB * 1024) / 4;
   localparam int P_WEIGHT_TILE_WORDS = V2B_NUM_INPUTS * V2B_MAX_OUT_NEURONS;
 
@@ -116,7 +123,8 @@ module lenet5_cosim_tb;
       for (word_idx = 0; word_idx < P_BANK_WORDS; word_idx++) input_words[word_idx] = 32'h0;
       $readmemh(path, input_words);
       bus_write(A_CONV_FMAP_WR_CTRL, 32'h0);
-      for (word_idx = 0; word_idx < 784; word_idx++) begin
+      // Input fmap is 28x28x1 cells x stream_words 32-bit words/cell.
+      for (word_idx = 0; word_idx < 28*28*1*stream_words; word_idx++) begin
         bus_write(A_CONV_FMAP_WR_DATA, input_words[word_idx]);
         bus_write(A_CONV_FMAP_WR_ADDR, word_idx);
         bus_write(A_CONV_FMAP_WR_CTRL, 32'h1);
@@ -432,11 +440,13 @@ module lenet5_cosim_tb;
 
       configure_conv(0, 28, 28, 1, 6, 5, 1, 2, 28, 28, th_conv1, summax_conv1, 1, 25);
       start_conv_and_service("conv1", "conv1", 28*28, 6);
-      check_fmap_words(sample_idx, "conv1", 28*28*6, 1);
+      // conv1 output: 28x28x6 cells x stream_words 32-bit words/cell.
+      check_fmap_words(sample_idx, "conv1", 28*28*6*stream_words, 1);
 
       configure_conv(1, 28, 28, 6, 16, 5, 2, 0, 12, 12, th_conv2, summax_conv2, 1, 150);
       start_conv_and_service("conv2", "conv2", 12*12, 16);
-      check_fmap_words(sample_idx, "conv2", 12*12*16, 0);
+      // conv2 output: 12x12x16 cells x stream_words 32-bit words/cell.
+      check_fmap_words(sample_idx, "conv2", 12*12*16*stream_words, 0);
 
       clear_streams();
       configure_flatten(0, 12, 12, 16, 120, th_fc1, summax_fc1, 9, 256);
@@ -469,6 +479,15 @@ module lenet5_cosim_tb;
     if (!$value$plusargs("SUMMAX_FC1=%d", summax_fc1)) summax_fc1 = 256 * 7;
     if (!$value$plusargs("SUMMAX_FC2=%d", summax_fc2)) summax_fc2 = 120 * 7;
     if (!$value$plusargs("SUMMAX_FC3=%d", summax_fc3)) summax_fc3 = 84 * 7;
+    // T defaults to 10 (M4 canonical); +T_COUNT=N overrides for longer-T
+    // ablations such as lenet5_fashion_t50. stream_words = ceil(T/32) is the
+    // 32-bit padded stream word count per (h,w,c) cell that fmap_sram_v2 uses
+    // (see snn_engine_conv.pack_spike_fmap). All buffer sizes that count
+    // intermediate fmap words must be multiplied by stream_words.
+    if (!$value$plusargs("T_COUNT=%d", T)) T = 10;
+    stream_words = (T + 31) / 32;
+    $display("[TB] T=%0d stream_words=%0d (timesteps per sample / 32-bit padded words per cell)",
+             T, stream_words);
 
     rst_n = 1'b0;
     repeat (8) @(posedge clk);
