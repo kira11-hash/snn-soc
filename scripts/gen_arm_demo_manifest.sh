@@ -21,6 +21,23 @@ find_first() {
   find "$pattern_root" -name "$name" -print 2>/dev/null | head -n 1 || true
 }
 
+path_relative_to_root() {
+  local path="$1"
+  if [ -z "$path" ]; then
+    printf '<missing>\n'
+    return 0
+  fi
+
+  case "$path" in
+    "$ROOT"/*)
+      printf '%s\n' "${path#"$ROOT"/}"
+      ;;
+    *)
+      printf '%s\n' "$path"
+      ;;
+  esac
+}
+
 sha256_or_missing() {
   local path="$1"
   if [ -n "$path" ] && [ -f "$path" ]; then
@@ -90,30 +107,26 @@ GCC_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-gcc"
 
 GIT_BRANCH="$(git -C "$ROOT" branch --show-current 2>/dev/null || printf '<missing>\n')"
 GIT_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf '<missing>\n')"
-TIMESTAMP_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 VIVADO_VERSION="$(tool_version_or_missing "$VIVADO_BIN" -version 3)"
 GCC_VERSION="$(tool_version_or_missing "$GCC_BIN" --version 1)"
 
 mkdir -p "$(dirname "$MANIFEST")"
 cat > "$MANIFEST" <<EOF
 # v2-arm-fpga-demo build manifest v2
-Generated UTC: $TIMESTAMP_UTC
 Git branch: $GIT_BRANCH
 Git commit: $GIT_COMMIT
 
-Vivado tool path: $VIVADO_BIN
 Vivado version: $VIVADO_VERSION
-Resolved psu_init.tcl: ${PSU_INIT_PATH:-<missing>}
+Resolved psu_init.tcl: $(path_relative_to_root "${PSU_INIT_PATH:-}")
 
-AArch64 toolchain path: $TOOLCHAIN_BIN
 AArch64 GCC version: $GCC_VERSION
 V2B_SOC_BASE override: ${V2B_SOC_BASE_VALUE:-<unset>}
 
-Bitstream path: ${BIT_PATH:-<missing>}
+Bitstream path: $(path_relative_to_root "${BIT_PATH:-}")
 Bitstream SHA256: $(sha256_or_missing "$BIT_PATH")
-XSA path: ${XSA_PATH:-<missing>}
+XSA path: $(path_relative_to_root "${XSA_PATH:-}")
 XSA SHA256: $(sha256_or_missing "$XSA_PATH")
-ELF path: ${ELF_PATH:-<missing>}
+ELF path: $(path_relative_to_root "${ELF_PATH:-}")
 ELF SHA256: $(sha256_or_missing "$ELF_PATH")
 EOF
 

@@ -33,6 +33,33 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/out"
 mkdir -p "$OUT"
 
+is_wsl_shell() {
+  [ -n "${WSL_DISTRO_NAME:-}" ]
+}
+
+default_toolchain_bin() {
+  local candidates=(
+    "/d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin"
+  )
+  if is_wsl_shell; then
+    candidates+=("/mnt/d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin")
+  fi
+  candidates+=("/c/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin")
+  if is_wsl_shell; then
+    candidates+=("/mnt/c/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin")
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [ -e "$candidate/aarch64-none-elf-gcc.exe" ] || [ -e "$candidate/aarch64-none-elf-gcc" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  printf '%s\n' "${candidates[0]}"
+}
+
 # 把 workspace 路径翻译成 DOS 8.3 短名，让 gcc.exe 能处理带空格的路径。
 if command -v cygpath >/dev/null 2>&1; then
   # cygpath -d 要求目标已存在；先把 workspace ROOT（含空格）转成短名，
@@ -50,17 +77,25 @@ fi
 # 工具函数：把 $HERE 下的 Unix 风格路径转成 8.3 Windows 短名。
 # 因为 cygpath -dw 要求文件已存在，这一支只用于已有的 source 文件。
 to_win_short() {
-  cygpath -dw "$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -dw "$1"
+    return 0
+  fi
+  if is_wsl_shell && command -v wslpath >/dev/null 2>&1; then
+    wslpath -w "$1" | tr -d '\r'
+    return 0
+  fi
+  printf '%s\n' "$1"
 }
 
 # 输出文件在脚本开始时还不存在；先 touch 一下让 cygpath 能解析短名。
 to_win_short_out() {
   local path="$1"
   [ -e "$path" ] || : > "$path"
-  cygpath -dw "$path"
+  to_win_short "$path"
 }
 
-TOOLCHAIN_BIN="${TOOLCHAIN_BIN:-/d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin}"
+TOOLCHAIN_BIN="${TOOLCHAIN_BIN:-$(default_toolchain_bin)}"
 CC_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-gcc"
 SIZE_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-size"
 NM_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-nm"
@@ -68,17 +103,18 @@ NM_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-nm"
 if [ ! -e "${CC_BIN}.exe" ] && [ ! -e "${CC_BIN}" ]; then
   echo "[FATAL] 找不到 aarch64-none-elf-gcc：$CC_BIN" >&2
   echo "         请把 TOOLCHAIN_BIN 设到 Vitis aarch64 bin 目录。" >&2
+  if is_wsl_shell; then
+    echo "         当前是 WSL shell；优先尝试 /mnt/d/Xilinx/...，不要用默认的 /d/...。" >&2
+  fi
   exit 1
 fi
 
 V2B_SOC_BASE_OVERRIDE="${V2B_SOC_BASE:-0xA0000000u}"
 
 # Include 路径同样需要转 8.3 短名（仓库根目录含空格）
-INC_ARM=$(cygpath -dw "$HERE/include")
-INC_FW=$(cygpath -dw "$ROOT/fw/include")
+INC_ARM=$(to_win_short "$HERE/include")
+INC_FW=$(to_win_short "$ROOT/fw/include")
 INC_TOOL="$(dirname "$TOOLCHAIN_BIN")/lib/gcc/aarch64-none-elf/11.2.0/include"
-# Xilinx 安装路径没有短名但也不含空格 → 走普通 -w 就够
-INC_TOOL_WIN=$(cygpath -w "$INC_TOOL")
 
 CFLAGS=(
   "-mcpu=cortex-a53"
@@ -99,7 +135,7 @@ ASFLAGS=(
   "-mcpu=cortex-a53"
 )
 
-LINK_LD=$(cygpath -dw "$HERE/link_arm.ld")
+LINK_LD=$(to_win_short "$HERE/link_arm.ld")
 MAP_FILE=$(to_win_short_out "$OUT/v2b_arm_demo.map")
 
 LDFLAGS=(
