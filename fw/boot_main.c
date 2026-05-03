@@ -7,6 +7,7 @@
     (SPI_CTRL_ENABLE_MASK | (2u << SPI_CTRL_CLKDIV_SHIFT))
 #define SPI_CTRL_BOOT_CS_LOW \
     (SPI_CTRL_BOOT_BASE | SPI_CTRL_CS_FORCE_MASK)
+#define SPI_POLL_TIMEOUT 0x01000000u
 
 struct boot_header {
     uint32_t magic;
@@ -15,8 +16,14 @@ struct boot_header {
     uint32_t entry_addr;
 };
 
+static void panic(const char *msg);
+
 static void spi_wait_idle(void) {
+    uint32_t guard = 0u;
     while ((SPI_STATUS & SPI_STATUS_BUSY_MASK) != 0u) {
+        if (++guard >= SPI_POLL_TIMEOUT) {
+            panic("spi busy timeout");
+        }
     }
 }
 
@@ -25,9 +32,13 @@ static void spi_set_cs(int active) {
 }
 
 static uint8_t spi_xfer(uint8_t tx) {
+    uint32_t guard = 0u;
     spi_wait_idle();
     SPI_TXDATA = tx;
     while ((SPI_STATUS & SPI_STATUS_RX_VALID_MASK) == 0u) {
+        if (++guard >= SPI_POLL_TIMEOUT) {
+            panic("spi rx timeout");
+        }
     }
     return (uint8_t)SPI_RXDATA;
 }
@@ -55,6 +66,7 @@ static uint32_t spi_read_u32(uint32_t addr) {
 
 static void panic(const char *msg) {
     uart_printf("BL panic: %s\n", msg);
+    uart_wait_idle();
     while (1) {
     }
 }

@@ -7,9 +7,36 @@
 
 // Long enough to cover one 1 ms erase pulse @ 50 MHz plus generous slack.
 #define BOOT_ERASE_POLL_TIMEOUT 0x02000000u
+#define APP_POLL_TIMEOUT        0x02000000u
 
 static uint32_t input_words[DMA_LEN_VALUE];
 static uint32_t boot_erase_last_status;
+
+static uint32_t wait_dma_done_bound(uint32_t *ctrl_out) {
+    uint32_t ctrl = 0u;
+    for (uint32_t guard = 0u; guard < APP_POLL_TIMEOUT; ++guard) {
+        ctrl = DMA_CTRL;
+        if ((ctrl & DMA_CTRL_DONE_MASK) != 0u) {
+            if (ctrl_out) {
+                *ctrl_out = ctrl;
+            }
+            return 1u;
+        }
+    }
+    if (ctrl_out) {
+        *ctrl_out = ctrl;
+    }
+    return 0u;
+}
+
+static uint32_t wait_cim_done_bound(void) {
+    for (uint32_t guard = 0u; guard < APP_POLL_TIMEOUT; ++guard) {
+        if ((CIM_CTRL & CIM_CTRL_DONE_MASK) != 0u) {
+            return 1u;
+        }
+    }
+    return 0u;
+}
 
 // ---------------------------------------------------------------------------
 // Boot-time full-array RRAM erase.
@@ -106,12 +133,19 @@ int main(void) {
     DMA_DST_SEL   = DMA_DST_INPUT_FIFO;
     DMA_CTRL      = DMA_CTRL_START_MASK;
 
-    while ((DMA_CTRL & DMA_CTRL_DONE_MASK) == 0u) {
+    uint32_t dma_status = 0u;
+    if (!wait_dma_done_bound(&dma_status)) {
+        uart_printf("APP dma timeout ctrl=%x\n", dma_status);
+        uart_wait_idle();
+        while (1) { }
     }
     DMA_CTRL = DMA_CTRL_DONE_MASK;
 
     CIM_CTRL = CIM_CTRL_START_MASK;
-    while ((CIM_CTRL & CIM_CTRL_DONE_MASK) == 0u) {
+    if (!wait_cim_done_bound()) {
+        uart_printf("APP cim timeout ctrl=%x\n", CIM_CTRL);
+        uart_wait_idle();
+        while (1) { }
     }
 
     uint32_t count = REG_OUT_COUNT;

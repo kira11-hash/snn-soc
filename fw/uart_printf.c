@@ -4,6 +4,10 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#ifndef UART_TX_TIMEOUT
+#define UART_TX_TIMEOUT 1000000u
+#endif
+
 static void uart_put_hex_nibble(uint8_t nibble) {
     nibble &= 0xFu;
     uart_putc((nibble < 10u) ? (char)('0' + nibble) : (char)('a' + (nibble - 10u)));
@@ -14,7 +18,10 @@ void uart_init(uint32_t baud_div) {
 }
 
 void uart_wait_idle(void) {
-    while ((UART_STATUS & 0x1u) != 0u) {
+    uint32_t guard = 0u;
+    while ((UART_STATUS & UART_STATUS_TX_BUSY_MASK) != 0u &&
+           guard < UART_TX_TIMEOUT) {
+        guard++;
     }
 }
 

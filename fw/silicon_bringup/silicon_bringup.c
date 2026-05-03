@@ -73,6 +73,15 @@ static uint32_t wait_prog_done_bound(void) {
     return poll_bit(&PROG_STATUS, PROG_STATUS_DONE_MASK, 1u);
 }
 
+static void prog_ctrl_write_low_preserve_retry(uint32_t low_bits) {
+    uint32_t pc = PROG_CTRL;
+    PROG_CTRL = (pc & ~PROG_CTRL_LOW_MASK) | (low_bits & PROG_CTRL_LOW_MASK);
+}
+
+static void prog_ctrl_start_preserve_retry(uint32_t low_bits) {
+    prog_ctrl_write_low_preserve_retry(low_bits | PROG_CTRL_START_MASK);
+}
+
 /*
  * CONCERN FW-C4 fix（2026-05-02 audit）：进 wfi 之前必须 uart_wait_idle，
  * 否则 SILICON_BRINGUP_DIGITAL_PASS 末尾的 '\n' 在 TX shift register 还在
@@ -190,12 +199,12 @@ int main(void) {
     // B0: runtime 0->1->0 bypass readback toggle.  This is intentionally
     // performed while the FSM is idle; in-flight policy remains "do not touch
     // config fields while busy".
-    PROG_CTRL = PROG_CTRL_BYPASS_MASK;
+    prog_ctrl_write_low_preserve_retry(PROG_CTRL_BYPASS_MASK);
     if ((PROG_CTRL & PROG_CTRL_BYPASS_MASK) == 0u) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_BYPASS_SET\n");
         hang();
     }
-    PROG_CTRL = 0u;
+    prog_ctrl_write_low_preserve_retry(0u);
     if ((PROG_CTRL & PROG_CTRL_BYPASS_MASK) != 0u) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_BYPASS_CLR\n");
         hang();
@@ -207,10 +216,9 @@ int main(void) {
     // readback/verify.
     PROG_ROW  = 0u;
     PROG_COL  = 0u;
-    PROG_CTRL = PROG_CTRL_BYPASS_MASK
-              | PROG_CTRL_ERASE_MASK
-              | PROG_CTRL_FULL_ARRAY_MASK
-              | PROG_CTRL_START_MASK;
+    prog_ctrl_start_preserve_retry(PROG_CTRL_BYPASS_MASK
+                                 | PROG_CTRL_ERASE_MASK
+                                 | PROG_CTRL_FULL_ARRAY_MASK);
     if (!wait_prog_done_bound()) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_ERASE_TIMEOUT\n");
         hang();
@@ -230,13 +238,12 @@ int main(void) {
     // supplies a fake done/data pair for erase verify.
     PROG_ROW  = 5u;
     PROG_COL  = 3u;
-    PROG_CTRL = PROG_CTRL_BYPASS_MASK
-              | PROG_CTRL_ERASE_MASK
-              | PROG_CTRL_START_MASK;
+    prog_ctrl_start_preserve_retry(PROG_CTRL_BYPASS_MASK
+                                 | PROG_CTRL_ERASE_MASK);
     // Deliberately clear the live control register while the erase is in
     // flight.  RTL must have latched BYPASS_HANDSHAKE/op/level at START, so
     // this must not hang RB_WAIT or change the fake readback value.
-    PROG_CTRL = 0u;
+    prog_ctrl_write_low_preserve_retry(0u);
     if (!wait_prog_done_bound()) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_CELL_ERASE_TIMEOUT\n");
         hang();
@@ -254,9 +261,8 @@ int main(void) {
     // B3: single-cell write @ (row=5, col=3), level=4
     PROG_ROW  = 5u;
     PROG_COL  = 3u;
-    PROG_CTRL = PROG_CTRL_BYPASS_MASK
-              | (4u << PROG_CTRL_LEVEL_SHIFT)
-              | PROG_CTRL_START_MASK;
+    prog_ctrl_start_preserve_retry(PROG_CTRL_BYPASS_MASK
+                                 | (4u << PROG_CTRL_LEVEL_SHIFT));
     if (!wait_prog_done_bound()) {
         uart_printf("SILICON_BRINGUP_DIGITAL_FAIL_PROG_WRITE_TIMEOUT\n");
         hang();
@@ -272,7 +278,7 @@ int main(void) {
     }
 
     // Turn bypass off again — any subsequent production use should start clean
-    PROG_CTRL = 0u;
+    prog_ctrl_write_low_preserve_retry(0u);
 
     // --------------------------------------------------------------------
     // All digital-only stages passed
