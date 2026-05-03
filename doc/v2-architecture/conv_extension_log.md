@@ -67,6 +67,34 @@
 - ❌ **不可**写"加 conv 让 Fashion 跑到 90%+" — 本 ablation 直接反证
 - ❌ **不可**用 selected_accuracy=0.9 当 90% test set 精度 — 它是 10 个 class-first sample 的子集
 
+### 2.1ter. T-extension trade-off ablation（2026-05-03 新增）— 否决"加长 T 救 Fashion"假设
+
+**目的**：在 §2.1bis 拿到 LeNet-5 Fashion 81.99% 之后，回答"如果把 SNN 时间步从
+T=10 升到 T=30 / T=50，能不能补上 8.95 pp 量化损失到接近 PyTorch float 90.94%"。
+答案：**不能**。Fashion 在 T=30 拿到 +0.89 pp 的微小 sweet spot，T=50 反而掉头；
+MNIST 已饱和，T 加长产生 −0.22 pp 噪声级 regression。
+
+| Bundle | dataset | T | quant_snn_test_acc | vs T=10 baseline | cosim PASS marker | golden_counts SHA = rtl_counts SHA |
+|---|---|---|---|---|---|---|
+| `lenet5` (M4 canonical) | MNIST 28×28 | 10 | 93.03% | (baseline) | ✅ board-verified | (M4 frozen) |
+| `lenet5_t50` | MNIST 28×28 | **50** | **92.81%** | **−0.22 pp** | ✅ smoke | `aa1c33289d92e22abdb954e43cfb2f01626b295d676d0c2d66ad5319938a3d80` |
+| `lenet5_fashion` (§2.1bis) | Fashion 28×28 | 10 | 81.99% | (baseline) | ✅ full | `d952f218c3874aa88041db669fb7d898a25bc79590260423aa7f848b8a863627` |
+| `lenet5_fashion_t30` | Fashion 28×28 | **30** | **82.88%** | **+0.89 pp**（sweet spot）| ✅ smoke | `f5ed992337659bcb3609a0f0640a2f4d83915d6c67a348f2b4b6f6c404d25bc3` |
+| `lenet5_fashion_t50` | Fashion 28×28 | **50** | **81.94%** | **−0.05 pp**（plateau）| ✅ smoke | `5ea5515990f9578640e7de2e6dbee35ed9f63762ffee85a04045b611c6f68525` |
+
+**关键工程改动**（commit `1de8dd2c` on `feature/v2-conv-extension`）：
+
+1. `gen_convnet_golden.py` 新增 `--t-override N` flag（mutate `NETWORKS[lenet5]['t']`）
+2. `train_lenet5_head_checkpoint` 修复 hardcoded `forward_stream(xb, 10)` → 改读 `NETWORKS["lenet5"]["t"]`（之前的 hardcode 让 `--t-override` silent no-op，必须 fix 才能让 ablation 有意义）
+3. `tb/lenet5_cosim_tb.sv` 把 `T` 从 `localparam int T = 10` 改为 `int T = 10` + plusarg `+T_COUNT=N`；fmap intermediate buffer 字数 `× stream_words = ceil(T/32)`（T=10 stream_words=1，byte-exact 不变；T>32 stream_words≥2 自动扩展）
+4. `sim/run_lenet5_cosim.sh` 加 bundle 别名 `lenet5_t50` / `lenet5_fashion_t30` / `lenet5_fashion_t50`，从 manifest 读 `t_count` 并 pass `+T_COUNT` 给 vvp
+
+**叙事用法**：
+- ✅ 论文：T-sweep 是 quantization-stack-ceiling narrative 的最强 ablation 证据 — 把"加 T 能不能救 Fashion"这个潜在 reviewer 质疑直接做掉，并且 cosim 全 PASS 证明数据是 RTL bit-exact 拿出来的，不是空想
+- ✅ 论文措辞：写"T-extension is not the lever closing Fashion's accuracy gap"，配 §2.1ter table
+- ❌ **不可**写"T=50 让 Fashion 跑到 90%"或"加时间步就能解决 4-bit 损失"——本 ablation 直接反证
+- ❌ **不可**单独 quote T=30 的 82.88% 或 T=50 的 81.94% 作为 baseline；引用时必须**同时给 T=10 的 81.99%** 做对照，让读者看到 "T-sweep 是为了证明 T 不是瓶颈"
+
 ### 2.2 Tiny VGG / Plain-CNN-4（CIFAR-10 32×32，T=64）— M5 主动收兵
 
 | 网络 | 训练精度 | 判定 | 论文措辞 |
