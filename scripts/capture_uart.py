@@ -50,13 +50,20 @@ def discover_candidates(explicit_port, quiet):
     if explicit_port:
         return [explicit_port]
 
-    by_desc = []
+    preferred = []
+    fallback = []
     for p in list_ports.comports():
         desc = (p.description or "") + " " + (p.hwid or "")
-        if any(k in desc for k in ("CP210", "Silicon Labs", "Interface 0")):
-            by_desc.append(p.device)
+        if any(k in desc for k in ("CP210", "Silicon Labs")):
+            if "Interface 2" in desc:
+                preferred.append(p.device)
+            else:
+                fallback.append(p.device)
 
-    candidates = list(by_desc)
+    candidates = list(preferred)
+    for port in fallback:
+        if port not in candidates:
+            candidates.append(port)
     for c in ("COM3", "COM4", "COM5", "COM6"):
         if c not in candidates:
             candidates.append(c)
@@ -71,6 +78,10 @@ def open_responsive(candidates, baud, quiet):
     for port in candidates:
         try:
             s = serial.Serial(port, baud, timeout=1)
+            try:
+                s.reset_input_buffer()
+            except Exception:
+                pass
         except Exception as e:
             if not quiet:
                 sys.stderr.write(f"[uart] {port}: {e}\n")
@@ -128,19 +139,20 @@ def main():
 
     # 把锁定时已经读到的 prefetch 字节先吐出来
     if prefetch:
-        emit(prefetch.decode(errors="replace"))
+        emit(prefetch.decode("utf-8", errors="replace"))
 
     deadline = time.time() + args.timeout
     rc = 3  # 默认 timeout
     try:
         while time.time() < deadline:
-            line = s.readline().decode(errors="replace")
-            if line:
-                emit(line)
-                if args.pass_marker and args.pass_marker in line:
+            chunk = s.read(256)
+            if chunk:
+                text = chunk.decode("utf-8", errors="replace")
+                emit(text)
+                if args.pass_marker and args.pass_marker in text:
                     rc = 0
                     break
-                if args.fail_marker and args.fail_marker in line:
+                if args.fail_marker and args.fail_marker in text:
                     rc = 1
                     break
     finally:
