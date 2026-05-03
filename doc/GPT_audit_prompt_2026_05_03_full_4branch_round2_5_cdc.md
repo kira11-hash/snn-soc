@@ -1,4 +1,18 @@
-# GPT 冷启动 prompt — Round 2.5（CDC / reset_sync 专项审查 + 自主上板）
+# [SUPERSEDED 2026-05-03] — 本文件已被 round2_5_full_merged.md 取代
+
+> ⚠ **Do not use this prompt as-is.** 本文件 scope 仅 CDC + 自主上板，缺少
+> round 2 的全维度审查覆盖（RTL bug / Python parity / Firmware / branch
+> consistency / CIFAR plateau evidence / DCO compliance）。
+>
+> 用户在 round 2.5 后明确要求"全维度 + CDC 重点 + 自主板验"合并到一份 prompt
+> 里运行，因此本文件被 `doc/GPT_audit_prompt_2026_05_03_full_4branch_round2_5_full_merged.md`
+> 取代。请使用 merged 版作为下一轮 GPT 冷启动 prompt。
+>
+> 本文件保留作为设计迭代历史 evidence，不删除。
+
+---
+
+# [HISTORICAL CONTENT BELOW] — GPT 冷启动 prompt — Round 2.5（CDC / reset_sync 专项审查 + 自主上板）
 
 > **生成时间**：2026-05-03 reset_sync + sync_2ff 落地完成后
 > **使用方式**：复制本文件全部内容粘贴给 GPT-5.4 (effort=xhigh) 作为冷启动消息。

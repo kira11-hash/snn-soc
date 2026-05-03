@@ -121,6 +121,7 @@ doc/GPT_review_prompt_*.md
 !doc/Claude_audit_prompt_2026_05_02_main_and_fpga.md
 !doc/GPT_audit_prompt_2026_05_03_full_4branch_round*.md
 !doc/GPT_audit_prompt_2026_05_03_full_4branch_round2_5_cdc.md
+!doc/GPT_audit_prompt_2026_05_03_full_4branch_round2_5_full_merged.md
 sim/v2b_partial_write_invariant_test
 sim/*_test
 nul
