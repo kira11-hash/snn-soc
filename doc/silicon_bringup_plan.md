@@ -161,10 +161,11 @@ Confirms SPI + DMA + bootloader path.
 1. Mount analog die + level shifters + pad bonds.
 2. Reset, run the SAME silicon_bringup firmware with cim_test_mode=0 and
    BYPASS_HANDSHAKE=0 (production settings).
-3. Run full `fw/e203_smoke/e203_fpga_smoke.c` — covers real erase → write
-   → verify → programmed inference.
-4. Compare against the FPGA Phase C reference log (doc/main-fpga-e203/
-   board_bringup_log_c0c1c2.txt).
+3. Run the alpha-branch smoke firmware (`main-fpga-e203-alpha` worktree:
+   `fw/e203_smoke/e203_fpga_smoke.c`) — covers real erase → write → verify
+   → programmed inference.
+4. Compare against the FPGA Phase C reference log (`main-fpga-e203-alpha`
+   worktree: `doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`).
 ```
 
 If Stage A fails but Day 1 SILICON_BRINGUP_DIGITAL_PASS held: analog die is suspect, digital die confirmed OK.
@@ -349,7 +350,8 @@ void v2b_program_array(const uint8_t *weights, size_t n) {
 
 ## 7. Paper-wording envelope
 
-Unchanged from `doc/main-fpga-e203/00_architecture.md`:
+Unchanged from the `main-fpga-e203-alpha` evidence-worktree architecture note
+(`doc/main-fpga-e203/00_architecture.md` in that worktree):
 
 - **Can write**: "V1 digital RTL functional equivalence validated on ZCU102 FPGA with an E203 RISC-V soft-core and bit-exact output spike counts; post-silicon digital-die self-test infrastructure prepared."
 - **Cannot write**: "analog CIM validated", "tape-out ready", "chip functional validation complete" — those remain gated behind the analog die integration + mixed-signal co-simulation + full back-end signoff.

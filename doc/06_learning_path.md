@@ -1671,6 +1671,10 @@ T+2-3 sec silicon_bringup Phase 3：BYPASS=0 真模拟写一个 cell + verify
 
 **位置**：`feature/main-fpga-e203` 系列分支（最新冻结点：`main-fpga-e203-alpha-passed` tag）。
 
+> 注：本小节提到的 `fpga/`、`fw/e203_smoke/`、`scripts/program_zcu102_e203.tcl`
+> 都位于 `main-fpga-e203-alpha` 证据 worktree；当前 `main` 检出树默认不带这些
+> FPGA-only 文件。
+
 **FPGA wrapper**：`fpga/boards/zcu102/snn_soc_fpga_top.sv`
 - 时钟：USER_SI570 300MHz 差分 → MMCM → 50MHz
 - 复位：btn_rst (AM13) | !mmcm_locked → 2-FF 同步释放

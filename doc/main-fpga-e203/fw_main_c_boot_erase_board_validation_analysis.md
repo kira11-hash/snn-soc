@@ -7,10 +7,16 @@
 
 **关联决策**：器件老师 2026-04-24 确认"RRAM 流片后需要开机擦除"（doc/11 P2-1）。
 
+> 注：本文提到的 `fw/e203_smoke/`、`fpga_synth/zcu102_e203_demo/`、
+> `fpga/boards/zcu102/` 都属于 `main-fpga-e203-alpha` 证据 worktree；`main`
+> 检出树本身只保留这份分析文档。
+
 ## 结论
 
 **`fw/main.c` 改动不需要重跑 FPGA 板上验证**。
 现有 `main-fpga-e203-alpha-passed` tag（完整板验日志见 `main-fpga-e203-alpha` 分支内的 `doc/main-fpga-e203/board_bringup_log_c0c1c2.txt`）的证据链已经覆盖开机擦除路径。
+后续 2026-05-03 因 `fw/e203_smoke` 的 `PROG_CTRL` retry-bit 保留修复补做过
+alpha smoke re-verify，这一结论保持不变。
 
 ## 理由
 
@@ -23,11 +29,11 @@
 
 ### FPGA 路径本来就擦
 
-`fw/e203_smoke/e203_fpga_smoke.c` 第 68-72 行：
+`fw/e203_smoke/e203_fpga_smoke.c` 的 Phase 1 Step 1a：
 ```c
 // Step 1a: full-array erase
-// PROG_CTRL[2]=FULL_ARRAY, [1]=ERASE, [0]=START(W1P)
-PROG_CTRL = 0x07u;
+// Clear BYPASS/LEVEL low bits for erase, but keep RETRY_LIMIT[10:8].
+prog_ctrl_start_preserve_retry(PROG_CTRL_ERASE_MASK | PROG_CTRL_FULL_ARRAY_MASK);
 (void)wait_prog_done();
 uart_puts("[PROG] full-array erase DONE\n");
 ```
@@ -42,7 +48,13 @@ FPGA_E203_PROGRAM_ERASE_WRITE_PASS
 ...
 FPGA_E203_PROGRAMMED_INFERENCE_PASS
 ```
-"全阵列擦除 → 写 → verify → 推理" 整条链路**已经在 FPGA 上实测过**。器件老师今天的"开机必须擦除"确认，对 FPGA 路径是"已经这么做了"，不是新需求。
+"全阵列擦除 → 写 subset → 推理" 整条链路**已经在 FPGA 上实测过**，最终以
+`FPGA_E203_PROGRAM_ERASE_WRITE_PASS` 和 `FPGA_E203_PROGRAMMED_INFERENCE_PASS`
+收口。器件老师今天的"开机必须擦除"确认，对 FPGA 路径是"已经这么做了"，不是新需求。
+当前 smoke firmware 还额外收紧了 Gate C1 语义：只有 full-array erase 与 subset
+write 都没有 `PROG_STATUS_FAIL` 时才会打印 `FPGA_E203_PROGRAM_ERASE_WRITE_PASS`；
+失败路径会显式打印 `FPGA_E203_PROGRAM_ERASE_WRITE_FAIL` 并停机，不再出现
+"先报 FAIL count，随后仍给 PASS marker" 的假阳性。
 
 ### 为什么还要改 `fw/main.c`？
 
@@ -69,8 +81,12 @@ ROM bootloader 只负责搬码，不触碰 RRAM；app (fw/main.c) 才是真正�
 - **E203_SMOKETEST_PASS**（新：看到 `APP erase SEQ_DONE` + count=100 + neuron[0..9]=10 each）
 - CHIP_TOP_ROM_SMOKE / PROG_BYPASS_LATCH / PROG_PAD_ENCODER / PROG_WL_PAD_ROUTE
 
-### Alpha 分支 E203 smoke（cherry-pick 后）
-同样 `APP erase SEQ_DONE` + `E203_SMOKETEST_PASS`。alpha 分支整体以 `main-fpga-e203-alpha-passed` tag 为证据底座，tag 本身未动。
+### Alpha 分支 E203 smoke（后续 re-verify）
+同样 `APP erase SEQ_DONE` + `E203_SMOKETEST_PASS`。2026-05-03 的补充 alpha
+smoke re-verify 再次确认了这条擦除→推理语义；直接触发原因是
+`fw/e203_smoke` 的 `PROG_CTRL` retry-bit 保留修复，而不是 `fw/main.c`
+本身发生了新的板级语义变化。alpha 分支整体仍以
+`main-fpga-e203-alpha-passed` tag 为证据底座，tag 本身未动。
 
 ## 下次真正触发板上复验的条件
 
