@@ -71,6 +71,44 @@ module chip_top (
   output logic       erase_en_pad,      // 擦除使能（RESET 操作时高）
   output logic       verify_en_pad      // 验证使能（读回时高）
 );
+  // ── Async / CDC synchronizers (2026-05-03 added，pre-tape-out fix) ──
+  //
+  //  rst_n_pad：pad 上的异步复位。pre-tape-out audit 发现整个 SoC 之前直接
+  //  把 pad-level rst_n 喂给所有 always_ff，缺 sync release。在这里加
+  //  reset_sync 做 async-assert / sync-release，下游 SoC 收到的就是干净的
+  //  rst_n_sync，避免 deassertion edge 违反 recovery/removal timing 引入
+  //  metastability。详见 rtl/sys/reset_sync.sv 头注释。
+  //
+  //  cim_done_pad：模拟芯片完成信号，时序由模拟侧自己产生，对数字 clk 是
+  //  完全异步。同样要 2-FF sync 才能给数字 FSM 用，否则可能被误读早一拍 /
+  //  晚一拍 / 进入未知态。详见 rtl/sys/sync_2ff.sv 头注释。
+  //
+  //  bl_data_pad（多 bit ADC 数据）不做位级 2-FF sync——多 bit 总线的位级
+  //  sync 会因 per-bit cycle skew 损坏数据。靠 cim_done sync 后，下游 FSM
+  //  在已知稳定窗口内捕获 bl_data 才是正确做法（隐式同步）。
+  //
+  //  其他 input pad：
+  //   - uart_rx_pad：V1 未实现 RX，仅占位 _unused，故不需 sync
+  //   - spi_miso_pad：SPI master 内部 SCK 由 clk 分频生成，MISO 与 clk 同
+  //     源，时序确定，不属 CDC 不需 sync
+  //   - jtag_tck_pad / jtag_tms_pad / jtag_tdi_pad：jtag_mem_loader 内已用
+  //     toggle + 2-FF (* async_reg = "TRUE" *) sync 处理（CLAUDE.md FP-005）
+  logic rst_n_sync;
+  logic cim_done_sync;
+
+  reset_sync #(.STAGES(2)) u_reset_sync (
+    .clk         (clk_pad),
+    .rst_n_async (rst_n_pad),
+    .rst_n_sync  (rst_n_sync)
+  );
+
+  sync_2ff #(.WIDTH(1)) u_cim_done_sync (
+    .clk        (clk_pad),
+    .rst_n_sync (rst_n_sync),
+    .din_async  (cim_done_pad),
+    .dout_sync  (cim_done_sync)
+  );
+
   // ── 核心 SoC 实例化（流片目标配置） ─────────────────────────────────
   // ENABLE_E203=1          : 带 RISC-V CPU（固件执行层）
   // ENABLE_EXT_CIM_IF=1    : 数字芯片通过 pad 连接外部模拟 CIM 芯片（不是同 die）
@@ -89,7 +127,7 @@ module chip_top (
     .ENABLE_PROGRAM_MODE(1'b1)
   ) u_soc_core (
     .clk      (clk_pad),
-    .rst_n    (rst_n_pad),
+    .rst_n    (rst_n_sync),       // sync'd reset，不再直传 pad
     .uart_rx  (uart_rx_pad),
     .uart_tx  (uart_tx_pad),
     .spi_cs_n (spi_cs_n_pad),
@@ -104,7 +142,7 @@ module chip_top (
     .wl_group_sel_ext (wl_group_sel_pad),
     .wl_latch_ext     (wl_latch_pad),
     .cim_start_ext    (cim_start_pad),
-    .cim_done_ext     (cim_done_pad),
+    .cim_done_ext     (cim_done_sync),    // sync'd cim_done，不再直传 pad
     .bl_sel_ext       (bl_sel_pad),
     .bl_data_ext      (bl_data_pad),
     .prog_en_ext      (prog_en_pad),

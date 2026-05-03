@@ -37,12 +37,27 @@ module v2b_arm_demo_top #(
   output logic [1:0]  s_rresp
 );
 
+  // ── Async-assert / sync-release reset (2026-05-03 added，pre-tape-out fix) ──
+  //
+  //  rst_n 来自 Zynq PS（PS_RST 派生）。PS reset 网络相对干净，但为与 main
+  //  路径风格一致 + best-practice，本 wrapper 也加 reset_sync。
+  //  影响：u_wrapper.rst_n 比之前晚 2 个 clk 释放；功能不变；FPGA 重烧后
+  //  以 fresh UART evidence 为准。详见 rtl/sys/reset_sync.sv 头注释。
+  //
+  //  V2 path 使用 behavioral CIM，没有 external async cim_done 信号需要 sync。
+  logic rst_n_sync;
+  reset_sync #(.STAGES(2)) u_reset_sync (
+    .clk         (clk),
+    .rst_n_async (rst_n),
+    .rst_n_sync  (rst_n_sync)
+  );
+
   v2b_axi_wrapper #(
     .P_ENABLE_TILE_BUF (P_ENABLE_TILE_BUF),
     .P_ADC_BITS        (P_ADC_BITS)
   ) u_wrapper (
     .clk        (clk),
-    .rst_n      (rst_n),
+    .rst_n      (rst_n_sync),
     .s_awvalid  (s_awvalid),
     .s_awready  (s_awready),
     .s_awaddr   (s_awaddr),
