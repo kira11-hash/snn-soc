@@ -331,6 +331,48 @@ DCO governance from main `850c3cae`. Any new commit lacking `Signed-off-by:` is 
   bus_interconnect_v2_e203 / sram_simple × N / uart_ctrl / simple2v2btop_adapter /
   snn_soc_v2b_top 的 `.rst_n()` 端口必须 100% 接 `rst_n_sync`
 
+**任务 H.2bis：4 条支线 reset_sync / sync_2ff 接线一致性 cross-branch diff**
+
+> 这是独立 verify 项：上面 H.2 是"单分支接线对"；这里是"4 条之间一致性"。
+
+```bash
+# 共用文件（4 条字节级一致）
+for f in rtl/sys/reset_sync.sv rtl/sys/sync_2ff.sv \
+         tb/reset_sync_tb.sv tb/sync_2ff_tb.sv \
+         sim/run_reset_sync.sh sim/run_sync_2ff.sh \
+         sim/sim_reset_sync.f sim/sim_sync_2ff.f; do
+    echo "=== $f ==="
+    sha=$(git -C "<main worktree>" hash-object "$f")
+    for b in "<alpha>" "<arm-conv>" "<e203-conv>"; do
+        sha2=$(git -C "$b" hash-object "$f")
+        [ "$sha" = "$sha2" ] && echo "  $b: OK" || echo "  $b: DRIFT (sha2=$sha2)"
+    done
+done
+
+# chip_top.sv 的 reset_sync + sync_2ff 实例化段（4 条字节级一致）
+# 提取 "── Async / CDC synchronizers" 注释开始到 "snn_soc_top #(" 之前的段
+for b in main alpha arm-conv e203-conv; do
+    echo "=== $b ==="
+    sed -n '/── Async \/ CDC synchronizers/,/snn_soc_top #(/p' \
+        "<$b worktree>/rtl/top/chip_top.sv" | sha256sum
+done
+# 4 条 sha256 必须完全一致
+
+# v2b_arm_demo_top.sv（仅 arm-conv 有）— 验证 reset_sync 实例化段
+sed -n '/── Async-assert/,/v2b_axi_wrapper #(/p' \
+    "<arm-conv>/rtl/top/v2b_arm_demo_top.sv" | wc -l
+# > 0 行说明实例化段存在
+
+# snn_soc_v2b_e203_top.sv（仅 e203-conv 有）— 验证 reset_sync 实例化段
+sed -n '/Async-assert.*sync-release reset/,/E203 core wrap/p' \
+    "<e203-conv>/rtl/top/snn_soc_v2b_e203_top.sv" | wc -l
+# > 0 行说明实例化段存在
+```
+
+任何 4 条支线之间的 byte-level drift（共用文件不该 drift）→ 自己同步 →
+commit -s → push（如果本轮 Agent F 还没开 commit，把同步 fix 加入 Agent F 的
+commit 队列）
+
 **任务 H.3：全 RTL async input sweep（确认还有没有漏审的 async 入口）**
 
 ```bash
@@ -637,11 +679,49 @@ python scripts/capture_uart.py --port /dev/ttyUSB0 --baud 115200 \
 - Round 2 finding 表 §1 全部 verify ✅
 - **Agent H CDC 深度审查 ≤ 3 LOW，无 BLOCKER/HIGH/MEDIUM CDC finding**
   （新代码 textbook 正确 + 接线无残留 + 全 RTL async sweep 无漏审入口 +
-  FP-007/FP-008 排除）
+  H.2bis cross-branch 一致性 + FP-007/FP-008 排除）
 - Round 1 closure 复审仍 ⚠ partial 是 OK（已经 documented）
 
-不满足 → 生成 `doc/GPT_audit_prompt_2026_05_03_full_4branch_round4_<theme>.md`，
-内容 = 本轮未闭合项的清扫 prompt。
+### 11.bis 下一轮 prompt 生成（**强制 hard gate，无论本轮是否闭合**）
+
+本轮**必须**生成下一轮 GPT 冷启动 prompt，**inline 输出**到你的最终报告里
+（不要写文件 — 让用户 copy-paste 到下一个 GPT 会话）。这是循环式审查，不是
+一次性审查。即使本轮 verdict = ✅ 闭合，也要生成"下一轮 verify 本轮 closure
+是否真实"的 prompt。
+
+下一轮 prompt 文件名（你只需在 prompt 内容里写明，不需要真创建文件）：
+
+| 本轮 verdict | 下一轮 prompt 文件名 | 主题 |
+|---|---|---|
+| ✅ 闭合 | `doc/GPT_audit_prompt_2026_05_03_full_4branch_round4_closure_verify.md` | "Verify round 3 closure 是真的：重跑 sim regression + 重新 deref tag + 抽查 board UART evidence + 复核 paper handoff guidance" |
+| ⚠ 部分闭合 | `doc/GPT_audit_prompt_2026_05_03_full_4branch_round4_partial_recovery.md` | 列出本轮未闭合项 + 用户已介入完成项目 + 还需 GPT 收尾的清单 |
+| ❌ 闭合失败 | `doc/GPT_audit_prompt_2026_05_03_full_4branch_round4_<theme>.md` | 本轮未闭合项的清扫 prompt |
+
+下一轮 prompt 必须满足：
+
+1. **接续本轮 unresolved findings**：所有 BLOCKER/HIGH/MEDIUM/LOW（含本轮自报
+   ✅ 已修但**未独立第三方验证**的 finding）继续传递
+2. **新增审查角度**：本轮已审查范围列出来；下一轮**至少换 2 个新角度**，例如：
+   - Vivado synthesis report (LUT/FF/BRAM utilization) audit
+   - Python/topologies.yaml 全字段 schema validation
+   - Git history 时间线 / commit 节奏 / 是否有 force-push 痕迹
+   - sim/run_*.sh 全部脚本是否能在 clean checkout 上 run（reproducibility）
+   - 完整 `fpga_synth/` 目录 audit
+   - V1 ASIC pad-cell 实例化 readiness（pad cell macro / ESD / drive-strength
+     还没接，是真 tape-out blocker）
+   - main 分支 fw/silicon_bringup 的边界条件覆盖度
+3. **保留全部红线**（frozen tag / V1 frozen 参数 / Scheme B / byte-mask invariant /
+   main vs alpha 一致性 / DCO / no force-push）
+4. **保留全部 FP 模式**（FP-001 ~ FP-009）
+5. **更新 4 条支线 origin HEAD** 到本轮结束时的实际值
+6. **标明本轮 round 编号**（round 3）+ 下一轮 round 编号（round 4）
+7. **声明终止条件**：连续 2 轮报告 0 BLOCKER + 0 HIGH + 0 MEDIUM + ≤ 3 LOW +
+   全 sim PASS + 全 board reverify PASS → 进入"final paper handoff round"，
+   下一轮改为只清扫 LOW + 写最终 closure tag 候选
+8. **声明 fix-on-sight + autonomous board reverify** 授权（如果本轮 verdict
+   = ✅，下一轮可以放宽到只 verify 不修；如果 ⚠ / ❌，下一轮继续 fix-on-sight）
+
+**这个下一轮 prompt 是 hard gate**：本轮报告里**没有**这一段 = 本轮未完成。
 
 ---
 
@@ -655,7 +735,9 @@ python scripts/capture_uart.py --port /dev/ttyUSB0 --baud 115200 \
 3. alpha + e203-conv 板验 evidence push origin
 4. **Agent H CDC 深度审查 verdict + 任何新发现的 CDC fix commit**
 5. Final closure verdict（✅ paper handoff / ⚠ 部分闭合 / ❌ 失败）
-6. 如未闭合，下一轮 prompt 内容（inline 输出）
+6. **下一轮 round 4 prompt 内容**（无论 verdict 如何，**强制 hard gate**，
+   inline 输出，详见 §11.bis；闭合时主题是"verify closure 是真的"，未闭合时
+   主题是"清扫剩余项"）
 
 不要留尾巴。本轮就是终极一次性收口。
 
