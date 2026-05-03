@@ -115,7 +115,7 @@ multi-tile 数学等价于单 tile（如果 KKC ≤ 256）的 LIF compare。
 
 > **CONV layer support**: ✅ **Validated** (M4 LeNet-5 byte-exact + ZCU102 board
 > verified on two CPU paths). See `conv_extension_log.md` for closure evidence,
-> tag `v2-arm-fpga-demo-conv-passed @ e5d43a05` and `v2-fpga-e203-conv-passed @ 8642c84e`
+> tag `v2-arm-fpga-demo-conv-passed @ dabcaf0d` and `v2-fpga-e203-conv-passed @ a1c0c828`
 > for sealed evidence branches.
 
 具体：

@@ -103,17 +103,23 @@ DMA数据 → input_fifo ─→ cim_array_ctrl ─→ ADC差分 ─→ lif_neuro
 ### 多层配置步骤（寄存器视角）
 
 1. 写 `REG_ML_CTRL`（0x48）：设置 `num_layers`（层数-1，0=1层，3=4层）和 `enable=1`
-2. 对每一层 N（0 到 num_layers）写 4 个层描述符寄存器：
+2. 当前 standalone V2.B top 不再暴露早期 `LAYER_*` 描述符块；冻结的
+   `0x050 / 0x054 / 0x058` 语义如下：
 
 | 寄存器 | 地址 | 字段格式 | 说明 |
 |--------|------|----------|------|
-| `LAYER_CFG(N)` | 0x50+N×0x10 | `{bl_count[31:24], bl_offset[23:16], wl_count[15:8], wl_offset[7:0]}` | 阵列扫描范围 |
-| `LAYER_TIMING(N)` | 0x54+N×0x10 | `{use_bitplane[8], timesteps[7:0]}` | 输入编码方式和时间步数 |
-| `LAYER_THRESHOLD(N)` | 0x58+N×0x10 | 32-bit LIF 阈值 | 本层 spike 判决门限 |
-| `LAYER_NEURON_CFG(N)` | 0x5C+N×0x10 | `{neuron_count[7:0]}` | 本层活跃神经元数量 |
+| `MAC_W_LOAD_ADDR` | 0x50 | `{out_c_j[14:8], lane_i[7:0]}` | 选择要写入的权重 cell |
+| `MAC_W_LOAD_DATA` | 0x54 | `{neg[7:4], pos[3:0]}` | 一次写入一对 pos/neg 4-bit 电导等级 |
+| `MAC_W_LOAD_CTRL` | 0x58 | `{WRITE_STROBE[0]}` | 提交一次权重写入（W1P） |
+| `STREAM_BUF_CTRL` | 0x60 | `{clear_tile, clear_b, clear_a, swap}` | stream buffer 控制 |
+| `STATE_CTRL` | 0x64 | `{clear_all, clear_membrane}` | 神经元状态清零 |
 
-3. DMA 加载第 0 层输入数据到 input_fifo（标准 bit-plane 编码）
+3. 输入与阶段运行由 `STAGE_CFG*` / `STAGE_CTRL` / `STREAM_BUF_CTRL` /
+   `STATE_CTRL` 组合驱动，而不是旧 `LAYER_*` block。
 4. 写 `CIM_CTRL.START` 启动推理
+
+> 下文 `layer_sequencer / LAYER_*` 叙事保留作早期原型背景，不应再当作当前
+> standalone V2.B top 的寄存器实装口径。
 
 ### 多层执行流程（`layer_sequencer` 状态机）
 
@@ -180,39 +186,10 @@ IDLE ──start_pulse──→ LOAD_DESC ──→ RUN_LAYER ──→ WAIT_DON
 **层配置寄存器写入：**
 
 ```c
-// ML_CTRL: num_layers=2 (3层-1), enable=1
-bus_write(0x4000_0048, 32'h0000_0105);  // {enable[8]=1, num_layers[1:0]=2}
-
-// ── Layer 0: 输入层 64→20→10 ──
-// LAYER_CFG(0): bl_count=20, bl_offset=0, wl_count=64, wl_offset=0
-bus_write(0x4000_0050, 32'h1400_4000);
-// LAYER_TIMING(0): use_bitplane=1, timesteps=10
-bus_write(0x4000_0054, 32'h0000_010A);  // {use_bitplane[8]=1, timesteps[7:0]=10}
-// LAYER_THRESHOLD(0): 2550
-bus_write(0x4000_0058, 32'h0000_09F6);
-// LAYER_NEURON_CFG(0): 10 个活跃神经元
-bus_write(0x4000_005C, 32'h0000_000A);
-
-// ── Layer 1: 隐藏层 10→20→10 ──
-// LAYER_CFG(1): bl_count=20, bl_offset=0, wl_count=10, wl_offset=0
-bus_write(0x4000_0060, 32'h1400_0A00);
-// LAYER_TIMING(1): use_bitplane=0, timesteps=5
-bus_write(0x4000_0064, 32'h0000_0005);  // {use_bitplane=0, timesteps=5}
-// LAYER_THRESHOLD(1): 500
-bus_write(0x4000_0068, 32'h0000_01F4);
-// LAYER_NEURON_CFG(1): 10 个活跃神经元
-bus_write(0x4000_006C, 32'h0000_000A);
-
-// ── Layer 2: 输出层 10→20→10 ──
-// LAYER_CFG(2): bl_count=20, bl_offset=0, wl_count=10, wl_offset=0
-// Scheme B 使用 pos/neg 差分列，10 个输出神经元需要扫描 20 条 BL。
-bus_write(0x4000_0070, 32'h1400_0A00);
-// LAYER_TIMING(2): use_bitplane=0, timesteps=3
-bus_write(0x4000_0074, 32'h0000_0003);
-// LAYER_THRESHOLD(2): 300
-bus_write(0x4000_0078, 32'h0000_012C);
-// LAYER_NEURON_CFG(2): 10 个活跃神经元
-bus_write(0x4000_007C, 32'h0000_000A);
+// Historical prototype note:
+// The old ML_CTRL/LAYER_* example has been retired from the current
+// standalone V2.B register map. Current firmware drives the accelerator
+// through STAGE_CFG*, MAC_W_LOAD_*, STREAM_BUF_CTRL and STATE_CTRL.
 ```
 
 **执行流程时序：**

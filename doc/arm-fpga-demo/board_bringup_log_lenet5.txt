@@ -1,13 +1,14 @@
 v2-arm-fpga-demo-conv LeNet-5 板验证据（CONV 扩展，原生 conv1 路径）
 
 状态：
-- ✅ BOARD PASS — native conv1 路径上板 10/10 PASS（commit 48958da0）
-- ✅ work-around 路径不再需要保留板验记录；HEAD 已回滚 work-around 头文件，统一走 RTL native conv1
+- ✅ BOARD PASS — native conv1 路径原始 root-cause fix commit = `48958da0`
+- ✅ 2026-05-03 对当前分支 HEAD `537ad3b1` 再抓一次 UART，仍得到 `ARM_FPGA_DEMO_LENET5_PASS`
+- ✅ work-around 路径不再需要保留板验记录；当前分支统一走 RTL native conv1
 
 分支：feature/v2-arm-fpga-demo-conv
-当前 worktree HEAD：48958da0a99d2c7da47ce5d4b2232f7576e144df（"Fix conv fmap preload address increment"）
-板验固件 + bitstream 对应的 commit：48958da0a99d2c7da47ce5d4b2232f7576e144df（与 HEAD 一致，clean rebuild）
-板验日期：2026-05-01
+当前 worktree HEAD：537ad3b10d890d4c7f594e344bd9f4828c972ca3（current branch tip）
+原生 conv1 root-cause fix commit：48958da0a99d2c7da47ce5d4b2232f7576e144df
+最近一次 re-verify 日期：2026-05-03
 板验路径：原生 conv1 — fmap_sram_v2 + patch_unroller_v2 + conv_ctrl_v2 + stage_engine_v2 全 RTL 链路
 
 调试历史（保留作复盘）：
@@ -45,17 +46,10 @@ artifact 证据（详见 build_manifest_v2.txt）：
 - AArch64 GCC：11.2.0
 - V2B_SOC_BASE：0xA000_0000（与 v2 一致，未改 BD 地址）
 
-⚠ manifest 与 HEAD 之间的口径差（必读）：
-- 上面 SHA256 是 48958da0 工作树内现存的 build 记录值；这份 manifest 的 "Git commit"
-  字段同样写的是 3719c3e7（manifest 自己没有为 48958da0 重新生成过），所以 SHA 与
-  3719c3e7 build 时锁定的值一致——这是历史 build 记录留在 48958da0 树里的产物。
-- HEAD = 48958da0（已用此版重新做了 clean bitstream + clean ELF，板上做了完整 native
-  路径 10/10 PASS）这件事是 ground truth，由本日志正文 + UART 抓到的 ARM_FPGA_DEMO_LENET5_PASS
-  作为证据；与 manifest SHA 字段的 commit 标注无关。
-- 论文 / 简历引用建议：HEAD commit (48958da0) + 本日志 + ARM_FPGA_DEMO_LENET5_PASS marker；
-  manifest 的 SHA 仅作"工作树里现存哪份 build 记录"的工具链证据，**不应当作 48958da0 自身
-  重编 manifest 的字节级证据**——后者需要重新跑一次 build_zcu102_arm_demo.sh 让 manifest
-  自己也对齐到 48958da0。
+2026-05-03 口径更新：
+- `build_manifest_v2.txt` 已刷新为当前分支 HEAD `537ad3b1` 与当前 artifact hash。
+- 最新 raw UART capture 见 `uart_capture_20260503_lenet5_reverify.txt`。
+- 历史上 `48958da0` 仍然是 native conv1 root-cause fix 的关键 commit；但它不再代表当前 branch HEAD。
 
 Step 1：Python 黄金参考与 .pth 训练
 - 脚本：python_multilayer/gen_convnet_golden.py --network lenet5
@@ -109,7 +103,7 @@ CIFAR 部分的状态：
 - 但本分支只把 LeNet-5 上板到 ZCU102；CIFAR / VGG 拓扑只通过仿真 cosim 验证，未做板验
 - 原因：CIFAR 拓扑权重远大于 LeNet-5（fc.in_dim = 8×8×64 = 4096），sparse 化后 ARM OCM 仍紧张；本评估周期内只做"打通 CONV 调度路径"，CIFAR 上板留作后续 evidence 扩展
 
-=== UART 输出（48958da0 native 路径，10 sample 全 PASS） ===
+=== UART 输出（历史原始 PASS + 2026-05-03 re-verify 均通过） ===
 UART_OK
 [TB] v2b_arm_lenet5 start - 10 LeNet-5 samples via AXI-Lite
 [TB] V2B_SOC_BASE=0xa0000000
@@ -148,6 +142,6 @@ ARM_FPGA_DEMO_LENET5_PASS
 - 训练复现性：seed=20260430（在 gen_convnet_golden.py 顶部硬编码），多次跑 .pth 应当字节级一致
 
 引用规则：
-- 论文叙事 / 简历 → 引用 v2-arm-fpga-demo-conv 分支 HEAD commit (48958da0) + 本日志 + UART PASS marker
+- 论文叙事 / 简历 → 引用 `feature/v2-arm-fpga-demo-conv @ 537ad3b1` + `build_manifest_v2.txt` + `uart_capture_20260503_lenet5_reverify.txt`
 - 历史对比 → v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍可作为对照基线
 - 工具链 / 板验细节 → 详见 doc/arm-fpga-demo/build_manifest_v2.txt 与本文件

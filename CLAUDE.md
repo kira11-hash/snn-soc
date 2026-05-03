@@ -190,22 +190,22 @@
 
 | 绝对地址 | offset | 名称 | 说明 |
 |------|------|------|------|
-| 0x4000_0038 | 0x38 | PROG_CTRL | [0]=START(W1P), [1]=ERASE(RW), [2]=FULL_ARRAY(RW), [7:4]=LEVEL(RW), [10:8]=RETRY_LIMIT(RW) |
+| 0x4000_0038 | 0x38 | PROG_CTRL | [0]=START(W1P), [1]=ERASE(RW), [2]=FULL_ARRAY(RW), [3]=BYPASS_HANDSHAKE(RW, simulation / silicon Day-1 self-check only), [7:4]=LEVEL(RW), [10:8]=RETRY_LIMIT(RW) |
 | 0x4000_003C | 0x3C | PROG_ROW | [5:0]=目标行（0~63） |
 | 0x4000_0040 | 0x40 | PROG_COL | [4:0]=目标列（0~19） |
-| 0x4000_0044 | 0x44 | PROG_STATUS | [0]=BUSY(RO), [1]=PASS(RO), [2]=FAIL(RO), [5:3]=RETRY_COUNT(RO), [7]=DONE(W1C) |
+| 0x4000_0044 | 0x44 | PROG_STATUS | [0]=BUSY(RO), [1]=PASS(RO), [2]=FAIL(RO), [5:3]=RETRY_COUNT(RO), [6]=PROG_FSM_PRESENT(RO), [7]=DONE(W1C) |
 | 0x4000_0090 | 0x90 | PROG_PULSE_WIDTH | [17:16]=写入脉冲档位 RW（0=1us/1=10us/2=100us/3=保留按100us），[15:0]=resolved cycles RO（default=50=1us@50MHz） |
 | 0x4000_0094 | 0x94 | PROG_ERASE_WIDTH | [15:0]=擦除脉冲宽度 RO（固定 50000=1ms@50MHz，逐 cell 与全阵列擦除共用，写入忽略） |
 
-### V2 多层控制（基地址 `0x4000_0000`，v2 分支）
+### V2.B 权重 / stream 控制（基地址 `0x4000_0000`，standalone V2.B）
 
 | 绝对地址 | offset | 名称 | 说明 |
 |------|------|------|------|
-| 0x4000_0048 | 0x48 | ML_CTRL | [1:0]=num_layers(层数-1，0~3), [8]=enable |
-| 0x4000_0050+N×0x10 | 0x50+N×0x10 | LAYER_CFG(N) | {bl_count, bl_offset, wl_count, wl_offset} |
-| 0x4000_0054+N×0x10 | 0x54+N×0x10 | LAYER_TIMING(N) | {use_bitplane, timesteps} |
-| 0x4000_0058+N×0x10 | 0x58+N×0x10 | LAYER_THRESHOLD(N) | 本层 LIF 阈值 |
-| 0x4000_005C+N×0x10 | 0x5C+N×0x10 | LAYER_NEURON_CFG(N) | 活跃神经元数量 |
+| 0x4000_0050 | 0x50 | MAC_W_LOAD_ADDR | [7:0]=lane i, [14:8]=out_c j |
+| 0x4000_0054 | 0x54 | MAC_W_LOAD_DATA | [3:0]=pos, [7:4]=neg |
+| 0x4000_0058 | 0x58 | MAC_W_LOAD_CTRL | [0]=WRITE_STROBE (W1P) |
+| 0x4000_0060 | 0x60 | STREAM_BUF_CTRL | swap / clear A / clear B / clear tile buffer |
+| 0x4000_0064 | 0x64 | STATE_CTRL | clear membrane / clear all |
 
 ### DMA（基地址 `0x4000_0100`）
 

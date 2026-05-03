@@ -6,7 +6,7 @@
 - **Phase C0 本地静态 sanity — ✅ OOC 综合 PASS + BD 创建 / 验证 / 保存 PASS + 地址 0xA0000000 经 HPM0_FPD 已锁**（完整 bitgen + 板上 smoke 在用户 sign-off + 有板子时执行）
 - **Phase C0/C1 板级验证（frozen v1，Fashion-MNIST 14×14）—✅ PASS**（tag `v2-arm-fpga-demo-passed` @ `8e51ae27`，2026-04-22 sign-off）
 - **Fix wave F1（WSTRB partial-write 修复）—✅ RTL/TB PASS + 重 bitgen PASS + 重烧 PASS**（tag `v2-arm-fpga-demo-v2-passed`，2026-04-25 sign-off）
-- **CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv）—✅ PASS**（HEAD `48958da0`，2026-05-01 sign-off，`ARM_FPGA_DEMO_LENET5_PASS`，详见 §12）
+- **CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv）—✅ PASS**（当前分支 HEAD `537ad3b1`，原生 conv1 root-cause fix commit = `48958da0`，最新 re-verify PASS marker = `ARM_FPGA_DEMO_LENET5_PASS`，详见 §12）
 
 **Scope rule**: evidence branch，**不 merge 回 v2，不 touch main**。frozen v1 与 v2 fix wave 通过双 tag 并存：
 
@@ -329,10 +329,12 @@ Vivado `create_bd_cell -type module -reference` **拒绝 SystemVerilog** 作为 
 
 ## 12. CONV 扩展 + LeNet-5 28×28 板验（feature/v2-arm-fpga-demo-conv 子分支）
 
-**HEAD commit**：`48958da0`（2026-05-01）
+**当前分支 HEAD**：`537ad3b1`（2026-05-03）
+**原生 conv1 root-cause fix commit**：`48958da0`（历史关键修复点，不再是当前 HEAD）
 **板验 PASS 标记**：`ARM_FPGA_DEMO_LENET5_PASS`
-**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（LeNet-5 时代的工具链/工件记录，文件顶部已注明其 commit/SHA 字段仍保留 `3719c3e7` 历史 caveat）
-**详细 UART 日志**：`doc/arm-fpga-demo/board_bringup_log_lenet5.txt`
+**对应 manifest**：`doc/arm-fpga-demo/build_manifest_v2.txt`（已刷新为当前分支 HEAD 与当前 artifact hash）
+**最新 UART capture**：`doc/arm-fpga-demo/uart_capture_20260503_lenet5_reverify.txt`
+**历史长日志**：`doc/arm-fpga-demo/board_bringup_log_lenet5.txt`
 
 ### 12.1 为什么从 Fashion-MNIST 14×14 升级到 LeNet-5
 
@@ -461,7 +463,7 @@ fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 
 ### 12.7.1 板验路径已统一为 native conv1（commit 48958da0）
 
-| 维度 | 当前板验状态（HEAD = `48958da0`，clean rebuild） |
+| 维度 | 当前板验状态（active branch HEAD = `537ad3b1`；原生 conv1 root-cause fix = `48958da0`） |
 |------|---------------------------------------------|
 | conv1 数据来源 | 完全走 RTL（conv_ctrl_v2 + fmap_sram_v2 + patch_unroller_v2） |
 | conv2 / FC1-3 | 完全走 RTL（与 conv1 同一调度链） |
@@ -478,13 +480,13 @@ fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 
 | 项 | 状态 |
 |---|------|
-| Vivado 重综合 + bitgen（commit 48958da0） | ✅ ZCU102_ARM_DEMO_BITGEN_PASS（WNS > 0 @ 50 MHz） |
-| ARM ELF 链接 + 大小检查（commit 48958da0） | ✅ PHASE_B_GATE_PASS（含 LeNet-5 golden，无 conv1 reference bypass） |
-| xsct JTAG 烧写（commit 48958da0） | ✅ [program_zcu102_c0] CORE_0_RUNNING |
-| UART 抓 LeNet-5 PASS marker（commit 48958da0） | ✅ ARM_FPGA_DEMO_LENET5_PASS（10/10 sample 全 native PASS） |
-| Manifest 文件本体 | ⚠ `build_manifest_v2.txt` 自身仍记录 commit = 3719c3e7 + 三个 3719c3e7-build SHA（48958da0 工作树里继承下来的 build 记录，未为 HEAD 单独重编 manifest） |
-| native conv1 路径板验事实 | ✅ HEAD (48958da0) 用于 clean bitgen + ELF link，UART 抓到 10/10 ARM_FPGA_DEMO_LENET5_PASS（与 manifest SHA 字段无关，证据来源是日志 + UART marker） |
-| 板验日志 | ✅ `board_bringup_log_lenet5.txt`（native PASS narrative + manifest 口径差说明 + 调试历史复盘） |
+| Vivado bitstream / XSA | ✅ `build_manifest_v2.txt` 记录当前 committed artifact hash |
+| ARM ELF 链接 + 大小检查 | ✅ `v2b_arm_demo.elf` 已存在且 manifest 已刷新 |
+| xsct JTAG 烧写 | ✅ [program_zcu102_c0] CORE_0_RUNNING |
+| UART 抓 LeNet-5 PASS marker | ✅ `ARM_FPGA_DEMO_LENET5_PASS`（2026-05-03 re-verify，capture 见 `uart_capture_20260503_lenet5_reverify.txt`） |
+| Manifest 文件本体 | ✅ `build_manifest_v2.txt` 已与当前分支 HEAD 和当前 artifact hash 对齐 |
+| native conv1 路径板验事实 | ✅ 当前 artifact set 重新抓到 10/10 `ARM_FPGA_DEMO_LENET5_PASS` |
+| 板验日志 | ✅ 历史长日志 `board_bringup_log_lenet5.txt` + 最新 raw capture `uart_capture_20260503_lenet5_reverify.txt` |
 
 ### 12.9 仍未做 / 计划但未上板
 
@@ -497,7 +499,7 @@ fw/arm/include/golden_lenet5.h + fw/arm/src/golden_lenet5.c
 
 ### 12.10 引用规则
 
-- **论文 / 简历**：引用 `feature/v2-arm-fpga-demo-conv @ 48958da0` + `board_bringup_log_lenet5.txt`
+- **论文 / 简历**：引用 `feature/v2-arm-fpga-demo-conv @ 537ad3b1` + `build_manifest_v2.txt` + `uart_capture_20260503_lenet5_reverify.txt`
 - **历史对照**：v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍是合法基线
 - **复现命令**：详见 `board_bringup_log_lenet5.txt` 末节
 
