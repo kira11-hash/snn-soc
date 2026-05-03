@@ -1,0 +1,17 @@
+[INFO] Generating/checking LeNet5 golden bundle (bundle=lenet5_fashion_t50)
+[GOLDEN] T-override: NETWORKS[lenet5]['t'] = 50
+[GOLDEN] lenet5 wrote C:\tmp\v2-conv-extension\python_multilayer\results_conv\lenet5_fashion_t50\lenet5_golden_manifest.json
+[GOLDEN] lenet5 quant_snn_test_acc=0.8194 selected_acc=0.9000
+[TB] T=50 stream_words=2 (timesteps per sample / 32-bit padded words per cell)
+WARNING: ../tb/lenet5_cosim_tb.sv:124: $readmemh(C:\tmp\v2-conv-extension\python_multilayer\results_conv\lenet5_fashion_t50/sample_00_input_fmap_words.hex): Not enough words in the file for the requested range [0:65535].
+[TB] conv1 done status=0x001b1b02
+[TB] conv2 done status=0x000b0b02
+[TB] fc1_flatten done status=0x08000002
+[TB] sample=0 pred=0 exp_pred=0 counts=[6 0 4 2 2 0 4 0 0 0]
+LENET5_COSIM_TB_PASS samples=1
+../tb/lenet5_cosim_tb.sv:503: $finish called at 14472225000 (1ps)
+[SHA] lenet5_golden_counts_concat=5ea5515990f9578640e7de2e6dbee35ed9f63762ffee85a04045b611c6f68525
+[SHA] lenet5_rtl_counts_dump=5ea5515990f9578640e7de2e6dbee35ed9f63762ffee85a04045b611c6f68525
+============================================
+[RESULT] LENET5_COSIM_TB_PASS mode=--smoke bundle=lenet5_fashion_t50 samples=1
+============================================
