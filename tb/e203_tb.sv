@@ -4,7 +4,7 @@
 //   iverilog ... -DBOOT_POLLS_MAX=<value> -DSIGN_POLLS_MAX=<value>
 // Useful when fw 体积变化或 boot 链增加阶段时调整轮询上限。
 `ifndef BOOT_POLLS_MAX
-  `define BOOT_POLLS_MAX 500000
+  `define BOOT_POLLS_MAX 800000
 `endif
 `ifndef SIGN_POLLS_MAX
   `define SIGN_POLLS_MAX 200000
@@ -116,8 +116,10 @@ module e203_tb;
   end
 
   initial begin
-    $dumpfile("waves/e203_smoke.vcd");
-    $dumpvars(0, e203_tb);
+    if ($test$plusargs("DUMP_VCD")) begin
+      $dumpfile("waves/e203_smoke.vcd");
+      $dumpvars(0, e203_tb);
+    end
   end
 
   initial begin
@@ -129,9 +131,9 @@ module e203_tb;
 
     begin : wait_boot_mark
       integer boot_polls;
-      // 上限通过 `BOOT_POLLS_MAX 控制（默认 500000，10 ms @ 50 MHz）。
-      // 历史变化：300000 → 500000（fw/main.c 加入 boot-time full-array erase
-      // 后 SPI flash payload 增大到 ~1.9 KB with -O2）。
+      // 上限通过 `BOOT_POLLS_MAX 控制（默认 800000，16 ms @ 50 MHz）。
+      // 历史变化：300000 → 500000（fw/main.c 加入 boot-time full-array erase）
+      // → 800000（bootloader 增加 bounded SPI timeout 后代码体积增大）。
       for (boot_polls = 0; boot_polls < `BOOT_POLLS_MAX; boot_polls = boot_polls + 1) begin
         @(posedge clk);
         if (dut.u_data_sram.mem[MARKER_BASE_WORD + 0] == EXPECTED_BOOT_MARK) begin

@@ -41,6 +41,14 @@ module sync_2ff #(
   (* async_reg = "TRUE" *) logic [WIDTH-1:0] sync_ff1;
   (* async_reg = "TRUE" *) logic [WIDTH-1:0] sync_ff2;
 
+`ifndef SYNTHESIS
+  initial begin
+    if (WIDTH < 1) begin
+      $fatal(1, "[sync_2ff] WIDTH must be >= 1");
+    end
+  end
+`endif
+
   always_ff @(posedge clk or negedge rst_n_sync) begin
     if (!rst_n_sync) begin
       sync_ff1 <= '0;

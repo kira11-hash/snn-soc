@@ -4,15 +4,13 @@
 //          synchronizer for async control signals).
 //
 // Coverage:
-//   T1. Reset state: when rst_n_sync=0, dout_sync==0 regardless of din_async.
-//   T2. Steady-state propagation: din_async stable high, dout_sync rises
-//       exactly 2 clk cycles later.
-//   T3. Steady-state low: din_async stable low, dout_sync stays low.
-//   T4. Multi-bit (WIDTH=4): each bit independently propagates with the
-//       same 2-cycle latency.
-//   T5. Async edge mid-cycle: din_async rises in the middle of a clk cycle
-//       (no setup violation since this is async input by definition);
-//       dout_sync still rises 2 cycles after the next clk edge.
+//   T1. Reset clears 1/4/8/16-bit instances regardless of din_async.
+//   T2. Stable values propagate after exactly 2 cycles for WIDTH=1/4/8/16.
+//   T3. Outputs still hold the old value after 1 cycle, then update on cycle 2.
+//   T4. Mid-cycle async transitions still emerge 2 clocks later.
+//   T5. X on din_async propagates through the 2-FF pipe after 2 clocks, then
+//       clears again after 2 clocks once the input is driven back to 0.
+//   T6. Reset re-assertion clears all outputs immediately even from an X state.
 //
 // Pass marker: SYNC_2FF_TB_PASS
 // -----------------------------------------------------------------------------
@@ -21,7 +19,6 @@
 
 module sync_2ff_tb;
 
-  // ── Single-bit instance ─────────────────────────────────────────────
   logic clk = 1'b0;
   logic rst_n_sync = 1'b0;
   logic din_1b = 1'b0;
@@ -36,7 +33,6 @@ module sync_2ff_tb;
     .dout_sync  (dout_1b)
   );
 
-  // ── 4-bit instance ──────────────────────────────────────────────────
   logic [3:0] din_4b = '0;
   logic [3:0] dout_4b;
 
@@ -47,14 +43,33 @@ module sync_2ff_tb;
     .dout_sync  (dout_4b)
   );
 
+  logic [7:0] din_8b = '0;
+  logic [7:0] dout_8b;
+
+  sync_2ff #(.WIDTH(8)) dut_8b (
+    .clk        (clk),
+    .rst_n_sync (rst_n_sync),
+    .din_async  (din_8b),
+    .dout_sync  (dout_8b)
+  );
+
+  logic [15:0] din_16b = '0;
+  logic [15:0] dout_16b;
+
+  sync_2ff #(.WIDTH(16)) dut_16b (
+    .clk        (clk),
+    .rst_n_sync (rst_n_sync),
+    .din_async  (din_16b),
+    .dout_sync  (dout_16b)
+  );
+
   int errors = 0;
-  int latency;
 
   task automatic check(input string label, input bit cond);
     begin
       if (!cond) begin
-        $display("[FAIL] %s @ time=%0t  dout_1b=%0b dout_4b=%0h",
-                 label, $time, dout_1b, dout_4b);
+        $display("[FAIL] %s @ time=%0t  d1=%0b d4=%0h d8=%0h d16=%0h",
+                 label, $time, dout_1b, dout_4b, dout_8b, dout_16b);
         errors++;
       end else begin
         $display("[OK]   %s @ time=%0t", label, $time);
@@ -62,75 +77,122 @@ module sync_2ff_tb;
     end
   endtask
 
+  task automatic wait_two_cycles;
+    begin
+      @(posedge clk); #1;
+      @(posedge clk); #1;
+    end
+  endtask
+
   initial begin
-    // T1: reset asserted → both DUTs hold dout at 0 even if din toggles
+    // T1: reset asserted -> every DUT must hold zero regardless of input activity.
     rst_n_sync = 1'b0;
     din_1b = 1'b1;
     din_4b = 4'hF;
-    repeat (3) @(posedge clk);
+    din_8b = 8'hA5;
+    din_16b = 16'hCAFE;
+    repeat (3) @(posedge clk); #1;
     check("T1 reset: dout_1b=0 while rst_n_sync=0", dout_1b === 1'b0);
     check("T1 reset: dout_4b=0 while rst_n_sync=0", dout_4b === 4'h0);
+    check("T1 reset: dout_8b=0 while rst_n_sync=0", dout_8b === 8'h00);
+    check("T1 reset: dout_16b=0 while rst_n_sync=0", dout_16b === 16'h0000);
 
-    // Release reset (use the reset_sync module externally in real design;
-    // here we just toggle rst_n_sync to model the post-reset_sync output).
-    // Use `#1` after each `@(posedge clk)` so non-blocking assignments
-    // settle before observing dout — observing in the active region of
-    // the same posedge would see pre-NBA values and race the always_ff.
+    // T2: after release, stable inputs appear exactly 2 clocks later.
     @(negedge clk);
     rst_n_sync = 1'b1;
-    @(posedge clk); #1;    // first cycle: ff1 captures din, ff2 captures old ff1
-    @(posedge clk); #1;    // second cycle: ff2 captures din via ff1
-
-    // T2: din_1b was high before release, so after 2 cycles dout_1b=1
+    wait_two_cycles();
     check("T2 propagation: dout_1b=1 after 2 cycles (din_1b held high)",
           dout_1b === 1'b1);
     check("T2 propagation: dout_4b=F after 2 cycles (din_4b held F)",
           dout_4b === 4'hF);
+    check("T2 propagation: dout_8b=A5 after 2 cycles", dout_8b === 8'hA5);
+    check("T2 propagation: dout_16b=CAFE after 2 cycles", dout_16b === 16'hCAFE);
 
-    // T3: drop din_1b/din_4b, count cycles until dout follows
+    // T3: outputs must still show the old value after 1 cycle and update on cycle 2.
+    @(negedge clk);
+    din_1b = 1'b0;
+    din_4b = 4'b0101;
+    din_8b = 8'h3C;
+    din_16b = 16'h1234;
+    @(posedge clk); #1;
+    check("T3 after 1 cycle: dout_1b still old", dout_1b === 1'b1);
+    check("T3 after 1 cycle: dout_4b still old", dout_4b === 4'hF);
+    check("T3 after 1 cycle: dout_8b still old", dout_8b === 8'hA5);
+    check("T3 after 1 cycle: dout_16b still old", dout_16b === 16'hCAFE);
+    @(posedge clk); #1;
+    check("T3 after 2 cycles: dout_1b updated", dout_1b === 1'b0);
+    check("T3 after 2 cycles: dout_4b updated", dout_4b === 4'b0101);
+    check("T3 after 2 cycles: dout_8b updated", dout_8b === 8'h3C);
+    check("T3 after 2 cycles: dout_16b updated", dout_16b === 16'h1234);
+
+    // T4: mid-cycle async edge still takes 2 clocks from the next sampling edge.
+    @(negedge clk);
+    din_1b = 1'b0;
+    wait_two_cycles();
+    check("T4 setup: dout_1b back to 0", dout_1b === 1'b0);
+    #3;
+    din_1b = 1'b1;
+    @(posedge clk); #1;
+    check("T4 async edge: still old after 1 cycle", dout_1b === 1'b0);
+    @(posedge clk); #1;
+    check("T4 async edge: updated after 2 cycles", dout_1b === 1'b1);
+
+    // T5: X-prop should traverse the pipe after 2 clocks, then clear again after 2 clocks.
+    @(negedge clk);
+    din_1b = 1'bx;
+    din_4b = 4'hx;
+    din_8b = 8'hxx;
+    din_16b = 16'hxxxx;
+    @(posedge clk); #1;
+    check("T5 X-prop: cycle 1 still shows previous value", dout_1b === 1'b1);
+    @(posedge clk); #1;
+    check("T5 X-prop: 1b becomes X after 2 cycles", dout_1b === 1'bx);
+    check("T5 X-prop: 4b becomes X after 2 cycles", dout_4b === 4'hx);
+    check("T5 X-prop: 8b becomes X after 2 cycles", dout_8b === 8'hxx);
+    check("T5 X-prop: 16b becomes X after 2 cycles", dout_16b === 16'hxxxx);
+
     @(negedge clk);
     din_1b = 1'b0;
     din_4b = 4'h0;
-    latency = 0;
-    begin
-      bit done3 = 1'b0;
-      while (!done3) begin
-        @(posedge clk); #1;
-        latency++;
-        if (dout_1b === 1'b0)  done3 = 1'b1;
-        if (latency >= 5)      done3 = 1'b1;
-      end
-    end
-    check("T3 falling edge: dout_1b=0 after exactly 2 cycles",
-          latency == 2);
-    check("T3 falling edge: dout_4b=0 too",
-          dout_4b === 4'h0);
+    din_8b = 8'h00;
+    din_16b = 16'h0000;
+    wait_two_cycles();
+    check("T5 clear after X: 1b returns to 0", dout_1b === 1'b0);
+    check("T5 clear after X: 4b returns to 0", dout_4b === 4'h0);
+    check("T5 clear after X: 8b returns to 0", dout_8b === 8'h00);
+    check("T5 clear after X: 16b returns to 0", dout_16b === 16'h0000);
 
-    // T4: per-bit independence — set bits 0 and 2 only
+    // T6: async reset must clear the synchronizer immediately even from an X state.
     @(negedge clk);
-    din_4b = 4'b0101;
-    @(posedge clk); #1;
-    @(posedge clk); #1;
-    check("T4 per-bit: dout_4b == 0101 after 2 cycles",
-          dout_4b === 4'b0101);
-
-    // T5: async edge mid-cycle on din_1b
-    // Wait for next negedge so we're mid-cycle, then flip din at a
-    // non-boundary time
-    @(negedge clk);
-    din_1b = 1'b0;
-    @(posedge clk); #1;
-    @(posedge clk); #1;
-    check("T5 setup: dout_1b reset to 0 before async edge test",
-          dout_1b === 1'b0);
-    #3;     // 3 ns after a posedge — middle of next half-cycle
     din_1b = 1'b1;
-    // Now din_1b rose mid-cycle. Wait through 2 more posedges; dout
-    // should be 1 by then.
-    @(posedge clk); #1;
-    @(posedge clk); #1;
-    check("T5 async-edge propagation: dout_1b=1 within 2 cycles of next posedge",
-          dout_1b === 1'b1);
+    din_4b = 4'hA;
+    din_8b = 8'h5A;
+    din_16b = 16'h55AA;
+    wait_two_cycles();
+    check("T6 setup: known values present before reset", dout_16b === 16'h55AA);
+    @(negedge clk);
+    din_1b = 1'bx;
+    din_4b = 4'hx;
+    din_8b = 8'hxx;
+    din_16b = 16'hxxxx;
+    rst_n_sync = 1'b0;
+    #1;
+    check("T6 reset dominates X on 1b", dout_1b === 1'b0);
+    check("T6 reset dominates X on 4b", dout_4b === 4'h0);
+    check("T6 reset dominates X on 8b", dout_8b === 8'h00);
+    check("T6 reset dominates X on 16b", dout_16b === 16'h0000);
+
+    @(negedge clk);
+    rst_n_sync = 1'b1;
+    din_1b = 1'b1;
+    din_4b = 4'b0101;
+    din_8b = 8'hA5;
+    din_16b = 16'h0F0F;
+    wait_two_cycles();
+    check("T6 post-reset recovery: dout_4b == 0101 after 2 cycles",
+          dout_4b === 4'b0101);
+    check("T6 post-reset recovery: dout_8b == A5 after 2 cycles", dout_8b === 8'hA5);
+    check("T6 post-reset recovery: dout_16b == 0F0F after 2 cycles", dout_16b === 16'h0F0F);
 
     if (errors == 0) $display("SYNC_2FF_TB_PASS");
     else             $display("SYNC_2FF_TB_FAIL errors=%0d", errors);
