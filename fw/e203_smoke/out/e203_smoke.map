@@ -1,25 +1,25 @@
 Archive member included to satisfy reference by file (symbol)
 
 /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)
-                              /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o (__udivsi3)
+                              /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o (__udivsi3)
 
 Discarded input sections
 
- .text          0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
- .data          0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
- .bss           0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
- .text          0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
- .data          0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
- .bss           0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
- .text          0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
- .data          0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
- .bss           0x00000000        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+ .text          0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
+ .data          0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
+ .bss           0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
+ .text          0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
+ .data          0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
+ .bss           0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
+ .text          0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+ .data          0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+ .bss           0x00000000        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
  .text.uart_putc
-                0x00000000       0x20 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+                0x00000000       0x20 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
  .text.uart_put_hex8
-                0x00000000       0x64 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+                0x00000000       0x64 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
  .text.uart_put_hex32
-                0x00000000       0x4c /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+                0x00000000       0x4c /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
  .data          0x00000000        0x0 /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)
  .bss           0x00000000        0x0 /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)
 
@@ -32,86 +32,86 @@ DMEM             0x00013800         0x00000700         xrw
 
 Linker script and memory map
 
-LOAD /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
-LOAD /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
-LOAD /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+LOAD /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
+LOAD /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
+LOAD /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
 LOAD /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a
 
-.text           0x00000000      0x778
+.text           0x00000000      0x788
  *(.text.start)
- .text.start    0x00000000       0x60 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
+ .text.start    0x00000000       0x60 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
                 0x00000000                _start
  *(.text*)
  .text.startup.main
-                0x00000060      0x338 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
+                0x00000060      0x348 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
                 0x00000060                main
  .text.uart_init
-                0x00000398        0xc /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
-                0x00000398                uart_init
+                0x000003a8        0xc /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+                0x000003a8                uart_init
  .text.uart_wait_idle
-                0x000003a4       0x18 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
-                0x000003a4                uart_wait_idle
+                0x000003b4       0x18 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+                0x000003b4                uart_wait_idle
  .text.uart_puts
-                0x000003bc       0x38 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
-                0x000003bc                uart_puts
+                0x000003cc       0x38 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+                0x000003cc                uart_puts
  .text.uart_put_u32
-                0x000003f4       0xe0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
-                0x000003f4                uart_put_u32
+                0x00000404       0xe0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+                0x00000404                uart_put_u32
  .text.uart_printf
-                0x000004d4      0x1f0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
-                0x000004d4                uart_printf
- .text          0x000006c4       0xb4 /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)
-                0x000006c4                __divsi3
-                0x000006cc                __hidden___udivsi3
-                0x000006cc                __udivsi3
-                0x00000714                __umodsi3
-                0x00000748                __modsi3
-                0x00000778                        . = ALIGN (0x4)
+                0x000004e4      0x1f0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
+                0x000004e4                uart_printf
+ .text          0x000006d4       0xb4 /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)
+                0x000006d4                __divsi3
+                0x000006dc                __hidden___udivsi3
+                0x000006dc                __udivsi3
+                0x00000724                __umodsi3
+                0x00000758                __modsi3
+                0x00000788                        . = ALIGN (0x4)
 
-.rodata         0x00000778      0x164
+.rodata         0x00000788      0x164
  *(.rodata*)
  .rodata.main.str1.4
-                0x00000778      0x161 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
-                0x000008dc                        . = ALIGN (0x4)
- *fill*         0x000008d9        0x3 
+                0x00000788      0x161 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
+                0x000008ec                        . = ALIGN (0x4)
+ *fill*         0x000008e9        0x3 
 
-.rela.dyn       0x000008dc        0x0
+.rela.dyn       0x000008ec        0x0
  .rela.text.start
-                0x000008dc        0x0 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
+                0x000008ec        0x0 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
 
-.data           0x00013800        0x0 load address 0x000008dc
+.data           0x00013800        0x0 load address 0x000008ec
                 0x00013800                        _sdata = .
  *(.data*)
                 0x00013800                        . = ALIGN (0x4)
                 0x00013800                        _edata = .
-                0x000008dc                        _sidata = LOADADDR (.data)
+                0x000008ec                        _sidata = LOADADDR (.data)
 
-.bss            0x00013800      0x280 load address 0x000008dc
+.bss            0x00013800      0x280 load address 0x000008ec
                 0x00013800                        _sbss = .
  *(.bss*)
  .bss.input_buf
-                0x00013800      0x280 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
+                0x00013800      0x280 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
  *(COMMON)
                 0x00013a80                        . = ALIGN (0x4)
                 0x00013a80                        _ebss = .
                 0x00013f00                        _stack_top = (ORIGIN (DMEM) + LENGTH (DMEM))
-OUTPUT(/mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke.elf elf32-littleriscv)
+OUTPUT(/mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke.elf elf32-littleriscv)
 
 .riscv.attributes
                 0x00000000       0x31
  .riscv.attributes
-                0x00000000       0x2f /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_crt0.o
+                0x00000000       0x2f /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_crt0.o
  .riscv.attributes
-                0x0000002f       0x31 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
+                0x0000002f       0x31 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
  .riscv.attributes
-                0x00000060       0x31 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+                0x00000060       0x31 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
  .riscv.attributes
                 0x00000091       0x1a /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)
 
 .comment        0x00000000       0x22
- .comment       0x00000000       0x22 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_main.o
+ .comment       0x00000000       0x22 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_main.o
                                  0x23 (size before relaxing)
- .comment       0x00000022       0x23 /mnt/d/SoC Design/SoC Design/fw/e203_smoke/out/e203_smoke_uart.o
+ .comment       0x00000022       0x23 /mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke_uart.o
 
 .debug_line     0x00000000      0x153
  .debug_line    0x00000000      0x153 /usr/lib/gcc/riscv64-unknown-elf/13.2.0/rv32i/ilp32/libgcc.a(div.o)

@@ -1,6 +1,6 @@
 # `fw/main.c` 开机擦除 — FPGA 板上复验说明
 
-**日期**：2026-04-24
+**日期**：2026-04-24（2026-05-03 补做 alpha smoke re-verify）
 **关联 commit**：
 - `e56c7c05` fw(main): add boot-time RRAM full-array erase (P2-1 closed)
 - `6df4446f` fw+tb: make boot-time erase work in e203 regression
@@ -9,8 +9,11 @@
 
 ## 结论
 
-**`fw/main.c` 改动不需要重跑 FPGA 板上验证**。
-现有 `main-fpga-e203-alpha-passed` tag（见 [alpha_board_bringup_log_20260424.txt](alpha_board_bringup_log_20260424.txt)，在 `main-fpga-e203-alpha` 分支上）的证据链已经覆盖开机擦除路径。
+**单独看 `fw/main.c` 的开机擦除语义，仍然不要求额外重跑 FPGA；**
+但 Round 3 为了修 `fw/e203_smoke/e203_fpga_smoke.c` 的 `PROG_CTRL` RMW /
+`RETRY_LIMIT` 问题，已经在 `main-fpga-e203-alpha` worktree 上重新 bitgen 并补做了
+一次板级 smoke re-verify。最新原始 UART capture 见
+`doc/main-fpga-e203/uart_capture_20260503_alpha_reverify.txt`。
 
 ## 理由
 
@@ -23,11 +26,11 @@
 
 ### FPGA 路径本来就擦
 
-`fw/e203_smoke/e203_fpga_smoke.c` 第 68-72 行：
+`fw/e203_smoke/e203_fpga_smoke.c` 的 Phase 1 Step 1a：
 ```c
 // Step 1a: full-array erase
-// PROG_CTRL[2]=FULL_ARRAY, [1]=ERASE, [0]=START(W1P)
-PROG_CTRL = 0x07u;
+// Clear BYPASS/LEVEL low bits for erase, but keep RETRY_LIMIT[10:8].
+prog_ctrl_start_preserve_retry(PROG_CTRL_ERASE_MASK | PROG_CTRL_FULL_ARRAY_MASK);
 (void)wait_prog_done();
 uart_puts("[PROG] full-array erase DONE\n");
 ```
@@ -57,7 +60,7 @@ ROM bootloader (fw/boot_main.c) → 从 SPI flash 把 app 加载到 INSTR_SRAM �
 ROM bootloader 只负责搬码，不触碰 RRAM；app (fw/main.c) 才是真正做推理的代码。app 要想在"开机初始态是 HRS / LRS / 随机"的 cell 上跑出干净推理，**必须在跑推理前自己做一次全阵列擦除**。这就是 `e56c7c05` 加的事。
 
 `fw/main.c` 不是 FPGA 的 BRAM pre-init 固件，**它只在 tape-out silicon 上跑**。因此：
-- ✅ Icarus e203 smoke 覆盖了这条路径的数字语义（`E203_SMOKETEST_PASS`，新 APP erase DONE 日志）
+- ✅ Icarus e203 smoke 覆盖了这条路径的数字语义（`E203_SMOKETEST_PASS`，新 `APP erase SEQ_DONE` 日志）
 - ⏳ 真实 tape-out silicon 路径的物理验证，要等数字 die 回片 + PCB 装配 + 模拟 die 到位之后，一次性和 silicon_bringup、真实擦除、真实权重写入、真实推理一起做
 
 ## Regression 证据（本次 commits 之后）
@@ -66,11 +69,19 @@ ROM bootloader 只负责搬码，不触碰 RRAM；app (fw/main.c) 才是真正�
 - LIGHT / WEIGHTED / DMA / CIM_PROGRAM_CTRL
 - UART / SPI / PROG_PULSE_CFG / PROG_START_INTERLOCK
 - BOOT_ROM / SILICON_BRINGUP
-- **E203_SMOKETEST_PASS**（新：看到 `APP erase DONE` + count=100 + neuron[0..9]=10 each）
+- **E203_SMOKETEST_PASS**（新：看到 `APP erase SEQ_DONE` + count=100 + neuron[0..9]=10 each）
 - CHIP_TOP_ROM_SMOKE / PROG_BYPASS_LATCH / PROG_PAD_ENCODER / PROG_WL_PAD_ROUTE
 
-### Alpha 分支 E203 smoke（cherry-pick 后）
-同样 `APP erase DONE` + `E203_SMOKETEST_PASS`。alpha 分支整体以 `main-fpga-e203-alpha-passed` tag 为证据底座，tag 本身未动。
+### Alpha 分支 E203 smoke（2026-05-03 re-verify）
+最新 ZCU102 re-verify 抓到：
+- `FPGA_E203_BOOT_UART_PASS`
+- `FPGA_E203_PROGRAM_ERASE_WRITE_PASS`
+- `FPGA_E203_PROGRAMMED_INFERENCE_PASS`
+- `[INFER] total_spikes=800 mismatch=0`
+
+这次 re-verify 的直接触发原因不是 `fw/main.c`，而是 `fw/e203_smoke` 修了
+`PROG_CTRL` 的 read-modify-write，确保 `RETRY_LIMIT[10:8]` 不会被 full-word write
+静默清零。
 
 ## 下次真正触发板上复验的条件
 
@@ -81,4 +92,5 @@ ROM bootloader 只负责搬码，不触碰 RRAM；app (fw/main.c) 才是真正�
 3. 改动 ZCU102 wrapper（`fpga/boards/zcu102/snn_soc_fpga_top.sv`）或 XDC 约束
 4. 把 `fw/main.c` 的某个版本引入到 FPGA pre-init（目前没有这个计划）
 
-本次的 `fw/main.c` 改动**不在**这四条里的任何一条。
+本次的 `fw/main.c` 改动**不在**这四条里的任何一条；2026-05-03 的重烧是因为
+第 1 条已经发生（`fw/e203_smoke/e203_fpga_smoke.c` 修了 `PROG_CTRL` RMW）。

@@ -1,0 +1,18 @@
+# capture from COM3 @ 115200 starting Sun May  3 12:38:17 2026
+UART_OK
+FPGA_E203_BOOT_UART_PASS
+[PROG] full-array erase DONE
+[PROG] write subset rows=0..9 cols=0..9 PASS
+FPGA_E203_PROGRAM_ERASE_WRITE_PASS
+[INFER] neuron[0] hw=80 sw=80 OK
+[INFER] neuron[1] hw=80 sw=80 OK
+[INFER] neuron[2] hw=80 sw=80 OK
+[INFER] neuron[3] hw=80 sw=80 OK
+[INFER] neuron[4] hw=80 sw=80 OK
+[INFER] neuron[5] hw=80 sw=80 OK
+[INFER] neuron[6] hw=80 sw=80 OK
+[INFER] neuron[7] hw=80 sw=80 OK
+[INFER] neuron[8] hw=80 sw=80 OK
+[INFER] neuron[9] hw=80 sw=80 OK
+[INFER] total_spikes=800 mismatch=0
+FPGA_E203_PROGRAMMED_INFERENCE_PASS

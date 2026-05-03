@@ -45,6 +45,12 @@ static inline uint32_t wait_prog_done(void) {
     return ps;
 }
 
+// Clear low control bits for the next START while preserving RETRY_LIMIT[10:8].
+static inline void prog_ctrl_start_preserve_retry(uint32_t low_bits) {
+    uint32_t pc = PROG_CTRL;
+    PROG_CTRL = (pc & ~PROG_CTRL_LOW_MASK) | low_bits | PROG_CTRL_START_MASK;
+}
+
 int main(void) {
     // ---------------------------------------------------------------
     // Phase 0 — Boot gate
@@ -58,20 +64,19 @@ int main(void) {
     // ---------------------------------------------------------------
 
     // Step 1a: full-array erase
-    // PROG_CTRL[2]=FULL_ARRAY, [1]=ERASE, [0]=START(W1P)
-    PROG_CTRL = 0x07u;
+    // Clear BYPASS/LEVEL low bits for erase, but keep RETRY_LIMIT[10:8].
+    prog_ctrl_start_preserve_retry(PROG_CTRL_ERASE_MASK | PROG_CTRL_FULL_ARRAY_MASK);
     (void)wait_prog_done();
     uart_puts("[PROG] full-array erase DONE\n");
 
     // Step 1b: write rows 0..9 × cols 0..9 at level 1
-    // PROG_CTRL[7:4]=LEVEL=1 → 0x10, [0]=START=1 → total 0x11
-    // (ERASE=0, FULL_ARRAY=0 are cleared by this write)
+    // Reuse the same low-byte clear path so RETRY_LIMIT[10:8] survives.
     uint32_t write_fail = 0u;
     for (uint32_t r = 0u; r < SMOKE_ROWS; r++) {
         for (uint32_t c = 0u; c < SMOKE_COLS; c++) {
             PROG_ROW = r;
             PROG_COL = c;
-            PROG_CTRL = (SMOKE_LEVEL << 4) | 0x01u;
+            prog_ctrl_start_preserve_retry(SMOKE_LEVEL << PROG_CTRL_LEVEL_SHIFT);
             uint32_t ps = wait_prog_done();
             if ((ps & PROG_STATUS_FAIL_MASK) != 0u) {
                 write_fail++;
