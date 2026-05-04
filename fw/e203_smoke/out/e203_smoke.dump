@@ -1,5 +1,5 @@
 
-/mnt/d/SoC Design/audit-fpga/fw/e203_smoke/out/e203_smoke.elf:     file format elf32-littleriscv
+out/e203_smoke.elf:     file format elf32-littleriscv
 
 
 Disassembly of section .text:

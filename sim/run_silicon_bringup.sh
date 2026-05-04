@@ -62,8 +62,12 @@ if [ ! -e ../rtl/vendor_e203 ]; then
   CREATED_VENDOR_JUNCTION=1
 fi
 
-# Build silicon_bringup firmware with UART_BAUD_DIV_OVERRIDE=2 for sim speed
-run_in_wsl "UART_BAUD_DIV_OVERRIDE=2u bash fw/silicon_bringup/build_silicon_bringup.sh" \
+# Build a sim-fast silicon_bringup firmware:
+#   - UART_BAUD_DIV_OVERRIDE=2 shrinks tx delay
+#   - SILICON_BRINGUP_SIM_FAST trims expensive per-neuron/status UART chatter
+#   - SILICON_BRINGUP_LEGACY_SIM=1 keeps the fast instr_sram@0x0 regression
+#     path; boot_rom / 0x1000 handoff is covered by chip_top_rom_smoke TBs.
+run_in_wsl "UART_BAUD_DIV_OVERRIDE=2u SILICON_BRINGUP_SIM_FAST=1 SILICON_BRINGUP_LEGACY_SIM=1 bash fw/silicon_bringup/build_silicon_bringup.sh" \
     > silicon_bringup_fw_build.log 2>&1
 
 run_iverilog -g2012 -gno-assertions \

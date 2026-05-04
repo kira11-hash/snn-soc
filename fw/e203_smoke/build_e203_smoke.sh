@@ -16,10 +16,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FW_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$FW_DIR/.." && pwd)"
-OUT_DIR="$SCRIPT_DIR/out"
+OUT_DIR="out"
 CROSS="${CROSS:-riscv64-unknown-elf}"
 BOOT_IMEM_WORDS=4096  # 16KB INSTR_SRAM / 4 bytes per word
 
+cd "$SCRIPT_DIR"
 mkdir -p "$OUT_DIR"
 
 if ! command -v "$CROSS"-gcc >/dev/null 2>&1; then
@@ -53,13 +54,13 @@ CFLAGS=(
   -nostdlib
 )
 
-CFLAGS_EXTRA=(-I"$FW_DIR")
+CFLAGS_EXTRA=(-I..)
 if [ -n "${UART_BAUD_DIV_OVERRIDE:-}" ]; then
   CFLAGS_EXTRA+=("-DUART_BAUD_DIV=${UART_BAUD_DIV_OVERRIDE}")
 fi
 
 LDFLAGS=(
-  -T "$FW_DIR/link.ld"
+  -T "../link.ld"
   -nostdlib
   -Wl,--gc-sections
   -Wl,--build-id=none
@@ -67,8 +68,8 @@ LDFLAGS=(
 )
 
 # Compile
-"$CROSS"-gcc "${CFLAGS[@]}" "${CFLAGS_EXTRA[@]}" -c "$FW_DIR/crt0.S"       -o "$OUT_DIR/e203_smoke_crt0.o"
-"$CROSS"-gcc "${CFLAGS[@]}" "${CFLAGS_EXTRA[@]}" -c "$FW_DIR/uart_printf.c" -o "$OUT_DIR/e203_smoke_uart.o"
+"$CROSS"-gcc "${CFLAGS[@]}" "${CFLAGS_EXTRA[@]}" -c "../crt0.S"       -o "$OUT_DIR/e203_smoke_crt0.o"
+"$CROSS"-gcc "${CFLAGS[@]}" "${CFLAGS_EXTRA[@]}" -c "../uart_printf.c" -o "$OUT_DIR/e203_smoke_uart.o"
 "$CROSS"-gcc "${CFLAGS[@]}" "${CFLAGS_EXTRA[@]}" -c "$SCRIPT_DIR/e203_fpga_smoke.c" -o "$OUT_DIR/e203_smoke_main.o"
 
 # Link
@@ -93,7 +94,7 @@ echo "[INFO] firmware size: ${SIZE} bytes / ${MAX_BYTES} bytes"
 
 # Convert ELF → flat binary → $readmemh hex
 "$CROSS"-objcopy -O binary "$OUT_DIR/e203_smoke.elf" "$OUT_DIR/e203_smoke.bin"
-python3 "$FW_DIR/bin_to_readmemh.py" \
+python3 "../bin_to_readmemh.py" \
   "$OUT_DIR/e203_smoke.bin" \
   "$OUT_DIR/e203_smoke.hex" \
   "$BOOT_IMEM_WORDS"

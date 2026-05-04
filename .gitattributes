@@ -1,1 +1,17 @@
 *.sh text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.py text eol=lf
+*.sv text eol=lf
+*.v text eol=lf
+*.vh text eol=lf
+*.tcl text eol=lf
+*.xdc text eol=lf
+*.ld text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.S text eol=lf
+*.hex text eol=lf
+*.map text eol=lf
+*.dump text eol=lf
+*.f text eol=lf
