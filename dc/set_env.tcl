@@ -31,3 +31,38 @@ set DATA_OUT [format "%s%s" $OUT_DIR/ $file_version]
 # 工艺库角点名（SMIC 55nm low-leakage HS-RVT，与模板同库）。
 set lib_slow      scc55nll_hs_rvt_ss_v1p08_125c_basic
 set lib_fast      scc55nll_hs_rvt_ff_v1p32_0c_basic
+
+# ============================================================
+# 面积优化与 black-box 选项（2026-05-04 加，修正 over-estimate）
+# ============================================================
+# OPT_SRAM_BLACKBOX = 1（默认）：把 sram_simple / sram_simple_dp / boot_rom /
+#   cim_macro_blackbox 4 个模块替换成 dc/stubs/ 下的空 stub，DC 综合时这些
+#   cell 占 0 area，避免行为模型综合成 FF 阵列后的 over-estimate。
+#   面积报告里只看到真实数字逻辑（reg_bank / dma_engine / e203 / etc.）。
+#   真实 SRAM macro / mask ROM / 模拟 CIM macro 的面积由 P&R 阶段或模拟侧补回。
+#
+# OPT_SRAM_BLACKBOX = 0：综合所有真 RTL，得到 over-estimate（FF 阵列）。
+#   若需 sanity check 一下 SRAM 行为模型的 RTL 没问题，跑这个版本。
+set OPT_SRAM_BLACKBOX 1
+
+# OPT_USE_TEMPLATE_MEM_LIB = 1：加载 template 的 weight_sram + neuron_sram
+#   两个 SRAM macro lib（来自 SNPU 项目，本 V1 SoC 不实际使用）。
+#   仅当 DC 因为找不到这些 .db 报错时才需要切到 0 把它们从 link_library 去掉。
+# OPT_USE_TEMPLATE_MEM_LIB = 0（默认）：不加载，本项目不需要这些 macro。
+set OPT_USE_TEMPLATE_MEM_LIB 0
+
+# OPT_AREA_HIGH_EFFORT = 1（默认）：compile_ultra 加 -area_high_effort_script，
+#   触发 DC 额外的面积优化 pass（多跑几轮 area recovery）。代价：综合时间 +30~60%。
+# OPT_AREA_HIGH_EFFORT = 0：标准 compile，时间快但面积可能略大。
+set OPT_AREA_HIGH_EFFORT 1
+
+# OPT_GATE_CLOCK = 1（默认）：compile_ultra 加 -gate_clock，自动插入 clock
+#   gating cells。同时降低面积（FF 数量减少）+ 动态功耗。流片项目通常开启。
+#   若 DFT scan 流程对 clock gating 敏感，可关闭后再综合一次对比。
+# OPT_GATE_CLOCK = 0：不插 clock gating，结构更简单但面积/功耗略差。
+set OPT_GATE_CLOCK 1
+
+# OPT_POST_COMPILE_AREA = 1（默认）：compile 完成后跑 optimize_netlist -area
+#   做最后一轮面积扫尾（对已生成网表做局部 cell 替换 / 删除 / 合并）。
+# OPT_POST_COMPILE_AREA = 0：不跑扫尾，节省 5~10 分钟。
+set OPT_POST_COMPILE_AREA 1

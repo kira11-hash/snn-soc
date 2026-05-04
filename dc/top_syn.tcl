@@ -21,6 +21,10 @@ set COMPILE_TOOL "compile_ultra"
 set CMP_OPT_BASE "-no_autoungroup"
 # 扫描相关选项（需要 scan/DFT 时启用）。
 set CMP_OPT_SCAN "-scan"
+# 面积优化选项（OPT_AREA_HIGH_EFFORT=1 时加 -area_high_effort_script）。
+set CMP_OPT_AREA "-area_high_effort_script"
+# Clock gating 插入（OPT_GATE_CLOCK=1 时加 -gate_clock）。
+set CMP_OPT_GATE_CLOCK "-gate_clock"
 
 # 标准单元库根目录（来自统一的 library.tcl 配置）。
 set LIB_PATH "/home/PIE_student_1/Documents/smic55ll"
@@ -35,10 +39,17 @@ set IO_LIBRARY "$LIB_PATH/IO/SP55NLLD2RP_OV3_V0p7/syn/3p3v/SP55NLLD2RP_OV3_V0p4_
 # synthetic 库（DesignWare 等综合库）。
 set SYNTHETIC_LIBRARY "/home/opt/Synopsys/syn/T-2022.03-SP5-5/libraries/syn/dw_foundation.sldb"
 # memory 宏库列表（如 SRAM/ROM 等）。
-set MEMORY_LIB_LIST [list \
-            "/home/DS_student_2/INNOVUS/innovus1_ref/SNPU_syn_v1(setup05hold05)/SNPU_syn_v1(setup05hold05)/lib/weight_sram/S55NLLGSPH_X128Y4D100_BW_ss_1.08_125.db" \
-            "/home/DS_student_2/INNOVUS/innovus1_ref/SNPU_syn_v1(setup05hold05)/SNPU_syn_v1(setup05hold05)/lib/neuron_sram/S55NLLGSPH_X72Y4D128_ss_1.08_125.db" \
-            ]
+# 注：以下两个 macro 来自 SNPU 项目，本 V1 SoC 项目实际不使用任何 SRAM macro
+# （所有 SRAM 走 sram_simple 行为模型；black-box 模式下变成空 stub）。
+# 仅在 OPT_USE_TEMPLATE_MEM_LIB=1 时加载（防 DC 因 .db 不存在报错）。
+if {$OPT_USE_TEMPLATE_MEM_LIB == 1} {
+    set MEMORY_LIB_LIST [list \
+                "/home/DS_student_2/INNOVUS/innovus1_ref/SNPU_syn_v1(setup05hold05)/SNPU_syn_v1(setup05hold05)/lib/weight_sram/S55NLLGSPH_X128Y4D100_BW_ss_1.08_125.db" \
+                "/home/DS_student_2/INNOVUS/innovus1_ref/SNPU_syn_v1(setup05hold05)/SNPU_syn_v1(setup05hold05)/lib/neuron_sram/S55NLLGSPH_X72Y4D128_ss_1.08_125.db" \
+                ]
+} else {
+    set MEMORY_LIB_LIST [list]
+}
 
 # 搜索路径列表（RTL/库等文件的查找路径）。
 # 按 library.tcl 一致，仅使用库根目录。
@@ -46,9 +57,14 @@ set SEARCH_PATH_LIST [list $LIB_PATH]
 
 # analyze 输入格式（sverilog 适用于 SystemVerilog）。
 set ANALYZE_FORMAT "sverilog"
-# filelist 文件名（存放 RTL 列表）。dc/flist.f 是本项目 ASIC syn 用 RTL 清单
-# （从 sim/sim_chip_top_rom_smoke.f 派生，去除 TB 文件 + FPGA 专用文件）。
-set FILELIST_NAME "flist.f"
+# filelist 文件名（存放 RTL 列表）。
+# OPT_SRAM_BLACKBOX=1（默认）→ flist_blackbox.f（4 个模块走 dc/stubs/ 空 stub）
+# OPT_SRAM_BLACKBOX=0       → flist.f（综合所有真 RTL，得 over-estimate）
+if {$OPT_SRAM_BLACKBOX == 1} {
+    set FILELIST_NAME "flist_blackbox.f"
+} else {
+    set FILELIST_NAME "flist.f"
+}
 # analyze 在 VCS 兼容模式下接受一个**单一字符串**包含所有 VCS-style 参数，
 # 包括 -f flist.f / +define+ / +incdir+。本项目需要：
 #   - +define+SOC_ENABLE_E203_VENDOR：用真 E203 vendor RTL（rtl/vendor_e203/e203/core/*.v）
@@ -243,12 +259,22 @@ set cache_read   $WORK_VERSION_DIR
 #compile_ultra -incremental -cache_read $cache_read -cache_write $cache_write
 #👉 不是给新手玩的，但模板已经给你铺好路了
 
-# set CMP_OPTION "-no_autoungroup -scan"
-if {$do_scan == 1} { 
-set CMP_OPTION [format "%s %s" $CMP_OPT_BASE $CMP_OPT_SCAN]
-} else {
-set CMP_OPTION [format "%s" $CMP_OPT_BASE]
+# 拼装 compile_ultra 选项（按 set_env.tcl 的 OPT_* flag 决定）：
+#   基础 -no_autoungroup（稳定层级）
+#   + 可选 -scan（do_scan=1）
+#   + 可选 -area_high_effort_script（OPT_AREA_HIGH_EFFORT=1）
+#   + 可选 -gate_clock（OPT_GATE_CLOCK=1）
+set CMP_OPTION $CMP_OPT_BASE
+if {$do_scan == 1} {
+    set CMP_OPTION [format "%s %s" $CMP_OPTION $CMP_OPT_SCAN]
 }
+if {$OPT_AREA_HIGH_EFFORT == 1} {
+    set CMP_OPTION [format "%s %s" $CMP_OPTION $CMP_OPT_AREA]
+}
+if {$OPT_GATE_CLOCK == 1} {
+    set CMP_OPTION [format "%s %s" $CMP_OPTION $CMP_OPT_GATE_CLOCK]
+}
+echo "[INFO] compile options: $CMP_OPTION"
 
 #通过变量 do_scan 决定是否加 -scan 选项
 #-scan（重点）
@@ -509,6 +535,14 @@ change_names -rules verilog -hierarchy
 do_compile > $RPT_COMPILE_PATH
 do_compile_inc > $RPT_COMPILE_INC_PATH
 do_compile_inc > $RPT_COMPILE_INC2_PATH
+
+# Post-compile area optimization pass（OPT_POST_COMPILE_AREA=1 时启用）。
+# optimize_netlist -area 对已生成网表做最后一轮 cell 替换 / 删除 / 合并，
+# 通常能再压 1~3% 面积。代价：5~10 分钟。
+if {$OPT_POST_COMPILE_AREA == 1} {
+    echo "[INFO] running optimize_netlist -area"
+    optimize_netlist -area >> $RPT_COMPILE_INC2_PATH
+}
 
 #inc = incremental = 增量综合，不推翻结构，只微调 QoR
 #如果你后面看到：

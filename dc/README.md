@@ -12,12 +12,17 @@
 | 文件 | 作用 |
 |---|---|
 | `top_syn.tcl` | 综合主流程（analyze → elaborate → constraints → compile_ultra → 报告 → write_file） |
-| `set_env.tcl` | 项目变量（顶层模块 / 版本号 / 报告目录 / 库角点） |
+| `set_env.tcl` | 项目变量（顶层模块 / 版本号 / 报告目录 / 库角点 / **5 个面积优化 flag**）|
 | `set_parameter.tcl` | DC 应用变量与 HDL / Verilog 输出规则（一般不需改） |
 | `file_create.tcl` | 创建 RPT / OUT / WORK 子目录 |
 | `constraint_sdc.tcl` | SDC 约束（单时钟 50 MHz + 通用 IO 延迟 + reset false_path） |
-| `dont_touch.tcl` | 保护 `u_soc_core/u_macro`（CIM 模拟 macro 实例） |
-| `flist.f` | RTL 文件清单（77 个文件，含 vendor E203）|
+| `dont_touch.tcl` | 保护 `u_soc_core/u_macro` + 条件保护 SRAM/ROM stub（OPT_SRAM_BLACKBOX=1 时）|
+| `flist.f` | RTL 文件清单（77 个文件，含 vendor E203，包含 4 个 over-estimate 行为模型）|
+| `flist_blackbox.f` | RTL 文件清单（77 个，**4 个行为模型替换为 stub**，OPT_SRAM_BLACKBOX=1 默认走这个） |
+| `stubs/sram_simple_stub.sv` | sram_simple 的空 stub（端口对齐，输出 tied to 0）|
+| `stubs/sram_simple_dp_stub.sv` | sram_simple_dp 的空 stub |
+| `stubs/boot_rom_stub.sv` | boot_rom 的空 stub |
+| `stubs/cim_macro_blackbox_stub.sv` | cim_macro_blackbox 的空 stub |
 | `SYNTAX_QUICKREF.md` | DC 脚本语法速查 |
 
 ---
@@ -124,12 +129,45 @@ compiler 算出来 add 上去）。
 
 ## 已知 caveat
 
-1. **sram_simple 综合成 FF 阵列** — over-estimate 面积，需手动校正（见上方 §3）
-2. **CIM 模拟 macro 不在数字综合范围** — 面积来自模拟侧 doc/08 / doc/15
-3. **MEMORY_LIB_LIST（template 里 weight_sram + neuron_sram）本项目实际不用** —
-   保留是为了与 template 一致；本项目所有 SRAM 走 sram_simple 行为综合
-4. **vendor E203 综合很大** — `e203_core.v` 等 RTL 综合后 cell 数 5 万+ 是正常
-5. **boot_rom 是 mask ROM 替换占位** — 综合后面积比真实 mask ROM 大很多
+1. ~~sram_simple 综合成 FF 阵列~~ — **已修**：默认 OPT_SRAM_BLACKBOX=1 用 stub，面积 0；真 macro 由 P&R 接入
+2. ~~CIM 模拟 macro 不在数字综合范围~~ — **已修**：默认 stub，面积 0；真模拟 macro die area 由模拟侧提供（doc/08）
+3. ~~MEMORY_LIB_LIST 本项目实际不用~~ — **已修**：默认 OPT_USE_TEMPLATE_MEM_LIB=0 不加载（如 DC 报错可切回 1）
+4. **vendor E203 综合很大** — `e203_core.v` 等 RTL 综合后 cell 数 5 万+ 是正常（这不是 over-estimate，是真实 RTL 复杂度）
+5. ~~boot_rom 是 mask ROM 替换占位~~ — **已修**：默认 stub 面积 0；真 mask ROM 由 foundry compiler 接入
+
+---
+
+## 面积优化 flag（set_env.tcl 末尾的 5 个 OPT_*）
+
+| Flag | 默认 | 作用 |
+|---|---|---|
+| `OPT_SRAM_BLACKBOX` | **1** | 1 = 用 dc/stubs/ 4 个空 stub 替换 SRAM/ROM/CIM 行为模型（**修 over-estimate**）；0 = 综合所有真 RTL |
+| `OPT_USE_TEMPLATE_MEM_LIB` | **0** | 0 = 不加载 template 里 SNPU 用的 weight_sram/neuron_sram macro lib（本项目用不到）；1 = 加载（仅当 DC 因为 link library 报错时切回） |
+| `OPT_AREA_HIGH_EFFORT` | **1** | 1 = compile_ultra 加 `-area_high_effort_script`（多跑几轮 area recovery）；0 = 标准 compile |
+| `OPT_GATE_CLOCK` | **1** | 1 = compile_ultra 加 `-gate_clock`（自动插入 clock gating，省面积+功耗）；0 = 不插 |
+| `OPT_POST_COMPILE_AREA` | **1** | 1 = compile 完后跑 `optimize_netlist -area` 扫尾（再省 1~3% 面积）；0 = 跳过节省 5~10 min |
+
+### 默认配置（5 项全开）的面积估算口径
+
+跑出来的 `area.rpt` **就是**真实流片**数字面积上限的合理近似**（不含 SRAM macro
+和模拟 CIM macro，这两块是 P&R / 模拟侧分别接入）。
+
+最终上报口径：
+```
+total chip area ≈ DC area report  + SRAM macro area  + analog CIM macro area
+                 (digital, 本目录) (foundry compiler) (analog team)
+```
+
+### 想看更准的"全综合 over-estimate"对照
+
+```bash
+# 切到全综合模式
+sed -i 's/set OPT_SRAM_BLACKBOX 1/set OPT_SRAM_BLACKBOX 0/' set_env.tcl
+sed -i 's/set file_version    soc_v1_estimate/set file_version    soc_v1_estimate_full/' set_env.tcl
+dc_shell -f top_syn.tcl 2>&1 | tee full_$(date +%Y%m%d_%H%M).log
+```
+对比 `RPT/soc_v1_estimate/area.rpt`（black-box）vs `RPT/soc_v1_estimate_full/area.rpt`（all-syn）
+差值 ≈ FF-array 模型综合出的 over-estimate 面积。
 
 ---
 
