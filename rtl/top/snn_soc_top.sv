@@ -549,6 +549,7 @@ module snn_soc_top #(
   logic [15:0] prog_pulse_width, prog_erase_width;
   // 控制 → 寄存器（状态回读）
   logic        prog_busy, prog_done_pulse_sig, prog_pass, prog_fail;
+  logic        prog_busy_q, prog_busy_rise;
   logic [2:0]  prog_retry_count;
 
   // cim_program_ctrl 的 CIM 侧输出 → arbiter 编程端
@@ -1204,7 +1205,6 @@ module snn_soc_top #(
   //     Retriggered once at prog_busy rising edge (row stays constant
   //     inside a single programming op, one TDM burst suffices).
   localparam int WL_MUX_LATENCY_CYC = 10;
-  logic        prog_busy_q;
   logic        verify_en_sig_dly1;   // 1-cycle delayed verify_en
   logic [WL_MUX_LATENCY_CYC-1:0] prog_gate_shreg;
   // Gate-gap trick (2026-04-24 Q2 lock-in):
@@ -1228,7 +1228,7 @@ module snn_soc_top #(
                              prog_gate_active};
     end
   end
-  wire prog_busy_rise = prog_busy & ~prog_busy_q;
+  assign prog_busy_rise = prog_busy & ~prog_busy_q;
 
   assign bl_sel_ext    = arb_bl_sel;
   assign cim_start_ext = prog_busy ? prog_gate_shreg[WL_MUX_LATENCY_CYC-1]

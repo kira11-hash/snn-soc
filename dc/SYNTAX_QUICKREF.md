@@ -32,8 +32,8 @@
    - 示例：set search_path [list \ ./ \ ../ \ /path \ ]
 
 二、文件/目录与日志
-1) file exist
-   - 语法：file exist 路径
+1) file exists
+   - 语法：file exists 路径
    - 说明：判断路径是否存在，常用于 if 判断
 
 2) exec

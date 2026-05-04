@@ -66,3 +66,14 @@ set OPT_GATE_CLOCK 1
 #   做最后一轮面积扫尾（对已生成网表做局部 cell 替换 / 删除 / 合并）。
 # OPT_POST_COMPILE_AREA = 0：不跑扫尾，节省 5~10 分钟。
 set OPT_POST_COMPILE_AREA 1
+
+# OPT_CONST_PROP_AREA = 1（默认）：允许 no-boundary-opt 场景下的常量传播。
+#   作用：把 tied-off / 永远不翻转的控制条件进一步向下推进，去掉死逻辑，
+#   对面积估算更友好。代价：局部结构可能比“保守保形”模式更激进。
+# OPT_CONST_PROP_AREA = 0：保持当前保守模式，优先结构稳定性。
+set OPT_CONST_PROP_AREA 1
+
+# OPT_SET_MAX_AREA = 1（默认）：在 compile 前显式下 `set_max_area 0`，
+#   告诉 DC 在满足时序/DRC 的前提下继续做面积恢复。
+# OPT_SET_MAX_AREA = 0：不额外下 max_area 目标，只靠 compile_ultra 默认策略。
+set OPT_SET_MAX_AREA 1

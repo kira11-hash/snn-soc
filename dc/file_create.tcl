@@ -17,52 +17,50 @@ set WORK_VERSION_DIR "$WORK_ROOT/$VERSION_TAG"
 
 # 新项目通常无需改；目录名来自 set_env.tcl 的 RPT_DIR/OUT_DIR/file_version。
 # 如需调整目录结构或命名规则，再改这里。
-if {[file exist $RPT_ROOT]} {
-    echo "File $RPT_ROOT already exist"
+if {[file exists $RPT_ROOT]} {
+    echo "Directory $RPT_ROOT already exists"
 } else {
-    exec mkdir $RPT_ROOT
-    echo "Creating $RPT_ROOT !!!"
+    file mkdir $RPT_ROOT
+    echo "Creating $RPT_ROOT"
 }
 
-if {[file exist $RPT_VERSION_DIR]} {
-    echo "File $VERSION_TAG already exist"
-    exec rm $RPT_VERSION_DIR -r
-    exec mkdir $RPT_VERSION_DIR
-    echo "Re-create $VERSION_TAG files"
+if {[file exists $RPT_VERSION_DIR]} {
+    echo "Recreating $RPT_VERSION_DIR"
+    file delete -force $RPT_VERSION_DIR
+    file mkdir $RPT_VERSION_DIR
 } else {
-    exec mkdir $RPT_VERSION_DIR
-    echo "Creating $VERSION_TAG in $RPT_ROOT !!!"
+    file mkdir $RPT_VERSION_DIR
+    echo "Creating $RPT_VERSION_DIR"
 }
 
 
-if {[file exist $OUT_ROOT]} {
-    echo "File $OUT_ROOT already exist"
+if {[file exists $OUT_ROOT]} {
+    echo "Directory $OUT_ROOT already exists"
 } else {
-    exec mkdir $OUT_ROOT
-    echo "Creating $OUT_ROOT !!!"
+    file mkdir $OUT_ROOT
+    echo "Creating $OUT_ROOT"
 }
 
-if {[file exist $OUT_VERSION_DIR]} {
-    echo "File $VERSION_TAG already exist"
-    exec rm $OUT_VERSION_DIR -r
-    exec mkdir $OUT_VERSION_DIR
-    echo "Re-create $VERSION_TAG files"
+if {[file exists $OUT_VERSION_DIR]} {
+    echo "Recreating $OUT_VERSION_DIR"
+    file delete -force $OUT_VERSION_DIR
+    file mkdir $OUT_VERSION_DIR
 } else {
-    exec mkdir $OUT_VERSION_DIR
-    echo "Creating $VERSION_TAG in $OUT_ROOT !!!"
+    file mkdir $OUT_VERSION_DIR
+    echo "Creating $OUT_VERSION_DIR"
 }
 
 # create work
-if {[file exist $WORK_ROOT]} {
-    echo "File $WORK_ROOT already exist"
+if {[file exists $WORK_ROOT]} {
+    echo "Directory $WORK_ROOT already exists"
 } else {
-    exec mkdir $WORK_ROOT
-    echo "Creating $WORK_ROOT!!!"
+    file mkdir $WORK_ROOT
+    echo "Creating $WORK_ROOT"
 }
 
-if {[file exist $WORK_VERSION_DIR]} {
-    echo "File $WORK_VERSION_DIR already exist"
+if {[file exists $WORK_VERSION_DIR]} {
+    echo "Directory $WORK_VERSION_DIR already exists"
 } else {
-    exec mkdir $WORK_VERSION_DIR
-    echo "Creating $WORK_VERSION_DIR in $WORK_ROOT !!!"
+    file mkdir $WORK_VERSION_DIR
+    echo "Creating $WORK_VERSION_DIR"
 }

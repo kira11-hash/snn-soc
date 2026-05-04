@@ -19,10 +19,13 @@
 # CIM 模拟 macro 实例路径（chip_top.u_soc_core.u_macro），无论 stub 还是行为
 # 模式都需要 dont_touch。
 set_dont_touch [get_cells u_soc_core/u_macro]
+# 显式保护 reset / CDC 同步器壳层，避免综合时跨级优化破坏同步器结构。
+set_dont_touch [get_cells u_reset_sync]
+set_dont_touch [get_cells u_cim_done_sync]
 
 # 仅 stub 模式下，把 SRAM / boot_rom 实例也 dont_touch，防止空 stub 被优化掉。
 if {$OPT_SRAM_BLACKBOX == 1} {
-    echo "[INFO] dont_touch SRAM + boot_rom stubs (OPT_SRAM_BLACKBOX=1)"
+    echo {[INFO] dont_touch SRAM + boot_rom stubs (OPT_SRAM_BLACKBOX=1)}
     set_dont_touch [get_cells u_soc_core/u_boot_rom]
     set_dont_touch [get_cells u_soc_core/u_instr_sram]
     set_dont_touch [get_cells u_soc_core/u_data_sram]

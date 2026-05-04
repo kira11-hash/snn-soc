@@ -9,8 +9,9 @@
 #   - 所以本 SDC 不需要 set_clock_groups -asynchronous，单 create_clock 即可
 # ============================================================
 
-# 是否激进做常量传播。设 false 保持结构稳定，便于 LEC / DFT / 形式验证。
-set CFG_CONST_PROP_ENABLE false
+# 是否激进做常量传播。面积优先时跟随 set_env.tcl 的 OPT_CONST_PROP_AREA；
+# 若后续更看重 LEC / DFT / 形式验证结构稳定性，可切回 0。
+set CFG_CONST_PROP_ENABLE $OPT_CONST_PROP_AREA
 # 单时钟设计本不必要，但若 SDC 有 generated_clock 需要保险，可保 true。
 set CFG_MULTI_CLOCKS_PER_REG true
 # 异步复位 recovery/removal 检查。本项目 rst_n_pad 异步 + sync release，
@@ -65,7 +66,8 @@ set OUTPUT_LOAD_PIN "I"
 #   - 输出 delay：外部接收端 setup + 板级 + 余量 ≈ 4ns
 set IO_INPUT_DELAY_MAX  4
 set IO_INPUT_DELAY_MIN  1
-set IO_OUTPUT_DELAY     4
+set IO_OUTPUT_DELAY_MAX 4
+set IO_OUTPUT_DELAY_MIN 0
 
 # 复位端口（异步）— 设 false_path（不做 setup/hold 检查）。
 set RST_PORT "rst_n_pad"
@@ -84,6 +86,10 @@ set enable_recovery_removal_arcs $CFG_ENABLE_RECOVERY_REMOVAL_ARCS
 # 时钟约束（单时钟 chip_top.clk_pad）
 # ============================================================
 create_clock -name $CLK_NAME -p $CLK_PERIOD [get_ports $CLK_PORT] -waveform $CLK_WAVEFORM
+set CLK_SETUP_UNCERTAINTY 0.20
+set CLK_HOLD_UNCERTAINTY  0.05
+set_clock_uncertainty -setup $CLK_SETUP_UNCERTAINTY [get_clocks $CLK_NAME]
+set_clock_uncertainty -hold  $CLK_HOLD_UNCERTAINTY  [get_clocks $CLK_NAME]
 
 # 单时钟 SoC 不需要 set_clock_groups -asynchronous。
 # 如未来引入第二时钟域（例如独立 ADC clock），在此处加：
@@ -95,14 +101,32 @@ create_clock -name $CLK_NAME -p $CLK_PERIOD [get_ports $CLK_PORT] -waveform $CLK
 set_max_transition  $MAX_TRANSITION_DESIGN [current_design]
 set_max_transition  -clock_path $MAX_TRANSITION_CLOCK_PATH [all_clocks]
 set_clock_transition $CLOCK_TRANSITION [all_clocks]
-set_input_transition $INPUT_TRANSITION [all_inputs]
+
+# 输入转换时间只约束数据输入端口；clk_pad 由 set_clock_transition 建模，rst_n_pad
+# 走异步复位路径，不需要复用数据输入 transition 假设。
+set INPUT_TRANSITION_PORTS [remove_from_collection [all_inputs] \
+                             [get_ports [list $CLK_PORT $RST_PORT]]]
+set_input_transition $INPUT_TRANSITION $INPUT_TRANSITION_PORTS
 
 # Driving cell / output load
 # 排除 clk_pad 和 rst_n_pad（不要给时钟和复位用 BUFHDV24 建模）。
 set DRIVING_PORTS [remove_from_collection [all_inputs] \
                      [get_ports [list $CLK_PORT $RST_PORT]]]
-set_driving_cell -lib_cell $DRIVING_CELL $DRIVING_PORTS
-set_load [load_of $OUTPUT_LOAD_REF] [all_outputs]
+set DRIVING_LIB_CELL [get_lib_cells -quiet ${lib_slow}/${DRIVING_CELL}]
+if {[sizeof_collection $DRIVING_LIB_CELL] > 0} {
+    set_driving_cell -lib_cell $DRIVING_CELL $DRIVING_PORTS
+} else {
+    echo [format {[WARN] driving cell %s not found in %s; falling back to set_drive 0.} $DRIVING_CELL $lib_slow]
+    set_drive 0 $DRIVING_PORTS
+}
+
+set OUTPUT_LOAD_LIB_PIN [get_lib_pins -quiet $OUTPUT_LOAD_REF]
+if {[sizeof_collection $OUTPUT_LOAD_LIB_PIN] > 0} {
+    set_load [load_of $OUTPUT_LOAD_LIB_PIN] [all_outputs]
+} else {
+    echo [format {[WARN] output load pin %s not found; falling back to 0.01 pF equivalent load.} $OUTPUT_LOAD_REF]
+    set_load 0.01 [all_outputs]
+}
 
 # ============================================================
 # IO 输入 / 输出延迟（统一约束所有 pad-facing 端口）
@@ -116,7 +140,8 @@ set_input_delay  -max $IO_INPUT_DELAY_MAX  -clock $CLK_NAME $INPUT_DATA_PORTS
 set_input_delay  -min $IO_INPUT_DELAY_MIN  -clock $CLK_NAME $INPUT_DATA_PORTS
 
 # 所有输出端口受 CLK 约束。
-set_output_delay $IO_OUTPUT_DELAY -clock $CLK_NAME [all_outputs]
+set_output_delay -max $IO_OUTPUT_DELAY_MAX -clock $CLK_NAME [all_outputs]
+set_output_delay -min $IO_OUTPUT_DELAY_MIN -clock $CLK_NAME [all_outputs]
 
 # ============================================================
 # False path

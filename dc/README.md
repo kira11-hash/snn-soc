@@ -12,11 +12,11 @@
 | 文件 | 作用 |
 |---|---|
 | `top_syn.tcl` | 综合主流程（analyze → elaborate → constraints → compile_ultra → 报告 → write_file） |
-| `set_env.tcl` | 项目变量（顶层模块 / 版本号 / 报告目录 / 库角点 / **5 个面积优化 flag**）|
+| `set_env.tcl` | 项目变量（顶层模块 / 版本号 / 报告目录 / 库角点 / **7 个面积优化 flag**）|
 | `set_parameter.tcl` | DC 应用变量与 HDL / Verilog 输出规则（一般不需改） |
 | `file_create.tcl` | 创建 RPT / OUT / WORK 子目录 |
 | `constraint_sdc.tcl` | SDC 约束（单时钟 50 MHz + 通用 IO 延迟 + reset false_path） |
-| `dont_touch.tcl` | 保护 `u_soc_core/u_macro` + 条件保护 SRAM/ROM stub（OPT_SRAM_BLACKBOX=1 时）|
+| `dont_touch.tcl` | 保护 `u_soc_core/u_macro`、同步器壳层，且在 stub 模式下额外保护 SRAM/ROM stub |
 | `flist.f` | RTL 文件清单（77 个文件，含 vendor E203，包含 4 个 over-estimate 行为模型）|
 | `flist_blackbox.f` | RTL 文件清单（77 个，**4 个行为模型替换为 stub**，OPT_SRAM_BLACKBOX=1 默认走这个） |
 | `stubs/sram_simple_stub.sv` | sram_simple 的空 stub（端口对齐，输出 tied to 0）|
@@ -41,11 +41,14 @@ V1 数字 SoC 单时钟域（CLAUDE.md FP-005 已确认 fifo_sync 是同步 FIFO
 跨时钟仅 jtag_tck，已由 jtag_mem_loader 内部 `(* async_reg = "TRUE" *)` 处理。
 **首次面积估算用 50 MHz baseline；后续可改 `set CLK_PERIOD 10` 看 100 MHz 面积代价。**
 
-### 3. dont_touch 仅保护 CIM 模拟 macro
-- ✅ `u_soc_core/u_macro`（cim_macro_blackbox）— 行为模型，流片由模拟 CIM macro 替换
-- ❌ `u_soc_core/u_boot_rom` — 让 DC 综合得到 over-estimate；流片由 foundry mask ROM 替换
-- ❌ `u_soc_core/u_instr_sram` / `u_data_sram` / `u_weight_sram` — 让 DC 综合
-  sram_simple/sram_simple_dp 行为模型；流片由 SRAM macro 替换
+### 3. dont_touch 分两档
+- 始终保护：`u_soc_core/u_macro`（cim_macro_blackbox）— 模拟侧 macro 占位
+- 始终保护：`u_reset_sync` / `u_cim_done_sync` — reset / CDC 同步器壳层
+- 当 `OPT_SRAM_BLACKBOX=1` 时额外保护：
+  `u_soc_core/u_boot_rom` / `u_soc_core/u_instr_sram` /
+  `u_soc_core/u_data_sram` / `u_soc_core/u_weight_sram`
+- 当 `OPT_SRAM_BLACKBOX=0` 时，上述 SRAM/ROM 实例不做 dont_touch，
+  允许 DC 综合行为模型
 
 **面积估算 caveat**：综合 sram_simple 行为模型会得到大量 FF（远大于真实 SRAM macro
 面积）。最终汇报面积时**必须**减去 SRAM 部分（`report_area -hierarchy` 看每个
@@ -87,6 +90,9 @@ dc/
 - `RPT/soc_v1_estimate/qor.rpt` — WNS / TNS / 时序余量 / cell 数 / 等
 - `RPT/soc_v1_estimate/timing.max.rpt` — Setup 路径详情
 - `RPT/soc_v1_estimate/timing.min.rpt` — Hold 路径详情
+- `RPT/soc_v1_estimate/clock_gating.rpt` — clock gating 插入 / 命中率
+- `RPT/soc_v1_estimate/reference.rpt` — 各层级引用的 lib cell / module
+- `RPT/soc_v1_estimate/latches.rpt` — latch 检查（正常应为空）
 
 ---
 
@@ -110,16 +116,9 @@ set do_scan 1
 ```
 top_syn 里 `compile_ultra -scan` 自动加 -scan flag。
 
-### 想 dont_touch 所有 SRAM
-改 `dont_touch.tcl`，把 boot_rom + 3 个 SRAM 加进去：
-```tcl
-set_dont_touch [get_cells u_soc_core/u_boot_rom]
-set_dont_touch [get_cells u_soc_core/u_instr_sram]
-set_dont_touch [get_cells u_soc_core/u_data_sram]
-set_dont_touch [get_cells u_soc_core/u_weight_sram]
-```
-然后综合后报告里这些 cell 显示为 0 area（实际 SRAM macro 面积单独从 SRAM
-compiler 算出来 add 上去）。
+### 想在 stub 模式下保护所有 SRAM
+默认 `OPT_SRAM_BLACKBOX=1` 已经自动保护 boot_rom + 3 个 SRAM stub，
+无需额外修改 `dont_touch.tcl`。
 
 ### 想换工艺库
 改 `set_env.tcl` 里 `lib_slow` / `lib_fast`，再改 `top_syn.tcl` 里
@@ -137,7 +136,7 @@ compiler 算出来 add 上去）。
 
 ---
 
-## 面积优化 flag（set_env.tcl 末尾的 5 个 OPT_*）
+## 面积优化 flag（set_env.tcl 末尾的 7 个 OPT_*）
 
 | Flag | 默认 | 作用 |
 |---|---|---|
@@ -146,8 +145,10 @@ compiler 算出来 add 上去）。
 | `OPT_AREA_HIGH_EFFORT` | **1** | 1 = compile_ultra 加 `-area_high_effort_script`（多跑几轮 area recovery）；0 = 标准 compile |
 | `OPT_GATE_CLOCK` | **1** | 1 = compile_ultra 加 `-gate_clock`（自动插入 clock gating，省面积+功耗）；0 = 不插 |
 | `OPT_POST_COMPILE_AREA` | **1** | 1 = compile 完后跑 `optimize_netlist -area` 扫尾（再省 1~3% 面积）；0 = 跳过节省 5~10 min |
+| `OPT_CONST_PROP_AREA` | **1** | 1 = 打开 no-boundary-opt 场景下的常量传播，进一步去掉 tied-off 死逻辑；0 = 保守保形 |
+| `OPT_SET_MAX_AREA` | **1** | 1 = compile 前显式 `set_max_area 0`，推动 DC 继续做面积恢复；0 = 不额外加 max-area 目标 |
 
-### 默认配置（5 项全开）的面积估算口径
+### 默认配置（7 项全开）的面积估算口径
 
 跑出来的 `area.rpt` **就是**真实流片**数字面积上限的合理近似**（不含 SRAM macro
 和模拟 CIM macro，这两块是 P&R / 模拟侧分别接入）。

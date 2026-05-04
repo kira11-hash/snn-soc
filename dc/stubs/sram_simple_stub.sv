@@ -16,7 +16,7 @@
 `timescale 1ns/1ps
 
 module sram_simple #(
-  parameter int unsigned MEM_BYTES = 16384,
+  parameter int          MEM_BYTES = 16384,
   parameter              INIT_FILE = ""
 ) (
   input  logic        clk,

@@ -15,6 +15,9 @@ set CONSTRAINT_FILE "constraint_sdc.tcl"
 # dont_touch 脚本名（保护 RAM/PLL/CDC 等）。
 set DONT_TOUCH_FILE "dont_touch.tcl"
 
+# 先加载项目环境；后续 FILELIST/OPT_* / 输出目录都依赖这里定义的变量。
+source ./$SCRIPT_FILE/$SET_ENV_FILE
+
 # 综合命令名称（通常是 compile_ultra，可替换为 compile 等）。
 set COMPILE_TOOL "compile_ultra"
 # 基础综合选项（稳定层级、便于约束/调试）。
@@ -37,7 +40,19 @@ set TARGET_LIB_LIST [list \
 # IO 库（用于 I/O 单元解析）。
 set IO_LIBRARY "$LIB_PATH/IO/SP55NLLD2RP_OV3_V0p7/syn/3p3v/SP55NLLD2RP_OV3_V0p4_tt_V1p20_25C.db"
 # synthetic 库（DesignWare 等综合库）。
-set SYNTHETIC_LIBRARY "/home/opt/Synopsys/syn/T-2022.03-SP5-5/libraries/syn/dw_foundation.sldb"
+# 先给一个通用 basename，若服务器上常见绝对路径存在则自动收敛到绝对路径。
+set SYNTHETIC_LIBRARY "dw_foundation.sldb"
+set SYNTHETIC_LIBRARY_CANDIDATES [list \
+            "/home/opt/Synopsys/syn/T-2022.03-SP5-5/libraries/syn/dw_foundation.sldb" \
+            "/opt/Synopsys/syn/T-2022.03-SP5-5/libraries/syn/dw_foundation.sldb" \
+            "/opt/Synopsys/syn/S-2021.06-SP5-5/libraries/syn/dw_foundation.sldb" \
+            ]
+foreach synthetic_candidate $SYNTHETIC_LIBRARY_CANDIDATES {
+    if {[file exists $synthetic_candidate]} {
+        set SYNTHETIC_LIBRARY $synthetic_candidate
+        break
+    }
+}
 # memory 宏库列表（如 SRAM/ROM 等）。
 # 注：以下两个 macro 来自 SNPU 项目，本 V1 SoC 项目实际不使用任何 SRAM macro
 # （所有 SRAM 走 sram_simple 行为模型；black-box 模式下变成空 stub）。
@@ -141,8 +156,6 @@ set BUS_NAMING_STYLE {%s[%d]}
 #set SCRIPT_FILE scripts_syn
 # 改成后这里只需改一次，其余脚本路径不用动
 
-source ./$SCRIPT_FILE/$SET_ENV_FILE
-
 #source：执行另一个 Tcl 文件
 #set_env.tcl = “综合世界初始化”
 #新手最容易犯的错
@@ -228,17 +241,14 @@ set OUTPUT_DDC_PATH [format "%s/%s.%s" $DATA_OUT $working_design $DDC_EXT]
 # SDC 输出路径。
 set OUTPUT_SDC_PATH [format "%s/%s.%s" $DATA_OUT $working_design $SDC_EXT]
 
-# 增量综合缓存写入路径（指向版本化 WORK 目录）。
-set cache_write  $WORK_VERSION_DIR
-# 增量综合缓存读取路径（指向版本化 WORK 目录）。
-set cache_read   $WORK_VERSION_DIR
+# 旧模板里的 cache_read/cache_write app var 已废弃，当前脚本不再设置，
+# 以免在新版本 DC 上产生 INFO-100 噪声。
 
 #字面含义
-#定义两个路径变量：
+#旧模板曾定义两个路径变量：
 #cache_write：写缓存用
 #cache_read：读缓存用
-#实际展开为：
-#WORK/<某个版本号>
+#都指向 WORK/<某个版本号>
 #其中：
 #WORK/：综合中间产物目录
 #$file_version：一定是在前面某处定义的变量
@@ -255,9 +265,9 @@ set cache_read   $WORK_VERSION_DIR
 #增量综合
 #版本回滚
 #多次试跑参数对比
-#典型用途（后面你一定会看到）：
-#compile_ultra -incremental -cache_read $cache_read -cache_write $cache_write
-#👉 不是给新手玩的，但模板已经给你铺好路了
+#旧版典型用途：
+#compile_ultra -incremental -cache_read ... -cache_write ...
+#当前脚本未启用这套过时接口。
 
 # 拼装 compile_ultra 选项（按 set_env.tcl 的 OPT_* flag 决定）：
 #   基础 -no_autoungroup（稳定层级）
@@ -274,7 +284,7 @@ if {$OPT_AREA_HIGH_EFFORT == 1} {
 if {$OPT_GATE_CLOCK == 1} {
     set CMP_OPTION [format "%s %s" $CMP_OPTION $CMP_OPT_GATE_CLOCK]
 }
-echo "[INFO] compile options: $CMP_OPTION"
+echo [format {[INFO] compile options: %s} $CMP_OPTION]
 
 #通过变量 do_scan 决定是否加 -scan 选项
 #-scan（重点）
@@ -400,6 +410,11 @@ analyze -format $ANALYZE_FORMAT -vcs $VCS_OPTIONS
 
 elaborate $working_design
 
+set ELAB_DESIGNS [get_designs $working_design]
+if {[sizeof_collection $ELAB_DESIGNS] == 0} {
+    return -code error [format {Elaboration failed for design %s. Check the analyze/elaborate errors above.} $working_design]
+}
+
 #elaborate 做了什么？
 #实例化 top
 #递归实例化所有 submodule
@@ -427,6 +442,9 @@ current_design $working_design
 #“接下来所有操作，都是针对这个 design（top）”
 
 link
+if {[sizeof_collection [get_designs $working_design]] == 0} {
+    return -code error [format {Link failed for design %s.} $working_design]
+}
 #link 在干什么？
 #检查是否有：
 #未定义模块
@@ -468,6 +486,14 @@ source -echo ./$SCRIPT_FILE/$DONT_TOUCH_FILE
 #必须在 compile 前生效
 #记忆点：“dont_touch 画红线”
 #change naming rule
+
+if {$OPT_SET_MAX_AREA == 1} {
+    echo {[INFO] enabling set_max_area 0 for area-first compile}
+    set_max_area 0
+}
+
+check_design > [format "%s/%s" $RPT_OUT "check_design.precompile.rpt"]
+check_timing > [format "%s/%s" $RPT_OUT "check_timing.precompile.rpt"]
 
 report_clock > $RPT_CLOCK_PATH
 report_clock -skew >> $RPT_CLOCK_PATH
@@ -540,7 +566,7 @@ do_compile_inc > $RPT_COMPILE_INC2_PATH
 # optimize_netlist -area 对已生成网表做最后一轮 cell 替换 / 删除 / 合并，
 # 通常能再压 1~3% 面积。代价：5~10 分钟。
 if {$OPT_POST_COMPILE_AREA == 1} {
-    echo "[INFO] running optimize_netlist -area"
+    echo {[INFO] running optimize_netlist -area}
     optimize_netlist -area >> $RPT_COMPILE_INC2_PATH
 }
 
@@ -627,6 +653,9 @@ report_qor > $RPT_QOR_PATH
 
 report_area > $RPT_AREA_PATH
 report_area -hierarchy > $RPT_AREA_HIER_PATH
+report_clock_gating > [format "%s/%s" $RPT_OUT "clock_gating.rpt"]
+report_reference -hierarchy > [format "%s/%s" $RPT_OUT "reference.rpt"]
+report_register -level_sensitive > [format "%s/%s" $RPT_OUT "latches.rpt"]
 
 #1️⃣ report_area
 #总面积
