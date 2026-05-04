@@ -263,7 +263,7 @@ module snn_soc_v2b_top
   logic [T_AW-1:0] sbB_rd_addr_bus;
   logic [P_N_OUT-1:0] sbB_rd_data;
 
-  logic tpb_clear_all, tpb_acc_en;
+  logic tpb_clear_all, tpb_acc_en, tpb_clear_busy;
   logic [T_AW-1:0] tpb_wr_t, tpb_rd_t;
   logic [J_AW-1:0] tpb_wr_j, tpb_rd_j;
   logic signed [P_PARTIAL_W-1:0] tpb_wr_diff, tpb_rd_data;
@@ -361,6 +361,7 @@ module snn_soc_v2b_top
     tile_partial_buf u_tpb (
       .clk(clk), .rst_n(rst_n),
       .clear_all(tpb_clear_all | reg_buf_clear_tile | conv_stage_clear_tile_buf),
+      .clear_busy(tpb_clear_busy),
       .acc_en(tpb_acc_en), .wr_t(tpb_wr_t), .wr_j(tpb_wr_j), .wr_diff(tpb_wr_diff),
       .rd_en(tpb_rd_en), .rd_t(tpb_rd_t), .rd_j(tpb_rd_j),
       .rd_data(tpb_rd_data)
@@ -368,6 +369,7 @@ module snn_soc_v2b_top
   end else begin : g_tpb_none
     // Tie off if tile_partial_buf disabled (saves ~14KB BRAM)
     assign tpb_rd_data = '0;
+    assign tpb_clear_busy = 1'b0;
   end endgenerate
 
   cim_mac_behavioral_v2 #(.P_ADC_BITS(P_ADC_BITS)) u_mac (
@@ -504,6 +506,7 @@ module snn_soc_v2b_top
     .stage_cfg_preserve_membrane(conv_stage_cfg_preserve_membrane),
     .stage_cfg_t_count(conv_stage_cfg_t_count),
     .stage_clear_tile_buf(conv_stage_clear_tile_buf),
+    .stage_clear_busy(conv_stage_clear_tile_buf ? 1'b1 : tpb_clear_busy),
     .stage_done_pulse(done_pulse),
     .stage_err_code(err_code),
     .spike_out_valid(spike_out_valid),
@@ -893,7 +896,7 @@ module snn_soc_v2b_top
     read_mux = 32'h0;
     case (cmd_addr)
       A_STAGE_CTRL:    read_mux = {24'h0, done_sticky, 7'h0};
-      A_STAGE_STATUS:  read_mux = {8'h0, reg_err_code, debug_t_idx, 7'h0, busy};
+      A_STAGE_STATUS:  read_mux = {8'h0, reg_err_code, debug_t_idx, 6'h0, tpb_clear_busy, busy};
       A_STAGE_CFG0:    read_mux = {reg_cfg_out_dim, reg_cfg_in_dim};
       A_STAGE_CFG1:    read_mux = reg_cfg_threshold;
       A_STAGE_CFG2:    read_mux = reg_cfg_sum_max;

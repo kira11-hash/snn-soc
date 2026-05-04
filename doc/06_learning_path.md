@@ -15,12 +15,9 @@
 | 当前分支 | `feature/v2-arm-fpga-demo-conv` |
 | 板级冻结 tag (v1, Fashion-MNIST 14×14) | `v2-arm-fpga-demo-passed @ 8e51ae27`（2026-04-22） |
 | 板级冻结 commit (v2 reburn, Fashion-MNIST 14×14) | `ea31be22`（WSTRB byte-mask 修复后重烧 PASS） |
-| **当前 LeNet-5 closure HEAD** | **`d50b7d37`（docs/evidence alignment + ARM ELF rebuild hash re-check；bit/XSA provenance 不变）** |
-| prior bit/XSA build commit (v2-conv, LeNet-5 28×28) | `537ad3b1`（2026-05-03 UART raw capture re-verify 的硬件 artifact 锚点） |
 | 原生 conv1 root-cause fix commit | `48958da0`（"Fix conv fmap preload address increment" + work-around 回滚；历史关键修复点，不再是当前 HEAD） |
-| manifest 内 commit 字段 | closure HEAD `d50b7d37` + prior bit/XSA build commit `537ad3b1` note（`build_manifest_v2.txt` 已刷新为当前 artifact hash） |
-| 当前审计修复是否需要 reburn | **否** — 2026-05-03 已对 artifact set 重新抓到 `ARM_FPGA_DEMO_LENET5_PASS` |
-| HEAD（native conv1）路径是否需要 reburn | **否**（当前 `d50b7d37` 只触碰 docs/evidence 和 ARM ELF rebuild；prior bit/XSA build commit `537ad3b1` 已完成 10/10 UART re-verify，ELF SHA 不变） |
+| 当前 LeNet-5 证据链 | round 4 fresh UART capture + current `build_manifest_v2.txt`（相对路径、无时间戳） |
+| 当前审计修复是否需要 reburn | **已完成 reburn + fresh UART reverify（2026-05-04）** |
 | 板级 PASS 标记（v2 Fashion） | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 | **板级 PASS 标记（v2-conv LeNet-5）** | **`ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample 全 PASS，counts byte-exact，argmax 全对）** |
 
@@ -2258,11 +2255,11 @@ bit-exact 合约：板上 ARM 跑完后 `counts_buf[0..9]` 与 `golden_lenet5[i]
 | `48958da0` | RTL 真修复 + work-around 回滚 | "Fix conv fmap preload address increment"：纠正 `snn_soc_v2b_top.sv` 中 `reg_conv_fmap_wr_addr` 的 auto-increment 时序（commit pulse 与 addr+1 同拍发出会让 RTL 看到旧地址，加 1 拍 pending 寄存器解决）；同时删除 5beca16b 的 work-around 头文件，启用 native conv1 路径 |
 
 **关键区分（重要）**：
-- `build_manifest_v2.txt` 已刷新到 closure HEAD `d50b7d37`，并显式记录 prior
-  bit/XSA build commit `537ad3b1`；不再保留旧的 `3719c3e7` manifest caveat
+- `build_manifest_v2.txt` 已刷新为稳定口径（相对路径、无时间戳），不再依赖
+  “manifest 内 commit 字段 = 当前 HEAD” 这种会过期的写法
 - 当前板验 ground truth = native conv1 路径：root-cause fix 来自 `48958da0`，当前
-  closure / UART re-verify 锚点是 `feature/v2-arm-fpga-demo-conv @ d50b7d37` +
-  `build_manifest_v2.txt` + `uart_capture_20260503_round3_postfix_reverify.txt`
+  当前 fresh re-verify 锚点是 `build_manifest_v2.txt` +
+  `uart_capture_20260503_round4_r404_reverify.txt`
 
 详见 doc/arm-fpga-demo/00_architecture.md §12.7 / §12.7.1。
 

@@ -143,6 +143,7 @@ static inline void v2b_clear_all_state(void) {
 
 static inline void v2b_clear_tile_buf(void) {
     V2B_REG_STREAM_BUF_CTRL = V2B_STREAM_BUF_CLEAR_TILE_BUF;
+    while (V2B_STAGE_STATUS_TPB_CLEAR_BUSY(V2B_REG_STAGE_STATUS)) { /* spin */ }
 }
 
 /* ── Descriptor validation ─────────────────────────────────────── */

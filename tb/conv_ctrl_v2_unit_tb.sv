@@ -86,6 +86,7 @@ module conv_ctrl_v2_unit_tb;
   logic stage_cfg_tile_mode, stage_cfg_is_tile_final, stage_cfg_preserve_membrane;
   logic [15:0] stage_cfg_t_count;
   logic stage_clear_tile_buf;
+  logic stage_clear_busy = 1'b0;
 
   logic stage_done_pulse = 1'b0;
   logic [7:0] stage_err_code = '0;
@@ -146,6 +147,7 @@ module conv_ctrl_v2_unit_tb;
     .stage_cfg_preserve_membrane(stage_cfg_preserve_membrane),
     .stage_cfg_t_count(stage_cfg_t_count),
     .stage_clear_tile_buf(stage_clear_tile_buf),
+    .stage_clear_busy(stage_clear_busy),
     .stage_done_pulse(stage_done_pulse), .stage_err_code(stage_err_code),
     .spike_out_valid(spike_out_valid),
     .spike_out_timestep(spike_out_timestep),

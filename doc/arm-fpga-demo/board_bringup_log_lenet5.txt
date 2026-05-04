@@ -2,15 +2,14 @@ v2-arm-fpga-demo-conv LeNet-5 板验证据（CONV 扩展，原生 conv1 路径�
 
 状态：
 - ✅ BOARD PASS — native conv1 路径原始 root-cause fix commit = `48958da0`
-- ✅ 2026-05-03 对 artifact build commit `537ad3b1` 再抓一次 UART，仍得到 `ARM_FPGA_DEMO_LENET5_PASS`
+- ✅ 2026-05-04 对当前 artifact set 再抓一次 UART，仍得到 `ARM_FPGA_DEMO_LENET5_PASS`
 - ✅ work-around 路径不再需要保留板验记录；当前分支统一走 RTL native conv1
 
 分支：feature/v2-arm-fpga-demo-conv
-当前 worktree HEAD：bf56e9423ffe7651746a2fee9e8e6cbdb9254e23（current branch tip；reset/CDC hardening after LeNet-5 closure）
-LeNet-5 closure/evidence anchor：d50b7d37c48149d3b924d1289d1300af1500e081（docs/evidence + ARM ELF rebuild hash re-check）
-prior bit/XSA build commit：537ad3b10d890d4c7f594e344bd9f4828c972ca3（bit/XSA provenance）
+当前 worktree：round 4 tip（含 clear_busy handshake + cross-shell / manifest hardening）
+LeNet-5 artifact provenance：以 build_manifest_v2.txt 中 bit/XSA/ELF SHA256 为准
 原生 conv1 root-cause fix commit：48958da0a99d2c7da47ce5d4b2232f7576e144df
-最近一次 re-verify 日期：2026-05-03
+最近一次 re-verify 日期：2026-05-04
 板验路径：原生 conv1 — fmap_sram_v2 + patch_unroller_v2 + conv_ctrl_v2 + stage_engine_v2 全 RTL 链路
 
 调试历史（保留作复盘）：
@@ -49,8 +48,8 @@ artifact 证据（详见 build_manifest_v2.txt）：
 - V2B_SOC_BASE：0xA000_0000（与 v2 一致，未改 BD 地址）
 
 2026-05-03 口径更新：
-- `build_manifest_v2.txt` 已在 closure HEAD `d50b7d37` 刷新并记录当前 artifact hash；bit/XSA SHA 仍与 prior artifact build commit `537ad3b1` 对齐，ARM ELF 在 `d50b7d37` 重新构建后 SHA 不变。
-- 最新 raw UART capture 见 `uart_capture_20260503_round3_postfix_reverify.txt`。
+- `build_manifest_v2.txt` 已刷新为稳定口径（相对路径、无时间戳），并记录当前 artifact hash。
+- 最新 raw UART capture 见 `uart_capture_20260503_round4_r404_reverify.txt`。
 - 历史上 `48958da0` 仍然是 native conv1 root-cause fix 的关键 commit；但它不再代表当前 branch HEAD。
 
 Step 1：Python 黄金参考与 .pth 训练
@@ -144,6 +143,6 @@ ARM_FPGA_DEMO_LENET5_PASS
 - 训练复现性：seed=20260430（在 gen_convnet_golden.py 顶部硬编码），多次跑 .pth 应当字节级一致
 
 引用规则：
-- 论文叙事 / 简历 → 引用当前 round 3 evidence commit + `build_manifest_v2.txt` + `uart_capture_20260503_round3_postfix_reverify.txt`；bit/XSA/ELF provenance 以 manifest 当前 hash 为准
+- 论文叙事 / 简历 → 引用 `build_manifest_v2.txt` + `uart_capture_20260503_round4_r404_reverify.txt`；bit/XSA/ELF provenance 以 manifest 当前 hash 为准
 - 历史对比 → v2-arm-fpga-demo-v2-passed (Fashion-MNIST 14×14) 仍可作为对照基线
 - 工具链 / 板验细节 → 详见 doc/arm-fpga-demo/build_manifest_v2.txt 与本文件

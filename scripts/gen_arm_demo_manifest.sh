@@ -106,7 +106,6 @@ TOOLCHAIN_BIN="${TOOLCHAIN_BIN:-/d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-no
 GCC_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-gcc"
 
 GIT_BRANCH="$(git -C "$ROOT" branch --show-current 2>/dev/null || printf '<missing>\n')"
-GIT_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf '<missing>\n')"
 VIVADO_VERSION="$(tool_version_or_missing "$VIVADO_BIN" -version 3)"
 GCC_VERSION="$(tool_version_or_missing "$GCC_BIN" --version 1)"
 
@@ -114,7 +113,6 @@ mkdir -p "$(dirname "$MANIFEST")"
 cat > "$MANIFEST" <<EOF
 # v2-arm-fpga-demo build manifest v2
 Git branch: $GIT_BRANCH
-Git commit: $GIT_COMMIT
 
 Vivado version: $VIVADO_VERSION
 Resolved psu_init.tcl: $(path_relative_to_root "${PSU_INIT_PATH:-}")

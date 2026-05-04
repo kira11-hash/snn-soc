@@ -112,6 +112,7 @@ module conv_ctrl_v2
   output logic        stage_cfg_preserve_membrane,
   output logic [15:0] stage_cfg_t_count,
   output logic        stage_clear_tile_buf,
+  input  logic        stage_clear_busy,
 
   input  logic stage_done_pulse,
   input  logic [7:0] stage_err_code,
@@ -147,14 +148,15 @@ module conv_ctrl_v2
     S_IDLE         = 4'd0,
     S_VALIDATE     = 4'd1,
     S_SPATIAL_INIT = 4'd2,
-    S_WAIT_WEIGHT  = 4'd3,
-    S_CTX_ISSUE    = 4'd4,
-    S_STAGE_START  = 4'd5,
-    S_STAGE_WAIT   = 4'd6,
-    S_STAGE_DONE   = 4'd7,
-    S_WRITEBACK    = 4'd8,
-    S_SPATIAL_NEXT = 4'd9,
-    S_DONE         = 4'd10
+    S_CLEAR_WAIT   = 4'd3,
+    S_WAIT_WEIGHT  = 4'd4,
+    S_CTX_ISSUE    = 4'd5,
+    S_STAGE_START  = 4'd6,
+    S_STAGE_WAIT   = 4'd7,
+    S_STAGE_DONE   = 4'd8,
+    S_WRITEBACK    = 4'd9,
+    S_SPATIAL_NEXT = 4'd10,
+    S_DONE         = 4'd11
   } state_e;
 
   state_e state;
@@ -406,6 +408,15 @@ module conv_ctrl_v2
             for (ii = 0; ii < P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX; ii++) begin
               spike_word_buf[ii] <= 32'h0;
             end
+            state <= S_CLEAR_WAIT;
+          end
+        end
+
+        S_CLEAR_WAIT: begin
+          if (abort_pulse) begin
+            err_code <= ERR_OK;
+            state <= S_DONE;
+          end else if (!stage_clear_busy) begin
             state <= S_WAIT_WEIGHT;
           end
         end
@@ -533,7 +544,7 @@ module conv_ctrl_v2
             for (ii = 0; ii < P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX; ii++) begin
               spike_word_buf[ii] <= 32'h0;
             end
-            state <= S_WAIT_WEIGHT;
+            state <= S_CLEAR_WAIT;
           end else if (cur_h + 16'd1 < cfg_out_H) begin
             cur_h <= cur_h + 16'd1;
             cur_w <= '0;
@@ -543,7 +554,7 @@ module conv_ctrl_v2
             for (ii = 0; ii < P_N_OUT*V2B_FMAP_WORDS_PER_STREAM_MAX; ii++) begin
               spike_word_buf[ii] <= 32'h0;
             end
-            state <= S_WAIT_WEIGHT;
+            state <= S_CLEAR_WAIT;
           end else begin
             state <= S_DONE;
           end

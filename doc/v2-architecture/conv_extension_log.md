@@ -123,8 +123,8 @@ training 配置（8 epoch + 4000 train_subset）下 surrogate gradient 信号被
 
 | 分支 | CPU 路径 | 当前 HEAD | 板验证据锚点 | UART log |
 |---|---|---|---|---|
-| `feature/v2-arm-fpga-demo-conv` | ARM Cortex-A53 (PS) + AXI-Lite | current round 3 artifact build `e7ea6125` | `doc/arm-fpga-demo/board_bringup_log_lenet5.txt` + `doc/arm-fpga-demo/build_manifest_v2.txt` | `doc/arm-fpga-demo/uart_capture_20260503_round3_postfix_reverify.txt` |
-| `feature/v2-fpga-e203-conv` | E203 RISC-V (PL soft-core) + BRAM init | current round 3 artifact build `131f0d00` | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + `doc/v2-fpga-e203/build_manifest_lenet5.txt` | `doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt` |
+| `feature/v2-arm-fpga-demo-conv` | ARM Cortex-A53 (PS) + AXI-Lite | current artifact provenance in `build_manifest_v2.txt` | `doc/arm-fpga-demo/board_bringup_log_lenet5.txt` + `doc/arm-fpga-demo/build_manifest_v2.txt` | `doc/arm-fpga-demo/uart_capture_20260503_round4_r404_reverify.txt` |
+| `feature/v2-fpga-e203-conv` | E203 RISC-V (PL soft-core) + BRAM init | current artifact provenance in `build_manifest_lenet5.txt` | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + `doc/v2-fpga-e203/build_manifest_lenet5.txt` | `doc/v2-fpga-e203/uart_capture_20260503_round4_r404_reverify.txt` |
 
 ### 3.1 ARM 分支板验细节
 

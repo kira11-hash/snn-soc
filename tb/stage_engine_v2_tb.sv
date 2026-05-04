@@ -132,7 +132,7 @@ module stage_engine_v2_tb;
   );
 
   tile_partial_buf u_tpb (
-    .clk(clk), .rst_n(rst_n), .clear_all(tpb_clear),
+    .clk(clk), .rst_n(rst_n), .clear_all(tpb_clear), .clear_busy(),
     .acc_en(tpb_acc_en), .wr_t(tpb_wr_t), .wr_j(tpb_wr_j), .wr_diff(tpb_wr_diff),
     .rd_en(tpb_rd_en), .rd_t(tpb_rd_t), .rd_j(tpb_rd_j), .rd_data(tpb_rd_data)
   );
