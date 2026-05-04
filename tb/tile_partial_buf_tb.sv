@@ -30,7 +30,7 @@ module tile_partial_buf_tb;
   always #5 clk = ~clk;
 
   tile_partial_buf #(.P_DEPTH(DEPTH), .P_WIDTH(WIDTH), .P_CELL(CELL)) dut (
-    .clk(clk), .rst_n(rst_n), .clear_all(clear_all),
+    .clk(clk), .rst_n(rst_n), .clear_all(clear_all), .clear_busy(),
     .acc_en(acc_en), .wr_t(wr_t), .wr_j(wr_j), .wr_diff(wr_diff),
     .rd_en(rd_en), .rd_t(rd_t), .rd_j(rd_j), .rd_data(rd_data)
   );

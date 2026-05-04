@@ -15,8 +15,8 @@
 | 当前分支 | `feature/v2-fpga-e203-conv`（在已封存的 Fashion baseline 上追加 LeNet-5 CONV 扩展）|
 | 父分支 / Fashion baseline | `feature/v2-fpga-e203` ＋ tag `v2-fpga-e203-passed @ e696dc39`（2026-04-25 已封存）|
 | Fashion baseline 板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_MULTILAYER_INFER_PASS`（10×10 spike count bit-exact，单次烧板）|
-| LeNet-5 CONV 扩展板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_LENET5_PASS`（10 个 MNIST 样本 × 10 类 = 100 counts bit-exact；2026-05-02 板验 PASS，2026-05-03 closure HEAD `5cd74ea8` / artifact `b98b9000` fresh UART re-verify）|
-| LeNet-5 manifest / raw capture | `doc/v2-fpga-e203/build_manifest_lenet5.txt` + `doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt` |
+| LeNet-5 CONV 扩展板级 PASS 标记 | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_LENET5_PASS`（10 个 MNIST 样本 × 10 类 = 100 counts bit-exact；2026-05-04 round 4 / R404 fresh UART re-verify）|
+| LeNet-5 manifest / raw capture | `doc/v2-fpga-e203/build_manifest_lenet5.txt` + `doc/v2-fpga-e203/uart_capture_20260503_round4_r404_reverify.txt` |
 | Fashion baseline Bitstream SHA256 | `e5ae7936...`（Vivado 2022.2 build 3671981）|
 | Fashion baseline Timing | 50 MHz @ WNS 4.837 ns，0 routing errors |
 | Fashion baseline Util | LUT 21.59% / FF 2.51% / BRAM 10.53% / DSP 0.08% |
@@ -2136,7 +2136,7 @@ DMEM 8 KB 的占用是"`g_input_words[784]`（3.1 KB scratch）+ `.bss` 几个�
 | Timing | 50 MHz @ WNS +2.774 ns（首版 `WNS=-10.200 ns`，地址锥重写后闭合） |
 | Bitstream | `fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit` |
 | LeNet-5 hex | `fw/v2_e203_smoke/out/v2_e203_lenet5.hex`（IMEM 用量 ~55 KB / 64 KB）|
-| UART log | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + fresh raw capture `doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt` |
+| UART log | `doc/v2-fpga-e203/board_bringup_log_lenet5.txt` + fresh raw capture `doc/v2-fpga-e203/uart_capture_20260503_round4_r404_reverify.txt` |
 | Golden 对齐 | 10 / 10 样本逐 class spike count 完全 bit-exact 对齐 `golden_lenet5[i].expected_counts` |
 | Argmax 准确率 | 10 / 10 样本 `pred == expected_class`（`expected_class` 来自 Python golden，不是 ground-truth label，所以这只能证明 firmware↔golden 一致，不直接证明 LeNet 推理精度；MNIST test set 上 quant_snn_test_accuracy=0.9303 由 Python 训练日志另行记录）|
 | Runtime tag | `FPGA_V2_E203_BOOT_UART_PASS` + `FPGA_V2_E203_LENET5_PASS` |

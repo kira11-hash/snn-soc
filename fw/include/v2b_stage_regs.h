@@ -40,6 +40,7 @@
 
 /* ── STAGE_STATUS bit fields ──────────────────────────────────── */
 #define V2B_STAGE_STATUS_BUSY(x)  ((x) & 0x1u)
+#define V2B_STAGE_STATUS_TPB_CLEAR_BUSY(x) (((x) >> 1) & 0x1u)
 #define V2B_STAGE_STATUS_T_IDX(x) (((x) >> 8) & 0xFFu)
 #define V2B_STAGE_STATUS_ERR(x)   (((x) >> 16) & 0xFFu)
 

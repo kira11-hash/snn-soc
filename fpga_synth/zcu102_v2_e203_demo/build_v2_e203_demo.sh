@@ -144,3 +144,14 @@ echo ""
 echo "=== V2E203 FPGA build complete ==="
 echo "bitstream ready: $BIT"
 echo "program: xsct $REPO_ROOT/scripts/program_zcu102_v2_e203.tcl $BIT"
+
+MANIFEST_SCRIPT="$REPO_ROOT/scripts/gen_v2_e203_manifest.sh"
+if [ -f "$MANIFEST_SCRIPT" ]; then
+  ROOT_OVERRIDE="$REPO_ROOT" \
+  VIVADO_BIN="$VIVADO" \
+  BIT_PATH="$BIT" \
+  TIMING_PATH="$OUT_DIR/timing_summary.rpt" \
+  UTIL_PATH="$OUT_DIR/utilization.rpt" \
+  DRC_PATH="$OUT_DIR/drc.rpt" \
+  bash "$MANIFEST_SCRIPT"
+fi

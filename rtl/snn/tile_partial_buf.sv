@@ -20,8 +20,8 @@
 // 【行为语义不变】
 // - acc_en @ (wr_t, wr_j): mem[wr_t, wr_j] += wr_diff，单周期 RMW
 // - rd_en  @ (rd_t, rd_j): rd_data <= mem[rd_t, rd_j]，sync 1-cycle latency
-// - clear_all: 拉 1 cycle 后启动内部清零 FSM，清零期间 acc/rd 无效
-//   （stage_engine 使用 pattern: 先 clear → 再 acc → 再 read，不冲突）
+// - clear_all: 拉 1 cycle 后启动内部清零 FSM，clear_busy=1 期间 acc/rd 无效
+//   （上层现在有显式握手，不再依赖“等 P_TOTAL cycles”的注释合同）
 //
 // 【RMW 实现】
 // 为 BRAM inference：用 write-first/read-first 策略不好写，保留 1-cycle
@@ -43,6 +43,7 @@ module tile_partial_buf
   input  logic                    rst_n,
 
   input  logic                    clear_all,
+  output logic                    clear_busy,
 
   // ── 累加端口：mem[wr_t][wr_j] += wr_diff ───────────────────────────
   input  logic                    acc_en,
@@ -80,10 +81,9 @@ module tile_partial_buf
   // ── Synth path: counter walker for clear_all ──────────────────────
   // Multi-cycle wipe (32768 cells = 32768 cycles @ clk). Vivado fine
   // because write is single-address-per-cycle, BRAM/LUTRAM inferable.
-  // By contract, firmware must wait P_TOTAL cycles after clear_all
-  // pulse before issuing next acc_en.
   logic [P_ADDR_W-1:0] clr_ctr;
   logic                clr_busy;
+  assign clear_busy = clr_busy;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -119,11 +119,18 @@ module tile_partial_buf
   // ── Sim path: single-cycle broadcast clear (TB-friendly) ──────────
   // Synthesis would see this as a huge reset fan-out; only used for
   // simulation where TBs expect clear-to-act in the next cycle.
+  logic clr_busy_sim;
+  assign clear_busy = clr_busy_sim;
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+      clr_busy_sim <= 1'b0;
       for (int k = 0; k < P_TOTAL; k++) mem[k] <= '0;
     end else if (clear_all) begin
+      clr_busy_sim <= 1'b1;
       for (int k = 0; k < P_TOTAL; k++) mem[k] <= '0;
+    end else if (clr_busy_sim) begin
+      clr_busy_sim <= 1'b0;
     end else if (acc_en) begin
       mem[flat_addr(wr_t, wr_j)] <= mem[flat_addr(wr_t, wr_j)] + wr_diff;
     end

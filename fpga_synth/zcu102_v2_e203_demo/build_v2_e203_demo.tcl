@@ -67,6 +67,7 @@ set sv_files [list \
     $repo_root/rtl/bus/simple2v2btop_adapter.sv \
     $repo_root/rtl/mem/sram_simple.sv \
     $repo_root/rtl/periph/uart_ctrl.sv \
+    $repo_root/rtl/sys/reset_sync.sv \
     $repo_root/rtl/snn/lif_neuron_alu.sv \
     $repo_root/rtl/snn/cim_mac_behavioral_v2.sv \
     $repo_root/rtl/snn/input_stream_sram.sv \

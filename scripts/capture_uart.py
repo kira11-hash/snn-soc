@@ -73,7 +73,7 @@ def discover_candidates(explicit_port, quiet):
     return candidates
 
 
-def open_responsive(candidates, baud, quiet):
+def open_responsive(candidates, baud, quiet, eager_lock=False):
     """逐个打开候选，2 秒内有字节就锁定该 COM."""
     for port in candidates:
         try:
@@ -86,6 +86,11 @@ def open_responsive(candidates, baud, quiet):
             if not quiet:
                 sys.stderr.write(f"[uart] {port}: {e}\n")
             continue
+
+        if eager_lock:
+            if not quiet:
+                sys.stderr.write(f"[uart] locked on {port} (explicit)\n")
+            return s, b""
 
         deadline = time.time() + 2
         buf = b""
@@ -119,7 +124,9 @@ def main():
     args = ap.parse_args()
 
     cands = discover_candidates(args.port, args.quiet_probe)
-    s, prefetch = open_responsive(cands, args.baud, args.quiet_probe)
+    s, prefetch = open_responsive(
+        cands, args.baud, args.quiet_probe, eager_lock=bool(args.port)
+    )
 
     if s is None:
         sys.stderr.write(

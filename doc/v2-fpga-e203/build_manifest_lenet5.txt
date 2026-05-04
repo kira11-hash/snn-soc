@@ -1,38 +1,30 @@
 # feature/v2-fpga-e203-conv LeNet-5 build manifest
-Generated UTC: 2026-05-03T04:14:34Z
 Git branch: feature/v2-fpga-e203-conv
-Git commit: 131f0d00f30a46926a4624b0506f8027972348a6
-Commit note: Git commit above is the round 3 artifact build commit; later doc/evidence-only commits may move branch HEAD without changing the bit/hex/elf hashes below.
 
-Vivado tool path: /d/Xilinx/Vivado/2022.2/bin/vivado.bat
-Vivado version: Vivado v2022.2 (64-bit) | SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022 | IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
-
-RISC-V GCC: riscv64-unknown-elf-gcc (13.2.0-11ubuntu1+12) 13.2.0
+Vivado version: Vivado v2022.2 (64-bit)|SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022|IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
 
 Bitstream path: fpga_synth/zcu102_v2_e203_demo/out/snn_soc_v2b_e203_fpga_top.bit
-Bitstream SHA256: d8505dd70f2d431b308b62246efc439c4839b3c802e25166c33d5b23fc088d11
+Bitstream SHA256: a4b1ed936195d7e0e6e92c7db4b91a9fe6903556afdd03d68c5829ddc1cbabb6
+Timing report path: fpga_synth/zcu102_v2_e203_demo/out/timing_summary.rpt
+Timing report SHA256: 2c38d5a94ae7c788ab1e03395b1aa1fb7b174aa1950cb602d14e5758b9063f10
+Utilization report path: fpga_synth/zcu102_v2_e203_demo/out/utilization.rpt
+Utilization report SHA256: c448fd4becd4f567c3b754ac1047f3d5c676ead6f84e6a882586c8df26395eb5
+DRC report path: fpga_synth/zcu102_v2_e203_demo/out/drc.rpt
+DRC report SHA256: ddb4bf8c716f9077a0ef428d7af95ebbf9327d7c79eef556608c6a6c76f503a1
 
 LeNet-5 ELF path: fw/v2_e203_smoke/out/v2_e203_lenet5.elf
-LeNet-5 ELF SHA256: 561f82daaa4b4fedeec9fa5a6260d177b6235927811d88aad81bdad74370373c
+LeNet-5 ELF SHA256: e40a2fd983e0627703e007a345623fadb64cd468869ee09c7045aded9c718c38
 LeNet-5 hex path: fw/v2_e203_smoke/out/v2_e203_lenet5.hex
-LeNet-5 hex SHA256: 8ead9baa1d797314c2dba211d62e56d33cdd00ef366dd2777ac602eb7817e74f
+LeNet-5 hex SHA256: 3d2c5909d250fea24f3ebcaae16cf85c02e5923f01bc4aeca2dee48feb36513a
 LeNet-5 map path: fw/v2_e203_smoke/out/v2_e203_lenet5.map
+LeNet-5 map SHA256: c5df0b741b827fb60c5b1cc446f755b9994f48a2def96356243c9ac2a59f4084
 
 Smoke ELF path: fw/v2_e203_smoke/out/v2_e203_smoke.elf
-Smoke ELF SHA256: cc6455258ec0c84059b5894e4f0d8aa6a963f252d130de400bf0ed6d4a30534f
+Smoke ELF SHA256: 2f372a708ada97555aa76ec60eedbd35151ed1c9780055623e294b85930c9a6e
 Smoke hex path: fw/v2_e203_smoke/out/v2_e203_smoke.hex
-Smoke hex SHA256: c2b2fb17968c45d8bc69293670d58070c917b21201370debab16337fa3a4dca7
+Smoke hex SHA256: 27d1bdd7df6f627476ca18a42caf90fa97af9a27b662875e4fddc8ec2a931ae3
 
 Encoder ELF path: fw/v2_e203_smoke/out/v2_e203_encoder.elf
-Encoder ELF SHA256: 6c9833f3c010eb446485e4f8622f250a98c26cd429d9d104952a5d3454269ab1
+Encoder ELF SHA256: c946ba81adce3d1b2a7f42a355dd9b253cf277f5d7c107c7672d0529a512afbd
 Encoder hex path: fw/v2_e203_smoke/out/v2_e203_encoder.hex
-Encoder hex SHA256: 83fb301c81b3606b3f4b66be51265119a4537ab41ef0fcdfb4abf5e20d210513
-
-UART PASS markers:
-- FPGA_V2_E203_BOOT_UART_PASS
-- FPGA_V2_E203_LENET5_PASS
-
-Evidence pairing:
-- Raw UART re-verify trace: doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt
-- Human-readable runtime trace: doc/v2-fpga-e203/board_bringup_log_lenet5.txt
-- Fashion baseline frozen evidence: doc/v2-fpga-e203/board_bringup_log.txt
+Encoder hex SHA256: 5b8f8ebf4d017861fda0da5669c8a34b09544e4403f130686956f745a23ddd24

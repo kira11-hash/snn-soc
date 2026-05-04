@@ -9,10 +9,10 @@ ZCU102 + E203 板级路径扩展到原生 LeNet-5（Conv1 → Conv2 → FC1(flat
 FC3）；50 MHz 闭合 `WNS=+2.774 ns`，10 样本 × 100 counts bit-exact，runtime tag
 `FPGA_V2_E203_LENET5_PASS`。详见 §4.3bis 与 `board_bringup_log_lenet5.txt`。
 
-**2026-05-03 re-verify note**：当前 round 3 artifact build commit = `131f0d00`。本分支已新增
-`doc/v2-fpga-e203/build_manifest_lenet5.txt` 记录 artifact bit/hex/elf hash，并
-在 ZCU102 上重新抓到一份 fresh UART trace：
-`doc/v2-fpga-e203/uart_capture_20260503_round3_postfix_reverify.txt`。
+**2026-05-04 re-verify note**：本分支已刷新
+`doc/v2-fpga-e203/build_manifest_lenet5.txt`（相对路径、无时间戳、当前 artifact
+hash），并在 ZCU102 上重新抓到一份 fresh UART trace：
+`doc/v2-fpga-e203/uart_capture_20260503_round4_r404_reverify.txt`。
 
 **Branch**：
 - `feature/v2-fpga-e203`（起点 `v2` @ `17693e4f`，已封存）
