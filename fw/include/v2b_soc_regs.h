@@ -58,6 +58,44 @@
 #define V2B_SOC_STREAM_BUF_CTRL V2B_SOC_REG(0x060u)
 #define V2B_SOC_STATE_CTRL      V2B_SOC_REG(0x064u)
 
+/* ── M1 trace-hash recorder CSR window (0x068-0x078) ──────────────
+ * Phase 1 add-on per essay/m1_design_doc_2026_05_05.md (Codex PASS).
+ * 0x07C / 0x080 reserved for H1 Phase 2B; do NOT use here.
+ *
+ * CTRL bit layout (RW unless noted):
+ *   [0]     ENABLE
+ *   [1]     CLEAR_W1P (W1P; reads as 0)
+ *   [10:8]  LAYER_ID (3-bit)
+ *   [16]    OVERFLOW_RO  (read-only mirror of trace_hash_recorder.log_overflow)
+ *   [17]    LAYER_ID_FAULT_RO
+ *
+ * RD_META bit layout (read-only; high [31:16] = 0):
+ *   [7:0]   t_idx
+ *   [10:8]  layer_id
+ *   [11]    buf_sel  (0=A, 1=B)
+ */
+#define V2B_SOC_TRACE_HASH_CTRL        V2B_SOC_REG(0x068u)
+#define V2B_SOC_TRACE_HASH_LOG_COUNT   V2B_SOC_REG(0x06Cu)
+#define V2B_SOC_TRACE_HASH_LOG_RD_ADDR V2B_SOC_REG(0x070u)
+#define V2B_SOC_TRACE_HASH_LOG_RD_DATA V2B_SOC_REG(0x074u)
+#define V2B_SOC_TRACE_HASH_LOG_RD_META V2B_SOC_REG(0x078u)
+
+/* CTRL bit field encoders / decoders */
+#define V2B_TRACE_HASH_CTRL_ENABLE_BIT          (1u << 0)
+#define V2B_TRACE_HASH_CTRL_CLEAR_W1P_BIT       (1u << 1)
+#define V2B_TRACE_HASH_CTRL_LAYER_ID_LSB        8
+#define V2B_TRACE_HASH_CTRL_LAYER_ID_MASK       (0x7u << V2B_TRACE_HASH_CTRL_LAYER_ID_LSB)
+#define V2B_TRACE_HASH_CTRL_OVERFLOW_RO_BIT     (1u << 16)
+#define V2B_TRACE_HASH_CTRL_LAYER_ID_FAULT_BIT  (1u << 17)
+
+/* RD_META decoders */
+#define V2B_TRACE_HASH_META_T_IDX(m)     ((uint32_t)((m) & 0xFFu))
+#define V2B_TRACE_HASH_META_LAYER_ID(m)  ((uint32_t)(((m) >> 8) & 0x7u))
+#define V2B_TRACE_HASH_META_BUF_SEL(m)   ((uint32_t)(((m) >> 11) & 0x1u))
+
+/* Recorder log depth (informational; matches RTL P_LOG_DEPTH) */
+#define V2B_TRACE_HASH_LOG_DEPTH 2048u
+
 /* ── CONV extension registers ─────────────────────────────────── */
 #define V2B_SOC_CONV_MODE_CFG      V2B_SOC_REG(0x084u)
 #define V2B_SOC_CONV_CFG_HW        V2B_SOC_REG(0x088u)
