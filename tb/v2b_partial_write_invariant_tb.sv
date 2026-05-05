@@ -75,6 +75,13 @@ module v2b_partial_write_invariant_tb;
   localparam logic [11:0] O_CONV_FMAP_WR_DATA  = 12'h0B0;
   localparam logic [11:0] O_CONV_FMAP_WR_ADDR  = 12'h0B4;
   localparam logic [11:0] O_CONV_FMAP_WR_CTRL  = 12'h0BC;
+  // M1 trace-hash recorder offsets (Day Wed integration; 8 writable +
+  // 2 RO smoke pattern per Codex Day Tue review prereq #3)
+  localparam logic [11:0] O_TRACE_HASH_CTRL        = 12'h068;
+  localparam logic [11:0] O_TRACE_HASH_LOG_COUNT   = 12'h06C;
+  localparam logic [11:0] O_TRACE_HASH_LOG_RD_ADDR = 12'h070;
+  localparam logic [11:0] O_TRACE_HASH_LOG_RD_DATA = 12'h074;
+  localparam logic [11:0] O_TRACE_HASH_LOG_RD_META = 12'h078;
 
   logic clk = 1'b0;
   logic rst_n = 1'b0;
@@ -102,6 +109,9 @@ module v2b_partial_write_invariant_tb;
   integer conv_weight_ready_pulse_count = 0;
   integer conv_done_clear_pulse_count = 0;
   integer conv_fmap_wr_commit_pulse_count = 0;
+  // M1 W1P pulse counters
+  integer recorder_clear_pulse_count   = 0;
+  integer recorder_rd_en_pulse_count   = 0;
 
   snn_soc_v2b_top #(
     .P_ENABLE_TILE_BUF(1'b1),
@@ -136,6 +146,11 @@ module v2b_partial_write_invariant_tb;
         conv_done_clear_pulse_count   <= conv_done_clear_pulse_count + 1;
       if (dut.reg_conv_fmap_wr_commit_pulse)
         conv_fmap_wr_commit_pulse_count <= conv_fmap_wr_commit_pulse_count + 1;
+      // M1 W1P pulses
+      if (dut.reg_recorder_clear_pulse)
+        recorder_clear_pulse_count <= recorder_clear_pulse_count + 1;
+      if (dut.reg_recorder_rd_en_pulse)
+        recorder_rd_en_pulse_count <= recorder_rd_en_pulse_count + 1;
     end
   end
 
@@ -473,6 +488,117 @@ module v2b_partial_write_invariant_tb;
     repeat (3) @(posedge clk);
     check32("T29 CONV_FMAP_WR_CTRL clear auto_inc+commit same write stays put",
             dut.reg_conv_fmap_wr_addr, 32'h0000_0030);
+
+    // ────────────────────────────────────────────────────────────────────
+    // M1 trace-hash recorder CSR sub-tests (8 writable + 2 RO smoke)
+    // Codex Day Tue review prereq #3: avoid the old 5x4 sprawl.
+    // ────────────────────────────────────────────────────────────────────
+    // Snapshot M1 W1P counters before any M1 write so each test asserts
+    // pulse-count delta cleanly.
+    begin
+      integer base_clear, base_rd_en;
+      logic [31:0] read_back;
+
+      // -------- 4 writes on TRACE_HASH_CTRL (0x068) --------
+      // T30: byte0 wstrb=0001 ENABLE bit toggle (bit[0]=1 sets enable)
+      base_clear = recorder_clear_pulse_count;
+      do_write(O_TRACE_HASH_CTRL, 32'h0000_0001, 4'b0001);
+      repeat (2) @(posedge clk);
+      check32("T30 TRACE_HASH_CTRL byte0 ENABLE bit set",
+              {31'h0, dut.reg_recorder_en}, 32'h0000_0001);
+      check_int("T30b TRACE_HASH_CTRL byte0 ENABLE write must NOT pulse CLEAR",
+                recorder_clear_pulse_count, base_clear);
+
+      // T31: byte0 wstrb=0001 CLEAR_W1P pulse (bit[1]=1 fires CLEAR pulse)
+      base_clear = recorder_clear_pulse_count;
+      do_write(O_TRACE_HASH_CTRL, 32'h0000_0002, 4'b0001);
+      repeat (2) @(posedge clk);
+      check_int("T31 TRACE_HASH_CTRL byte0 wdata[1]=1 fires CLEAR_W1P (delta=1)",
+                recorder_clear_pulse_count - base_clear, 1);
+
+      // T32: byte1 wstrb=0010 LAYER_ID write [10:8] (bits 0x0500 -> layer=5)
+      // Existing layer_id from earlier writes is irrelevant; we just
+      // verify the write lands and CLEAR pulse does NOT spuriously fire.
+      base_clear = recorder_clear_pulse_count;
+      do_write(O_TRACE_HASH_CTRL, 32'h0000_0500, 4'b0010);
+      repeat (2) @(posedge clk);
+      check32("T32 TRACE_HASH_CTRL byte1 LAYER_ID=5 latched",
+              {29'h0, dut.reg_recorder_layer_id}, 32'h0000_0005);
+      check_int("T32b TRACE_HASH_CTRL byte1 must NOT pulse CLEAR",
+                recorder_clear_pulse_count, base_clear);
+
+      // T33: wrong-byte CLEAR write (byte1-only, wdata[1]=1 in low byte
+      // is gated away because wstrb[0]=0). CLEAR pulse must NOT fire.
+      base_clear = recorder_clear_pulse_count;
+      do_write(O_TRACE_HASH_CTRL, 32'h0000_0002, 4'b0010);  // bit1 NOT in active byte
+      repeat (2) @(posedge clk);
+      check_int("T33 TRACE_HASH_CTRL byte1-only with wdata[1]=1 must NOT fire CLEAR",
+                recorder_clear_pulse_count, base_clear);
+
+      // -------- 4 writes on TRACE_HASH_LOG_RD_ADDR (0x070) --------
+      // T34: full word wstrb=1111, address = 0x123 (within 11-bit field).
+      // rd_en must pulse exactly once on the WRITE.
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_RD_ADDR, 32'h0000_0123, 4'b1111);
+      repeat (2) @(posedge clk);
+      check32("T34 TRACE_HASH_LOG_RD_ADDR full-word write latched",
+              {21'h0, dut.reg_recorder_rd_addr}, 32'h0000_0123);
+      check_int("T34b TRACE_HASH_LOG_RD_ADDR write pulses rd_en exactly once",
+                recorder_rd_en_pulse_count - base_rd_en, 1);
+
+      // T35: byte0-only wstrb=0001 modifies low 8 bits, preserves high bits.
+      // Pre-state was 0x123 from T34; byte0=0xAB merges to 0x1AB (high byte 0x1 preserved).
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_RD_ADDR, 32'h0000_00AB, 4'b0001);
+      repeat (2) @(posedge clk);
+      check32("T35 TRACE_HASH_LOG_RD_ADDR byte0-only merge keeps high byte (0x1AB)",
+              {21'h0, dut.reg_recorder_rd_addr}, 32'h0000_01AB);
+      check_int("T35b TRACE_HASH_LOG_RD_ADDR byte0-only also pulses rd_en",
+                recorder_rd_en_pulse_count - base_rd_en, 1);
+
+      // T36: byte1-only wstrb=0010 modifies bits [10:8], preserves low byte.
+      // Pre-state 0x1AB; byte1=0x07 (writes bits [10:8]=0b111=7) -> 0x7AB.
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_RD_ADDR, 32'h0000_0700, 4'b0010);
+      repeat (2) @(posedge clk);
+      check32("T36 TRACE_HASH_LOG_RD_ADDR byte1-only merge keeps low byte (0x7AB)",
+              {21'h0, dut.reg_recorder_rd_addr}, 32'h0000_07AB);
+      check_int("T36b TRACE_HASH_LOG_RD_ADDR byte1-only also pulses rd_en",
+                recorder_rd_en_pulse_count - base_rd_en, 1);
+
+      // T37: cross-byte merge wstrb=0011 (both low bytes), writes 0x000.
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_RD_ADDR, 32'h0000_0000, 4'b0011);
+      repeat (2) @(posedge clk);
+      check32("T37 TRACE_HASH_LOG_RD_ADDR cross-byte wstrb=0011 clears 11-bit field",
+              {21'h0, dut.reg_recorder_rd_addr}, 32'h0000_0000);
+      check_int("T37b TRACE_HASH_LOG_RD_ADDR cross-byte write pulses rd_en once",
+                recorder_rd_en_pulse_count - base_rd_en, 1);
+
+      // -------- 2 RO smoke (writes ignored, reads sane) --------
+      // T38: write to LOG_COUNT (0x06C) is RO; recorder_log_count read from
+      // module is 0 because cfg_recorder_en=0 prevented any write so far.
+      // Importantly, the write must NOT crash decode and must NOT mutate
+      // recorder_log_count or other M1 state.
+      base_clear = recorder_clear_pulse_count;
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_COUNT, 32'hFFFF_FFFF, 4'b1111);
+      repeat (2) @(posedge clk);
+      do_read(O_TRACE_HASH_LOG_COUNT, read_back);
+      check32("T38 TRACE_HASH_LOG_COUNT is RO: write ignored, read returns log_count",
+              read_back,
+              {{(32-trace_hash_recorder_pkg::TRACE_HASH_LOG_COUNT_W){1'b0}},
+               dut.recorder_log_count});
+      check_int("T38b TRACE_HASH_LOG_COUNT write must NOT pulse CLEAR/rd_en",
+                (recorder_clear_pulse_count - base_clear) +
+                (recorder_rd_en_pulse_count - base_rd_en), 0);
+
+      // T39: write to LOG_RD_META (0x078) is RO; high bits [31:16] must be
+      // zero per Codex prereq #2; readback is the 16-bit metadata sign-extended.
+      do_read(O_TRACE_HASH_LOG_RD_META, read_back);
+      check32("T39 TRACE_HASH_LOG_RD_META RO read: high [31:16] zero-extended",
+              read_back[31:16], 16'h0000);
+    end
 
     repeat (5) @(posedge clk);
     $display("");

@@ -146,6 +146,14 @@ module snn_soc_v2b_top
   localparam logic [11:0] A_STREAM_BUF_CTRL = 12'h060;
   localparam logic [11:0] A_STATE_CTRL      = 12'h064;
 
+  // ── M1 trace-hash recorder CSR window (0x068-0x078) ────────────────
+  // Day Wed top integration; reserved 0x07C/0x080 left for H1 Phase 2B.
+  localparam logic [11:0] A_TRACE_HASH_CTRL        = 12'h068;
+  localparam logic [11:0] A_TRACE_HASH_LOG_COUNT   = 12'h06C;
+  localparam logic [11:0] A_TRACE_HASH_LOG_RD_ADDR = 12'h070;
+  localparam logic [11:0] A_TRACE_HASH_LOG_RD_DATA = 12'h074;
+  localparam logic [11:0] A_TRACE_HASH_LOG_RD_META = 12'h078;
+
   localparam logic [11:0] A_CONV_MODE_CFG      = 12'h084;
   localparam logic [11:0] A_CONV_CFG_HW        = 12'h088;
   localparam logic [11:0] A_CONV_CFG_C         = 12'h08C;
@@ -262,6 +270,20 @@ module snn_soc_v2b_top
   logic sbB_rd_en_bus;
   logic [T_AW-1:0] sbB_rd_addr_bus;
   logic [P_N_OUT-1:0] sbB_rd_data;
+
+  // ── M1 trace-hash recorder state (Day Wed top integration) ────────
+  // CSR-side registers (host writes via 0x068 / 0x070):
+  logic                                                   reg_recorder_en;          // CTRL[0] RW
+  logic                                                   reg_recorder_clear_pulse; // CTRL[1] W1P (1-cycle)
+  logic [trace_hash_recorder_pkg::TRACE_HASH_LAYER_ID_W-1:0] reg_recorder_layer_id; // CTRL[10:8] RW
+  logic [trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W-1:0] reg_recorder_rd_addr;  // 0x070 RW
+  logic                                                   reg_recorder_rd_en_pulse; // pulse on WRITE 0x070
+  // Module outputs back into CSR readback path:
+  logic [trace_hash_recorder_pkg::TRACE_HASH_LOG_COUNT_W-1:0]    recorder_log_count;
+  logic                                                          recorder_log_overflow;
+  logic                                                          recorder_layer_id_fault;
+  logic [31:0]                                                   recorder_rd_data;
+  logic [trace_hash_recorder_pkg::TRACE_HASH_META_PACKED_W-1:0]  recorder_rd_meta;
 
   logic tpb_clear_all, tpb_acc_en, tpb_clear_busy;
   logic [T_AW-1:0] tpb_wr_t, tpb_rd_t;
@@ -593,6 +615,41 @@ module snn_soc_v2b_top
     .spike_out_vec(spike_out_vec)
   );
 
+  // ── M1 trace-hash recorder (sidecar; see trace_hash_recorder.sv) ──
+  //
+  // Sidecar tap on the spike-commit boundary: stage_engine_v2 emits
+  // sbA_wr_en or sbB_wr_en (mutually exclusive per stage_engine_v2 FSM)
+  // when a per-(layer, t) spike vector is committed to stream_buffer_v2.
+  // We mirror that into a CRC-32 hash + meta into a small BRAM that
+  // host firmware reads via TRACE_HASH_LOG_RD_DATA / RD_META.
+  //
+  // cfg_recorder_en defaults to 0 at reset, so the recorder is fully
+  // sidecar (no datapath influence) until host CSR enables it. Host
+  // dual-host (ARM PS / E203 PL) firmware compares hash sequences for
+  // byte-exact validation; see paper section 4.2 (M1 add-on).
+  trace_hash_recorder #(
+    .P_N_OUT     (V2B_MAX_OUT_NEURONS),
+    .P_T_MAX     (V2B_MAX_TIMESTEPS),
+    .P_LAYER_MAX (trace_hash_recorder_pkg::TRACE_HASH_P_LAYER_MAX_DEFAULT),
+    .P_LOG_DEPTH (trace_hash_recorder_pkg::TRACE_HASH_P_LOG_DEPTH_DEFAULT)
+  ) u_trace_hash_recorder (
+    .clk(clk), .rst_n(rst_n),
+    .cfg_recorder_en      (reg_recorder_en),
+    .cfg_recorder_clear   (reg_recorder_clear_pulse),
+    .spike_commit_valid   (sbA_wr_en | sbB_wr_en),
+    .spike_commit_data    (sbA_wr_en ? sbA_wr_data : sbB_wr_data),
+    .spike_commit_t_idx   (sbA_wr_en ? sbA_wr_addr : sbB_wr_addr),
+    .spike_commit_buf_sel (sbB_wr_en),  // 0=A, 1=B (mutually exclusive)
+    .spike_commit_layer_id(reg_recorder_layer_id),
+    .log_count            (recorder_log_count),
+    .log_overflow         (recorder_log_overflow),
+    .layer_id_fault       (recorder_layer_id_fault),
+    .rd_en                (reg_recorder_rd_en_pulse),
+    .rd_addr              (reg_recorder_rd_addr),
+    .rd_data              (recorder_rd_data),
+    .rd_meta              (recorder_rd_meta)
+  );
+
   // ── Done sticky ────────────────────────────────────────────────────
   logic done_sticky;
   always_ff @(posedge clk or negedge rst_n) begin
@@ -653,6 +710,12 @@ module snn_soc_v2b_top
       reg_conv_fmap_wr_auto_inc <= 1'b0;
       reg_conv_fmap_wr_target_bank <= 1'b0;
       reg_conv_fmap_wr_inc_pending <= 1'b0;
+      // M1 trace-hash recorder reset
+      reg_recorder_en          <= 1'b0;
+      reg_recorder_clear_pulse <= 1'b0;
+      reg_recorder_layer_id    <= '0;
+      reg_recorder_rd_addr     <= '0;
+      reg_recorder_rd_en_pulse <= 1'b0;
     end else begin
       // Default: 1-cycle pulses
       reg_start_pulse    <= 1'b0;
@@ -666,6 +729,9 @@ module snn_soc_v2b_top
       reg_conv_weight_ready_pulse <= 1'b0;
       reg_conv_done_clear_pulse <= 1'b0;
       reg_conv_fmap_wr_commit_pulse <= 1'b0;
+      // M1 trace-hash recorder pulse defaults
+      reg_recorder_clear_pulse <= 1'b0;
+      reg_recorder_rd_en_pulse <= 1'b0;
       // 【Corner case：auto-inc 延后一拍，避免同拍 commit 地址被提前加一】
       // firmware preload 常用“写 DATA、写 CTRL.commit、地址自动+1”的循环。如果我在
       // commit 同一拍就更新 reg_conv_fmap_wr_addr，组合写口可能拿到加一后的地址，
@@ -749,6 +815,37 @@ module snn_soc_v2b_top
             if (cmd_wstrb[0] && cmd_wdata[1]) reg_buf_clear_a    <= 1'b1;
             if (cmd_wstrb[0] && cmd_wdata[2]) reg_buf_clear_b    <= 1'b1;
             if (cmd_wstrb[0] && cmd_wdata[3]) reg_buf_clear_tile <= 1'b1;
+          end
+
+          // M1 trace-hash recorder CTRL register: ENABLE [0] (RW),
+          // CLEAR_W1P [1] (W1P), LAYER_ID [10:8] (RW); upper bits RO/RSVD.
+          A_TRACE_HASH_CTRL: begin
+            // Byte 0: ENABLE + CLEAR_W1P
+            if (cmd_wstrb[0]) begin
+              reg_recorder_en <= cmd_wdata[0];
+              if (cmd_wdata[1]) reg_recorder_clear_pulse <= 1'b1;
+            end
+            // Byte 1: LAYER_ID [10:8]
+            if (cmd_wstrb[1]) begin
+              reg_recorder_layer_id <= cmd_wdata[10:8];
+            end
+            // Byte 2/3: RO + RSVD, write-ignored
+          end
+
+          // M1 trace-hash recorder LOG_RD_ADDR: 11-bit RW, side-effect
+          // pulses rd_en into the recorder so hash_mem[addr]/meta_mem[addr]
+          // are latched into rd_data_q/rd_meta_q for the NEXT MMIO read of
+          // 0x074 / 0x078 (Codex Day Tue review prereq #1).
+          A_TRACE_HASH_LOG_RD_ADDR: begin
+            logic [31:0] rd_addr_word;
+            rd_addr_word = apply_wstrb(
+              {{(32-trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W){1'b0}},
+               reg_recorder_rd_addr},
+              cmd_wdata, cmd_wstrb);
+            reg_recorder_rd_addr <=
+              rd_addr_word[trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W-1:0];
+            // Pulse rd_en on this write only (NOT on read of 0x074/0x078)
+            reg_recorder_rd_en_pulse <= 1'b1;
           end
 
           A_CONV_MODE_CFG: begin
@@ -905,6 +1002,32 @@ module snn_soc_v2b_top
                                     6'h0, reg_cfg_output_dst,
                                     5'h0, reg_cfg_input_src};
       A_STAGE_CFG5:    read_mux = {16'h0, reg_cfg_t_count};
+
+      // M1 trace-hash recorder readback (5 offsets at 0x068-0x078):
+      // CTRL [31:18]=RSVD, [17]=layer_id_fault_RO, [16]=overflow_RO,
+      //      [15:11]=RSVD, [10:8]=layer_id, [7:2]=RSVD,
+      //      [1]=CLEAR_W1P (always reads 0; pulse-only), [0]=enable
+      A_TRACE_HASH_CTRL: read_mux = {14'h0,
+                                      recorder_layer_id_fault,
+                                      recorder_log_overflow,
+                                      5'h0,
+                                      reg_recorder_layer_id,
+                                      6'h0,
+                                      1'b0,
+                                      reg_recorder_en};
+      A_TRACE_HASH_LOG_COUNT: read_mux =
+        {{(32-trace_hash_recorder_pkg::TRACE_HASH_LOG_COUNT_W){1'b0}},
+         recorder_log_count};
+      A_TRACE_HASH_LOG_RD_ADDR: read_mux =
+        {{(32-trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W){1'b0}},
+         reg_recorder_rd_addr};
+      A_TRACE_HASH_LOG_RD_DATA: read_mux = recorder_rd_data;
+      // Per Codex Day Tue review prereq #2: zero-extend 16-bit rd_meta
+      // to 32-bit; high bits [31:16] = 0.
+      A_TRACE_HASH_LOG_RD_META: read_mux =
+        {{(32-trace_hash_recorder_pkg::TRACE_HASH_META_PACKED_W){1'b0}},
+         recorder_rd_meta};
+
       A_CONV_MODE_CFG: read_mux = {28'h0, reg_weight_timeout_en,
                                     reg_fmap_pp_sel, reg_flatten_mode,
                                     reg_conv_mode};
