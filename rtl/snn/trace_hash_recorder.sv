@@ -6,9 +6,8 @@
 //           (sbA_wr_en | sbB_wr_en) 拍 CRC-32 指纹存进 BRAM，host 通过
 //           CSR 读出后做跨 host (ARM ↔ E203) 一致性校验。
 // 行为性质：cfg_recorder_en=0 时完全 sidecar，零反向驱动 stage_engine。
-// 项目规则：本文件 Phase 1 Day Mon 是 SKELETON（端口 + 状态 + reset 落定，
-//           hash compute / BRAM write 主逻辑留 Day Tue 完成）；Day Mon 不
-//           碰 snn_soc_v2b_top.sv 的实例化和 wiring。
+// 项目规则：本文件 Day Tue 完整实现 hash compute + BRAM write + layer-id drift
+//           + 读 BRAM tap；Day Mon skeleton 已 PASS。Day Wed 才碰 top wiring。
 // 集成提示：实例化和 CSR decode 见 snn_soc_v2b_top.sv（Day Wed 引入）。
 // -----------------------------------------------------------------------------
 
@@ -17,21 +16,20 @@
 // 文件名: trace_hash_recorder.sv
 // 模块名: trace_hash_recorder
 //
-// 【功能概述（最终版，Day Tue 完整实现）】
+// 【功能概述】
 // 监听 stage_engine_v2 的 spike-commit pulse (sbA_wr_en | sbB_wr_en)，
-// 把 {layer_id, buf_sel, t_idx, spike_vec[127:0]} 联合算 CRC-32-IEEE，
+// 把 {layer_id, buf_sel, t_idx, spike_vec} 联合算 CRC-32-IEEE，
 // 32-bit hash + 16-bit metadata 存进 BRAM。host 通过 CSR (TRACE_HASH_A_*)
 // 设置 read address 后读出 hash + meta，UART dump 给 Python diff 工具做
 // 跨 host 比对。详见 essay/m1_design_doc_2026_05_05.md (Codex Phase 0 PASS)。
 //
-// 【Day Mon (本 commit) skeleton 范围】
-// - 端口列表 + 类型 (与 design doc §1.1 一致)
-// - 内部状态声明 (log BRAM / log_count / overflow sticky / layer_id_fault sticky)
-// - reset 行为 (所有 status / sticky 清零，BRAM 不强清)
-// - cfg_recorder_clear W1P 处理 (清 log_count + sticky，保留 BRAM)
-// - cfg_recorder_en = 0 时的 no-op 隔离 (sidecar 保证)
-// - rd_data / rd_meta 占位返回 0 (Day Tue 接 BRAM read port)
-// - hash compute / write path: 留 TODO，Day Tue 实现
+// 【Day Tue (本 commit) 完整实现范围】
+// - CRC-32-IEEE reflected 组合函数 crc32_compute（bit-serial 展开成组合逻辑）
+// - hash compute + BRAM write 主路径（cfg_recorder_en && spike_commit_valid）
+// - log_count_q 自增 + log_overflow_q sticky
+// - Layer-ID drift detector (option C: firmware 写 + RTL sticky fault)
+// - Read port BRAM tap (rd_en -> next-cycle rd_data_q / rd_meta_q latched)
+// - SVA-1/2/3 真实 ifdef VCS assert property 块
 //
 // 【硬约束（Codex Phase 0 review 拍板）】
 // 1. cfg_recorder_en = 0 时 recorder 不写 BRAM，不抬 log_count，不抬 sticky
@@ -40,7 +38,13 @@
 // 4. layer_id 在同一 stage 内变化即抬 layer_id_fault sticky
 // 5. log_count >= P_LOG_DEPTH 时 reject 写 + 抬 log_overflow，不阻塞 stage_engine
 //
-// 【后续 Phase 边界（绝不在本 skeleton 落地）】
+// 【Hash 输入位宽 NOTE】
+// Day Mon 用 default P_LAYER_MAX=8 / P_T_MAX=256 / P_N_OUT=128 时，
+// 联合输入 = $clog2(8) + 1 + $clog2(256) + 128 = 3 + 1 + 8 + 128 = **140 bits**。
+// design doc §1.1 写"137 bits"是 doc 旧版 typo（编写时假设其它参数）。
+// 实际 RTL 以 parameter 推算为准。Codex Day Tue review 时同步修 doc。
+//
+// 【后续 Phase 边界（绝不在 Day Tue 落地）】
 // - 不实例化进 snn_soc_v2b_top.sv (Day Wed)
 // - 不 wire 到 stage_engine_v2 的 sbA/sbB (Day Wed)
 // - 不动 byte-mask invariant TB (Day Wed)
@@ -82,25 +86,61 @@ module trace_hash_recorder
 );
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 0. Sanity checks (synth-time)
+  // 0. Derived widths
   // ──────────────────────────────────────────────────────────────────────────
-  // Module is V2.B-scoped: P_N_OUT must equal V2B_MAX_OUT_NEURONS, etc.
-  // Top-level instantiation must override these, but if defaults are used
-  // they should at least be consistent. (No-op assertion form to keep
-  // Icarus + Verilator happy; design doc §1.1 documents the contract.)
-  `ifndef SYNTHESIS
-  initial begin
-    if (P_N_OUT !== TRACE_HASH_P_N_OUT_DEFAULT)
-      $display("trace_hash_recorder: NOTE P_N_OUT=%0d (default=%0d)",
-               P_N_OUT, TRACE_HASH_P_N_OUT_DEFAULT);
-    if (P_T_MAX !== TRACE_HASH_P_T_MAX_DEFAULT)
-      $display("trace_hash_recorder: NOTE P_T_MAX=%0d (default=%0d)",
-               P_T_MAX, TRACE_HASH_P_T_MAX_DEFAULT);
-  end
-  `endif
+  localparam int LAYER_ID_W = $clog2(P_LAYER_MAX);
+  localparam int T_IDX_W    = $clog2(P_T_MAX);
+  localparam int LOG_ADDR_W = $clog2(P_LOG_DEPTH);
+  localparam int HASH_INPUT_W = LAYER_ID_W + 1 + T_IDX_W + P_N_OUT;
+  // For default (3 + 1 + 8 + 128) = 140 bits
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 1. Internal state declarations
+  // 1. CRC-32-IEEE reflected combinational compute
+  // ──────────────────────────────────────────────────────────────────────────
+  //
+  // Algorithm (matches IEEE-802.3 standard reflected-CRC32):
+  //   crc = INIT (0xFFFFFFFF)
+  //   for each bit of input from LSB to MSB:
+  //     feedback = crc[0] XOR bit
+  //     crc      = (crc >> 1) XOR (feedback ? POLY_REFLECTED : 0)
+  //   return crc XOR XOROUT (0xFFFFFFFF)
+  //
+  // The for-loop is unrolled by the synthesizer into a fixed XOR tree with
+  // depth ~log2(HASH_INPUT_W); for HASH_INPUT_W=140 the timing impact is
+  // negligible at 100 MHz (V2.B nominal) and we keep `assign` so the tap
+  // path adds zero state.
+
+  function automatic logic [31:0] crc32_compute(input logic [HASH_INPUT_W-1:0] data);
+    logic [31:0] crc;
+    logic        feedback;
+    begin
+      crc = TRACE_HASH_CRC32_INIT;
+      for (int i = 0; i < HASH_INPUT_W; i++) begin
+        feedback = crc[0] ^ data[i];
+        crc      = (crc >> 1) ^ (feedback ? TRACE_HASH_CRC32_POLY_REFLECTED : 32'h0);
+      end
+      crc32_compute = crc ^ TRACE_HASH_CRC32_XOROUT;
+    end
+  endfunction
+
+  // Concatenated input for the current spike_commit pulse.
+  // Bit order is {layer_id, buf_sel, t_idx, spike_data}:
+  //   [HASH_INPUT_W-1 : HASH_INPUT_W-LAYER_ID_W]   layer_id
+  //   [HASH_INPUT_W-LAYER_ID_W-1]                  buf_sel
+  //   [HASH_INPUT_W-LAYER_ID_W-2 : P_N_OUT]        t_idx
+  //   [P_N_OUT-1 : 0]                              spike_data
+  // CRC processes from bit 0 upward, so spike_data goes in first.
+  logic [HASH_INPUT_W-1:0] hash_input_w;
+  assign hash_input_w = {spike_commit_layer_id,
+                         spike_commit_buf_sel,
+                         spike_commit_t_idx,
+                         spike_commit_data};
+
+  logic [31:0] hash_combinational;
+  assign hash_combinational = crc32_compute(hash_input_w);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 2. Internal state declarations
   // ──────────────────────────────────────────────────────────────────────────
 
   // BRAM: 2048 entries × 48 bits (32 hash + 16 meta).
@@ -113,41 +153,48 @@ module trace_hash_recorder
   logic                                     log_overflow_q;
   logic                                     layer_id_fault_q;
 
-  // Layer-ID drift detector state
-  // first_commit_seen_q latches the layer_id from the first commit after
-  // each clear, so subsequent commits in the same stage can be compared.
+  // Layer-ID drift detector
   logic                                     first_commit_seen_q;
-  logic [$clog2(P_LAYER_MAX)-1:0]           layer_id_lock_q;
+  logic [LAYER_ID_W-1:0]                    layer_id_lock_q;
 
   // Read-side latency-1 register (write 0x070 -> next MMIO read 0x074/0x078)
   logic [31:0]                              rd_data_q;
   logic [TRACE_HASH_META_PACKED_W-1:0]      rd_meta_q;
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 2. Output wiring (continuous assigns from registered state)
+  // 3. Output wiring
   // ──────────────────────────────────────────────────────────────────────────
 
-  assign log_count       = log_count_q;
+  assign log_count       = TRACE_HASH_LOG_COUNT_W'(log_count_q);
   assign log_overflow    = log_overflow_q;
   assign layer_id_fault  = layer_id_fault_q;
   assign rd_data         = rd_data_q;
   assign rd_meta         = rd_meta_q;
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 3. Reset + clear handling (Day Mon: PASS; Day Tue: extends with hash write)
+  // 4. Main always_ff: reset / clear / sidecar / write path
   // ──────────────────────────────────────────────────────────────────────────
   //
-  // Behavior at reset_n=0 OR cfg_recorder_clear pulse:
-  //   - log_count_q       -> 0
-  //   - log_overflow_q    -> 0
-  //   - layer_id_fault_q  -> 0
-  //   - first_commit_seen_q -> 0
-  //   - layer_id_lock_q   -> '0
-  //
-  // BRAM is NOT cleared on cfg_recorder_clear (per design doc §1; saves power
-  // and lets reviewer audit prior-run residue if needed). At reset_n=0 the
-  // BRAM contents are left as `x` (synth) / `0` (sim) — host must initialize
-  // by writing CLEAR_W1P before relying on log_count for indexing.
+  // Behavior priority (highest first):
+  //   1) async reset_n=0       -> all status cleared
+  //   2) cfg_recorder_clear=1  -> log_count_q + sticky cleared (BRAM intact)
+  //   3) cfg_recorder_en=1
+  //      AND spike_commit_valid=1
+  //      AND !log_overflow_q   -> compute hash, write BRAM, advance counter
+  //   4) otherwise              -> hold
+
+  // Packed meta payload: {RSVD[3:0]_reserved_for_future, buf_sel[1], layer_id[3], t_idx[8]} = 16 bits
+  logic [TRACE_HASH_META_PACKED_W-1:0] meta_pack_w;
+  assign meta_pack_w = { {(TRACE_HASH_META_PACKED_W - 1 - LAYER_ID_W - T_IDX_W){1'b0}},
+                        spike_commit_buf_sel,
+                        spike_commit_layer_id,
+                        spike_commit_t_idx };
+
+  // do_write: this cycle the recorder commits one (hash, meta) entry to BRAM.
+  logic do_write;
+  assign do_write = cfg_recorder_en
+                  & spike_commit_valid
+                  & ~log_overflow_q;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -162,82 +209,101 @@ module trace_hash_recorder
       layer_id_fault_q     <= 1'b0;
       first_commit_seen_q  <= 1'b0;
       layer_id_lock_q      <= '0;
-    end else begin
-      // ─────────────────────────────────────────────────────────────────────
-      // TODO (Day Tue): hash compute + BRAM write path
-      //
-      //   if (cfg_recorder_en && spike_commit_valid && !log_overflow_q) begin
-      //     compute crc32 of {layer_id, buf_sel, t_idx, spike_data}
-      //     hash_mem[log_count_q] <= crc32
-      //     meta_mem[log_count_q] <= {21'b0, buf_sel, layer_id, t_idx}  (16-bit packed)
-      //     log_count_q <= log_count_q + 1
-      //     if (log_count_q == P_LOG_DEPTH-1) log_overflow_q <= 1
-      //
-      //     // Layer-ID drift detector
-      //     if (!first_commit_seen_q) begin
-      //       layer_id_lock_q     <= spike_commit_layer_id
-      //       first_commit_seen_q <= 1
-      //     end else if (spike_commit_layer_id != layer_id_lock_q) begin
-      //       layer_id_fault_q <= 1
-      //     end
-      //   end
-      // ─────────────────────────────────────────────────────────────────────
-      ;  // empty until Day Tue
+    end else if (do_write) begin
+      // BRAM write: hash + meta at log_count_q
+      hash_mem[log_count_q[LOG_ADDR_W-1:0]] <= hash_combinational;
+      meta_mem[log_count_q[LOG_ADDR_W-1:0]] <= meta_pack_w;
+
+      // Advance count + raise overflow on the LAST in-range write.
+      // After this write, log_count_q points to the next free slot. If we
+      // just consumed slot P_LOG_DEPTH-1, then log_count would become
+      // P_LOG_DEPTH (out of range) so we mark overflow to reject the *next*
+      // commit instead of double-writing slot P_LOG_DEPTH-1.
+      log_count_q    <= log_count_q + TRACE_HASH_LOG_COUNT_W'(1);
+      if (log_count_q == TRACE_HASH_LOG_COUNT_W'(P_LOG_DEPTH - 1))
+        log_overflow_q <= 1'b1;
+
+      // Layer-ID drift detector
+      if (!first_commit_seen_q) begin
+        layer_id_lock_q     <= spike_commit_layer_id;
+        first_commit_seen_q <= 1'b1;
+      end else if (spike_commit_layer_id != layer_id_lock_q) begin
+        layer_id_fault_q <= 1'b1;
+      end
     end
+    // else: hold all state.
   end
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 4. Read port latency-1 register (Day Mon stub; Day Tue connects to BRAM)
+  // 5. Read port BRAM tap (latency-1 register)
   // ──────────────────────────────────────────────────────────────────────────
   //
-  // Contract per design doc §2: host writes A_LOG_RD_ADDR (0x070), then the
-  // NEXT MMIO read of A_LOG_RD_DATA (0x074) / A_LOG_RD_META (0x078) returns
-  // the corresponding entry. We honor that by registering the BRAM output.
+  // Contract per design doc §2:
+  //   - host writes A_LOG_RD_ADDR (CSR 0x070)
+  //   - on the NEXT MMIO read of A_LOG_RD_DATA (0x074) / A_LOG_RD_META (0x078)
+  //     the registered hash_mem[rd_addr] / meta_mem[rd_addr] is returned
   //
-  // Day Mon stub returns 0 unconditionally; Day Tue replaces with
-  //   rd_data_q <= hash_mem[rd_addr]
-  //   rd_meta_q <= meta_mem[rd_addr]
+  // The CSR side will pulse rd_en for one cycle when the AXI/ICB master
+  // performs a read of A_LOG_RD_ADDR-bound data. Day Wed top wiring connects
+  // this. For now the function is correct standalone.
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       rd_data_q <= '0;
       rd_meta_q <= '0;
     end else if (rd_en) begin
-      // TODO (Day Tue): replace with BRAM tap.
-      //   rd_data_q <= hash_mem[rd_addr]
-      //   rd_meta_q <= meta_mem[rd_addr]
-      rd_data_q <= '0;
-      rd_meta_q <= '0;
+      rd_data_q <= hash_mem[rd_addr];
+      rd_meta_q <= meta_mem[rd_addr];
     end
-    // else: hold previous (host can re-read without re-writing addr).
+    // else: hold previous value (host can re-read same address without rewriting addr).
   end
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 5. Sidecar isolation (Codex Phase 0 review §3 SVA seeds)
+  // 6. SVA (ifdef VCS — Icarus skips with -gno-assertions per CLAUDE.md)
   // ──────────────────────────────────────────────────────────────────────────
-  //
-  // These are *advisory* assertions — Day Tue will turn them into proper
-  // SVA `assert property` blocks. For Day Mon we keep them as documentation
-  // anchors so the intent is captured in the same file as the contract.
-  //
-  //   SVA_1: cfg_recorder_en == 0 |-> never write BRAM
-  //   SVA_2: cfg_recorder_en == 0 |-> log_count_q stable (modulo reset/clear)
-  //   SVA_3: spike_commit_valid && !cfg_recorder_en |-> no observable change
-  //
-  // (Day Tue turns SVA_1/2/3 into real assertions inside `ifdef VCS guards.)
 
-  /* verilator lint_off UNUSEDSIGNAL */
-  // Day Mon: many signals not yet consumed by the empty body. Verilator
-  // would warn; we silence until Day Tue closes the implementation.
-  wire _unused_ok = &{1'b0,
-                     spike_commit_data,
-                     spike_commit_t_idx,
-                     spike_commit_buf_sel,
-                     spike_commit_layer_id,
-                     cfg_recorder_en,
-                     spike_commit_valid,
-                     rd_addr,
-                     1'b0};
-  /* verilator lint_on UNUSEDSIGNAL */
+  `ifdef VCS
+
+  // SVA-1: cfg_recorder_en == 0 |-> never write BRAM
+  // (do_write is gated on cfg_recorder_en, so the gating drives this property.)
+  property p_sva1_disabled_no_write;
+    @(posedge clk) disable iff (!rst_n)
+      (cfg_recorder_en == 1'b0) |-> (do_write == 1'b0);
+  endproperty
+  a_sva1_disabled_no_write : assert property (p_sva1_disabled_no_write)
+    else $error("SVA-1 violated: cfg_recorder_en=0 but do_write asserted");
+
+  // SVA-2: log_count_q stable when no commit and no clear and not in reset.
+  property p_sva2_log_count_stable_when_idle;
+    @(posedge clk) disable iff (!rst_n)
+      (!cfg_recorder_clear && !do_write) |-> ##1 (log_count_q == $past(log_count_q));
+  endproperty
+  a_sva2_log_count_stable : assert property (p_sva2_log_count_stable_when_idle)
+    else $error("SVA-2 violated: log_count_q changed without commit or clear");
+
+  // SVA-3: log_overflow_q monotone: once set, stays set until clear.
+  property p_sva3_overflow_monotone;
+    @(posedge clk) disable iff (!rst_n)
+      (log_overflow_q && !cfg_recorder_clear) |-> ##1 (log_overflow_q == 1'b1);
+  endproperty
+  a_sva3_overflow_monotone : assert property (p_sva3_overflow_monotone)
+    else $error("SVA-3 violated: log_overflow_q dropped without clear");
+
+  `endif
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 7. Sanity / lint suppression
+  // ──────────────────────────────────────────────────────────────────────────
+
+  `ifndef SYNTHESIS
+  initial begin
+    if (P_N_OUT !== TRACE_HASH_P_N_OUT_DEFAULT)
+      $display("trace_hash_recorder: NOTE P_N_OUT=%0d (default=%0d)",
+               P_N_OUT, TRACE_HASH_P_N_OUT_DEFAULT);
+    if (P_T_MAX !== TRACE_HASH_P_T_MAX_DEFAULT)
+      $display("trace_hash_recorder: NOTE P_T_MAX=%0d (default=%0d)",
+               P_T_MAX, TRACE_HASH_P_T_MAX_DEFAULT);
+  end
+  `endif
 
 endmodule
