@@ -19,6 +19,33 @@
 
 /* ── Internal helpers ───────────────────────────────────────────── */
 
+/* Local digit emitters that only depend on uart_putc + uart_puts, so the
+ * same v2b_trace_hash.c source produces byte-byte identical UART payload
+ * on both ARM and E203. (ARM's uart_put_u32 / uart_put_hex32 emit raw
+ * digits; E203's uart_put_hex32 prepends "0x"; E203 has uart_put_dec
+ * instead of uart_put_u32. Bypassing those keeps the dump format under
+ * this file's exclusive control — the precondition for the dual-host
+ * byte-exact validation paper claim section 4.2.)
+ */
+static void th_put_hex32_raw(uint32_t v)
+{
+    static const char HEX[] = "0123456789ABCDEF";
+    for (int i = 7; i >= 0; i--)
+        uart_putc(HEX[(v >> (i * 4)) & 0xFu]);
+}
+
+static void th_put_dec_u32(uint32_t v)
+{
+    char buf[11];
+    int  idx = 0;
+    if (v == 0u) { uart_putc('0'); return; }
+    while (v != 0u && idx < (int)sizeof(buf)) {
+        buf[idx++] = (char)('0' + (v % 10u));
+        v /= 10u;
+    }
+    while (idx > 0) uart_putc(buf[--idx]);
+}
+
 static inline uint32_t pack_ctrl(uint8_t enable, uint8_t clear_w1p, uint8_t layer_id)
 {
     /* CTRL [0] ENABLE, [1] CLEAR_W1P, [10:8] LAYER_ID. RO bits ignored on write. */
@@ -130,7 +157,7 @@ uint32_t v2b_trace_hash_dump_uart(const char *config_name,
     uart_puts(" host=");
     uart_puts(host_name ? host_name : "?");
     uart_puts(" sample=");
-    uart_put_u32(sample_id);
+    th_put_dec_u32(sample_id);
     uart_putc('\n');
 
     if (status & V2B_TRACE_HASH_CTRL_OVERFLOW_RO_BIT)
@@ -150,18 +177,18 @@ uint32_t v2b_trace_hash_dump_uart(const char *config_name,
         /* Format must stay byte-identical between ARM and E203 paths;
          * any deviation breaks the Python diff tool's parser. */
         uart_puts("HASH layer=");
-        uart_put_u32((uint32_t)layer_id);
+        th_put_dec_u32((uint32_t)layer_id);
         uart_puts(" t=");
-        uart_put_u32((uint32_t)t_idx);
+        th_put_dec_u32((uint32_t)t_idx);
         uart_puts(" buf=");
         uart_putc(buf_sel ? 'B' : 'A');
         uart_puts(" 0x");
-        uart_put_hex32(hash);
+        th_put_hex32_raw(hash);
         uart_putc('\n');
     }
 
     uart_puts("TRACE_HASH_END count=");
-    uart_put_u32(count);
+    th_put_dec_u32(count);
     uart_putc('\n');
     return count;
 }
