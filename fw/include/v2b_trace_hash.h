@@ -37,7 +37,7 @@ extern "C" {
  * (per Codex Day Thu prereq #1; do NOT split into two byte writes). */
 void     v2b_trace_hash_enable(uint8_t layer_id);
 
-/* Single-write disable: sets ENABLE=0; LAYER_ID untouched. */
+/* Disable the recorder via a low-byte write; LAYER_ID is preserved. */
 void     v2b_trace_hash_disable(void);
 
 /* Pulse CLEAR_W1P; ENABLE/LAYER_ID untouched (per Codex Day Wed fix). */
@@ -72,6 +72,9 @@ int      v2b_trace_hash_read_entry(uint32_t addr,
  *   HASH layer=<L> t=<T> buf=<A|B> 0x<HHHHHHHH>
  *   ...
  *   TRACE_HASH_END count=<N>
+ *
+ * sample_id is intentionally 32-bit so ARM and E203 emit byte-identical
+ * decimal text for the same sample number.
  *
  * Returns the number of HASH lines emitted. */
 uint32_t v2b_trace_hash_dump_uart(const char *config_name,

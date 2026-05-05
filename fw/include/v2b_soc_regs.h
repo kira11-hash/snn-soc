@@ -26,6 +26,8 @@
  * and 64-bit (Cortex-A53 ARM) hosts without triggering -Wint-to-pointer-cast. */
 #define V2B_SOC_REG(off) \
     (*(volatile uint32_t *)(uintptr_t)((V2B_SOC_BASE) + (off)))
+#define V2B_SOC_REG8(off) \
+    (*(volatile uint8_t *)(uintptr_t)((V2B_SOC_BASE) + (off)))
 
 /* ── STAGE_CTRL / STATUS / CFG ─────────────────────────────────── */
 #define V2B_SOC_STAGE_CTRL    V2B_SOC_REG(0x000u)
@@ -87,13 +89,15 @@
 #define V2B_TRACE_HASH_CTRL_LAYER_ID_MASK       (0x7u << V2B_TRACE_HASH_CTRL_LAYER_ID_LSB)
 #define V2B_TRACE_HASH_CTRL_OVERFLOW_RO_BIT     (1u << 16)
 #define V2B_TRACE_HASH_CTRL_LAYER_ID_FAULT_BIT  (1u << 17)
+#define V2B_TRACE_HASH_MAX_LAYER_ID             7u
 
 /* RD_META decoders */
-#define V2B_TRACE_HASH_META_T_IDX(m)     ((uint32_t)((m) & 0xFFu))
-#define V2B_TRACE_HASH_META_LAYER_ID(m)  ((uint32_t)(((m) >> 8) & 0x7u))
-#define V2B_TRACE_HASH_META_BUF_SEL(m)   ((uint32_t)(((m) >> 11) & 0x1u))
+#define V2B_TRACE_HASH_META_RAW16(m)     ((uint32_t)(m) & 0xFFFFu)
+#define V2B_TRACE_HASH_META_T_IDX(m)     (V2B_TRACE_HASH_META_RAW16(m) & 0xFFu)
+#define V2B_TRACE_HASH_META_LAYER_ID(m)  ((V2B_TRACE_HASH_META_RAW16(m) >> 8) & 0x7u)
+#define V2B_TRACE_HASH_META_BUF_SEL(m)   ((V2B_TRACE_HASH_META_RAW16(m) >> 11) & 0x1u)
 
-/* Recorder log depth (informational; matches RTL P_LOG_DEPTH) */
+/* Recorder log depth (informational only; runtime code should trust LOG_COUNT). */
 #define V2B_TRACE_HASH_LOG_DEPTH 2048u
 
 /* ── CONV extension registers ─────────────────────────────────── */

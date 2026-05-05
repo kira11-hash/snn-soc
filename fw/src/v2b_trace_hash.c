@@ -4,12 +4,9 @@
  * Implementation of the V2.B M1 trace-hash recorder host helper.
  * See fw/include/v2b_trace_hash.h for the public ABI.
  *
- * This file is host-agnostic; it is included verbatim by both
- *   fw/arm/src/v2b_scheduler_arm.c    (V2B_SOC_BASE = 0x50000000)
- * and
- *   fw/v2_e203_smoke/src/v2_e203_*.c  (V2B_SOC_BASE = 0xA0000000)
- *
- * by virtue of v2b_soc_regs.h's V2B_SOC_BASE conditional.
+ * This file is host-agnostic and meant to be compiled into both the
+ * ARM path (audit-v2) and the E203 path (audit-v2-e203). The only
+ * host-specific input is v2b_soc_regs.h's V2B_SOC_BASE override.
  *
  * ABI lock source: essay/codex_review_m1_day_wed_integration_2026_05_05.md
  * RTL contract:    rtl/snn/trace_hash_recorder.sv (commit 90fdef2a) +
@@ -30,28 +27,51 @@ static inline uint32_t pack_ctrl(uint8_t enable, uint8_t clear_w1p, uint8_t laye
          | (((uint32_t)layer_id & 0x7u) << V2B_TRACE_HASH_CTRL_LAYER_ID_LSB);
 }
 
+static inline void v2b_trace_hash_mmio_fence(void)
+{
+#if defined(__aarch64__)
+    __asm__ volatile("dsb sy" ::: "memory");
+#elif defined(__riscv)
+    __asm__ volatile("fence iorw, iorw" ::: "memory");
+#else
+    __sync_synchronize();
+#endif
+}
+
 /* ── Public API ─────────────────────────────────────────────────── */
 
 void v2b_trace_hash_enable(uint8_t layer_id)
 {
+    if (layer_id > V2B_TRACE_HASH_MAX_LAYER_ID) {
+        /* Avoid silent layer-id truncation; leave the recorder disabled so
+         * the failure is visible to the caller and the UART log. */
+        V2B_SOC_REG8(0x068u) = 0u;
+        uart_puts("TRACE_HASH_ERR LAYER_ID_RANGE\n");
+        v2b_trace_hash_mmio_fence();
+        return;
+    }
+
     /* Codex Day Thu prereq #1: SINGLE 32-bit MMIO store; do NOT split
      * into two byte writes. ENABLE=1 + LAYER_ID land in one cycle so
      * the recorder sees a clean enable transition with the correct
      * layer_id latched on the first commit. */
     V2B_SOC_TRACE_HASH_CTRL = pack_ctrl(/*enable=*/1, /*clear=*/0, layer_id);
+    v2b_trace_hash_mmio_fence();
 }
 
 void v2b_trace_hash_disable(void)
 {
-    /* ENABLE=0; LAYER_ID untouched per Codex Day Wed RTL fix. */
-    V2B_SOC_TRACE_HASH_CTRL = pack_ctrl(/*enable=*/0, /*clear=*/0, /*layer=*/0);
+    /* Low-byte write clears ENABLE without clobbering the stored LAYER_ID. */
+    V2B_SOC_REG8(0x068u) = 0u;
+    v2b_trace_hash_mmio_fence();
 }
 
 void v2b_trace_hash_clear(void)
 {
     /* Codex Day Thu prereq #2: low-byte CLEAR_W1P, ENABLE/LAYER_ID
-     * preserved by RTL. Direct store of bit[1] is now safe. */
-    V2B_SOC_TRACE_HASH_CTRL = V2B_TRACE_HASH_CTRL_CLEAR_W1P_BIT;
+     * preserved by RTL. */
+    V2B_SOC_REG8(0x068u) = (uint8_t)V2B_TRACE_HASH_CTRL_CLEAR_W1P_BIT;
+    v2b_trace_hash_mmio_fence();
 }
 
 uint32_t v2b_trace_hash_log_count(void)
@@ -83,9 +103,10 @@ int v2b_trace_hash_read_entry(uint32_t addr,
 
     /* Codex Day Thu prereq #3: write RD_ADDR -> read RD_DATA -> read RD_META.
      * volatile MMIO ordering at this granularity is enforced by the
-     * V2B_SOC_REG macro; ARM-specific fence is added in the wrapper
-     * v2b_trace_hash_arm_fence() if the platform requires it. */
+     * V2B_SOC_REG macro; add an explicit MMIO fence so AXI/ICB wrappers do
+     * not speculate the following reads ahead of the address write. */
     V2B_SOC_TRACE_HASH_LOG_RD_ADDR = addr;
+    v2b_trace_hash_mmio_fence();
 
     hash = V2B_SOC_TRACE_HASH_LOG_RD_DATA;
     meta = V2B_SOC_TRACE_HASH_LOG_RD_META;
@@ -104,10 +125,13 @@ uint32_t v2b_trace_hash_dump_uart(const char *config_name,
     uint32_t count = V2B_SOC_TRACE_HASH_LOG_COUNT;
     uint32_t status = v2b_trace_hash_status();
 
-    uart_printf("TRACE_HASH_BEGIN config=%s host=%s sample=%lu\n",
-                config_name ? config_name : "?",
-                host_name   ? host_name   : "?",
-                (unsigned long)sample_id);
+    uart_puts("TRACE_HASH_BEGIN config=");
+    uart_puts(config_name ? config_name : "?");
+    uart_puts(" host=");
+    uart_puts(host_name ? host_name : "?");
+    uart_puts(" sample=");
+    uart_put_u32(sample_id);
+    uart_putc('\n');
 
     if (status & V2B_TRACE_HASH_CTRL_OVERFLOW_RO_BIT)
         uart_puts("TRACE_HASH_WARN OVERFLOW\n");
@@ -125,13 +149,19 @@ uint32_t v2b_trace_hash_dump_uart(const char *config_name,
 
         /* Format must stay byte-identical between ARM and E203 paths;
          * any deviation breaks the Python diff tool's parser. */
-        uart_printf("HASH layer=%u t=%u buf=%c 0x%08lX\n",
-                    (unsigned int)layer_id,
-                    (unsigned int)t_idx,
-                    buf_sel ? 'B' : 'A',
-                    (unsigned long)hash);
+        uart_puts("HASH layer=");
+        uart_put_u32((uint32_t)layer_id);
+        uart_puts(" t=");
+        uart_put_u32((uint32_t)t_idx);
+        uart_puts(" buf=");
+        uart_putc(buf_sel ? 'B' : 'A');
+        uart_puts(" 0x");
+        uart_put_hex32(hash);
+        uart_putc('\n');
     }
 
-    uart_printf("TRACE_HASH_END count=%lu\n", (unsigned long)count);
+    uart_puts("TRACE_HASH_END count=");
+    uart_put_u32(count);
+    uart_putc('\n');
     return count;
 }

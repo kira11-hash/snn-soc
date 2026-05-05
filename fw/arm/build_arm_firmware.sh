@@ -174,6 +174,7 @@ echo "[build_arm_firmware] 编译（V2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE）"
 compile "$HERE/src/crt0_aarch64.S"
 compile "$HERE/src/uart_ps.c"
 compile "$HERE/src/golden_lenet5.c"
+compile "$ROOT/fw/src/v2b_trace_hash.c"
 compile "$HERE/src/v2b_conv_scheduler_arm.c"
 compile "$HERE/src/arm_main.c"
 
