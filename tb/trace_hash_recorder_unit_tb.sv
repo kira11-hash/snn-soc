@@ -43,6 +43,7 @@ module trace_hash_recorder_unit_tb;
   localparam int TB_T_IDX_W      = $clog2(TB_P_T_MAX);      // 8
   localparam int TB_LOG_ADDR_W   = $clog2(TB_P_LOG_DEPTH);  // 4
   localparam int TB_HASH_INPUT_W = TB_LAYER_ID_W + 1 + TB_T_IDX_W + TB_P_N_OUT;  // 140
+  localparam logic [31:0] TB_T3_HASH_GOLDEN = 32'hE7D7_E2D3;
 
   // ──────────────────────────────────────────────────────────────────────────
   // DUT IO
@@ -156,36 +157,37 @@ module trace_hash_recorder_unit_tb;
       input logic [TB_T_IDX_W-1:0]    t_idx,
       input logic [TB_P_N_OUT-1:0]    data
   );
-    spike_commit_layer_id <= layer_id;
-    spike_commit_buf_sel  <= buf_sel;
-    spike_commit_t_idx    <= t_idx;
-    spike_commit_data     <= data;
-    spike_commit_valid    <= 1'b1;
+    spike_commit_layer_id = layer_id;
+    spike_commit_buf_sel  = buf_sel;
+    spike_commit_t_idx    = t_idx;
+    spike_commit_data     = data;
+    spike_commit_valid    = 1'b1;
     @(posedge clk);
-    spike_commit_valid    <= 1'b0;
+    spike_commit_valid    = 1'b0;
     @(posedge clk);
   endtask
 
-  // Issue a CSR-style read: pulse rd_en for one cycle on rd_addr=A,
-  // then sample rd_data / rd_meta on the cycle after.
+  // Issue a recorder-side read pulse on rd_addr=A, then sample rd_data /
+  // rd_meta on the cycle after. This models the internal recorder contract
+  // that Day Wed will trigger from the CSR write-to-RD_ADDR path.
   task automatic do_read(
       input  logic [TB_LOG_ADDR_W-1:0] addr,
       output logic [31:0]              hash_out,
       output logic [TRACE_HASH_META_PACKED_W-1:0] meta_out
   );
-    rd_addr <= addr;
-    rd_en   <= 1'b1;
+    rd_addr = addr;
+    rd_en   = 1'b1;
     @(posedge clk);
-    rd_en   <= 1'b0;
+    rd_en   = 1'b0;
     @(posedge clk);  // latency-1: rd_data_q updated
     hash_out = rd_data;
     meta_out = rd_meta;
   endtask
 
   task automatic do_clear;
-    cfg_recorder_clear <= 1'b1;
+    cfg_recorder_clear = 1'b1;
     @(posedge clk);
-    cfg_recorder_clear <= 1'b0;
+    cfg_recorder_clear = 1'b0;
     @(posedge clk);
   endtask
 
@@ -243,6 +245,12 @@ module trace_hash_recorder_unit_tb;
       hash_expected = crc32_ref(ref_input);
       meta_expected = pack_meta(3'd1, 1'b0, 8'd0);
       do_read(4'd0, hash_got, meta_got);
+      check(hash_expected == TB_T3_HASH_GOLDEN,
+            $sformatf("T3: crc32_ref drifted from offline golden 0x%08h (got 0x%08h)",
+                      TB_T3_HASH_GOLDEN, hash_expected));
+      check(hash_got == TB_T3_HASH_GOLDEN,
+            $sformatf("T3: DUT hash_mem[0] = 0x%08h, offline golden = 0x%08h",
+                      hash_got, TB_T3_HASH_GOLDEN));
       check(hash_got == hash_expected,
             $sformatf("T3: hash_mem[0] = 0x%08h, expected 0x%08h",
                       hash_got, hash_expected));
@@ -288,7 +296,7 @@ module trace_hash_recorder_unit_tb;
       drive_commit(3'd0, 1'b0, TB_T_IDX_W'(i),
                    {{(TB_P_N_OUT-32){1'b0}}, 32'hAA000000} | {{(TB_P_N_OUT-8){1'b0}}, 8'(i)});
     end
-    check(log_count == TB_P_LOG_DEPTH,
+    check(log_count == TRACE_HASH_LOG_COUNT_W'(TB_P_LOG_DEPTH),
           $sformatf("T4: log_count should be %0d after %0d writes",
                     TB_P_LOG_DEPTH, TB_P_LOG_DEPTH));
     check(log_overflow == 1'b1,
@@ -296,7 +304,8 @@ module trace_hash_recorder_unit_tb;
 
     // One more commit: must be rejected (log_count stays the same)
     drive_commit(3'd0, 1'b0, 8'd99, 128'hFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF);
-    check(log_count == TB_P_LOG_DEPTH, "T4: extra commit after overflow must be rejected");
+    check(log_count == TRACE_HASH_LOG_COUNT_W'(TB_P_LOG_DEPTH),
+          "T4: extra commit after overflow must be rejected");
     check(log_overflow == 1'b1,        "T4: log_overflow must remain set after reject");
     $display("T4 PASS: overflow stops further writes and is sticky");
 
@@ -332,6 +341,17 @@ module trace_hash_recorder_unit_tb;
     do_clear();
     check(layer_id_fault == 1'b0,
           "T5b: layer_id_fault must clear after cfg_recorder_clear");
+
+    // Disable -> re-enable starts a fresh layer-id lock window even without
+    // a second clear, so a new stage can latch a different layer_id cleanly.
+    cfg_recorder_en = 1'b1;
+    drive_commit(3'd1, 1'b0, 8'd0, 128'h0011_2233_4455_6677_8899_AABB_CCDD_EEFF);
+    cfg_recorder_en = 1'b0;
+    tick(1);
+    cfg_recorder_en = 1'b1;
+    drive_commit(3'd6, 1'b0, 8'd1, 128'hFFEE_DDCC_BBAA_9988_7766_5544_3322_1100);
+    check(layer_id_fault == 1'b0,
+          "T5b: disable->enable must reopen the layer-id lock window");
     $display("T5b PASS: layer-id drift detector triggers + clears properly");
 
     // ─── T6: buf_sel mux ────────────────────────────────────────────────────

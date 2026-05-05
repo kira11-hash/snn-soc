@@ -105,10 +105,10 @@ module trace_hash_recorder
   //     crc      = (crc >> 1) XOR (feedback ? POLY_REFLECTED : 0)
   //   return crc XOR XOROUT (0xFFFFFFFF)
   //
-  // The for-loop is unrolled by the synthesizer into a fixed XOR tree with
-  // depth ~log2(HASH_INPUT_W); for HASH_INPUT_W=140 the timing impact is
-  // negligible at 100 MHz (V2.B nominal) and we keep `assign` so the tap
-  // path adds zero state.
+  // The for-loop is unrolled by the synthesizer into a fixed combinational
+  // network whose depth grows with HASH_INPUT_W. Day Tue keeps this purely
+  // combinational; Day Wed integration must still check post-synth timing
+  // before claiming the sidecar is timing-neutral at 100 MHz.
 
   function automatic logic [31:0] crc32_compute(input logic [HASH_INPUT_W-1:0] data);
     logic [31:0] crc;
@@ -152,6 +152,7 @@ module trace_hash_recorder
   logic [TRACE_HASH_LOG_COUNT_W-1:0]        log_count_q;
   logic                                     log_overflow_q;
   logic                                     layer_id_fault_q;
+  logic                                     cfg_recorder_en_q;
 
   // Layer-ID drift detector
   logic                                     first_commit_seen_q;
@@ -196,42 +197,60 @@ module trace_hash_recorder
                   & spike_commit_valid
                   & ~log_overflow_q;
 
+  // Treat a 0->1 enable edge as a fresh recorder session for the layer-id
+  // lock, while keeping sticky fault semantics unchanged until explicit clear.
+  logic recorder_session_start;
+  assign recorder_session_start = cfg_recorder_en & ~cfg_recorder_en_q;
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       log_count_q          <= '0;
       log_overflow_q       <= 1'b0;
       layer_id_fault_q     <= 1'b0;
+      cfg_recorder_en_q    <= 1'b0;
       first_commit_seen_q  <= 1'b0;
       layer_id_lock_q      <= '0;
     end else if (cfg_recorder_clear) begin
       log_count_q          <= '0;
       log_overflow_q       <= 1'b0;
       layer_id_fault_q     <= 1'b0;
+      cfg_recorder_en_q    <= cfg_recorder_en;
       first_commit_seen_q  <= 1'b0;
       layer_id_lock_q      <= '0;
-    end else if (do_write) begin
-      // BRAM write: hash + meta at log_count_q
-      hash_mem[log_count_q[LOG_ADDR_W-1:0]] <= hash_combinational;
-      meta_mem[log_count_q[LOG_ADDR_W-1:0]] <= meta_pack_w;
+    end else begin
+      cfg_recorder_en_q <= cfg_recorder_en;
 
-      // Advance count + raise overflow on the LAST in-range write.
-      // After this write, log_count_q points to the next free slot. If we
-      // just consumed slot P_LOG_DEPTH-1, then log_count would become
-      // P_LOG_DEPTH (out of range) so we mark overflow to reject the *next*
-      // commit instead of double-writing slot P_LOG_DEPTH-1.
-      log_count_q    <= log_count_q + TRACE_HASH_LOG_COUNT_W'(1);
-      if (log_count_q == TRACE_HASH_LOG_COUNT_W'(P_LOG_DEPTH - 1))
-        log_overflow_q <= 1'b1;
+      if (!cfg_recorder_en) begin
+        first_commit_seen_q <= 1'b0;
+        layer_id_lock_q     <= '0;
+      end else if (recorder_session_start) begin
+        first_commit_seen_q <= 1'b0;
+        layer_id_lock_q     <= '0;
+      end
 
-      // Layer-ID drift detector
-      if (!first_commit_seen_q) begin
-        layer_id_lock_q     <= spike_commit_layer_id;
-        first_commit_seen_q <= 1'b1;
-      end else if (spike_commit_layer_id != layer_id_lock_q) begin
-        layer_id_fault_q <= 1'b1;
+      if (do_write) begin
+        // BRAM write: hash + meta at log_count_q
+        hash_mem[log_count_q[LOG_ADDR_W-1:0]] <= hash_combinational;
+        meta_mem[log_count_q[LOG_ADDR_W-1:0]] <= meta_pack_w;
+
+        // Advance count + raise overflow on the LAST in-range write.
+        // After this write, log_count_q points to the next free slot. If we
+        // just consumed slot P_LOG_DEPTH-1, then log_count would become
+        // P_LOG_DEPTH (out of range) so we mark overflow to reject the *next*
+        // commit instead of double-writing slot P_LOG_DEPTH-1.
+        log_count_q    <= log_count_q + TRACE_HASH_LOG_COUNT_W'(1);
+        if (log_count_q == TRACE_HASH_LOG_COUNT_W'(P_LOG_DEPTH - 1))
+          log_overflow_q <= 1'b1;
+
+        // Layer-ID drift detector
+        if (recorder_session_start || !first_commit_seen_q) begin
+          layer_id_lock_q     <= spike_commit_layer_id;
+          first_commit_seen_q <= 1'b1;
+        end else if (spike_commit_layer_id != layer_id_lock_q) begin
+          layer_id_fault_q <= 1'b1;
+        end
       end
     end
-    // else: hold all state.
   end
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -243,9 +262,10 @@ module trace_hash_recorder
   //   - on the NEXT MMIO read of A_LOG_RD_DATA (0x074) / A_LOG_RD_META (0x078)
   //     the registered hash_mem[rd_addr] / meta_mem[rd_addr] is returned
   //
-  // The CSR side will pulse rd_en for one cycle when the AXI/ICB master
-  // performs a read of A_LOG_RD_ADDR-bound data. Day Wed top wiring connects
-  // this. For now the function is correct standalone.
+  // Day Wed top wiring should pulse rd_en when the host commits a new
+  // TRACE_HASH_LOG_RD_ADDR value, not on the later data read. The common
+  // integration pattern is "write RD_ADDR with bypassed write-data -> rd_en
+  // pulse", then the next MMIO read of 0x074/0x078 returns rd_data_q/rd_meta_q.
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -288,6 +308,23 @@ module trace_hash_recorder
   endproperty
   a_sva3_overflow_monotone : assert property (p_sva3_overflow_monotone)
     else $error("SVA-3 violated: log_overflow_q dropped without clear");
+
+  // SVA-4: layer_id_fault_q monotone: once set, stays set until clear.
+  property p_sva4_layer_id_fault_monotone;
+    @(posedge clk) disable iff (!rst_n)
+      (layer_id_fault_q && !cfg_recorder_clear) |-> ##1 (layer_id_fault_q == 1'b1);
+  endproperty
+  a_sva4_layer_id_fault_monotone : assert property (p_sva4_layer_id_fault_monotone)
+    else $error("SVA-4 violated: layer_id_fault_q dropped without clear");
+
+  // SVA-5: readback registers only change when rd_en is pulsed or reset hits.
+  property p_sva5_readback_stable_without_rd_en;
+    @(posedge clk) disable iff (!rst_n)
+      (!rd_en) |-> ##1 ((rd_data_q == $past(rd_data_q)) &&
+                        (rd_meta_q == $past(rd_meta_q)));
+  endproperty
+  a_sva5_readback_stable_without_rd_en : assert property (p_sva5_readback_stable_without_rd_en)
+    else $error("SVA-5 violated: readback registers changed without rd_en");
 
   `endif
 
