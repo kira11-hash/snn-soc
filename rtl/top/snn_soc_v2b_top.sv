@@ -284,6 +284,9 @@ module snn_soc_v2b_top
   logic                                                          recorder_layer_id_fault;
   logic [31:0]                                                   recorder_rd_data;
   logic [trace_hash_recorder_pkg::TRACE_HASH_META_PACKED_W-1:0]  recorder_rd_meta;
+  logic                                                          recorder_rd_fire;
+  logic [trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W-1:0]     recorder_rd_addr_write_data;
+  logic [trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W-1:0]     recorder_rd_addr_effective;
 
   logic tpb_clear_all, tpb_acc_en, tpb_clear_busy;
   logic [T_AW-1:0] tpb_wr_t, tpb_rd_t;
@@ -356,6 +359,20 @@ module snn_soc_v2b_top
   assign sbA_rd_addr_mux = sbA_rd_en_bus ? sbA_rd_addr_bus : sbA_rd_addr_se;
   assign sbB_rd_en_mux   = sbB_rd_en_se | sbB_rd_en_bus;
   assign sbB_rd_addr_mux = sbB_rd_en_bus ? sbB_rd_addr_bus : sbB_rd_addr_se;
+
+  // Recorder readback contract: the write to A_TRACE_HASH_LOG_RD_ADDR both
+  // updates the latched address register and triggers the underlying BRAM tap.
+  // This fire must happen on the write cycle itself so the NEXT MMIO read of
+  // 0x074 / 0x078 can observe freshly latched rd_data/rd_meta.
+  assign recorder_rd_addr_write_data = {
+    cmd_wstrb[1] ? cmd_wdata[10:8] : reg_recorder_rd_addr[10:8],
+    cmd_wstrb[0] ? cmd_wdata[7:0]  : reg_recorder_rd_addr[7:0]
+  };
+  assign recorder_rd_fire =
+    cmd_valid && cmd_write && (cmd_addr == A_TRACE_HASH_LOG_RD_ADDR) && (|cmd_wstrb);
+  assign recorder_rd_addr_effective = recorder_rd_fire
+    ? recorder_rd_addr_write_data
+    : reg_recorder_rd_addr;
 
   // ── Primitives ─────────────────────────────────────────────────────
   input_stream_sram u_isr (
@@ -644,11 +661,24 @@ module snn_soc_v2b_top
     .log_count            (recorder_log_count),
     .log_overflow         (recorder_log_overflow),
     .layer_id_fault       (recorder_layer_id_fault),
-    .rd_en                (reg_recorder_rd_en_pulse),
-    .rd_addr              (reg_recorder_rd_addr),
+    .rd_en                (recorder_rd_fire),
+    .rd_addr              (recorder_rd_addr_effective),
     .rd_data              (recorder_rd_data),
     .rd_meta              (recorder_rd_meta)
   );
+
+`ifndef SYNTHESIS
+`ifdef VCS
+  // Recorder buf_sel encoding assumes stage_engine never commits A and B
+  // on the same cycle.
+  property p_trace_hash_commit_ports_mutex;
+    @(posedge clk) disable iff (!rst_n)
+      !(sbA_wr_en && sbB_wr_en);
+  endproperty
+  a_trace_hash_commit_ports_mutex : assert property (p_trace_hash_commit_ports_mutex)
+    else $error("TRACE_HASH commit port violation: sbA_wr_en and sbB_wr_en asserted together");
+`endif
+`endif
 
   // ── Done sticky ────────────────────────────────────────────────────
   logic done_sticky;
@@ -820,16 +850,17 @@ module snn_soc_v2b_top
           // M1 trace-hash recorder CTRL register: ENABLE [0] (RW),
           // CLEAR_W1P [1] (W1P), LAYER_ID [10:8] (RW); upper bits RO/RSVD.
           A_TRACE_HASH_CTRL: begin
-            // Byte 0: ENABLE + CLEAR_W1P
             if (cmd_wstrb[0]) begin
-              reg_recorder_en <= cmd_wdata[0];
-              if (cmd_wdata[1]) reg_recorder_clear_pulse <= 1'b1;
+              // CLEAR_W1P in the same low byte must not accidentally disable
+              // the recorder on a clear-only write (wdata = 0x02).
+              reg_recorder_en <= cmd_wdata[0] | (reg_recorder_en & cmd_wdata[1]);
             end
-            // Byte 1: LAYER_ID [10:8]
             if (cmd_wstrb[1]) begin
               reg_recorder_layer_id <= cmd_wdata[10:8];
             end
-            // Byte 2/3: RO + RSVD, write-ignored
+            if (cmd_wstrb[0] &&
+                cmd_wdata[trace_hash_recorder_pkg::TRACE_HASH_CTRL_BIT_CLEAR_W1P])
+              reg_recorder_clear_pulse <= 1'b1;
           end
 
           // M1 trace-hash recorder LOG_RD_ADDR: 11-bit RW, side-effect
@@ -837,15 +868,10 @@ module snn_soc_v2b_top
           // are latched into rd_data_q/rd_meta_q for the NEXT MMIO read of
           // 0x074 / 0x078 (Codex Day Tue review prereq #1).
           A_TRACE_HASH_LOG_RD_ADDR: begin
-            logic [31:0] rd_addr_word;
-            rd_addr_word = apply_wstrb(
-              {{(32-trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W){1'b0}},
-               reg_recorder_rd_addr},
-              cmd_wdata, cmd_wstrb);
-            reg_recorder_rd_addr <=
-              rd_addr_word[trace_hash_recorder_pkg::TRACE_HASH_LOG_ADDR_W-1:0];
+            if (cmd_wstrb[0]) reg_recorder_rd_addr[7:0]  <= cmd_wdata[7:0];
+            if (cmd_wstrb[1]) reg_recorder_rd_addr[10:8] <= cmd_wdata[10:8];
             // Pulse rd_en on this write only (NOT on read of 0x074/0x078)
-            reg_recorder_rd_en_pulse <= 1'b1;
+            if (|cmd_wstrb) reg_recorder_rd_en_pulse <= 1'b1;
           end
 
           A_CONV_MODE_CFG: begin

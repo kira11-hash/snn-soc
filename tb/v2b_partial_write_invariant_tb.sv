@@ -178,10 +178,11 @@ module v2b_partial_write_invariant_tb;
     cmd_write = 1'b0;
     cmd_addr  = addr;
     cmd_wstrb = 4'h0;
-    @(posedge clk);
+    @(posedge clk);      // command sampled here
     while (!cmd_ready) @(posedge clk);
     cmd_valid = 1'b0;
-    while (!rsp_valid) @(posedge clk);
+    @(posedge clk);      // allow registered read sources to settle
+    @(posedge clk);      // rsp_rdata/rsp_valid aligned here
     data = rsp_rdata;
     @(posedge clk);
   endtask
@@ -515,6 +516,8 @@ module v2b_partial_write_invariant_tb;
       repeat (2) @(posedge clk);
       check_int("T31 TRACE_HASH_CTRL byte0 wdata[1]=1 fires CLEAR_W1P (delta=1)",
                 recorder_clear_pulse_count - base_clear, 1);
+      check32("T31b TRACE_HASH_CTRL CLEAR_W1P must not clobber ENABLE",
+              {31'h0, dut.reg_recorder_en}, 32'h0000_0001);
 
       // T32: byte1 wstrb=0010 LAYER_ID write [10:8] (bits 0x0500 -> layer=5)
       // Existing layer_id from earlier writes is irrelevant; we just
@@ -574,12 +577,18 @@ module v2b_partial_write_invariant_tb;
               {21'h0, dut.reg_recorder_rd_addr}, 32'h0000_0000);
       check_int("T37b TRACE_HASH_LOG_RD_ADDR cross-byte write pulses rd_en once",
                 recorder_rd_en_pulse_count - base_rd_en, 1);
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_RD_ADDR, 32'h0000_02AA, 4'b0000);
+      repeat (2) @(posedge clk);
+      check32("T37c TRACE_HASH_LOG_RD_ADDR zero-wstrb write keeps address unchanged",
+              {21'h0, dut.reg_recorder_rd_addr}, 32'h0000_0000);
+      check_int("T37d TRACE_HASH_LOG_RD_ADDR zero-wstrb write must NOT pulse rd_en",
+                recorder_rd_en_pulse_count - base_rd_en, 0);
 
       // -------- 2 RO smoke (writes ignored, reads sane) --------
-      // T38: write to LOG_COUNT (0x06C) is RO; recorder_log_count read from
-      // module is 0 because cfg_recorder_en=0 prevented any write so far.
-      // Importantly, the write must NOT crash decode and must NOT mutate
-      // recorder_log_count or other M1 state.
+      // T38: write to LOG_COUNT (0x06C) is RO. Seed the internal count to a
+      // non-zero value so we prove the readback path is real, not just 0==0.
+      dut.u_trace_hash_recorder.log_count_q = 16'd3;
       base_clear = recorder_clear_pulse_count;
       base_rd_en = recorder_rd_en_pulse_count;
       do_write(O_TRACE_HASH_LOG_COUNT, 32'hFFFF_FFFF, 4'b1111);
@@ -587,17 +596,26 @@ module v2b_partial_write_invariant_tb;
       do_read(O_TRACE_HASH_LOG_COUNT, read_back);
       check32("T38 TRACE_HASH_LOG_COUNT is RO: write ignored, read returns log_count",
               read_back,
-              {{(32-trace_hash_recorder_pkg::TRACE_HASH_LOG_COUNT_W){1'b0}},
-               dut.recorder_log_count});
+              32'h0000_0003);
       check_int("T38b TRACE_HASH_LOG_COUNT write must NOT pulse CLEAR/rd_en",
                 (recorder_clear_pulse_count - base_clear) +
                 (recorder_rd_en_pulse_count - base_rd_en), 0);
 
-      // T39: write to LOG_RD_META (0x078) is RO; high bits [31:16] must be
-      // zero per Codex prereq #2; readback is the 16-bit metadata sign-extended.
+      // T39: seed BRAM entry 0, then exercise the full "write RD_ADDR ->
+      // next read RD_DATA/RD_META" contract through the top-level bus path.
+      dut.u_trace_hash_recorder.hash_mem[0] = 32'hCAFE_BABE;
+      dut.u_trace_hash_recorder.meta_mem[0] = 16'h0D65;  // buf_sel=1, layer=5, t_idx=0x65
+      base_rd_en = recorder_rd_en_pulse_count;
+      do_write(O_TRACE_HASH_LOG_RD_ADDR, 32'h0000_0000, 4'b1111);
+      repeat (2) @(posedge clk);
+      check_int("T39 TRACE_HASH_LOG_RD_ADDR functional load pulses rd_en once",
+                recorder_rd_en_pulse_count - base_rd_en, 1);
+      do_read(O_TRACE_HASH_LOG_RD_DATA, read_back);
+      check32("T39b TRACE_HASH_LOG_RD_DATA returns seeded hash word",
+              read_back, 32'hCAFE_BABE);
       do_read(O_TRACE_HASH_LOG_RD_META, read_back);
-      check32("T39 TRACE_HASH_LOG_RD_META RO read: high [31:16] zero-extended",
-              read_back[31:16], 16'h0000);
+      check32("T39c TRACE_HASH_LOG_RD_META returns zero-extended seeded meta",
+              read_back, 32'h0000_0D65);
     end
 
     repeat (5) @(posedge clk);

@@ -1,4 +1,5 @@
 ../rtl/top/snn_soc_pkg.sv
+../rtl/snn/trace_hash_recorder_pkg.sv
 ../rtl/snn/input_stream_sram.sv
 ../rtl/snn/stream_buffer_v2.sv
 ../rtl/snn/tile_partial_buf.sv
@@ -8,6 +9,7 @@
 ../rtl/snn/patch_unroller_v2.sv
 ../rtl/snn/fmap_flatten_reader_v2.sv
 ../rtl/snn/conv_ctrl_v2.sv
+../rtl/snn/trace_hash_recorder.sv
 ../rtl/top/snn_soc_v2b_top.sv
 ../rtl/bus/axi2simple_bridge.sv
 ../rtl/bus/simple2v2btop_adapter.sv
