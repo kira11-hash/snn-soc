@@ -1,0 +1,27 @@
+
+UART_OK
+[TB] v2b_arm_fashion14_m3 start - 10 Fashion 14x14 samples (M3 latency partition)
+[TB] V2B_SOC_BASE=0xa0000000
+[OK] MMIO round-trip CFG1
+M3_CYCLES v2b_fc_fashion14_2L arm 0 6355051 15022806 4806259 241497 3454
+[PASS] sample 0 label=0 pred=0 counts=[63 0 0 34 0 0 0 0 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 1 6059981 15114881 4806043 241936 3449
+[PASS] sample 1 label=1 pred=1 counts=[0 63 0 0 1 0 0 0 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 2 6516461 15174297 4806225 242051 3458
+[PASS] sample 2 label=2 pred=2 counts=[0 0 61 0 1 0 0 0 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 3 5981115 15116161 4806162 241877 3449
+[PASS] sample 3 label=3 pred=3 counts=[0 0 0 63 0 0 0 4 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 4 5834624 15062670 4806177 241972 3454
+[PASS] sample 4 label=4 pred=4 counts=[0 0 0 0 63 0 1 0 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 5 5668733 15022507 4806187 240305 3456
+[PASS] sample 5 label=5 pred=5 counts=[1 1 0 0 0 63 0 63 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 6 6159571 15023497 4806236 242206 3460
+[PASS] sample 6 label=5 pred=5 counts=[0 0 0 0 0 11 6 0 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 7 5810810 15023868 4806261 241486 3458
+[PASS] sample 7 label=7 pred=7 counts=[0 0 0 0 0 0 0 63 0 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 8 6162388 15027322 4806389 241853 3462
+[PASS] sample 8 label=8 pred=8 counts=[0 0 0 0 0 6 0 0 63 0]
+M3_CYCLES v2b_fc_fashion14_2L arm 9 5885755 15174306 4805896 240341 3465
+[PASS] sample 9 label=5 pred=5 counts=[0 0 0 0 0 63 0 0 62 7]
+ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS
+M3_BOARD_RUN_END config=v2b_fc_fashion14_2L host=arm

@@ -150,16 +150,23 @@ def main():
 
     deadline = time.time() + args.timeout
     rc = 3  # 默认 timeout
+    marker_window = ""
+    max_window = max(
+        len(args.pass_marker or ""),
+        len(args.fail_marker or ""),
+        256,
+    ) * 2
     try:
         while time.time() < deadline:
             chunk = s.read(256)
             if chunk:
                 text = chunk.decode("utf-8", errors="replace")
                 emit(text)
-                if args.pass_marker and args.pass_marker in text:
+                marker_window = (marker_window + text)[-max_window:]
+                if args.pass_marker and args.pass_marker in marker_window:
                     rc = 0
                     break
-                if args.fail_marker and args.fail_marker in text:
+                if args.fail_marker and args.fail_marker in marker_window:
                     rc = 1
                     break
     finally:
