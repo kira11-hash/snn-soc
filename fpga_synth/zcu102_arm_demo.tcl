@@ -84,6 +84,8 @@ foreach f [list \
   {snn/conv_ctrl_v2.sv} \
   {snn/cim_mac_behavioral_v2.sv} \
   {snn/stage_engine_v2.sv} \
+  {snn/trace_hash_recorder_pkg.sv} \
+  {snn/trace_hash_recorder.sv} \
   {top/snn_soc_v2b_top.sv} \
   {bus/axi2simple_bridge.sv} \
   {bus/simple2v2btop_adapter.sv} \

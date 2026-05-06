@@ -11,5 +11,6 @@
  * that changes is the MMIO base address.
  */
 #include "platform.h"
+#define V2B_TRACE_HASH_HOST_NAME "arm"
 /* v2b_soc_regs.h does `#ifndef V2B_SOC_BASE` so the value above wins. */
 #include "../../src/v2b_scheduler.c"

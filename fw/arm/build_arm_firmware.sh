@@ -21,6 +21,10 @@
 #                                直接在编译时传入即可，无需改 C 源码。
 #   TOOLCHAIN_BIN=/path         — 覆盖交叉 gcc 路径。默认：
 #                                 /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
+#   ARM_FW_VARIANT=lenet5|fashion14
+#                               — 选择当前要生成的 ARM firmware 入口。
+#   ARM_FW_EXTRA_DEFS="-DMACRO=VALUE ..."
+#                               — 追加给 C 编译阶段的额外宏定义。
 #
 # Phase C0 当前直接复用本脚本输出的 ELF 走 xsct/JTAG bring-up。
 # 后续可改造成 Vitis BSP workspace（含 PS init、MMU tables、xil_printf、Xuartps），
@@ -110,6 +114,8 @@ if [ ! -e "${CC_BIN}.exe" ] && [ ! -e "${CC_BIN}" ]; then
 fi
 
 V2B_SOC_BASE_OVERRIDE="${V2B_SOC_BASE:-0xA0000000u}"
+ARM_FW_VARIANT="${ARM_FW_VARIANT:-lenet5}"
+ARM_FW_EXTRA_DEFS="${ARM_FW_EXTRA_DEFS:-}"
 
 # Include 路径同样需要转 8.3 短名（仓库根目录含空格）
 INC_ARM=$(to_win_short "$HERE/include")
@@ -130,6 +136,15 @@ CFLAGS=(
   "-I$INC_FW"
   "-DV2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE"
 )
+
+if [ -n "$ARM_FW_EXTRA_DEFS" ]; then
+  # Intentionally split on shell words so callers can pass multiple -D flags.
+  # Example:
+  #   ARM_FW_EXTRA_DEFS="-DFOO=1 -DBAR=2"
+  # shellcheck disable=SC2206
+  EXTRA_DEF_WORDS=($ARM_FW_EXTRA_DEFS)
+  CFLAGS+=("${EXTRA_DEF_WORDS[@]}")
+fi
 
 ASFLAGS=(
   "-mcpu=cortex-a53"
@@ -167,16 +182,35 @@ compile() {
   OBJECTS+=("$obj_win")
 }
 
-echo "[build_arm_firmware] 重新生成 LeNet-5 黄金参考 header"
-python "$HERE/scripts/gen_lenet5_header.py"
-
+echo "[build_arm_firmware] 目标 variant: $ARM_FW_VARIANT"
 echo "[build_arm_firmware] 编译（V2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE）"
 compile "$HERE/src/crt0_aarch64.S"
 compile "$HERE/src/uart_ps.c"
-compile "$HERE/src/golden_lenet5.c"
 compile "$ROOT/fw/src/v2b_trace_hash.c"
-compile "$HERE/src/v2b_conv_scheduler_arm.c"
-compile "$HERE/src/arm_main.c"
+
+REQUIRED_SYMS=()
+case "$ARM_FW_VARIANT" in
+  lenet5)
+    echo "[build_arm_firmware] 重新生成 LeNet-5 黄金参考 header"
+    python "$HERE/scripts/gen_lenet5_header.py"
+    compile "$HERE/src/golden_lenet5.c"
+    compile "$HERE/src/v2b_conv_scheduler_arm.c"
+    compile "$HERE/src/arm_main.c"
+    REQUIRED_SYMS=("arm_main" "v2b_run_lenet5_demo_trace" "uart_init" "golden_lenet5" "_start")
+    ;;
+  fashion14)
+    echo "[build_arm_firmware] 重新生成 Fashion14 黄金参考 header"
+    python "$HERE/scripts/gen_golden_header.py"
+    compile "$HERE/src/golden_fashion10.c"
+    compile "$HERE/src/v2b_scheduler_arm.c"
+    compile "$HERE/src/arm_main_fashion14.c"
+    REQUIRED_SYMS=("arm_main" "v2b_infer_resident_14x14_trace" "uart_init" "golden_fashion10" "_start")
+    ;;
+  *)
+    echo "[FATAL] unsupported ARM_FW_VARIANT=$ARM_FW_VARIANT" >&2
+    exit 4
+    ;;
+esac
 
 # 链接阶段
 ELF_UNIX="$OUT/v2b_arm_demo.elf"
@@ -191,7 +225,6 @@ echo "[build_arm_firmware] size 报告："
 
 echo ""
 echo "[build_arm_firmware] 关键符号存在性检查："
-REQUIRED_SYMS=("arm_main" "v2b_run_lenet5_demo" "uart_init" "golden_lenet5" "_start")
 SYM_LIST=$("$NM_BIN" "$ELF_WIN" | awk '{print $3}')
 for sym in "${REQUIRED_SYMS[@]}"; do
   if ! grep -q "^${sym}$" <<<"$SYM_LIST"; then

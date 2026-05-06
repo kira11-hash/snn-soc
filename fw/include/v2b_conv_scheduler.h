@@ -97,4 +97,8 @@ void v2b_count_stream_spikes(int32_t *counts_out, uint32_t out_dim, uint32_t rea
 int v2b_run_lenet5_demo(const uint32_t *input_words,
                         int32_t *counts_out_10);
 
+int v2b_run_lenet5_demo_trace(const uint32_t *input_words,
+                              int32_t *counts_out_10,
+                              uint32_t sample_id);
+
 #endif /* V2B_CONV_SCHEDULER_H */

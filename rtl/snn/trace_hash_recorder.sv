@@ -144,9 +144,10 @@ module trace_hash_recorder
   // ──────────────────────────────────────────────────────────────────────────
 
   // BRAM: 2048 entries × 48 bits (32 hash + 16 meta).
-  // Use two separate arrays so synth can lift each into its own BRAM slice.
-  logic [31:0]                              hash_mem [0:P_LOG_DEPTH-1];
-  logic [TRACE_HASH_META_PACKED_W-1:0]      meta_mem [0:P_LOG_DEPTH-1];
+  // Keep the two arrays separate, but also force block RAM style so Vivado
+  // does not spill the recorder log into massive distributed RAM on FPGA.
+  (* ram_style = "block" *) logic [31:0]                         hash_mem [0:P_LOG_DEPTH-1];
+  (* ram_style = "block" *) logic [TRACE_HASH_META_PACKED_W-1:0] meta_mem [0:P_LOG_DEPTH-1];
 
   // Counters / sticky status
   logic [TRACE_HASH_LOG_COUNT_W-1:0]        log_count_q;

@@ -76,9 +76,10 @@ static int mmio_self_test(void)
 static int run_sample(const v2b_lenet5_sample_t *sample, uint32_t idx)
 {
     uart_puts("[TB] sample "); uart_put_dec(idx); uart_puts(" start\n");
-    int rc = v2b_run_lenet5_demo(
+    int rc = v2b_run_lenet5_demo_trace(
         sample->input_words,
-        counts_buf
+        counts_buf,
+        idx
     );
     if (rc != 0) {
         uart_puts("[FAIL] sample "); uart_put_dec(idx);

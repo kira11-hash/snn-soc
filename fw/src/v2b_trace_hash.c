@@ -36,14 +36,31 @@ static void th_put_hex32_raw(uint32_t v)
 
 static void th_put_dec_u32(uint32_t v)
 {
-    char buf[11];
-    int  idx = 0;
-    if (v == 0u) { uart_putc('0'); return; }
-    while (v != 0u && idx < (int)sizeof(buf)) {
-        buf[idx++] = (char)('0' + (v % 10u));
-        v /= 10u;
+    static const uint32_t pow10[] = {
+        1000000000u, 100000000u, 10000000u, 1000000u, 100000u,
+        10000u, 1000u, 100u, 10u, 1u
+    };
+    uint32_t started = 0u;
+    if (v == 0u) {
+        uart_putc('0');
+        return;
     }
-    while (idx > 0) uart_putc(buf[--idx]);
+    for (uint32_t i = 0; i < (sizeof(pow10) / sizeof(pow10[0])); i++) {
+        uint8_t digit = 0u;
+        while (v >= pow10[i]) {
+            v -= pow10[i];
+            digit++;
+        }
+        if (digit != 0u || started) {
+            uart_putc((char)('0' + digit));
+            started = 1u;
+        }
+    }
+}
+
+static void th_put_lf(void)
+{
+    uart_putc('\n');
 }
 
 static inline uint32_t pack_ctrl(uint8_t enable, uint8_t clear_w1p, uint8_t layer_id)
@@ -59,7 +76,10 @@ static inline void v2b_trace_hash_mmio_fence(void)
 #if defined(__aarch64__)
     __asm__ volatile("dsb sy" ::: "memory");
 #elif defined(__riscv)
-    __asm__ volatile("fence iorw, iorw" ::: "memory");
+    /* The E203 path on this branch is single-issue/in-order. Keep the helper
+     * empty on RISC-V so we can avoid synthesizing/issuing fence operations
+     * while debugging the Phase 1 board bring-up path. */
+    (void)0;
 #else
     __sync_synchronize();
 #endif
@@ -72,8 +92,13 @@ void v2b_trace_hash_enable(uint8_t layer_id)
     if (layer_id > V2B_TRACE_HASH_MAX_LAYER_ID) {
         /* Avoid silent layer-id truncation; leave the recorder disabled so
          * the failure is visible to the caller and the UART log. */
+#if defined(__riscv)
+        V2B_SOC_TRACE_HASH_CTRL = 0u;
+#else
         V2B_SOC_REG8(0x068u) = 0u;
-        uart_puts("TRACE_HASH_ERR LAYER_ID_RANGE\n");
+#endif
+        uart_puts("TRACE_HASH_ERR LAYER_ID_RANGE");
+        th_put_lf();
         v2b_trace_hash_mmio_fence();
         return;
     }
@@ -88,8 +113,15 @@ void v2b_trace_hash_enable(uint8_t layer_id)
 
 void v2b_trace_hash_disable(void)
 {
-    /* Low-byte write clears ENABLE without clobbering the stored LAYER_ID. */
+    /* ARM AXI path supports the byte-store ABI directly. On the E203 ICB path,
+     * use a word store instead of LB/SB-style access to avoid host-side trap/
+     * reset behavior seen during Phase 1 board close-out. The next enable()
+     * call always rewrites LAYER_ID, so zeroing the full word here is safe. */
+#if defined(__riscv)
+    V2B_SOC_TRACE_HASH_CTRL = 0u;
+#else
     V2B_SOC_REG8(0x068u) = 0u;
+#endif
     v2b_trace_hash_mmio_fence();
 }
 
@@ -97,7 +129,11 @@ void v2b_trace_hash_clear(void)
 {
     /* Codex Day Thu prereq #2: low-byte CLEAR_W1P, ENABLE/LAYER_ID
      * preserved by RTL. */
+#if defined(__riscv)
+    V2B_SOC_TRACE_HASH_CTRL = (uint32_t)V2B_TRACE_HASH_CTRL_CLEAR_W1P_BIT;
+#else
     V2B_SOC_REG8(0x068u) = (uint8_t)V2B_TRACE_HASH_CTRL_CLEAR_W1P_BIT;
+#endif
     v2b_trace_hash_mmio_fence();
 }
 
@@ -158,12 +194,16 @@ uint32_t v2b_trace_hash_dump_uart(const char *config_name,
     uart_puts(host_name ? host_name : "?");
     uart_puts(" sample=");
     th_put_dec_u32(sample_id);
-    uart_putc('\n');
+    th_put_lf();
 
-    if (status & V2B_TRACE_HASH_CTRL_OVERFLOW_RO_BIT)
-        uart_puts("TRACE_HASH_WARN OVERFLOW\n");
-    if (status & V2B_TRACE_HASH_CTRL_LAYER_ID_FAULT_BIT)
-        uart_puts("TRACE_HASH_WARN LAYER_ID_FAULT\n");
+    if (status & V2B_TRACE_HASH_CTRL_OVERFLOW_RO_BIT) {
+        uart_puts("TRACE_HASH_WARN OVERFLOW");
+        th_put_lf();
+    }
+    if (status & V2B_TRACE_HASH_CTRL_LAYER_ID_FAULT_BIT) {
+        uart_puts("TRACE_HASH_WARN LAYER_ID_FAULT");
+        th_put_lf();
+    }
 
     for (uint32_t i = 0; i < count; ++i) {
         uint32_t hash;
@@ -184,11 +224,11 @@ uint32_t v2b_trace_hash_dump_uart(const char *config_name,
         uart_putc(buf_sel ? 'B' : 'A');
         uart_puts(" 0x");
         th_put_hex32_raw(hash);
-        uart_putc('\n');
+        th_put_lf();
     }
 
     uart_puts("TRACE_HASH_END count=");
     th_put_dec_u32(count);
-    uart_putc('\n');
+    th_put_lf();
     return count;
 }

@@ -1,0 +1,4 @@
+  File "D:\SoC", line 16
+    [TB] nz write src_idx=125 nz_idx=0 data=0x0x0000016a
+                                              ^
+SyntaxError: invalid hexadecimal literal

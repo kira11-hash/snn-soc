@@ -21,6 +21,27 @@
 
 #include <stdint.h>
 #include "v2b_soc_regs.h"
+#include "v2b_trace_hash.h"
+
+#ifndef V2B_TRACE_HASH_HOST_NAME
+#define V2B_TRACE_HASH_HOST_NAME "?"
+#endif
+
+#ifndef V2B_TRACE_HASH_CONFIG_FASHION14
+#define V2B_TRACE_HASH_CONFIG_FASHION14 "v2b_fc_fashion14_2L"
+#endif
+
+#ifndef V2B_NEGCTRL_STAGE0_THRESHOLD_DELTA
+#define V2B_NEGCTRL_STAGE0_THRESHOLD_DELTA 0u
+#endif
+
+#ifndef V2B_NEGCTRL_SAMPLE_ID
+#define V2B_NEGCTRL_SAMPLE_ID 0xFFFFFFFFu
+#endif
+
+#ifndef V2B_NEGCTRL_STAGE0_THRESHOLD_OVERRIDE
+#define V2B_NEGCTRL_STAGE0_THRESHOLD_OVERRIDE S0_THRESHOLD
+#endif
 
 /* ── Fashion 14×14 resident topology constants (matches Python P4) ── */
 #define S0_IN_DIM    196u
@@ -193,4 +214,72 @@ int v2b_infer_resident_14x14(const uint8_t *pixel_196,
         }
     }
     return best_class;
+}
+
+int v2b_infer_resident_14x14_trace(const uint8_t *pixel_196,
+                                   const uint8_t *s0_w_pos, const uint8_t *s0_w_neg,
+                                   const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,
+                                   int32_t *counts_out_10,
+                                   uint32_t sample_id)
+{
+    static uint32_t stream_bits[T_COUNT * WORDS_PER_ROW];
+    uint32_t s0_threshold = S0_THRESHOLD;
+    uint8_t e0;
+    uint8_t e1;
+
+    if (sample_id == V2B_NEGCTRL_SAMPLE_ID) {
+        if (V2B_NEGCTRL_STAGE0_THRESHOLD_OVERRIDE != S0_THRESHOLD) {
+            s0_threshold = V2B_NEGCTRL_STAGE0_THRESHOLD_OVERRIDE;
+        } else if (V2B_NEGCTRL_STAGE0_THRESHOLD_DELTA != 0u) {
+            s0_threshold += V2B_NEGCTRL_STAGE0_THRESHOLD_DELTA;
+        }
+    }
+
+    v2b_encode_pixel_even_rate(pixel_196, S0_IN_DIM, T_COUNT, stream_bits);
+    V2B_SOC_STREAM_BUF_CTRL = V2B_SOC_STREAM_BUF_CLEAR_A | V2B_SOC_STREAM_BUF_CLEAR_B;
+    v2b_trace_hash_clear();
+
+    v2b_load_input_stream(stream_bits, T_COUNT);
+    v2b_load_mac_weights(s0_w_pos, s0_w_neg, S0_IN_DIM, S0_OUT_DIM);
+    v2b_trace_hash_enable(0u);
+    e0 = v2b_run_stage(S0_IN_DIM, S0_OUT_DIM, s0_threshold, S0_SUM_MAX,
+                       V2B_SOC_BUF_SEL_INPUT_SRAM,
+                       V2B_SOC_BUF_SEL_STREAM_A);
+    v2b_trace_hash_disable();
+    if (e0 != 0u) {
+        v2b_trace_hash_dump_uart(V2B_TRACE_HASH_CONFIG_FASHION14,
+                                 V2B_TRACE_HASH_HOST_NAME,
+                                 sample_id);
+        return -1;
+    }
+
+    v2b_load_mac_weights(s1_w_pos, s1_w_neg, S1_IN_DIM, S1_OUT_DIM);
+    v2b_trace_hash_enable(1u);
+    e1 = v2b_run_stage(S1_IN_DIM, S1_OUT_DIM, S1_THRESHOLD, S1_SUM_MAX,
+                       V2B_SOC_BUF_SEL_STREAM_A,
+                       V2B_SOC_BUF_SEL_STREAM_B);
+    v2b_trace_hash_disable();
+    if (e1 != 0u) {
+        v2b_trace_hash_dump_uart(V2B_TRACE_HASH_CONFIG_FASHION14,
+                                 V2B_TRACE_HASH_HOST_NAME,
+                                 sample_id);
+        return -2;
+    }
+
+    v2b_count_stage1_spikes(counts_out_10, S1_OUT_DIM);
+
+    {
+        int best_class = 0;
+        int32_t best_count = counts_out_10[0];
+        for (int j = 1; j < 10; j++) {
+            if (counts_out_10[j] > best_count) {
+                best_count = counts_out_10[j];
+                best_class = j;
+            }
+        }
+        v2b_trace_hash_dump_uart(V2B_TRACE_HASH_CONFIG_FASHION14,
+                                 V2B_TRACE_HASH_HOST_NAME,
+                                 sample_id);
+        return best_class;
+    }
 }

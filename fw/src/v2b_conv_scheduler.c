@@ -23,6 +23,15 @@
 #include <stdint.h>
 #include "v2b_conv_scheduler.h"
 #include "v2b_soc_regs.h"
+#include "v2b_trace_hash.h"
+
+#ifndef V2B_TRACE_HASH_HOST_NAME
+#define V2B_TRACE_HASH_HOST_NAME "?"
+#endif
+
+#ifndef V2B_TRACE_HASH_CONFIG_LENET5
+#define V2B_TRACE_HASH_CONFIG_LENET5 "v2b_lenet5_mnist_28x28"
+#endif
 
 #ifndef V2B_CONV_POLL_TIMEOUT
 #define V2B_CONV_POLL_TIMEOUT 4000000u   /* 单次轮询的硬上限 ≈ 4M 次循环 */
@@ -54,6 +63,7 @@ static uint16_t g_loaded_start = 0u;
 static uint16_t g_loaded_end = 0u;
 static uint16_t g_loaded_layer_id = 0xFFFFu;
 static uint16_t g_loaded_tile_idx = 0xFFFFu;
+static uint8_t g_trace_hash_sample_active = 0u;
 
 static void v2b_stream_buf_clear_guard(void)
 {
@@ -315,6 +325,7 @@ int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
                        const v2b_sparse_layer_t *layer,
                        uint32_t requests_expected)
 {
+    uint8_t trace_open = 0u;
     /* 拼 MODE_CFG：始终打开 EN；
      *   FLATTEN_MODE：fc1 用，把 conv 输出按 row-major (h*W+w)*C+c 平铺给 stage_engine
      *   FMAP_PP_SEL：选 ping/pong bank（stride>1 等需要写到另一个 bank 的层用） */
@@ -369,6 +380,10 @@ int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
     V2B_SOC_CONV_STATUS = V2B_SOC_CONV_STATUS_DONE;
     g_arm_progress_code = 0x30Fu;
     uart_puts("[TB] conv cfg CTRL_START\n");
+    if (g_trace_hash_sample_active) {
+        v2b_trace_hash_enable((uint8_t)(layer->layer_id - 1u));
+        trace_open = 1u;
+    }
     V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_START;
     g_arm_progress_code = 0x30Fu;
     uart_puts("[TB] conv start reqs=");
@@ -379,7 +394,10 @@ int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
 
     for (uint32_t req = 0; req < requests_expected; req++) {
         uint32_t status = 0u;
-        if (v2b_wait_weight_req(&status) != 0) return -10;
+        if (v2b_wait_weight_req(&status) != 0) {
+            if (trace_open) v2b_trace_hash_disable();
+            return -10;
+        }
         uint32_t tile_idx = V2B_SOC_CONV_STATUS_CUR_TILE(status);
         v2b_switch_sparse_tile(layer, (uint16_t)tile_idx);
         V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_WEIGHT_READY;
@@ -396,10 +414,14 @@ int v2b_run_conv_layer(const v2b_conv_layer_cfg_t *cfg,
 
     {
         uint32_t status = 0u;
-        if (v2b_wait_conv_done(&status) != 0) return -11;
+        if (v2b_wait_conv_done(&status) != 0) {
+            if (trace_open) v2b_trace_hash_disable();
+            return -11;
+        }
         uart_puts("[TB] conv done status=");
         uart_put_hex32(status);
         uart_puts("\n");
+        if (trace_open) v2b_trace_hash_disable();
         if (V2B_SOC_CONV_STATUS_ERR(status) != 0u) return -(int)V2B_SOC_CONV_STATUS_ERR(status) - 100;
     }
     return 0;
@@ -510,17 +532,38 @@ int v2b_run_lenet5_demo(const uint32_t *input_words,
 
     uart_puts("[TB] LeNet fc2 start\n");
     v2b_switch_sparse_single_tile(&fc2_layer);
+    if (g_trace_hash_sample_active) v2b_trace_hash_enable((uint8_t)(fc2_layer.layer_id - 1u));
     err = v2b_run_fc_stage(120u, 84u, LENET5_TH_FC2, LENET5_SUMMAX_FC2,
                            V2B_SOC_BUF_SEL_STREAM_A, V2B_SOC_BUF_SEL_STREAM_B);
+    if (g_trace_hash_sample_active) v2b_trace_hash_disable();
     if (err != 0u) return -4;
 
     uart_puts("[TB] LeNet fc3 start\n");
     v2b_switch_sparse_single_tile(&fc3_layer);
+    if (g_trace_hash_sample_active) v2b_trace_hash_enable((uint8_t)(fc3_layer.layer_id - 1u));
     err = v2b_run_fc_stage(84u, 10u, LENET5_TH_FC3, LENET5_SUMMAX_FC3,
                            V2B_SOC_BUF_SEL_STREAM_B, V2B_SOC_BUF_SEL_STREAM_A);
+    if (g_trace_hash_sample_active) v2b_trace_hash_disable();
     if (err != 0u) return -5;
 
     v2b_clear_sparse_loaded_tile();
     v2b_count_stream_spikes(counts_out_10, 10u, 0u);
     return 0;
+}
+
+int v2b_run_lenet5_demo_trace(const uint32_t *input_words,
+                              int32_t *counts_out_10,
+                              uint32_t sample_id)
+{
+    int rc;
+
+    g_trace_hash_sample_active = 1u;
+    v2b_trace_hash_clear();
+    rc = v2b_run_lenet5_demo(input_words, counts_out_10);
+    v2b_trace_hash_disable();
+    v2b_trace_hash_dump_uart(V2B_TRACE_HASH_CONFIG_LENET5,
+                             V2B_TRACE_HASH_HOST_NAME,
+                             sample_id);
+    g_trace_hash_sample_active = 0u;
+    return rc;
 }

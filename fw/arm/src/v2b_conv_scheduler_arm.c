@@ -16,6 +16,7 @@
  * 与 sparse 数组的声明搬到 v2b_conv_scheduler.h（或新加一个 lenet5_specs.h）。
  */
 #include "platform.h"
+#define V2B_TRACE_HASH_HOST_NAME "arm"
 #include "golden_lenet5.h"
 #include "v2b_conv_scheduler.h"
 #include "../../src/v2b_conv_scheduler.c"
