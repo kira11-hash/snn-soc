@@ -187,6 +187,11 @@ echo "[build_arm_firmware] 编译（V2B_SOC_BASE=$V2B_SOC_BASE_OVERRIDE）"
 compile "$HERE/src/crt0_aarch64.S"
 compile "$HERE/src/uart_ps.c"
 compile "$ROOT/fw/src/v2b_trace_hash.c"
+# M3 Phase 2A: latency / cycle partition recorder (host-agnostic core +
+# ARM PMU CCNT impl). Compiled in unconditionally; main programs decide
+# whether to call v2b_m3_cycle_init_host() / dump_uart() via -DV2B_M3_ENABLED.
+compile "$ROOT/fw/src/v2b_m3_cycles.c"
+compile "$HERE/src/v2b_m3_cycles_arm.c"
 
 REQUIRED_SYMS=()
 case "$ARM_FW_VARIANT" in

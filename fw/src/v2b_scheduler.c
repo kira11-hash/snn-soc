@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include "v2b_soc_regs.h"
 #include "v2b_trace_hash.h"
+#include "v2b_m3_cycles.h"
 
 #ifndef V2B_TRACE_HASH_HOST_NAME
 #define V2B_TRACE_HASH_HOST_NAME "?"
@@ -280,6 +281,122 @@ int v2b_infer_resident_14x14_trace(const uint8_t *pixel_196,
         v2b_trace_hash_dump_uart(V2B_TRACE_HASH_CONFIG_FASHION14,
                                  V2B_TRACE_HASH_HOST_NAME,
                                  sample_id);
+        return best_class;
+    }
+}
+
+/* ── M3 Phase 2A: latency / cycle partition variant ───────────────────
+ *
+ * Mirrors v2b_run_stage / v2b_infer_resident_14x14 but switches the
+ * 5-segment recorder (v2b_m3_state_t) at:
+ *   - HOST_SETUP for pixel encode + buffer clear + per-stage CFG writes
+ *   - TRANSFER  for input fmap + weight load
+ *   - ACCEL_ACTIVE for STAGE_CTRL.START → BUSY=0 busy-poll
+ *   - READBACK for stream_buffer drain
+ *   - DECODE   for argmax
+ *
+ * Codex 2026-05-06 review constraint: do NOT scatter calls into the
+ * existing _trace / base path. These variants are entirely isolated. */
+
+static uint8_t v2b_run_stage_m3(v2b_m3_state_t *m3,
+                                uint32_t in_dim, uint32_t out_dim,
+                                uint32_t threshold, uint32_t sum_max,
+                                uint32_t input_src, uint32_t output_dst)
+{
+    /* Caller is in TRANSFER (input/weight load just finished). The CFG
+     * writes that follow are host-side bookkeeping → HOST_SETUP. */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_HOST_SETUP);
+
+    V2B_SOC_STAGE_CFG0 = (in_dim & 0xFFFFu) | ((out_dim & 0xFFFFu) << 16);
+    V2B_SOC_STAGE_CFG1 = threshold;
+    V2B_SOC_STAGE_CFG2 = sum_max;
+    uint32_t cfg3 = (input_src  << V2B_SOC_CFG3_INPUT_SRC_SHIFT)
+                  | (output_dst << V2B_SOC_CFG3_OUTPUT_DST_SHIFT)
+                  | (1u         << V2B_SOC_CFG3_IS_TILE_FINAL_SHIFT);
+    V2B_SOC_STAGE_CFG3 = cfg3;
+    V2B_SOC_STAGE_CFG5 = T_COUNT;
+
+    /* Clear stale DONE before launching (kept inside HOST_SETUP because
+     * it's a host-side W1C write, not yet handing over to the engine). */
+    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
+
+    /* Crossover point: from this single switch onward we are in
+     * ACCEL_ACTIVE. The START write itself crosses the boundary; we
+     * switch state machine BEFORE the write so the cycle-now() snapshot
+     * captures "just before START" in cumulative[HOST_SETUP] and
+     * "from-START-onward" in cumulative[ACCEL_ACTIVE]. */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_ACCEL_ACTIVE);
+    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_START;
+
+    /* Busy-poll DONE; entire poll-loop is ACCEL_ACTIVE per design §2. */
+    return v2b_wait_stage_done_fresh(V2B_STAGE_POLL_TIMEOUT);
+    /* Returns with m3 still in ACCEL_ACTIVE; caller switches out. */
+}
+
+int v2b_infer_resident_14x14_m3(const uint8_t *pixel_196,
+                                const uint8_t *s0_w_pos, const uint8_t *s0_w_neg,
+                                const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,
+                                int32_t *counts_out_10,
+                                v2b_m3_state_t *m3)
+{
+    static uint32_t stream_bits[T_COUNT * WORDS_PER_ROW];
+    uint8_t e0;
+    uint8_t e1;
+
+    if (m3 == 0) return -100; /* defensive: M3 variant requires state */
+
+    /* Caller already invoked v2b_m3_init(m3); we open the first segment. */
+    v2b_m3_seg_begin(m3, V2B_M3_SEG_HOST_SETUP);
+
+    v2b_encode_pixel_even_rate(pixel_196, S0_IN_DIM, T_COUNT, stream_bits);
+    V2B_SOC_STREAM_BUF_CTRL = V2B_SOC_STREAM_BUF_CLEAR_A | V2B_SOC_STREAM_BUF_CLEAR_B;
+
+    /* HOST_SETUP -> TRANSFER (input + stage-0 weight load) */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_TRANSFER);
+    v2b_load_input_stream(stream_bits, T_COUNT);
+    v2b_load_mac_weights(s0_w_pos, s0_w_neg, S0_IN_DIM, S0_OUT_DIM);
+
+    /* run_stage_m3 takes HOST_SETUP -> ACCEL_ACTIVE internally */
+    e0 = v2b_run_stage_m3(m3, S0_IN_DIM, S0_OUT_DIM, S0_THRESHOLD, S0_SUM_MAX,
+                          V2B_SOC_BUF_SEL_INPUT_SRAM,
+                          V2B_SOC_BUF_SEL_STREAM_A);
+    if (e0 != 0u) {
+        v2b_m3_finalize(m3);
+        return -1;
+    }
+
+    /* ACCEL_ACTIVE -> TRANSFER (stage-1 weight load only; input still
+     * resident in stream_a from stage 0). */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_TRANSFER);
+    v2b_load_mac_weights(s1_w_pos, s1_w_neg, S1_IN_DIM, S1_OUT_DIM);
+
+    e1 = v2b_run_stage_m3(m3, S1_IN_DIM, S1_OUT_DIM, S1_THRESHOLD, S1_SUM_MAX,
+                          V2B_SOC_BUF_SEL_STREAM_A,
+                          V2B_SOC_BUF_SEL_STREAM_B);
+    if (e1 != 0u) {
+        v2b_m3_finalize(m3);
+        return -2;
+    }
+
+    /* ACCEL_ACTIVE -> READBACK */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_READBACK);
+    v2b_count_stage1_spikes(counts_out_10, S1_OUT_DIM);
+
+    /* READBACK -> DECODE */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_DECODE);
+    {
+        int best_class = 0;
+        int32_t best_count = counts_out_10[0];
+        for (int j = 1; j < 10; j++) {
+            if (counts_out_10[j] > best_count) {
+                best_count = counts_out_10[j];
+                best_class = j;
+            }
+        }
+        /* Close active segment (DECODE) before finalize records the
+         * end-to-end wall-clock anchor. */
+        v2b_m3_seg_end(m3);
+        v2b_m3_finalize(m3);
         return best_class;
     }
 }

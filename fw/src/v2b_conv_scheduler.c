@@ -24,6 +24,7 @@
 #include "v2b_conv_scheduler.h"
 #include "v2b_soc_regs.h"
 #include "v2b_trace_hash.h"
+#include "v2b_m3_cycles.h"
 
 #ifndef V2B_TRACE_HASH_HOST_NAME
 #define V2B_TRACE_HASH_HOST_NAME "?"
@@ -566,4 +567,222 @@ int v2b_run_lenet5_demo_trace(const uint32_t *input_words,
                              sample_id);
     g_trace_hash_sample_active = 0u;
     return rc;
+}
+
+/* ── M3 Phase 2A: LeNet-5 latency / cycle partition variant ─────────
+ *
+ * Multi-tile WAIT_WEIGHT_REQ classification (per Codex 2026-05-06 review,
+ * RTL evidence rtl/snn/conv_ctrl_v2.sv state machine S_WAIT_WEIGHT →
+ * S_CTX_ISSUE → S_STAGE_START):
+ *
+ *   - Polling for WEIGHT_REQ assertion        → ACCEL_ACTIVE
+ *     (hardware is in S_WAIT_WEIGHT or earlier compute, host is just
+ *      reading STATUS; no host-side data movement happens here.)
+ *   - Servicing WEIGHT_REQ (switch_sparse_tile,
+ *     i.e. host writes 256×C_out weight tile)  → TRANSFER
+ *   - WEIGHT_READY write boundary              → ACCEL_ACTIVE again
+ *
+ * This keeps "host-side data movement" cleanly under TRANSFER and
+ * "hardware compute / waiting" under ACCEL_ACTIVE, matching the design
+ * doc §2 invariant.
+ */
+
+static uint8_t v2b_run_fc_stage_m3(uint32_t in_dim, uint32_t out_dim,
+                                   uint32_t threshold, uint32_t sum_max,
+                                   uint32_t input_src, uint32_t output_dst,
+                                   v2b_m3_state_t *m3)
+{
+    /* Caller is in TRANSFER (switch_sparse_single_tile just finished). */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_HOST_SETUP);
+
+    uint32_t cfg3 = (input_src << V2B_SOC_CFG3_INPUT_SRC_SHIFT)
+                  | (output_dst << V2B_SOC_CFG3_OUTPUT_DST_SHIFT)
+                  | (1u << V2B_SOC_CFG3_IS_TILE_FINAL_SHIFT);
+    V2B_SOC_STAGE_CFG0 = (in_dim & 0xFFFFu) | ((out_dim & 0xFFFFu) << 16);
+    V2B_SOC_STAGE_CFG1 = threshold;
+    V2B_SOC_STAGE_CFG2 = sum_max;
+    V2B_SOC_STAGE_CFG3 = cfg3;
+    V2B_SOC_STAGE_CFG5 = LENET5_T_COUNT;
+    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_DONE;
+
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_ACCEL_ACTIVE);
+    V2B_SOC_STAGE_CTRL = V2B_SOC_STAGE_CTRL_START;
+    return v2b_wait_fc_stage_done_fresh();
+    /* Returns with m3 in ACCEL_ACTIVE; caller switches out. */
+}
+
+static int v2b_run_conv_layer_m3(const v2b_conv_layer_cfg_t *cfg,
+                                 const v2b_sparse_layer_t *layer,
+                                 uint32_t requests_expected,
+                                 v2b_m3_state_t *m3)
+{
+    /* Caller has just done cfg.* assignments → still in HOST_SETUP. */
+
+    uint32_t mode_cfg = V2B_SOC_CONV_MODE_EN;
+    if (cfg->flatten_mode) mode_cfg |= V2B_SOC_CONV_FLATTEN_MODE;
+    if (cfg->pp_sel) mode_cfg |= V2B_SOC_CONV_FMAP_PP_SEL;
+
+    /* All STAGE_CFG/CONV_CFG writes are host-side bookkeeping → HOST_SETUP. */
+    V2B_SOC_STAGE_CFG1 = cfg->threshold;
+    V2B_SOC_STAGE_CFG2 = cfg->sum_max;
+    V2B_SOC_CONV_CFG_HW = ((uint32_t)cfg->W << 16) | cfg->H;
+    V2B_SOC_CONV_CFG_C = ((uint32_t)cfg->C_out << 16) | cfg->C_in;
+    V2B_SOC_CONV_CFG_K_S_P = ((uint32_t)cfg->pad << 8)
+                            | ((uint32_t)cfg->stride << 4)
+                            | cfg->k;
+    V2B_SOC_CONV_CFG_OUT_HW = ((uint32_t)cfg->out_W << 16) | cfg->out_H;
+    V2B_SOC_CONV_CFG_T = cfg->t_count;
+    V2B_SOC_CONV_CFG_TILE = cfg->tile_count;
+    V2B_SOC_CONV_CFG_TILE = ((uint32_t)cfg->last_tile_valid_count << 16)
+                          | cfg->tile_count;
+    V2B_SOC_CONV_CFG_FMAP_BASE = cfg->fmap_base_word;
+    V2B_SOC_CONV_CFG_OUT_BASE = cfg->out_base_word;
+    V2B_SOC_CONV_MODE_CFG = mode_cfg;
+    V2B_SOC_CONV_STATUS = V2B_SOC_CONV_STATUS_DONE;
+
+    /* Crossover: switch state right BEFORE the START write so cycle-now
+     * snapshot puts the START write itself on the ACCEL_ACTIVE side. */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_ACCEL_ACTIVE);
+    V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_START;
+
+    for (uint32_t req = 0; req < requests_expected; req++) {
+        uint32_t status = 0u;
+        /* Polling for WEIGHT_REQ: hardware is computing, this is
+         * ACCEL_ACTIVE. Do not switch state inside the wait loop. */
+        if (v2b_wait_weight_req(&status) != 0) {
+            return -10;
+        }
+
+        /* WEIGHT_REQ asserted → host writes the tile. This is data
+         * movement → TRANSFER. */
+        v2b_m3_seg_switch(m3, V2B_M3_SEG_TRANSFER);
+        uint32_t tile_idx = V2B_SOC_CONV_STATUS_CUR_TILE(status);
+        v2b_switch_sparse_tile(layer, (uint16_t)tile_idx);
+
+        /* WEIGHT_READY hands control back to hardware → ACCEL_ACTIVE. */
+        v2b_m3_seg_switch(m3, V2B_M3_SEG_ACCEL_ACTIVE);
+        V2B_SOC_CONV_CTRL = V2B_SOC_CONV_CTRL_WEIGHT_READY;
+    }
+
+    {
+        uint32_t status = 0u;
+        if (v2b_wait_conv_done(&status) != 0) return -11;
+        if (V2B_SOC_CONV_STATUS_ERR(status) != 0u)
+            return -(int)V2B_SOC_CONV_STATUS_ERR(status) - 100;
+    }
+    /* Returns with m3 in ACCEL_ACTIVE; caller switches out. */
+    return 0;
+}
+
+int v2b_run_lenet5_demo_m3(const uint32_t *input_words,
+                           int32_t *counts_out_10,
+                           v2b_m3_state_t *m3)
+{
+    v2b_conv_layer_cfg_t cfg;
+    const v2b_sparse_layer_t conv1_layer = {
+        lenet5_conv1_offsets, lenet5_conv1_entries,
+        LENET5_CONV1_TILE_COUNT, LENET5_CONV1_C_OUT, 25u, 1u
+    };
+    const v2b_sparse_layer_t conv2_layer = {
+        lenet5_conv2_offsets, lenet5_conv2_entries,
+        LENET5_CONV2_TILE_COUNT, LENET5_CONV2_C_OUT, 150u, 2u
+    };
+    const v2b_sparse_layer_t fc1_layer = {
+        lenet5_fc1_offsets, lenet5_fc1_entries,
+        LENET5_FC1_TILE_COUNT, LENET5_FC1_C_OUT, 256u, 3u
+    };
+    const v2b_sparse_layer_t fc2_layer = {
+        lenet5_fc2_offsets, lenet5_fc2_entries,
+        LENET5_FC2_TILE_COUNT, LENET5_FC2_C_OUT, 120u, 4u
+    };
+    const v2b_sparse_layer_t fc3_layer = {
+        lenet5_fc3_offsets, lenet5_fc3_entries,
+        LENET5_FC3_TILE_COUNT, LENET5_FC3_C_OUT, 84u, 5u
+    };
+    uint8_t err;
+
+    if (m3 == 0) return -100;
+
+    v2b_m3_seg_begin(m3, V2B_M3_SEG_HOST_SETUP);
+    v2b_clear_stream_buffers();
+
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_TRANSFER);
+    v2b_load_input_fmap_words(input_words, LENET5_INPUT_WORDS, 0u);
+
+    /* ── conv1 ── */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_HOST_SETUP);
+    cfg.H = 28u; cfg.W = 28u; cfg.C_in = 1u; cfg.C_out = 6u;
+    cfg.out_H = 28u; cfg.out_W = 28u; cfg.t_count = LENET5_T_COUNT;
+    v2b_cfg_set_tile_fields(&cfg, 1u, 25u);
+    v2b_cfg_set_word_fields(&cfg, LENET5_TH_CONV1, LENET5_SUMMAX_CONV1, 0u, 0u);
+    cfg.k = 5u; cfg.stride = 1u; cfg.pad = 2u; cfg.pp_sel = 0u; cfg.flatten_mode = 0u;
+    if (v2b_run_conv_layer_m3(&cfg, &conv1_layer, 28u * 28u, m3) != 0) {
+        v2b_m3_finalize(m3);
+        return -1;
+    }
+
+    /* ── conv2 ── */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_HOST_SETUP);
+    cfg.H = 28u; cfg.W = 28u; cfg.C_in = 6u; cfg.C_out = 16u;
+    cfg.out_H = 12u; cfg.out_W = 12u;
+    v2b_cfg_set_tile_fields(&cfg, 1u, 150u);
+    v2b_cfg_set_word_fields(&cfg, LENET5_TH_CONV2, LENET5_SUMMAX_CONV2, 0u, 0u);
+    cfg.k = 5u; cfg.stride = 2u; cfg.pad = 0u; cfg.pp_sel = 1u; cfg.flatten_mode = 0u;
+    if (v2b_run_conv_layer_m3(&cfg, &conv2_layer, 12u * 12u, m3) != 0) {
+        v2b_m3_finalize(m3);
+        return -2;
+    }
+
+    /* ── fc1 (flatten) ── */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_HOST_SETUP);
+    v2b_clear_stream_buffers();
+    cfg.H = 12u; cfg.W = 12u; cfg.C_in = 16u; cfg.C_out = 120u;
+    cfg.out_H = 1u; cfg.out_W = 1u;
+    v2b_cfg_set_tile_fields(&cfg, 9u, 256u);
+    v2b_cfg_set_word_fields(&cfg, LENET5_TH_FC1, LENET5_SUMMAX_FC1, 0u, 0u);
+    cfg.k = 0u; cfg.stride = 1u; cfg.pad = 0u; cfg.pp_sel = 0u; cfg.flatten_mode = 1u;
+    if (v2b_run_conv_layer_m3(&cfg, &fc1_layer, 9u, m3) != 0) {
+        v2b_m3_finalize(m3);
+        return -3;
+    }
+
+    /* ── fc2 ── */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_TRANSFER);
+    v2b_switch_sparse_single_tile(&fc2_layer);
+    err = v2b_run_fc_stage_m3(120u, 84u, LENET5_TH_FC2, LENET5_SUMMAX_FC2,
+                               V2B_SOC_BUF_SEL_STREAM_A, V2B_SOC_BUF_SEL_STREAM_B, m3);
+    if (err != 0u) {
+        v2b_m3_finalize(m3);
+        return -4;
+    }
+
+    /* ── fc3 ── */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_TRANSFER);
+    v2b_switch_sparse_single_tile(&fc3_layer);
+    err = v2b_run_fc_stage_m3(84u, 10u, LENET5_TH_FC3, LENET5_SUMMAX_FC3,
+                               V2B_SOC_BUF_SEL_STREAM_B, V2B_SOC_BUF_SEL_STREAM_A, m3);
+    if (err != 0u) {
+        v2b_m3_finalize(m3);
+        return -5;
+    }
+
+    /* ── readback + decode ── */
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_READBACK);
+    v2b_clear_sparse_loaded_tile();
+    v2b_count_stream_spikes(counts_out_10, 10u, 0u);
+
+    v2b_m3_seg_switch(m3, V2B_M3_SEG_DECODE);
+    {
+        int best_class = 0;
+        int32_t best_count = counts_out_10[0];
+        for (int j = 1; j < 10; j++) {
+            if (counts_out_10[j] > best_count) {
+                best_count = counts_out_10[j];
+                best_class = j;
+            }
+        }
+        v2b_m3_seg_end(m3);
+        v2b_m3_finalize(m3);
+        return best_class;
+    }
 }

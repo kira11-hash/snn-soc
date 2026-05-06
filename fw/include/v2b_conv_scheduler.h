@@ -23,6 +23,7 @@
 #define V2B_CONV_SCHEDULER_H
 
 #include <stdint.h>
+#include "v2b_m3_cycles.h"
 
 /*
  * 单个 conv / flatten / FC 层的配置。所有字段都是 firmware 主动写入 V2B
@@ -100,5 +101,20 @@ int v2b_run_lenet5_demo(const uint32_t *input_words,
 int v2b_run_lenet5_demo_trace(const uint32_t *input_words,
                               int32_t *counts_out_10,
                               uint32_t sample_id);
+
+/* M3 Phase 2A LeNet-5 variant. Caller supplies an initialised m3 state;
+ * this function populates the 5 cumulative cycle segments (HOST_SETUP /
+ * TRANSFER / ACCEL_ACTIVE / READBACK / DECODE) as inference progresses.
+ * Returns predicted class 0..9 on success or negative on error
+ * (-1..-5 = layer-N stage error; -100 = NULL m3 ptr).
+ *
+ * WAIT_WEIGHT_REQ classification per Codex review 2026-05-06:
+ *   poll loop                         → ACCEL_ACTIVE (hardware computing)
+ *   switch_sparse_tile (host writes)  → TRANSFER
+ *   WEIGHT_READY hands off to HW      → ACCEL_ACTIVE again
+ */
+int v2b_run_lenet5_demo_m3(const uint32_t *input_words,
+                           int32_t *counts_out_10,
+                           v2b_m3_state_t *m3);
 
 #endif /* V2B_CONV_SCHEDULER_H */

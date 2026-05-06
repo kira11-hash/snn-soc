@@ -26,6 +26,18 @@
 #include "golden_lenet5.h"
 #include "v2b_conv_scheduler.h"
 
+#if defined(V2B_M3_ENABLED)
+#include "v2b_m3_cycles.h"
+static v2b_m3_state_t g_m3_state;
+#endif
+
+#ifndef V2B_M3_CONFIG_NAME
+#define V2B_M3_CONFIG_NAME "v2b_lenet5_mnist_28x28"
+#endif
+#ifndef V2B_M3_HOST_NAME
+#define V2B_M3_HOST_NAME "arm"
+#endif
+
 static int32_t counts_buf[10];
 volatile uint32_t g_arm_progress_code = 0u;
 volatile uint32_t g_arm_progress_aux0 = 0u;
@@ -40,6 +52,7 @@ static int counts_match(const int32_t *got, const int32_t *exp)
     return 1;
 }
 
+#if !defined(V2B_M3_ENABLED)
 static int argmax_counts(const int32_t *counts)
 {
     int best_idx = 0;
@@ -52,6 +65,7 @@ static int argmax_counts(const int32_t *counts)
     }
     return best_idx;
 }
+#endif
 
 static void print_counts(const int32_t *counts)
 {
@@ -76,6 +90,39 @@ static int mmio_self_test(void)
 static int run_sample(const v2b_lenet5_sample_t *sample, uint32_t idx)
 {
     uart_puts("[TB] sample "); uart_put_dec(idx); uart_puts(" start\n");
+#if defined(V2B_M3_ENABLED)
+    /* M3 Phase 2A: route through cycle-partition variant. The variant
+     * also performs argmax internally (returns predicted class), so the
+     * post-call sanity check below uses the returned value directly. */
+    v2b_m3_init(&g_m3_state);
+    int rc = v2b_run_lenet5_demo_m3(
+        sample->input_words,
+        counts_buf,
+        &g_m3_state
+    );
+    /* Always dump cycle partition, even if rc < 0 (partial cycles aid
+     * diagnosis). */
+    v2b_m3_dump_uart(&g_m3_state, V2B_M3_CONFIG_NAME, V2B_M3_HOST_NAME, idx);
+    if (rc < 0) {
+        uart_puts("[FAIL] sample "); uart_put_dec(idx);
+        uart_puts(" run rc="); uart_put_dec((uint32_t)(-rc)); uart_putc('\n');
+        return 0;
+    }
+    if (!counts_match(counts_buf, sample->expected_counts)) {
+        uart_puts("[FAIL] sample "); uart_put_dec(idx);
+        uart_puts(" count mismatch got "); print_counts(counts_buf);
+        uart_puts("       expected      "); print_counts(sample->expected_counts);
+        return 0;
+    }
+    {
+        int pred = rc;   /* _m3 returns predicted class on success */
+        uart_puts("[PASS] sample "); uart_put_dec(idx);
+        uart_puts(" label="); uart_put_dec(sample->label);
+        uart_puts(" pred="); uart_put_dec((uint32_t)pred);
+        uart_puts(" "); print_counts(counts_buf);
+        return pred == (int)sample->expected_class;
+    }
+#else
     int rc = v2b_run_lenet5_demo_trace(
         sample->input_words,
         counts_buf,
@@ -100,6 +147,7 @@ static int run_sample(const v2b_lenet5_sample_t *sample, uint32_t idx)
         uart_puts(" "); print_counts(counts_buf);
         return pred == (int)sample->expected_class;
     }
+#endif
 }
 
 int arm_main(void)
@@ -109,7 +157,13 @@ int arm_main(void)
     /* 1) UART 初始化 + banner（用 UART_OK 作为 firmware 真的跑起来的最早证据） */
     uart_init();
     uart_puts("\nUART_OK\n");
+#if defined(V2B_M3_ENABLED)
+    uart_puts("[TB] v2b_arm_lenet5_m3 start - 10 LeNet-5 samples (M3 latency partition)\n");
+    /* Enable PMCCNTR_EL0 once before sample loop. */
+    v2b_m3_cycle_init_host();
+#else
     uart_puts("[TB] v2b_arm_lenet5 start - 10 LeNet-5 samples via AXI-Lite\n");
+#endif
     uart_puts("[TB] V2B_SOC_BASE="); uart_put_hex32(V2B_SOC_BASE); uart_putc('\n');
 
     /* 2) MMIO self-test：验证 PS HPM0_FPD 读写 PL fabric 寄存器无误。
@@ -130,6 +184,9 @@ int arm_main(void)
     /* 4) 全部 PASS 才打 PASS marker；自动化抓 UART 的脚本只看 PASS 字符串 */
     if (pass == (int)LENET5_NUM_SAMPLES) {
         uart_puts("ARM_FPGA_DEMO_LENET5_PASS\n");
+#if defined(V2B_M3_ENABLED)
+        uart_puts("M3_BOARD_RUN_END config=" V2B_M3_CONFIG_NAME " host=" V2B_M3_HOST_NAME "\n");
+#endif
     } else {
         uart_puts("ARM_FPGA_DEMO_LENET5_FAIL passes=");
         uart_put_dec((uint32_t)pass);
