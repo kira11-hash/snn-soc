@@ -102,3 +102,8 @@ sim/verdi_config_file
 项目相关文件/器件对齐/Python建模/run_all.py.bak*
 项目相关文件/器件对齐/Python建模/config_bias_ab_backup.py
 项目相关文件/器件对齐/Python建模/__pycache__/
+
+# M1 Phase 1 board UART logs are PAPER ARTIFACTS, not transient sim logs.
+# Keep them tracked.
+!board_logs/*.log
+!board_logs/*.txt
