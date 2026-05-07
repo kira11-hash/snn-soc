@@ -1,0 +1,16 @@
+
+UART_OK
+[TB] v2b_arm_fashion14_h1_schedB start - 10 Fashion 14x14 samples via AXI-Lite
+[TB] V2B_SOC_BASE=0xa0000000
+[OK] MMIO round-trip CFG1
+[PASS] sample 0 label=0 pred=0 counts=[55 0 0 14 0 0 0 0 0 0]
+[PASS] sample 1 label=1 pred=1 counts=[0 60 0 0 1 0 0 0 0 0]
+[PASS] sample 2 label=2 pred=2 counts=[0 0 33 0 1 0 0 0 0 0]
+[PASS] sample 3 label=3 pred=3 counts=[0 0 0 57 0 0 0 2 0 0]
+[PASS] sample 4 label=4 pred=4 counts=[0 0 0 0 59 0 1 0 0 0]
+[PASS] sample 5 label=5 pred=5 counts=[1 1 0 0 0 55 0 29 0 0]
+[PASS] sample 6 label=5 pred=5 counts=[0 0 0 0 0 4 1 0 0 0]
+[PASS] sample 7 label=7 pred=7 counts=[0 0 0 0 0 0 0 63 0 0]
+[PASS] sample 8 label=8 pred=8 counts=[0 0 0 0 0 3 0 0 60 0]
+[PASS] sample 9 label=5 pred=5 counts=[0 0 0 0 0 59 0 0 57 2]
+ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS

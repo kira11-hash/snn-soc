@@ -29,6 +29,8 @@ module v2b_axi_partial_write_tb;
   localparam logic [11:0] O_INPUT_SRAM_W0   = 12'h024;
   localparam logic [11:0] O_MAC_W_LOAD_ADDR = 12'h050;
   localparam logic [11:0] O_STREAM_BUF_CTRL = 12'h060;
+  localparam logic [11:0] O_LIF_GLOBAL_MODE = 12'h0C0;
+  localparam logic [11:0] O_LIF_LAYER0_CFG  = 12'h0C4;
 
   function automatic logic [31:0] v2b_addr(input logic [11:0] off);
     v2b_addr = ADDR_V2B_BASE + {20'h0, off};
@@ -248,6 +250,16 @@ module v2b_axi_partial_write_tb;
     @(posedge clk);
     rd_data = start_pulse_count - start_before;
     report_check("T8 STAGE wrong-byte no start", rd_data === 32'h0, rd_data, 32'h0);
+
+    // T9: H1 GLOBAL_MODE must be writable through AXI-Lite.
+    axi_write(v2b_addr(O_LIF_GLOBAL_MODE), 32'h0000_0000, 4'hF);
+    axi_read(v2b_addr(O_LIF_GLOBAL_MODE), rd_data);
+    report_check("T9 LIF_GLOBAL_MODE AXI readback", rd_data === 32'h0000_0000, rd_data, 32'h0000_0000);
+
+    // T10: H1 LIF_LAYER0_CFG must preserve the 17-bit payload through AXI-Lite.
+    axi_write(v2b_addr(O_LIF_LAYER0_CFG), 32'h0000_000D, 4'hF);
+    axi_read(v2b_addr(O_LIF_LAYER0_CFG), rd_data);
+    report_check("T10 LIF_LAYER0_CFG AXI readback", rd_data === 32'h0000_000D, rd_data, 32'h0000_000D);
 
     if (fail_count == 0) begin
       $display("V2B_AXI_PARTIAL_WRITE_TB_PASS");

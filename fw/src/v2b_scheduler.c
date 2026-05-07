@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include "v2b_soc_regs.h"
+#include "v2b_lif_schedule.h"
 #include "v2b_trace_hash.h"
 #include "v2b_m3_cycles.h"
 
@@ -76,6 +77,27 @@ static uint8_t v2b_wait_stage_done_fresh(uint32_t poll_timeout) {
         guard++;
     }
     return V2B_STAGE_ERR_TIMEOUT;
+}
+
+static int v2b_wait_reg_mask_eq(volatile uint32_t *reg,
+                                uint32_t expected,
+                                uint32_t mask,
+                                uint32_t timeout)
+{
+    for (uint32_t guard = 0u; guard < timeout; guard++) {
+        if (((*reg) & mask) == expected) return 0;
+    }
+    return -1;
+}
+
+static void v2b_mmio_barrier(void)
+{
+#if defined(__aarch64__)
+    __asm__ volatile ("dsb sy" ::: "memory");
+    __asm__ volatile ("isb" ::: "memory");
+#elif defined(__riscv)
+    __asm__ volatile ("fence iorw, iorw" ::: "memory");
+#endif
 }
 
 /* ── even_rate Bresenham encoder — MUST match Python
@@ -215,6 +237,86 @@ int v2b_infer_resident_14x14(const uint8_t *pixel_196,
         }
     }
     return best_class;
+}
+
+int v2b_infer_resident_14x14_h1(const uint8_t *pixel_196,
+                                const uint8_t *s0_w_pos, const uint8_t *s0_w_neg,
+                                const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,
+                                uint16_t layer0_threshold, uint8_t layer0_reset_mode,
+                                uint16_t layer1_threshold, uint8_t layer1_reset_mode,
+                                int32_t *counts_out_10)
+{
+    static uint32_t stream_bits[T_COUNT * WORDS_PER_ROW];
+    uint8_t e0;
+    uint8_t e1;
+    uint32_t layer0_cfg;
+    uint32_t layer1_cfg;
+
+    layer0_cfg = ((uint32_t)layer0_threshold & 0xFFFFu) |
+                 (((uint32_t)layer0_reset_mode & 0x1u) << 16);
+    layer1_cfg = ((uint32_t)layer1_threshold & 0xFFFFu) |
+                 (((uint32_t)layer1_reset_mode & 0x1u) << 16);
+    if (v2b_lif_schedule_reset_to_global() != 0) return -10;
+    v2b_mmio_barrier();
+    if (v2b_wait_reg_mask_eq(&V2B_SOC_LIF_GLOBAL_MODE, 1u, 0x1u, 4096u) != 0) return -11;
+    if (v2b_lif_schedule_set_layer(0u, layer0_threshold, layer0_reset_mode) != 0) return -12;
+    v2b_mmio_barrier();
+    if (v2b_wait_reg_mask_eq(&V2B_LIF_LAYERn_CFG(0u), layer0_cfg, 0x1FFFFu, 4096u) != 0) return -15;
+    if (v2b_lif_schedule_set_layer(1u, layer1_threshold, layer1_reset_mode) != 0) return -13;
+    v2b_mmio_barrier();
+    if (v2b_wait_reg_mask_eq(&V2B_LIF_LAYERn_CFG(1u), layer1_cfg, 0x1FFFFu, 4096u) != 0) return -16;
+    if (v2b_lif_schedule_enable_per_layer() != 0) return -14;
+    v2b_mmio_barrier();
+    if (v2b_wait_reg_mask_eq(&V2B_SOC_LIF_GLOBAL_MODE, 0u, 0x1u, 4096u) != 0) return -17;
+
+    v2b_encode_pixel_even_rate(pixel_196, S0_IN_DIM, T_COUNT, stream_bits);
+    V2B_SOC_STREAM_BUF_CTRL = V2B_SOC_STREAM_BUF_CLEAR_A | V2B_SOC_STREAM_BUF_CLEAR_B;
+
+    v2b_load_input_stream(stream_bits, T_COUNT);
+    v2b_load_mac_weights(s0_w_pos, s0_w_neg, S0_IN_DIM, S0_OUT_DIM);
+    V2B_SOC_LIF_LAYER_IDX = 0u;
+    v2b_mmio_barrier();
+    if (v2b_wait_reg_mask_eq(&V2B_SOC_LIF_LAYER_IDX, 0u, 0x7u, 4096u) != 0) {
+        v2b_lif_schedule_reset_to_global();
+        return -18;
+    }
+    e0 = v2b_run_stage(S0_IN_DIM, S0_OUT_DIM, S0_THRESHOLD, S0_SUM_MAX,
+                       V2B_SOC_BUF_SEL_INPUT_SRAM,
+                       V2B_SOC_BUF_SEL_STREAM_A);
+    if (e0 != 0u) {
+        v2b_lif_schedule_reset_to_global();
+        return -1;
+    }
+
+    v2b_load_mac_weights(s1_w_pos, s1_w_neg, S1_IN_DIM, S1_OUT_DIM);
+    V2B_SOC_LIF_LAYER_IDX = 1u;
+    v2b_mmio_barrier();
+    if (v2b_wait_reg_mask_eq(&V2B_SOC_LIF_LAYER_IDX, 1u, 0x7u, 4096u) != 0) {
+        v2b_lif_schedule_reset_to_global();
+        return -19;
+    }
+    e1 = v2b_run_stage(S1_IN_DIM, S1_OUT_DIM, S1_THRESHOLD, S1_SUM_MAX,
+                       V2B_SOC_BUF_SEL_STREAM_A,
+                       V2B_SOC_BUF_SEL_STREAM_B);
+    if (e1 != 0u) {
+        v2b_lif_schedule_reset_to_global();
+        return -2;
+    }
+
+    v2b_count_stage1_spikes(counts_out_10, S1_OUT_DIM);
+    v2b_lif_schedule_reset_to_global();
+
+    {
+        int best_class = 0;
+        int32_t best_count = counts_out_10[0];
+        for (int j = 1; j < 10; j++) {
+            if (counts_out_10[j] > best_count) {
+                best_count = counts_out_10[j];
+                best_class = j;
+            }
+        }
+        return best_class;
+    }
 }
 
 int v2b_infer_resident_14x14_trace(const uint8_t *pixel_196,

@@ -1,0 +1,2 @@
+config 196_64_10
+num_samples 10

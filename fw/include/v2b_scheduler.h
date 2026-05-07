@@ -19,6 +19,13 @@ int v2b_infer_resident_14x14(const uint8_t *pixel_196,
                              const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,
                              int32_t *counts_out_10);
 
+int v2b_infer_resident_14x14_h1(const uint8_t *pixel_196,
+                                const uint8_t *s0_w_pos, const uint8_t *s0_w_neg,
+                                const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,
+                                uint16_t layer0_threshold, uint8_t layer0_reset_mode,
+                                uint16_t layer1_threshold, uint8_t layer1_reset_mode,
+                                int32_t *counts_out_10);
+
 int v2b_infer_resident_14x14_trace(const uint8_t *pixel_196,
                                    const uint8_t *s0_w_pos, const uint8_t *s0_w_neg,
                                    const uint8_t *s1_w_pos, const uint8_t *s1_w_neg,

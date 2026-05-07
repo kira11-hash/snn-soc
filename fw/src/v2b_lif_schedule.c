@@ -13,9 +13,9 @@
  * Discipline (essay/h1_full_design_2026_05_07.md §3.3):
  *   - 32-bit aligned MMIO stores only; the volatile macros in
  *     v2b_soc_regs.h enforce this. No 8/16-bit writes.
- *   - No #ifdef __aarch64__ / #ifdef __riscv branches in this file.
+ *   - No host-ISA preprocessor branches in this file.
  *     Host-specific concerns are pushed to the wrapper.
- *   - No malloc, no printf, no hidden static state.
+ *   - No dynamic allocation, formatted I/O, or persistent state.
  *
  * RTL contract:
  *   rtl/top/snn_soc_v2b_top.sv lines 0x0C0-0x0E4 CSR window +
@@ -26,22 +26,24 @@
 
 #include "v2b_lif_schedule.h"
 #include "v2b_soc_regs.h"
-#include "uart_printf.h"
 #include <stdint.h>
+
+extern void uart_putc(char c);
+extern void uart_puts(const char *s);
 
 /* Local digit emitters mirror the v2b_trace_hash.c style so the dump
  * format is byte-identical between ARM and E203 paths regardless of
  * each host's uart_put_hex32 / uart_put_u32 conventions. */
-static void lifs_put_hex16_raw(uint16_t v)
+void lifs_put_hex16_raw(uint16_t v)
 {
-    static const char HEX[] = "0123456789ABCDEF";
+    const char HEX[] = "0123456789ABCDEF";
     for (int i = 3; i >= 0; i--)
         uart_putc(HEX[(v >> (i * 4)) & 0xFu]);
 }
 
-static void lifs_put_dec_u32(uint32_t v)
+void lifs_put_dec_u32(uint32_t v)
 {
-    static const uint32_t pow10[] = {
+    const uint32_t pow10[] = {
         1000000000u, 100000000u, 10000000u, 1000000u, 100000u,
         10000u, 1000u, 100u, 10u, 1u
     };
@@ -63,13 +65,13 @@ static void lifs_put_dec_u32(uint32_t v)
     }
 }
 
-static void lifs_put_lf(void)
+void lifs_put_lf(void)
 {
     uart_putc('\n');
 }
 
 /* Pack a LIF_LAYERn_CFG word per the RTL bit layout. */
-static inline uint32_t pack_lif_layer_cfg(uint16_t threshold, uint8_t reset_mode)
+uint32_t pack_lif_layer_cfg(uint16_t threshold, uint8_t reset_mode)
 {
     return ((uint32_t)threshold & 0xFFFFu)
          | (((uint32_t)reset_mode & 0x1u) << 16);

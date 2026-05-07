@@ -1,0 +1,127 @@
+/*
+ * ARM-side Fashion-14x14 2-layer FC runner for H1 Schedule A board validation.
+ * Schedule A uses shallower-loosened thresholds: layer 0 = floor(16 * 0.85) = 13,
+ * layer 1 = 8, both soft reset. GLOBAL_MODE returns to 1 after each sample.
+ */
+
+#include <stdint.h>
+#include "platform.h"
+#include "uart_ps.h"
+#include "golden_fashion10.h"
+#include "v2b_soc_regs.h"
+#include "v2b_scheduler.h"
+
+#define H1_SCHEDA_LAYER0_THRESHOLD 13u
+#define H1_SCHEDA_LAYER1_THRESHOLD 8u
+#define H1_SOFT_RESET 0u
+
+static int32_t counts_buf[10];
+
+static int argmax_counts(const int32_t *counts)
+{
+    int best_idx = 0;
+    int32_t best_val = counts[0];
+    for (int j = 1; j < 10; j++) {
+        if (counts[j] > best_val) {
+            best_val = counts[j];
+            best_idx = j;
+        }
+    }
+    return best_idx;
+}
+
+static void print_counts(const int32_t *counts)
+{
+    uart_puts("counts=[");
+    for (uint32_t j = 0; j < 10u; j++) {
+        uart_put_dec((uint32_t)counts[j]);
+        if (j + 1u < 10u) uart_putc(' ');
+    }
+    uart_puts("]\n");
+}
+
+static int mmio_self_test(void)
+{
+    V2B_SOC_STAGE_CFG1 = 0xDEADBEEFu;
+    if (V2B_SOC_STAGE_CFG1 != 0xDEADBEEFu) return 0;
+    V2B_SOC_STAGE_CFG1 = 0x12345678u;
+    if (V2B_SOC_STAGE_CFG1 != 0x12345678u) return 0;
+    V2B_SOC_STAGE_CFG1 = 0u;
+    return 1;
+}
+
+static int run_sample(const v2b_fashion_sample_t *sample, uint32_t idx)
+{
+    int rc = v2b_infer_resident_14x14_h1(
+        sample->pixel_196,
+        golden_s0_w_pos, golden_s0_w_neg,
+        golden_s1_w_pos, golden_s1_w_neg,
+        H1_SCHEDA_LAYER0_THRESHOLD, H1_SOFT_RESET,
+        H1_SCHEDA_LAYER1_THRESHOLD, H1_SOFT_RESET,
+        counts_buf
+    );
+
+    if (rc < 0) {
+        uart_puts("[FAIL] sample ");
+        uart_put_dec(idx);
+        uart_puts(" run rc=");
+        uart_put_dec((uint32_t)(-rc));
+        uart_puts(" lif_global=0x");
+        uart_put_hex32(V2B_SOC_LIF_GLOBAL_MODE);
+        uart_puts(" lif_l0=0x");
+        uart_put_hex32(V2B_SOC_LIF_LAYER0_CFG);
+        uart_puts(" lif_l1=0x");
+        uart_put_hex32(V2B_SOC_LIF_LAYER1_CFG);
+        uart_puts(" lif_idx=0x");
+        uart_put_hex32(V2B_SOC_LIF_LAYER_IDX);
+        uart_putc('\n');
+        return 0;
+    }
+
+    {
+        int pred = argmax_counts(counts_buf);
+        uart_puts("[PASS] sample ");
+        uart_put_dec(idx);
+        uart_puts(" label=");
+        uart_put_dec(sample->expected_class);
+        uart_puts(" pred=");
+        uart_put_dec((uint32_t)pred);
+        uart_puts(" ");
+        print_counts(counts_buf);
+        return 1;
+    }
+}
+
+int arm_main(void)
+{
+    int pass = 0;
+
+    uart_init();
+    uart_puts("\nUART_OK\n");
+    uart_puts("[TB] v2b_arm_fashion14_h1_schedA start - 10 Fashion 14x14 samples via AXI-Lite\n");
+    uart_puts("[TB] V2B_SOC_BASE=");
+    uart_put_hex32(V2B_SOC_BASE);
+    uart_putc('\n');
+
+    if (!mmio_self_test()) {
+        uart_puts("[FATAL] MMIO round-trip CFG1 failed\n");
+        uart_puts("ARM_FPGA_DEMO_SCHEDULER_FASHION10_FAIL\n");
+        return -1;
+    }
+    uart_puts("[OK] MMIO round-trip CFG1\n");
+
+    for (uint32_t i = 0; i < GOLDEN_NUM_SAMPLES; i++) {
+        pass += run_sample(&golden_fashion10[i], i) ? 1 : 0;
+    }
+
+    if (pass == (int)GOLDEN_NUM_SAMPLES) {
+        uart_puts("ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS\n");
+    } else {
+        uart_puts("ARM_FPGA_DEMO_SCHEDULER_FASHION10_FAIL passes=");
+        uart_put_dec((uint32_t)pass);
+        uart_puts("/10\n");
+    }
+
+    for (;;) { __asm__ volatile("wfi"); }
+    return 0;
+}

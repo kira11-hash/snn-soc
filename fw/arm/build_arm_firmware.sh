@@ -215,6 +215,22 @@ case "$ARM_FW_VARIANT" in
     compile "$HERE/src/arm_main_fashion14.c"
     REQUIRED_SYMS=("arm_main" "v2b_infer_resident_14x14_trace" "uart_init" "golden_fashion10" "_start")
     ;;
+  fashion14_h1_schedA)
+    echo "[build_arm_firmware] 重新生成 Fashion14 黄金参考 header"
+    python "$HERE/scripts/gen_golden_header.py"
+    compile "$HERE/src/golden_fashion10.c"
+    compile "$HERE/src/v2b_scheduler_arm.c"
+    compile "$HERE/src/arm_main_fashion14_h1_schedA.c"
+    REQUIRED_SYMS=("arm_main" "v2b_infer_resident_14x14_h1" "uart_init" "golden_fashion10" "_start")
+    ;;
+  fashion14_h1_schedB)
+    echo "[build_arm_firmware] 重新生成 Fashion14 黄金参考 header"
+    python "$HERE/scripts/gen_golden_header.py"
+    compile "$HERE/src/golden_fashion10.c"
+    compile "$HERE/src/v2b_scheduler_arm.c"
+    compile "$HERE/src/arm_main_fashion14_h1_schedB.c"
+    REQUIRED_SYMS=("arm_main" "v2b_infer_resident_14x14_h1" "uart_init" "golden_fashion10" "_start")
+    ;;
   *)
     echo "[FATAL] unsupported ARM_FW_VARIANT=$ARM_FW_VARIANT" >&2
     exit 4

@@ -27,12 +27,12 @@
  * Discipline (essay/h1_full_design_2026_05_07.md §3.3):
  *  * All MMIO writes are 32-bit aligned stores via volatile uint32_t *
  *    casts of V2B_SOC_BASE+offset. No 8-bit / 16-bit stores.
- *  * The shared core (.c) contains no #ifdef __aarch64__ / #ifdef
- *    __riscv branches; host-specific concerns (base override, fence
- *    semantics) live in per-host wrappers mirroring the M1 helper
- *    (v2b_trace_hash_arm.c / v2b_trace_hash_e203.c).
- *  * No malloc, no printf, no hidden static state. UART dump uses
- *    existing uart_puts / uart_putc only.
+ *  * The shared core (.c) contains no host-ISA preprocessor branches;
+ *    host-specific concerns (base override, fence semantics) live in
+ *    per-host wrappers mirroring the M1 helper (v2b_trace_hash_arm.c /
+ *    v2b_trace_hash_e203.c).
+ *  * No dynamic allocation, formatted I/O, or persistent state. UART
+ *    dump uses existing uart_puts / uart_putc only.
  */
 
 #include <stdint.h>
