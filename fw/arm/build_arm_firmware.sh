@@ -192,6 +192,10 @@ compile "$ROOT/fw/src/v2b_trace_hash.c"
 # whether to call v2b_m3_cycle_init_host() / dump_uart() via -DV2B_M3_ENABLED.
 compile "$ROOT/fw/src/v2b_m3_cycles.c"
 compile "$HERE/src/v2b_m3_cycles_arm.c"
+# H1-full: LIF per-layer schedule helper (host-agnostic core; no per-host
+# wrapper needed on ARM because the build-script -D V2B_SOC_BASE override
+# already feeds the right base into the shared compile).
+compile "$ROOT/fw/src/v2b_lif_schedule.c"
 
 REQUIRED_SYMS=()
 case "$ARM_FW_VARIANT" in

@@ -1,5 +1,5 @@
 # v2-arm-fpga-demo build manifest v2
-Git branch: feature/v2-addon-m3
+Git branch: feature/v2-addon-h1
 
 Vivado version: Vivado v2022.2 (64-bit) SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022|IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
 Resolved psu_init.tcl: fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl

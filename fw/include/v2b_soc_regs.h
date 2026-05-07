@@ -184,4 +184,29 @@
 #define V2B_SOC_CONV_FMAP_WR_AUTO_INC    (1u << 1)
 #define V2B_SOC_CONV_FMAP_WR_TARGET_BANK (1u << 2)
 
+/* ── H1-full LIF per-layer schedule CSR window (0x0C0-0x0E4) ──────
+ * essay/h1_full_design_2026_05_07.md §2.
+ * GLOBAL_MODE=1 (reset default) keeps the legacy FC/CONV threshold
+ * source bit-identical to v2.B HEAD; GLOBAL_MODE=0 sources from the
+ * 8-entry per-layer LUT indexed by LIF_LAYER_IDX.
+ *
+ * LIF_LAYERn_CFG bit layout:
+ *   [15:0]  threshold (16-bit; signed compare via stage_engine_v2)
+ *   [16]    reset_mode (0 = soft, mem -= thr; 1 = hard, mem <- 0)
+ *   [31:17] reserved (RAZ)
+ */
+#define V2B_SOC_LIF_GLOBAL_MODE          V2B_SOC_REG(0x0C0u)
+#define V2B_SOC_LIF_LAYER0_CFG           V2B_SOC_REG(0x0C4u)
+#define V2B_SOC_LIF_LAYER1_CFG           V2B_SOC_REG(0x0C8u)
+#define V2B_SOC_LIF_LAYER2_CFG           V2B_SOC_REG(0x0CCu)
+#define V2B_SOC_LIF_LAYER3_CFG           V2B_SOC_REG(0x0D0u)
+#define V2B_SOC_LIF_LAYER4_CFG           V2B_SOC_REG(0x0D4u)
+#define V2B_SOC_LIF_LAYER5_CFG           V2B_SOC_REG(0x0D8u)
+#define V2B_SOC_LIF_LAYER6_CFG           V2B_SOC_REG(0x0DCu)
+#define V2B_SOC_LIF_LAYER7_CFG           V2B_SOC_REG(0x0E0u)
+#define V2B_SOC_LIF_LAYER_IDX            V2B_SOC_REG(0x0E4u)
+
+#define V2B_LIF_LAYER_MAX                8u
+#define V2B_LIF_LAYERn_CFG(n)            V2B_SOC_REG(0x0C4u + ((uint32_t)(n)) * 4u)
+
 #endif /* V2B_SOC_REGS_H */
