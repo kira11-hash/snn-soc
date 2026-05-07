@@ -170,6 +170,22 @@ module snn_soc_v2b_top
   localparam logic [11:0] A_CONV_PERF_CYCLES   = 12'h0B8;
   localparam logic [11:0] A_CONV_FMAP_WR_CTRL  = 12'h0BC;
 
+  // ── H1-full LIF per-layer schedule CSR window (0x0C0-0x0E4) ─────────
+  // GLOBAL_MODE=1 (reset default) keeps the effective threshold/reset-mode
+  // path bit-identical to v2.B HEAD (FC vs CONV via conv_busy on
+  // se_cfg_threshold). GLOBAL_MODE=0 sources from the per-layer LUT
+  // indexed by lif_layer_idx. See essay/h1_full_design_2026_05_07.md §2.
+  localparam logic [11:0] A_LIF_GLOBAL_MODE = 12'h0C0;
+  localparam logic [11:0] A_LIF_LAYER0_CFG  = 12'h0C4;
+  localparam logic [11:0] A_LIF_LAYER1_CFG  = 12'h0C8;
+  localparam logic [11:0] A_LIF_LAYER2_CFG  = 12'h0CC;
+  localparam logic [11:0] A_LIF_LAYER3_CFG  = 12'h0D0;
+  localparam logic [11:0] A_LIF_LAYER4_CFG  = 12'h0D4;
+  localparam logic [11:0] A_LIF_LAYER5_CFG  = 12'h0D8;
+  localparam logic [11:0] A_LIF_LAYER6_CFG  = 12'h0DC;
+  localparam logic [11:0] A_LIF_LAYER7_CFG  = 12'h0E0;
+  localparam logic [11:0] A_LIF_LAYER_IDX   = 12'h0E4;
+
   localparam logic [11:0] A_READ_SBA_BASE   = 12'h400;  // 0x400 + t*4 (up to t=255)
   localparam logic [11:0] A_READ_SBB_BASE   = 12'h800;  // 0x800 + t*4
 
@@ -239,6 +255,15 @@ module snn_soc_v2b_top
   logic        reg_conv_fmap_wr_commit_pulse;
   logic        reg_conv_fmap_wr_auto_inc, reg_conv_fmap_wr_target_bank;
   logic        reg_conv_fmap_wr_inc_pending;
+
+  // ── H1-full LIF per-layer schedule registers ──────────────────────
+  // Reset default `lif_global_mode = 1'b1` is the byte-bit identity
+  // anchor: the effective threshold/reset_mode mux below preserves the
+  // v2.B HEAD expression while GLOBAL_MODE=1. See §2.1 of the design doc.
+  logic        lif_global_mode;
+  logic [15:0] lif_layer_threshold  [V2B_LIF_LAYER_MAX];
+  logic        lif_layer_reset_mode [V2B_LIF_LAYER_MAX];
+  logic [2:0]  lif_layer_idx;
 
   // ── Stage engine wires ─────────────────────────────────────────────
   logic busy, done_pulse;
@@ -585,7 +610,26 @@ module snn_soc_v2b_top
   assign se_start_pulse = conv_busy ? conv_stage_start_pulse : reg_start_pulse;
   assign se_cfg_in_dim = conv_busy ? conv_stage_cfg_in_dim : reg_cfg_in_dim;
   assign se_cfg_out_dim = conv_busy ? conv_stage_cfg_out_dim : reg_cfg_out_dim;
-  assign se_cfg_threshold = conv_busy ? conv_stage_cfg_threshold : reg_cfg_threshold;
+
+  // H1-full effective threshold/reset_mode mux. GLOBAL_MODE=1 (reset
+  // default) preserves byte-bit identity with the v2.B HEAD path:
+  //   se_cfg_threshold = conv_busy ? conv_stage_cfg_threshold : reg_cfg_threshold
+  //   reset_mode forced to 0 (soft).
+  // GLOBAL_MODE=0 sources from the per-layer LUT indexed by
+  // lif_layer_idx. See essay/h1_full_design_2026_05_07.md §2.1.
+  logic [31:0] lif_per_layer_threshold_eff;
+  logic        lif_per_layer_reset_mode_eff;
+  always_comb begin
+    if (lif_global_mode) begin
+      lif_per_layer_threshold_eff  = conv_busy ? conv_stage_cfg_threshold
+                                                : reg_cfg_threshold;
+      lif_per_layer_reset_mode_eff = 1'b0;
+    end else begin
+      lif_per_layer_threshold_eff  = {16'h0, lif_layer_threshold[lif_layer_idx]};
+      lif_per_layer_reset_mode_eff = lif_layer_reset_mode[lif_layer_idx];
+    end
+  end
+  assign se_cfg_threshold = lif_per_layer_threshold_eff;
   assign se_cfg_sum_max = conv_busy ? conv_stage_cfg_sum_max : reg_cfg_sum_max;
   assign se_cfg_input_src = conv_busy ? conv_stage_cfg_input_src : reg_cfg_input_src;
   assign se_cfg_output_dst = conv_busy ? conv_stage_cfg_output_dst : reg_cfg_output_dst;
@@ -607,11 +651,12 @@ module snn_soc_v2b_top
     .cfg_t_count(se_cfg_t_count),
     .cfg_conv_mode(conv_busy),
     .cfg_flatten_mode(reg_flatten_mode),
-    // H1-full: hardwired to soft (1'b0) until the LIF_GLOBAL_MODE/LUT
-    // CSR slots land in the next commit. With this default,
-    // stage_engine_v2's hard-reset arm is unreachable and the soft
-    // path is bit-identical to v2.B HEAD. (essay/h1_full_design_2026_05_07.md §2.1)
-    .cfg_reset_mode(1'b0),
+    // H1-full: sourced from the effective per-layer reset_mode mux.
+    // While LIF_GLOBAL_MODE=1 (reset default) this is forced to 1'b0
+    // (soft), so stage_engine_v2's hard-reset arm is unreachable and
+    // the path is bit-identical to v2.B HEAD.
+    // (essay/h1_full_design_2026_05_07.md §2.1)
+    .cfg_reset_mode(lif_per_layer_reset_mode_eff),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),
@@ -682,6 +727,83 @@ module snn_soc_v2b_top
   endproperty
   a_trace_hash_commit_ports_mutex : assert property (p_trace_hash_commit_ports_mutex)
     else $error("TRACE_HASH commit port violation: sbA_wr_en and sbB_wr_en asserted together");
+
+  // ── H1-full SVA family (essay/h1_full_design_2026_05_07.md §2.3) ──
+
+  // SVA-1: GLOBAL_MODE=1 → effective threshold equals the historical
+  //   FC-vs-CONV expression bit-for-bit; reset_mode is forced to soft.
+  //   This is the byte-bit identity anchor for the entire H1 commit
+  //   sequence.
+  property p_h1_global_mode_identity;
+    @(posedge clk) disable iff (!rst_n)
+      lif_global_mode |->
+        (lif_per_layer_threshold_eff ==
+         (conv_busy ? conv_stage_cfg_threshold : reg_cfg_threshold)) &&
+        (lif_per_layer_reset_mode_eff == 1'b0);
+  endproperty
+  a_h1_global_mode_identity : assert property (p_h1_global_mode_identity)
+    else $error("SVA-1: GLOBAL_MODE=1 byte-bit identity broken on se_cfg_threshold mux");
+
+  // SVA-2: out-of-range layer_idx must never be sampled.
+  //   CSR width is 3-bit so this is also a defense-in-depth probe.
+  property p_h1_layer_idx_in_range;
+    @(posedge clk) disable iff (!rst_n)
+      !lif_global_mode |-> (lif_layer_idx <= 3'd7);
+  endproperty
+  a_h1_layer_idx_in_range : assert property (p_h1_layer_idx_in_range)
+    else $error("SVA-2: lif_layer_idx out of [0..7] while GLOBAL_MODE=0");
+
+  // SVA-3 family: slot-to-slot isolation expressed against REGISTERED
+  //   outputs at the next cycle (|=>) so combinational decode glitches
+  //   cannot produce a false fail. Uses live bus signals
+  //   (cmd_valid / cmd_write / cmd_addr / cmd_wstrb).
+  //   Footnote (Codex round-2 §): SVA-3 is deliberately scoped to
+  //   within-window isolation. Non-H1-window isolation is covered by
+  //   the byte-mask invariant TB.
+  for (genvar gi = 0; gi < V2B_LIF_LAYER_MAX; gi++) begin : g_h1_lif_slot_iso
+    localparam logic [11:0] THIS_OFFSET = 12'h0C4 + 12'(gi) * 12'd4;
+    property p_h1_lif_slot_iso;
+      @(posedge clk) disable iff (!rst_n)
+        (cmd_valid && cmd_write && (|cmd_wstrb) &&
+         (cmd_addr inside {A_LIF_LAYER0_CFG, A_LIF_LAYER1_CFG,
+                            A_LIF_LAYER2_CFG, A_LIF_LAYER3_CFG,
+                            A_LIF_LAYER4_CFG, A_LIF_LAYER5_CFG,
+                            A_LIF_LAYER6_CFG, A_LIF_LAYER7_CFG}) &&
+         (cmd_addr != THIS_OFFSET))
+        |=> ($stable(lif_layer_threshold[gi]) &&
+             $stable(lif_layer_reset_mode[gi]));
+    endproperty
+    a_h1_lif_slot_iso : assert property (p_h1_lif_slot_iso)
+      else $error("SVA-3: LIF slot %0d mutated by a write to a different LIF slot", gi);
+  end
+
+  // SVA-3 scalars: GLOBAL_MODE / LAYER_IDX cannot be mutated by a write
+  //   to any other H1-window CSR.
+  property p_h1_global_mode_iso;
+    @(posedge clk) disable iff (!rst_n)
+      (cmd_valid && cmd_write && (|cmd_wstrb) &&
+       (cmd_addr inside {A_LIF_LAYER0_CFG, A_LIF_LAYER1_CFG,
+                          A_LIF_LAYER2_CFG, A_LIF_LAYER3_CFG,
+                          A_LIF_LAYER4_CFG, A_LIF_LAYER5_CFG,
+                          A_LIF_LAYER6_CFG, A_LIF_LAYER7_CFG,
+                          A_LIF_LAYER_IDX}))
+      |=> $stable(lif_global_mode);
+  endproperty
+  a_h1_global_mode_iso : assert property (p_h1_global_mode_iso)
+    else $error("SVA-3: lif_global_mode mutated by write to a non-GLOBAL_MODE H1 slot");
+
+  property p_h1_layer_idx_iso;
+    @(posedge clk) disable iff (!rst_n)
+      (cmd_valid && cmd_write && (|cmd_wstrb) &&
+       (cmd_addr inside {A_LIF_GLOBAL_MODE,
+                          A_LIF_LAYER0_CFG, A_LIF_LAYER1_CFG,
+                          A_LIF_LAYER2_CFG, A_LIF_LAYER3_CFG,
+                          A_LIF_LAYER4_CFG, A_LIF_LAYER5_CFG,
+                          A_LIF_LAYER6_CFG, A_LIF_LAYER7_CFG}))
+      |=> $stable(lif_layer_idx);
+  endproperty
+  a_h1_layer_idx_iso : assert property (p_h1_layer_idx_iso)
+    else $error("SVA-3: lif_layer_idx mutated by write to a non-IDX H1 slot");
 `endif
 `endif
 
@@ -751,6 +873,14 @@ module snn_soc_v2b_top
       reg_recorder_layer_id    <= '0;
       reg_recorder_rd_addr     <= '0;
       reg_recorder_rd_en_pulse <= 1'b0;
+      // H1-full LIF per-layer schedule reset (GLOBAL_MODE=1 by default
+      // is what makes byte-bit identity hold — do not change to 0 here)
+      lif_global_mode <= 1'b1;
+      lif_layer_idx   <= 3'd0;
+      for (int li = 0; li < V2B_LIF_LAYER_MAX; li++) begin
+        lif_layer_threshold[li]  <= 16'h0;
+        lif_layer_reset_mode[li] <= 1'b0;
+      end
     end else begin
       // Default: 1-cycle pulses
       reg_start_pulse    <= 1'b0;
@@ -963,6 +1093,82 @@ module snn_soc_v2b_top
             reg_conv_fmap_wr_target_bank <= word_v[2];
           end
 
+          // ── H1-full LIF per-layer schedule decode ────────────────
+          A_LIF_GLOBAL_MODE: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({31'h0, lif_global_mode}, cmd_wdata, cmd_wstrb);
+            lif_global_mode <= word_v[0];
+          end
+          A_LIF_LAYER0_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[0],
+                                  lif_layer_threshold[0]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[0]  <= word_v[15:0];
+            lif_layer_reset_mode[0] <= word_v[16];
+          end
+          A_LIF_LAYER1_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[1],
+                                  lif_layer_threshold[1]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[1]  <= word_v[15:0];
+            lif_layer_reset_mode[1] <= word_v[16];
+          end
+          A_LIF_LAYER2_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[2],
+                                  lif_layer_threshold[2]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[2]  <= word_v[15:0];
+            lif_layer_reset_mode[2] <= word_v[16];
+          end
+          A_LIF_LAYER3_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[3],
+                                  lif_layer_threshold[3]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[3]  <= word_v[15:0];
+            lif_layer_reset_mode[3] <= word_v[16];
+          end
+          A_LIF_LAYER4_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[4],
+                                  lif_layer_threshold[4]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[4]  <= word_v[15:0];
+            lif_layer_reset_mode[4] <= word_v[16];
+          end
+          A_LIF_LAYER5_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[5],
+                                  lif_layer_threshold[5]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[5]  <= word_v[15:0];
+            lif_layer_reset_mode[5] <= word_v[16];
+          end
+          A_LIF_LAYER6_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[6],
+                                  lif_layer_threshold[6]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[6]  <= word_v[15:0];
+            lif_layer_reset_mode[6] <= word_v[16];
+          end
+          A_LIF_LAYER7_CFG: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({15'h0, lif_layer_reset_mode[7],
+                                  lif_layer_threshold[7]},
+                                 cmd_wdata, cmd_wstrb);
+            lif_layer_threshold[7]  <= word_v[15:0];
+            lif_layer_reset_mode[7] <= word_v[16];
+          end
+          A_LIF_LAYER_IDX: begin
+            logic [31:0] word_v;
+            word_v = apply_wstrb({29'h0, lif_layer_idx}, cmd_wdata, cmd_wstrb);
+            lif_layer_idx <= word_v[2:0];
+          end
+
           default: ;
         endcase
       end
@@ -1079,6 +1285,19 @@ module snn_soc_v2b_top
       A_CONV_PERF_CYCLES:  read_mux = conv_perf_cycles;
       A_CONV_FMAP_WR_CTRL: read_mux = {29'h0, reg_conv_fmap_wr_target_bank,
                                        reg_conv_fmap_wr_auto_inc, 1'b0};
+
+      // ── H1-full LIF per-layer schedule readback ─────────────────
+      A_LIF_GLOBAL_MODE: read_mux = {31'h0, lif_global_mode};
+      A_LIF_LAYER0_CFG:  read_mux = {15'h0, lif_layer_reset_mode[0], lif_layer_threshold[0]};
+      A_LIF_LAYER1_CFG:  read_mux = {15'h0, lif_layer_reset_mode[1], lif_layer_threshold[1]};
+      A_LIF_LAYER2_CFG:  read_mux = {15'h0, lif_layer_reset_mode[2], lif_layer_threshold[2]};
+      A_LIF_LAYER3_CFG:  read_mux = {15'h0, lif_layer_reset_mode[3], lif_layer_threshold[3]};
+      A_LIF_LAYER4_CFG:  read_mux = {15'h0, lif_layer_reset_mode[4], lif_layer_threshold[4]};
+      A_LIF_LAYER5_CFG:  read_mux = {15'h0, lif_layer_reset_mode[5], lif_layer_threshold[5]};
+      A_LIF_LAYER6_CFG:  read_mux = {15'h0, lif_layer_reset_mode[6], lif_layer_threshold[6]};
+      A_LIF_LAYER7_CFG:  read_mux = {15'h0, lif_layer_reset_mode[7], lif_layer_threshold[7]};
+      A_LIF_LAYER_IDX:   read_mux = {29'h0, lif_layer_idx};
+
       default: begin
         // Use registered versions so rd_data has had one cycle to settle.
         if (cmd_read_sba_q) read_mux = sbA_rd_data[31:0];
