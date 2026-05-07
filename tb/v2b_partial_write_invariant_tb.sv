@@ -82,6 +82,17 @@ module v2b_partial_write_invariant_tb;
   localparam logic [11:0] O_TRACE_HASH_LOG_RD_ADDR = 12'h070;
   localparam logic [11:0] O_TRACE_HASH_LOG_RD_DATA = 12'h074;
   localparam logic [11:0] O_TRACE_HASH_LOG_RD_META = 12'h078;
+  // H1-full LIF per-layer schedule offsets (essay/h1_full_design_2026_05_07.md §2)
+  localparam logic [11:0] O_LIF_GLOBAL_MODE        = 12'h0C0;
+  localparam logic [11:0] O_LIF_LAYER0_CFG         = 12'h0C4;
+  localparam logic [11:0] O_LIF_LAYER1_CFG         = 12'h0C8;
+  localparam logic [11:0] O_LIF_LAYER2_CFG         = 12'h0CC;
+  localparam logic [11:0] O_LIF_LAYER3_CFG         = 12'h0D0;
+  localparam logic [11:0] O_LIF_LAYER4_CFG         = 12'h0D4;
+  localparam logic [11:0] O_LIF_LAYER5_CFG         = 12'h0D8;
+  localparam logic [11:0] O_LIF_LAYER6_CFG         = 12'h0DC;
+  localparam logic [11:0] O_LIF_LAYER7_CFG         = 12'h0E0;
+  localparam logic [11:0] O_LIF_LAYER_IDX          = 12'h0E4;
 
   logic clk = 1'b0;
   logic rst_n = 1'b0;
@@ -616,6 +627,115 @@ module v2b_partial_write_invariant_tb;
       do_read(O_TRACE_HASH_LOG_RD_META, read_back);
       check32("T39c TRACE_HASH_LOG_RD_META returns zero-extended seeded meta",
               read_back, 32'h0000_0D65);
+    end
+
+    //========================================================================
+    // H1-full LIF per-layer schedule byte-mask invariant extension
+    // (essay/h1_full_design_2026_05_07.md §3.2 — 36 new sub-tests)
+    //
+    // 4 (LIF_GLOBAL_MODE) + 32 (LIF_LAYERn_CFG × 8) + 4 (LIF_LAYER_IDX) = 36
+    // Combined with the existing 57 sub-tests above, total target = 93 PASS.
+    //========================================================================
+    begin : h1_lif_invariant_block
+      logic [31:0] read_back;
+      string       slot_name;
+      logic [11:0] slot_addr;
+
+      // ── LIF_GLOBAL_MODE (0x0C0; low-byte 1-bit field; reset = 1'b1) ──
+      // T_LIFGM_W0: WSTRB=0001 toggles bit[0] 1→0 (write 0). Verify, then
+      //   restore default by writing 1 with the same wstrb.
+      do_write(O_LIF_GLOBAL_MODE, 32'h0000_0000, 4'b0001);
+      do_read(O_LIF_GLOBAL_MODE, read_back);
+      check32("T_LIFGM_W0 WSTRB=0001 write 0 toggles bit[0] -> 0",
+              read_back, 32'h0000_0000);
+      do_write(O_LIF_GLOBAL_MODE, 32'h0000_0001, 4'b0001);  // restore default
+
+      // T_LIFGM_W1: WSTRB=0010 with full 0xFFFFFFFF must NOT mutate bit[0].
+      do_write(O_LIF_GLOBAL_MODE, 32'hFFFF_FFFF, 4'b0010);
+      do_read(O_LIF_GLOBAL_MODE, read_back);
+      check32("T_LIFGM_W1 WSTRB=0010 0xFFFFFFFF leaves bit[0]=1 (default)",
+              read_back, 32'h0000_0001);
+
+      // T_LIFGM_W2: WSTRB=0100 with full 0xFFFFFFFF must NOT mutate bit[0].
+      do_write(O_LIF_GLOBAL_MODE, 32'hFFFF_FFFF, 4'b0100);
+      do_read(O_LIF_GLOBAL_MODE, read_back);
+      check32("T_LIFGM_W2 WSTRB=0100 0xFFFFFFFF leaves bit[0]=1 (default)",
+              read_back, 32'h0000_0001);
+
+      // T_LIFGM_W3: WSTRB=1000 with full 0xFFFFFFFF must NOT mutate bit[0].
+      do_write(O_LIF_GLOBAL_MODE, 32'hFFFF_FFFF, 4'b1000);
+      do_read(O_LIF_GLOBAL_MODE, read_back);
+      check32("T_LIFGM_W3 WSTRB=1000 0xFFFFFFFF leaves bit[0]=1 (default)",
+              read_back, 32'h0000_0001);
+
+      // ── LIF_LAYERn_CFG (0x0C4..0x0E0; byte0/1=threshold, byte2[0]=reset_mode,
+      //   byte3 unused) — 4 sub-tests per slot × 8 slots = 32. Each sub-test
+      //   seeds the slot to a known non-zero value via wstrb=0111, then
+      //   issues a single byte write and verifies only that byte mutated.
+      for (int li = 0; li < 8; li++) begin
+        slot_addr = O_LIF_LAYER0_CFG + 12'(li * 4);
+        slot_name = $sformatf("LIFL%0d", li);
+
+        // Seed: threshold=0x13A5, reset_mode=1 -> slot reads 0x000113A5.
+        do_write(slot_addr, 32'h0001_13A5, 4'b0111);
+
+        // Sub-test (a): WSTRB=0001 changes threshold[7:0] in isolation.
+        //   write byte0=0x00; expect threshold=0x1300, reset_mode=1.
+        do_write(slot_addr, 32'h0000_0000, 4'b0001);
+        do_read(slot_addr, read_back);
+        check32($sformatf("T_%s_W0 WSTRB=0001 mutates threshold[7:0] only", slot_name),
+                read_back, 32'h0001_1300);
+        do_write(slot_addr, 32'h0000_00A5, 4'b0001);  // restore byte0
+
+        // Sub-test (b): WSTRB=0010 changes threshold[15:8] in isolation.
+        //   write byte1=0x00; expect threshold=0x00A5, reset_mode=1.
+        do_write(slot_addr, 32'h0000_0000, 4'b0010);
+        do_read(slot_addr, read_back);
+        check32($sformatf("T_%s_W1 WSTRB=0010 mutates threshold[15:8] only", slot_name),
+                read_back, 32'h0001_00A5);
+        do_write(slot_addr, 32'h0000_1300, 4'b0010);  // restore byte1
+
+        // Sub-test (c): WSTRB=0100 changes reset_mode (byte2 bit[0]) only.
+        //   write byte2=0x00 -> reset_mode=0; expect 0x000013A5.
+        do_write(slot_addr, 32'h0000_0000, 4'b0100);
+        do_read(slot_addr, read_back);
+        check32($sformatf("T_%s_W2 WSTRB=0100 mutates reset_mode only", slot_name),
+                read_back, 32'h0000_13A5);
+        do_write(slot_addr, 32'h0001_0000, 4'b0100);  // restore byte2
+
+        // Sub-test (d): WSTRB=1000 noop — byte3 is unused/RAZ.
+        //   write byte3=0xFF; readback unchanged at 0x000113A5.
+        do_write(slot_addr, 32'hFF00_0000, 4'b1000);
+        do_read(slot_addr, read_back);
+        check32($sformatf("T_%s_W3 WSTRB=1000 noop (byte3 unused)", slot_name),
+                read_back, 32'h0001_13A5);
+      end
+
+      // ── LIF_LAYER_IDX (0x0E4; low-byte 3-bit field; reset = 3'd0) ──
+      // T_LIFIDX_W0: WSTRB=0001 toggles bits[2:0] (write 0x5).
+      do_write(O_LIF_LAYER_IDX, 32'h0000_0005, 4'b0001);
+      do_read(O_LIF_LAYER_IDX, read_back);
+      check32("T_LIFIDX_W0 WSTRB=0001 mutates bits[2:0] -> 0x5",
+              read_back, 32'h0000_0005);
+      do_write(O_LIF_LAYER_IDX, 32'h0000_0000, 4'b0001);  // restore default
+
+      // T_LIFIDX_W1: WSTRB=0010 with full 0xFFFFFFFF must NOT mutate [2:0].
+      do_write(O_LIF_LAYER_IDX, 32'hFFFF_FFFF, 4'b0010);
+      do_read(O_LIF_LAYER_IDX, read_back);
+      check32("T_LIFIDX_W1 WSTRB=0010 0xFFFFFFFF leaves bits[2:0]=0",
+              read_back, 32'h0000_0000);
+
+      // T_LIFIDX_W2: WSTRB=0100 with full 0xFFFFFFFF must NOT mutate [2:0].
+      do_write(O_LIF_LAYER_IDX, 32'hFFFF_FFFF, 4'b0100);
+      do_read(O_LIF_LAYER_IDX, read_back);
+      check32("T_LIFIDX_W2 WSTRB=0100 0xFFFFFFFF leaves bits[2:0]=0",
+              read_back, 32'h0000_0000);
+
+      // T_LIFIDX_W3: WSTRB=1000 with full 0xFFFFFFFF must NOT mutate [2:0].
+      do_write(O_LIF_LAYER_IDX, 32'hFFFF_FFFF, 4'b1000);
+      do_read(O_LIF_LAYER_IDX, read_back);
+      check32("T_LIFIDX_W3 WSTRB=1000 0xFFFFFFFF leaves bits[2:0]=0",
+              read_back, 32'h0000_0000);
     end
 
     repeat (5) @(posedge clk);
