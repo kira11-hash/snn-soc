@@ -278,6 +278,13 @@ package snn_soc_pkg;
   // Worst-case membrane over T=256 ≤ 256 × 2046 ≈ 2^19. 32-bit signed is ample.
   parameter int V2B_LIF_MEM_WIDTH      = 32;
 
+  // H1-full (essay/h1_full_design_2026_05_07.md §3.1).
+  // 8-slot per-layer LIF schedule LUT. Default reset path keeps the
+  // top-level LIF_GLOBAL_MODE=1 so the LUT is bypassed and behavior is
+  // byte-bit identical to the v2.B HEAD baseline. This parameter
+  // therefore only sizes storage; gating happens at the top mux.
+  parameter int V2B_LIF_LAYER_MAX      = 8;
+
   // Sum-max policy (topology_desc.bin adc_full_scale field):
   //   mode 0 = ARRAY:     SUM_MAX = V2B_NUM_INPUTS × 15     (fixed 3840)
   //   mode 1 = ACTIVE_WL: SUM_MAX = stage.in_dim × 15      (per-tile, firmware-supplied)

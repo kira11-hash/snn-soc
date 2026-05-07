@@ -607,6 +607,11 @@ module snn_soc_v2b_top
     .cfg_t_count(se_cfg_t_count),
     .cfg_conv_mode(conv_busy),
     .cfg_flatten_mode(reg_flatten_mode),
+    // H1-full: hardwired to soft (1'b0) until the LIF_GLOBAL_MODE/LUT
+    // CSR slots land in the next commit. With this default,
+    // stage_engine_v2's hard-reset arm is unreachable and the soft
+    // path is bit-identical to v2.B HEAD. (essay/h1_full_design_2026_05_07.md §2.1)
+    .cfg_reset_mode(1'b0),
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),

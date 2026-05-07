@@ -67,6 +67,14 @@ module stage_engine_v2
   input  logic        cfg_conv_mode,
   input  logic        cfg_flatten_mode,
 
+  // H1-full (essay/h1_full_design_2026_05_07.md §2.1).
+  // 0 = soft reset (membrane -= threshold; existing v2.B HEAD behavior,
+  //                 byte-bit identical when wired to 1'b0)
+  // 1 = hard reset (membrane <- 0 on fire). Top-level mux supplies
+  // this from the per-layer LUT only when LIF_GLOBAL_MODE=0;
+  // otherwise the top wires it to 1'b0.
+  input  logic        cfg_reset_mode,
+
   // ── input_stream_sram read port ────────────────────────────────────
   output logic                         isr_rd_en,
   output logic [$clog2(P_T_MAX)-1:0]   isr_rd_addr,
@@ -460,7 +468,13 @@ module stage_engine_v2
             // accumulate membrane, fire LIF
             if ((membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used})) >= $signed(cfg_threshold)) begin
               spike_this_t[j_idx] <= 1'b1;
-              membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used}) - $signed(cfg_threshold);
+              // H1-full: cfg_reset_mode=0 (soft) keeps the v2.B HEAD
+              // expression byte-for-byte; cfg_reset_mode=1 (hard) clears
+              // the membrane on fire. Default at the top is 1'b0.
+              if (cfg_reset_mode)
+                membrane[j_idx] <= '0;
+              else
+                membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used}) - $signed(cfg_threshold);
             end else begin
               spike_this_t[j_idx] <= 1'b0;
               membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used});
@@ -512,7 +526,12 @@ module stage_engine_v2
           // accumulate + fire using tpb_rd_data
           if ((membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data})) >= $signed(cfg_threshold)) begin
             spike_this_t[j_idx] <= 1'b1;
-            membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data}) - $signed(cfg_threshold);
+            // H1-full: same soft/hard mux as S_NEURON_LOOP path; default
+            // cfg_reset_mode=0 keeps the v2.B HEAD expression intact.
+            if (cfg_reset_mode)
+              membrane[j_idx] <= '0;
+            else
+              membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data}) - $signed(cfg_threshold);
           end else begin
             spike_this_t[j_idx] <= 1'b0;
             membrane[j_idx] <= membrane[j_idx] + $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data});
@@ -656,6 +675,74 @@ module stage_engine_v2
           done_pulse;
   endproperty
   assert property (SVA_STAGE_INPUT_SRC_OUT_OF_RANGE_REJECTED);
+
+  // ── H1-full SVA-4a / SVA-4b (essay/h1_full_design_2026_05_07.md §2.3) ──
+  // GLOBAL_MODE=1 byte-bit identity proof: with cfg_reset_mode=0
+  // (the top-level default when LIF_GLOBAL_MODE=1), the membrane
+  // writeback on the fire path equals the v2.B HEAD expression
+  // (mem + diff - threshold). Snapshot pattern avoids $past
+  // variable-indexing pitfalls; consequent uses ONLY $past of
+  // sampled helpers, never live signals.
+  logic                       sva_loop_valid;
+  logic                       sva_final_valid;
+  logic [$clog2(P_N_OUT)-1:0] sva_j_snap;
+  logic signed [P_MEM_W-1:0]  sva_mem_snap;
+  logic signed [P_MEM_W-1:0]  sva_diff_snap;
+  logic signed [P_MEM_W-1:0]  sva_thr_snap;
+  logic                       sva_reset_snap;
+  logic                       sva_fire_snap;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      sva_loop_valid  <= 1'b0;
+      sva_final_valid <= 1'b0;
+      sva_j_snap      <= '0;
+      sva_mem_snap    <= '0;
+      sva_diff_snap   <= '0;
+      sva_thr_snap    <= '0;
+      sva_reset_snap  <= 1'b0;
+      sva_fire_snap   <= 1'b0;
+    end else begin
+      sva_loop_valid  <= (state == S_NEURON_LOOP) && !cfg_tile_mode;
+      sva_final_valid <= (state == S_FINAL_NEURON);
+      if ((state == S_NEURON_LOOP) && !cfg_tile_mode) begin
+        sva_j_snap     <= j_idx;
+        sva_mem_snap   <= membrane[j_idx];
+        sva_diff_snap  <= $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used});
+        sva_thr_snap   <= $signed(cfg_threshold);
+        sva_reset_snap <= cfg_reset_mode;
+        sva_fire_snap  <= ((membrane[j_idx] +
+                            $signed({{(P_MEM_W-P_PARTIAL_W){mac_diff_used[P_PARTIAL_W-1]}}, mac_diff_used})) >=
+                           $signed(cfg_threshold));
+      end
+      if (state == S_FINAL_NEURON) begin
+        sva_j_snap     <= j_idx;
+        sva_mem_snap   <= membrane[j_idx];
+        sva_diff_snap  <= $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data});
+        sva_thr_snap   <= $signed(cfg_threshold);
+        sva_reset_snap <= cfg_reset_mode;
+        sva_fire_snap  <= ((membrane[j_idx] +
+                            $signed({{(P_MEM_W-P_PARTIAL_W){tpb_rd_data[P_PARTIAL_W-1]}}, tpb_rd_data})) >=
+                           $signed(cfg_threshold));
+      end
+    end
+  end
+
+  property SVA_H1_LIF_SOFT_RESET_LOOP;
+    @(posedge clk) disable iff (!rst_n)
+      $past(sva_loop_valid && sva_fire_snap && (sva_reset_snap == 1'b0))
+      |-> membrane[$past(sva_j_snap)] ==
+          ($past(sva_mem_snap) + $past(sva_diff_snap) - $past(sva_thr_snap));
+  endproperty
+  assert property (SVA_H1_LIF_SOFT_RESET_LOOP);
+
+  property SVA_H1_LIF_SOFT_RESET_FINAL;
+    @(posedge clk) disable iff (!rst_n)
+      $past(sva_final_valid && sva_fire_snap && (sva_reset_snap == 1'b0))
+      |-> membrane[$past(sva_j_snap)] ==
+          ($past(sva_mem_snap) + $past(sva_diff_snap) - $past(sva_thr_snap));
+  endproperty
+  assert property (SVA_H1_LIF_SOFT_RESET_FINAL);
 `endif
 `endif
 

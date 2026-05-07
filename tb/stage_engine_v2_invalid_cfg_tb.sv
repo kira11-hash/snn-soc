@@ -102,6 +102,7 @@ module stage_engine_v2_invalid_cfg_tb;
     .cfg_tile_mode(cfg_tile_mode), .cfg_is_tile_final(cfg_is_tile_final),
     .cfg_preserve_membrane(cfg_preserve_membrane), .cfg_t_count(cfg_t_count),
     .cfg_conv_mode(cfg_conv_mode), .cfg_flatten_mode(cfg_flatten_mode),
+    .cfg_reset_mode(1'b0),  // H1-full default soft (byte-bit identical to v2.B HEAD)
     .isr_rd_en(isr_rd_en), .isr_rd_addr(isr_rd_addr), .isr_rd_data(isr_rd_data),
     .sbA_wr_en(sbA_wr_en), .sbA_wr_addr(sbA_wr_addr), .sbA_wr_data(sbA_wr_data),
     .sbB_wr_en(sbB_wr_en), .sbB_wr_addr(sbB_wr_addr), .sbB_wr_data(sbB_wr_data),
