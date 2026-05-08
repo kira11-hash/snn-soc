@@ -46,11 +46,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import sys
 from pathlib import Path
 
 import snn_engine_multilayer as eng
+import m2_real_inference as real_inf
 
 
 SWEEP_RANGES = {
@@ -60,51 +60,20 @@ SWEEP_RANGES = {
     "adc":   [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0],
 }
 
-CONFIG_LABELS = {
-    "1": "v1_fc_8x8_mnist",
-    "4": "v2b_lenet5_mnist_28x28",
-}
-
-
-def _seed_for(config_id: str, dim: str, sweep_value: float, seed: int) -> int:
-    """Stable seed_base passed to engine via m2_set_state."""
-    return abs(hash((config_id, dim, sweep_value, seed))) % (2**31 - 1)
-
-
-def _md5_of(items) -> str:
-    h = hashlib.md5()
-    for it in items:
-        h.update(repr(it).encode("utf-8"))
-        h.update(b"\n")
-    return h.hexdigest()
+CONFIG_LABELS = {"1": real_inf.CONFIG_V1, "4": real_inf.CONFIG_LENET5}
 
 
 def run_inference_anchor(config_id: str) -> tuple:
-    """Run one anchor inference (M2_NONIDEALITY_OFF=True, all knobs 0).
-
-    Returns (accuracy_percent, sample_indices_md5, baseline_output_md5).
-
-    SCAFFOLD: the actual per-config inference call is TBD. Codex
-    close-out autonomous run wires this via the existing per-config
-    driver. Until then this returns stub values that satisfy schema.
-    """
+    """Run one anchor inference (M2_NONIDEALITY_OFF=True, all knobs 0)."""
     eng.m2_reset()
     print(f"M2_NONIDEALITY_OFF=True (anchor) config_id={config_id}")
-    # TODO Codex close-out: load model + run 100-sample inference
-    # Placeholder: return headline accuracy with placeholder hashes
-    headline_acc = {
-        "v1_fc_8x8_mnist": 86.74,
-        "v2b_lenet5_mnist_28x28": 93.03,
-    }.get(config_id, 0.0)
-    sample_indices_md5 = _md5_of(list(range(100)))
-    baseline_output_md5 = _md5_of([config_id, "anchor"])
-    return headline_acc, sample_indices_md5, baseline_output_md5
+    result = real_inf.run_anchor(config_id)
+    return result.accuracy_pct, result.sample_indices_md5, result.baseline_output_md5
 
 
 def run_inference_perturbed(config_id: str, dim: str,
                             sweep_value: float, seed: int) -> tuple:
     """Run one perturbed inference."""
-    seed_base = _seed_for(config_id, dim, sweep_value, seed)
     knob_kwargs = {
         "drift": {"drift_alpha": sweep_value},
         "read":  {"sigma_read_lsb": sweep_value},
@@ -113,26 +82,16 @@ def run_inference_perturbed(config_id: str, dim: str,
     }[dim]
     eng.m2_set_state(
         config_id=config_id, sweep_dim=dim, sweep_value=sweep_value,
-        seed_base=seed_base, **knob_kwargs,
+        seed_base=seed, **knob_kwargs,
     )
     print(
         f"M2_NONIDEALITY_OFF=False (sweep_point={sweep_value}, "
         f"dim={dim}, seed={seed}) config_id={config_id}"
     )
-    # TODO Codex close-out: load model + run 100-sample perturbed inference
-    # Placeholder: anchor accuracy minus a small dim-and-magnitude-scaled
-    # delta so envelope plots are visually-sensible during scaffolding.
-    headline_acc = {
-        "v1_fc_8x8_mnist": 86.74,
-        "v2b_lenet5_mnist_28x28": 93.03,
-    }.get(config_id, 0.0)
-    delta = abs(sweep_value) * {"drift": 5, "read": 0.5,
-                                "d2d": 10, "adc": 0.3}.get(dim, 1.0)
-    accuracy = max(0.0, headline_acc - delta + (seed - 2) * 0.3)
-    sample_indices_md5 = _md5_of(list(range(100)))
-    baseline_output_md5 = _md5_of([config_id, dim, sweep_value, seed])
+    result = real_inf.run_perturbed(config_id, dim, sweep_value, seed)
+    anchor = real_inf.run_anchor(config_id)
     eng.m2_reset()
-    return accuracy, sample_indices_md5, baseline_output_md5
+    return result.accuracy_pct, anchor.sample_indices_md5, anchor.baseline_output_md5
 
 
 def main() -> int:
@@ -154,7 +113,10 @@ def main() -> int:
     rows = []
     for sweep_value in SWEEP_RANGES[args.dim]:
         for seed in range(args.n_seed):
-            if sweep_value == 0.0 and seed == 0:
+            # Keep every anchor-point row truly unperturbed so the 7xN CSV
+            # shape stays regular without silently mixing anchor and sweep
+            # semantics at sweep_value=0.
+            if sweep_value == 0.0:
                 acc, idx_md5, base_md5 = run_inference_anchor(config_id)
             else:
                 acc, idx_md5, base_md5 = run_inference_perturbed(

@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 import snn_engine_multilayer as eng
+import m2_real_inference as real_inf
 
 
 HEADLINE_ACC = {
@@ -57,34 +57,33 @@ def check_byte_parity_flag() -> bool:
 
 
 def run_config_anchor(config_number: int) -> bool:
-    """Run anchor inference for one config; defer to existing engine
-    accuracy harness via subprocess if available, else stub.
-
-    NOTE: full-test-set anchor evaluation requires the per-config
-    inference driver (existing in audit-v2/python_multilayer/, e.g.
-    run_baseline_64to10.py for #1 or a CONV equivalent for #4).
-    This anchor_check delegates to those drivers. Codex close-out
-    autonomous run is responsible for wiring the right driver here
-    when it implements the full sweep.
-    """
+    """Run the real anchor inference path for one config."""
     headline = HEADLINE_ACC.get(config_number)
     if headline is None:
         print(f"[FAIL] unsupported config #{config_number}")
         return False
 
-    print(f"[info] Config #{config_number} headline accuracy: {headline}%")
-    print(f"[info] Anchor inference driver: TBD (Codex close-out wiring)")
-    print(f"[info] Tolerance: ±{TOLERANCE_PCT}% around headline")
-    print(f"[stub] Returning PASS as placeholder; replace with actual run")
+    config_id = {
+        1: real_inf.CONFIG_V1,
+        4: real_inf.CONFIG_LENET5,
+    }[config_number]
+    result = real_inf.run_anchor(config_id)
+    delta = abs(result.accuracy_pct - headline)
 
-    # Placeholder PASS — real implementation must:
-    # 1. Load Config #N's model.pt + sample bundle
-    # 2. Set M2_NONIDEALITY_OFF=True (already default)
-    # 3. Run inference on the canonical 100-sample split
-    # 4. Compute accuracy and assert |acc - headline| <= TOLERANCE_PCT
-    #
-    # The Codex close-out prompt has full edit authority to wire this
-    # to the real per-config inference driver in this same directory.
+    print(f"[info] Config #{config_number} headline accuracy: {headline:.2f}%")
+    print(f"[info] Real anchor accuracy: {result.accuracy_pct:.2f}%")
+    print(f"[info] Sample count: {len(result.sample_indices)}")
+    print(f"[info] sample_indices_md5: {result.sample_indices_md5}")
+    print(f"[info] baseline_output_md5: {result.baseline_output_md5}")
+    print(f"[info] Tolerance: ±{TOLERANCE_PCT}% around headline")
+
+    if delta > TOLERANCE_PCT:
+        print(
+            f"[FAIL] Config #{config_number}: anchor delta {delta:.2f}% "
+            f"exceeds tolerance ±{TOLERANCE_PCT}%"
+        )
+        return False
+    print(f"[ok]   Config #{config_number}: |Δ|={delta:.2f}% within tolerance")
     return True
 
 

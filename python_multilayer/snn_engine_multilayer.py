@@ -33,6 +33,7 @@ Integer ADC scale = ``(raw_sum * 255 + 960//2) // 960`` with clamp to [0, 255].
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Sequence
 
@@ -139,13 +140,15 @@ def m2_set_state(
 def _m2_seed(salt: str) -> int:
     """Deterministic per-seed offset; same (config, sweep, seed_base, salt)
     → same RNG stream across reruns."""
-    return abs(hash((
-        _M2_STATE["config_id"],
-        _M2_STATE["sweep_dim"],
-        _M2_STATE["sweep_value"],
-        _M2_STATE["seed_base"],
-        salt,
-    ))) % (2**31 - 1)
+    payload = "|".join([
+        str(_M2_STATE["config_id"]),
+        str(_M2_STATE["sweep_dim"]),
+        str(_M2_STATE["sweep_value"]),
+        str(_M2_STATE["seed_base"]),
+        str(salt),
+    ]).encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:8], "little") % (2**31 - 1)
 
 
 def _m2_apply_weight_perturbation(w: np.ndarray, polarity: str) -> np.ndarray:
