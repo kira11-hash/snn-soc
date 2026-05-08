@@ -1082,7 +1082,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Emit
         out_path = out_dir / f"{cfg.config_id}.yaml"
-        out_path.write_text(emit_yaml(manifest), encoding="utf-8")
+        with out_path.open("w", encoding="utf-8", newline="\n") as f:
+            f.write(emit_yaml(manifest))
         print(f"[ok]   {cfg.config_id} -> {out_path}")
 
     return 0 if overall_ok else 1
