@@ -31,12 +31,19 @@ FROZEN_UTC="${FROZEN_UTC:-2026-05-08T00:00:00Z}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+M2_ARGS=()
+if [ -f "$SOC_DESIGN/essay/exp_m2_envelope/sample_provenance.yaml" ]; then
+    echo "[verify] detected post-M2 artifacts; enabling --include-m2-refs"
+    M2_ARGS+=(--include-m2-refs)
+fi
+
 echo "[verify] regenerating manifests in $TMP_DIR (frozen-utc=$FROZEN_UTC)"
 python3 "$HERE/make_manifest.py" \
     --all \
     --frozen-utc "$FROZEN_UTC" \
     --out-dir "$TMP_DIR" \
-    --require-h1-artifacts
+    --require-h1-artifacts \
+    "${M2_ARGS[@]}"
 
 DRIFT=0
 for committed in "$MANIFESTS_DIR"/*.yaml; do
