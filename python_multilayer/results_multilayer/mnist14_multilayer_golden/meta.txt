@@ -1,0 +1,8 @@
+topology mnist_196_64_10
+dataset mnist
+target_size 14
+timesteps 64
+adc_bits 10
+pad_width 256
+num_samples 10
+selection_rule class-first one-per-class

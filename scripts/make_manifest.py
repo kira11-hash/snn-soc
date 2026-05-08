@@ -37,6 +37,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import zlib
@@ -130,10 +131,7 @@ def sha256_of_dir_tar(dir_path: Path, file_pattern_glob: str) -> str:
 def git_head_sha(worktree: Path) -> str:
     """Return short HEAD SHA for a worktree, or '<unknown>' if not a repo."""
     try:
-        out = subprocess.check_output(
-            ["git", "-C", str(worktree), "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-        )
+        out = _git_check_output(worktree, ["rev-parse", "--short", "HEAD"])
         return out.decode().strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "<unknown>"
@@ -141,10 +139,7 @@ def git_head_sha(worktree: Path) -> str:
 
 def git_branch(worktree: Path) -> str:
     try:
-        out = subprocess.check_output(
-            ["git", "-C", str(worktree), "rev-parse", "--abbrev-ref", "HEAD"],
-            stderr=subprocess.DEVNULL,
-        )
+        out = _git_check_output(worktree, ["rev-parse", "--abbrev-ref", "HEAD"])
         return out.decode().strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "<unknown>"
@@ -153,14 +148,64 @@ def git_branch(worktree: Path) -> str:
 def git_is_ancestor(worktree: Path, ancestor_sha: str, descendant_sha: str = "HEAD") -> bool:
     """Return True iff `ancestor_sha` is an ancestor of `descendant_sha` in `worktree`."""
     try:
-        rc = subprocess.call(
-            ["git", "-C", str(worktree),
-             "merge-base", "--is-ancestor", ancestor_sha, descendant_sha],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        rc = _git_call(
+            worktree,
+            ["merge-base", "--is-ancestor", ancestor_sha, descendant_sha],
         )
         return rc == 0
     except FileNotFoundError:
         return False
+
+
+def _git_command(worktree: Path, git_args: List[str]) -> List[str]:
+    """Return a git command that works for this worktree under Windows or WSL.
+
+    These repos are Windows worktrees whose `.git` files point at `D:/...`.
+    Native Linux git under WSL cannot resolve those pointers, so when a probe
+    fails we retry with Git for Windows (`git.exe`) plus a Windows-style path.
+    """
+    worktree_str = str(worktree)
+    native_cmd = ["git", "-C", worktree_str, *git_args]
+    native_rc = subprocess.call(
+        ["git", "-C", worktree_str, "rev-parse", "--git-dir"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if native_rc == 0:
+        return native_cmd
+
+    if os.environ.get("WSL_DISTRO_NAME"):
+        git_exe = shutil.which("git.exe")
+        if git_exe is None:
+            for candidate in (
+                "/mnt/c/Program Files/Git/cmd/git.exe",
+                "/mnt/c/Program Files/Git/bin/git.exe",
+            ):
+                if Path(candidate).exists():
+                    git_exe = candidate
+                    break
+        if git_exe is not None:
+            win_path = subprocess.check_output(
+                ["wslpath", "-w", worktree_str],
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+            return [git_exe, "-C", win_path, *git_args]
+    return native_cmd
+
+
+def _git_check_output(worktree: Path, git_args: List[str]) -> bytes:
+    return subprocess.check_output(
+        _git_command(worktree, git_args),
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _git_call(worktree: Path, git_args: List[str]) -> int:
+    return subprocess.call(
+        _git_command(worktree, git_args),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 # ── YAML emit (no external deps; deterministic key order) ─────────
@@ -757,18 +802,17 @@ def _collect_input_fmap(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             ),
         }
     if cfg.weight_format == ms.WEIGHT_FORMAT_FC:
-        bundle_dir = AUDIT_V2 / "python_multilayer" / "results_multilayer" / "fashion_multilayer_golden"
-        if not bundle_dir.exists():
-            bundle_dir = bundle_dir.parent  # fallback
+        bundle_name, script_name = _fc_bundle_info(cfg)
+        bundle_dir = AUDIT_V2 / "python_multilayer" / "results_multilayer" / bundle_name
         return {
             "sample_count": len(list(bundle_dir.glob("sample_*_wl_stream.hex"))) if bundle_dir.is_dir() else 0,
-            "sample_files_pattern": "audit-v2/python_multilayer/results_multilayer/fashion_multilayer_golden/sample_*_wl_stream.hex",
+            "sample_files_pattern": f"audit-v2/python_multilayer/results_multilayer/{bundle_name}/sample_*_wl_stream.hex",
             "sample_files_tar_sha256": sha256_of_dir_tar(bundle_dir, "sample_*_wl_stream.hex"),
             "producer": producer_block(
                 worktree_label="audit-v2",
                 head_sha=git_head_sha(AUDIT_V2),
                 require_h1=require_h1,
-                script="python_multilayer/gen_multilayer_fashion_golden.py",
+                script=script_name,
                 dataset_source=(
                     "MNIST official test split"
                     if cfg.dataset == "MNIST"
@@ -815,16 +859,17 @@ def _collect_python_golden(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             ),
         }
     if cfg.weight_format == ms.WEIGHT_FORMAT_FC:
-        bundle_dir = AUDIT_V2 / "python_multilayer" / "results_multilayer" / "fashion_multilayer_golden"
+        bundle_name, script_name = _fc_bundle_info(cfg)
+        bundle_dir = AUDIT_V2 / "python_multilayer" / "results_multilayer" / bundle_name
         return {
-            "bundle_path": "audit-v2/python_multilayer/results_multilayer/fashion_multilayer_golden/",
+            "bundle_path": f"audit-v2/python_multilayer/results_multilayer/{bundle_name}/",
             "files_pattern": "sample_*_counts.txt + sample_*_predicted.txt + sample_*_label.txt",
             "bundle_tar_sha256": sha256_of_dir_tar(bundle_dir, "sample_*"),
             "producer": producer_block(
                 worktree_label="audit-v2",
                 head_sha=git_head_sha(AUDIT_V2),
                 require_h1=require_h1,
-                script="python_multilayer/gen_multilayer_fashion_golden.py",
+                script=script_name,
             ),
         }
     sub = _config_dir_for(cfg)
@@ -920,18 +965,7 @@ def _build_path_eq_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
         "python_integer_reference_golden": _collect_python_golden(cfg, require_h1),
         "model_checkpoint": _collect_model_checkpoint(cfg, require_h1),
         "topologies_yaml": _collect_topologies_yaml(require_h1),
-        "cosim_byte_match_certificate": {
-            "cosim_log": "<sim/<tb>.log path; populated when cosim runs>",
-            "cosim_log_sha256": "<filled at cosim-run time>",
-            "pass_sentinel": "<TB-specific PASS line>",
-            "role": "100% byte match between RTL sim and python_integer_reference",
-            "producer": producer_block(
-                worktree_label="audit-v2",
-                head_sha=git_head_sha(AUDIT_V2),
-                require_h1=require_h1,
-                sim_script="<sim/run_<tb>.sh>",
-            ),
-        },
+        "cosim_byte_match_certificate": _collect_path_eq_certificate(cfg, require_h1),
     }
 
 
@@ -953,8 +987,77 @@ def _build_sim_only_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
         "python_integer_reference_golden": _collect_python_golden(cfg, require_h1),
         "rng_seeds": {"eval_seed": 42},
         "paper_disclosure": (
-            "sim-only (no board-verified bitstream); see paper §3 Table-1 "
+            "sim-only (no board-verified bitstream); see paper §3 Table-3 "
             "footnote on multi-tile FC scope"
+        ),
+    }
+
+
+def _fc_bundle_info(cfg: ms.ConfigEntry) -> tuple[str, str]:
+    """Return (bundle_dir_name, producer_script) for FC config-specific bundles."""
+    mapping = {
+        "v2b_fc_fashion14_2L": (
+            "fashion_multilayer_golden",
+            "python_multilayer/gen_multilayer_fashion_golden.py",
+        ),
+        "v2b_fc_mnist14_2L": (
+            "mnist14_multilayer_golden",
+            "python_multilayer/gen_multilayer_mnist14_golden.py",
+        ),
+        "v2b_fc_fashion28_2L": (
+            "fashion28_multilayer_golden",
+            "python_multilayer/gen_multilayer_fashion28_golden.py",
+        ),
+    }
+    return mapping.get(
+        cfg.config_id,
+        (
+            "fashion_multilayer_golden",
+            "python_multilayer/gen_multilayer_fashion_golden.py",
+        ),
+    )
+
+
+def _collect_path_eq_certificate(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
+    """Best available preserved cosim certificate for path-equivalent configs."""
+    if cfg.config_id == "v2b_fc_mnist14_2L":
+        log_path = AUDIT_V2 / "python_multilayer" / "results_multilayer" / "mnist14_multilayer_golden" / "cosim_full_log.txt"
+        return {
+            "cosim_log": str(log_path.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "cosim_log_sha256": sha256_of_file(log_path) if log_path.exists() else "<missing>",
+            "pass_sentinel": "AXI_ARM_COSIM_RESIDENT_14X14_TB_PASS",
+            "role": "100% byte match between RTL sim and python_integer_reference",
+            "producer": producer_block(
+                worktree_label="audit-v2",
+                head_sha=git_head_sha(AUDIT_V2),
+                require_h1=require_h1,
+                sim_script="sim/run_axi_arm_cosim_resident_14x14.sh +GOLDEN_DIR=../python_multilayer/results_multilayer/mnist14_multilayer_golden",
+            ),
+        }
+    if cfg.config_id == "v2b_lenet5_fashion_28x28":
+        log_path = AUDIT_V2 / "python_multilayer" / "results_conv" / "lenet5_fashion" / "cosim_full_log.txt"
+        return {
+            "cosim_log": str(log_path.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "cosim_log_sha256": sha256_of_file(log_path) if log_path.exists() else "<missing>",
+            "pass_sentinel": "LENET5_COSIM_TB_PASS mode=--full bundle=lenet5_fashion samples=10",
+            "role": "100% byte match between RTL sim and python_integer_reference",
+            "producer": producer_block(
+                worktree_label="audit-v2",
+                head_sha=git_head_sha(AUDIT_V2),
+                require_h1=require_h1,
+                sim_script="archived lenet5 full cosim bundle (see cosim_full_log.txt)",
+            ),
+        }
+    return {
+        "cosim_log": "<sim/<tb>.log path; populated when cosim runs>",
+        "cosim_log_sha256": "<filled at cosim-run time>",
+        "pass_sentinel": "<TB-specific PASS line>",
+        "role": "100% byte match between RTL sim and python_integer_reference",
+        "producer": producer_block(
+            worktree_label="audit-v2",
+            head_sha=git_head_sha(AUDIT_V2),
+            require_h1=require_h1,
+            sim_script="<sim/run_<tb>.sh>",
         ),
     }
 

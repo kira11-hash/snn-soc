@@ -269,6 +269,14 @@ module axi_arm_cosim_resident_14x14_tb;
 
   // ── Golden loader ────────────────────────────────────────────────
   string golden_dir = "../python_multilayer/results_multilayer/fashion_multilayer_golden";
+  string golden_dir_plusarg;
+
+  initial begin
+    if ($value$plusargs("GOLDEN_DIR=%s", golden_dir_plusarg)) begin
+      golden_dir = golden_dir_plusarg;
+      $display("[TB] overriding golden_dir=%s", golden_dir);
+    end
+  end
 
   task automatic load_sample_golden(input int k);
     string path;

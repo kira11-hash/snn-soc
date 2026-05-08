@@ -104,7 +104,24 @@ CC_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-gcc"
 SIZE_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-size"
 NM_BIN="$TOOLCHAIN_BIN/aarch64-none-elf-nm"
 
-if [ ! -e "${CC_BIN}.exe" ] && [ ! -e "${CC_BIN}" ]; then
+prefer_exe_if_needed() {
+  local tool="$1"
+  if [ -e "$tool" ]; then
+    printf '%s\n' "$tool"
+    return 0
+  fi
+  if [ -e "${tool}.exe" ]; then
+    printf '%s\n' "${tool}.exe"
+    return 0
+  fi
+  printf '%s\n' "$tool"
+}
+
+CC_BIN="$(prefer_exe_if_needed "$CC_BIN")"
+SIZE_BIN="$(prefer_exe_if_needed "$SIZE_BIN")"
+NM_BIN="$(prefer_exe_if_needed "$NM_BIN")"
+
+if [ ! -e "$CC_BIN" ]; then
   echo "[FATAL] 找不到 aarch64-none-elf-gcc：$CC_BIN" >&2
   echo "         请把 TOOLCHAIN_BIN 设到 Vitis aarch64 bin 目录。" >&2
   if is_wsl_shell; then

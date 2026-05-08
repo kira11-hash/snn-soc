@@ -1,0 +1,25 @@
+[TB] overriding golden_dir=../python_multilayer/results_multilayer/mnist14_multilayer_golden
+[TB] axi_arm_cosim_resident_14x14_tb start (10 samples, AXI-Lite path)
+[TB] AXI round-trip self-test OK
+[TB] ---- sample 0 (AXI path) ----
+[PASS] sample 0 predicted=0 counts=[63 0 57 0 0 0 56 1 0 1]
+[TB] ---- sample 1 (AXI path) ----
+[PASS] sample 1 predicted=6 counts=[0 62 0 0 0 60 63 0 0 0]
+[TB] ---- sample 2 (AXI path) ----
+[PASS] sample 2 predicted=2 counts=[0 0 63 0 0 0 63 0 0 0]
+[TB] ---- sample 3 (AXI path) ----
+[PASS] sample 3 predicted=3 counts=[0 0 60 63 0 62 0 0 57 0]
+[TB] ---- sample 4 (AXI path) ----
+[PASS] sample 4 predicted=4 counts=[0 0 1 0 63 0 0 1 0 1]
+[TB] ---- sample 5 (AXI path) ----
+[PASS] sample 5 predicted=6 counts=[0 0 6 0 0 3 63 0 2 0]
+[TB] ---- sample 6 (AXI path) ----
+[PASS] sample 6 predicted=6 counts=[0 0 0 0 0 0 63 0 0 25]
+[TB] ---- sample 7 (AXI path) ----
+[PASS] sample 7 predicted=7 counts=[0 0 0 0 0 0 0 63 0 0]
+[TB] ---- sample 8 (AXI path) ----
+[PASS] sample 8 predicted=2 counts=[0 0 57 1 0 0 0 0 39 0]
+[TB] ---- sample 9 (AXI path) ----
+[PASS] sample 9 predicted=9 counts=[0 0 1 32 1 56 0 0 0 63]
+AXI_ARM_COSIM_RESIDENT_14X14_TB_PASS
+../tb/axi_arm_cosim_resident_14x14_tb.sv:389: $finish called at 20706175000 (1ps)

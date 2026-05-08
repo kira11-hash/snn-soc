@@ -310,6 +310,14 @@ module fw_cosim_resident_14x14_tb;
 
   logic [P_N_IN-1:0] sample_wl_stream [0:T-1];
   string golden_dir = "../python_multilayer/results_multilayer/fashion_multilayer_golden";
+  string golden_dir_plusarg;
+
+  initial begin
+    if ($value$plusargs("GOLDEN_DIR=%s", golden_dir_plusarg)) begin
+      golden_dir = golden_dir_plusarg;
+      $display("[TB] overriding golden_dir=%s", golden_dir);
+    end
+  end
 
   task automatic load_sample_golden(input int k);
     string path;

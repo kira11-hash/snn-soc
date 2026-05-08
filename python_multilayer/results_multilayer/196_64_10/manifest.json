@@ -1,0 +1,47 @@
+{
+  "topology_name": "196_64_10",
+  "schema_version": "1.0",
+  "role": "v2_demo",
+  "num_fc_stages": 2,
+  "input_dim": 196,
+  "generated_at": "2026-05-08T10:07:51.771194+00:00",
+  "quantization": {
+    "weight_bits": 4,
+    "use_device_levels": true
+  },
+  "stages": [
+    {
+      "layer": 0,
+      "in_dim": 196,
+      "out_dim": 64,
+      "bl_scan_count": 128,
+      "wl_count": 196,
+      "timesteps": 1,
+      "use_bitplane": false,
+      "threshold": 16,
+      "weight_pos_hex": "weights/L0_pos.hex",
+      "weight_neg_hex": "weights/L0_neg.hex",
+      "weight_pos_sha256": "08514e43bcc5acfcda1b7b54f010f9d5b83b7b5e723fa2aeb7b4394fc7f5b45e",
+      "weight_neg_sha256": "29d0799b83c88d5487393477c42d8b4e16a01421abb0ef016d91059d8e3310ac",
+      "nonzero_cells": 12525,
+      "physical_cells": 25088
+    },
+    {
+      "layer": 1,
+      "in_dim": 64,
+      "out_dim": 10,
+      "bl_scan_count": 20,
+      "wl_count": 64,
+      "timesteps": 1,
+      "use_bitplane": false,
+      "threshold": 8,
+      "weight_pos_hex": "weights/L1_pos.hex",
+      "weight_neg_hex": "weights/L1_neg.hex",
+      "weight_pos_sha256": "ba133fe49536efdf39c21c39d9b01cc96fc9573b6f9881fd6bf48bae62a1d125",
+      "weight_neg_sha256": "92cd69158abeef13e4bb7b832c371ec8bd9fbeb64ce16c74c27781ea2f05bd21",
+      "nonzero_cells": 640,
+      "physical_cells": 1280
+    }
+  ],
+  "total_nonzero_cells": 13165
+}

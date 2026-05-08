@@ -1,0 +1,8 @@
+topology 784_64_10
+dataset fashion_mnist
+target_size 28
+timesteps 64
+adc_bits 10
+pad_width 1024
+num_samples 10
+selection_rule class-first one-per-class
