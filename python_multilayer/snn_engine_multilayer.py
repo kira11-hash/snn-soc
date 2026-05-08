@@ -49,20 +49,211 @@ from topologies import StageConfig, TopologyConfig
 logger = logging.getLogger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────
+# M2 Prior-Driven Nonideality Sensitivity Envelope hooks
+# (per essay/m2_design_2026_05_07.md round-2-NIT-inline)
+#
+# Default state: M2_NONIDEALITY_OFF=True, all 4 sweep knobs = 0.0.
+# Under default state every conditional below short-circuits and
+# the MAC functions are byte-identical to pre-M2 behavior.
+# `m2_anchor_check.py` enforces this with a ±0.5% headline-accuracy
+# regression on Config #1 + #4.
+#
+# A sweep driver (`m2_envelope_sweep.py`) toggles the flag to False
+# AT THE START OF EACH NON-ANCHOR ROW (logging the explicit value/
+# dim/seed line per Codex round-2 NIT M2-R2-N1) and supplies the
+# active dim's sweep value via `m2_set_state(...)`. The anchor row
+# leaves the flag at True and logs `M2_NONIDEALITY_OFF=True (anchor)`.
+# ─────────────────────────────────────────────────────────────────
+
+M2_NONIDEALITY_OFF: bool = True
+
+_M2_STATE = {
+    "drift_alpha": 0.0,                # §2.2 — applied to weight matrix before MAC
+    "sigma_read_lsb": 0.0,             # §2.3 — Gaussian noise on raw_sum (pre-ADC)
+    "sigma_d2d_lognormal": 0.0,        # §2.4 — log-normal weight perturbation (one-shot per seed)
+    "sigma_adc_offset_lsb": 0.0,       # §2.5 — per-channel ADC offset (post-ADC LSB-domain)
+    "seed_base": 0,
+    "config_id": "",
+    "sweep_dim": "",                   # "drift" / "read" / "d2d" / "adc"
+    "sweep_value": 0.0,
+    # Lazy caches: filled on first MAC call after m2_set_state(...)
+    "_d2d_cache_pos": None,            # dict[shape] -> multiplier ndarray
+    "_d2d_cache_neg": None,
+    "_adc_offset_cache": None,         # dict[out_dim] -> offset ndarray
+}
+
+
+def m2_reset() -> None:
+    """Restore byte-parity defaults — anchor row uses this."""
+    global M2_NONIDEALITY_OFF
+    M2_NONIDEALITY_OFF = True
+    _M2_STATE.update({
+        "drift_alpha": 0.0,
+        "sigma_read_lsb": 0.0,
+        "sigma_d2d_lognormal": 0.0,
+        "sigma_adc_offset_lsb": 0.0,
+        "seed_base": 0,
+        "config_id": "",
+        "sweep_dim": "",
+        "sweep_value": 0.0,
+        "_d2d_cache_pos": None,
+        "_d2d_cache_neg": None,
+        "_adc_offset_cache": None,
+    })
+
+
+def m2_set_state(
+    *,
+    config_id: str,
+    sweep_dim: str,
+    sweep_value: float,
+    seed_base: int,
+    drift_alpha: float = 0.0,
+    sigma_read_lsb: float = 0.0,
+    sigma_d2d_lognormal: float = 0.0,
+    sigma_adc_offset_lsb: float = 0.0,
+) -> None:
+    """Sweep driver calls this at start of each non-anchor iteration.
+
+    After return: M2_NONIDEALITY_OFF=False. The four knobs are
+    independent — single-axis sweeps set exactly one to non-zero.
+    """
+    global M2_NONIDEALITY_OFF
+    M2_NONIDEALITY_OFF = False
+    _M2_STATE.update({
+        "drift_alpha": float(drift_alpha),
+        "sigma_read_lsb": float(sigma_read_lsb),
+        "sigma_d2d_lognormal": float(sigma_d2d_lognormal),
+        "sigma_adc_offset_lsb": float(sigma_adc_offset_lsb),
+        "seed_base": int(seed_base),
+        "config_id": str(config_id),
+        "sweep_dim": str(sweep_dim),
+        "sweep_value": float(sweep_value),
+        "_d2d_cache_pos": {},
+        "_d2d_cache_neg": {},
+        "_adc_offset_cache": {},
+    })
+
+
+def _m2_seed(salt: str) -> int:
+    """Deterministic per-seed offset; same (config, sweep, seed_base, salt)
+    → same RNG stream across reruns."""
+    return abs(hash((
+        _M2_STATE["config_id"],
+        _M2_STATE["sweep_dim"],
+        _M2_STATE["sweep_value"],
+        _M2_STATE["seed_base"],
+        salt,
+    ))) % (2**31 - 1)
+
+
+def _m2_apply_weight_perturbation(w: np.ndarray, polarity: str) -> np.ndarray:
+    """Apply drift + D2D to a weight matrix once per (sweep, seed, polarity).
+
+    Cached in _M2_STATE so the SAME D2D pattern persists across all
+    samples in one inference run (per §2.4).
+    """
+    if M2_NONIDEALITY_OFF:
+        return w
+    drift = _M2_STATE["drift_alpha"]
+    d2d_sigma = _M2_STATE["sigma_d2d_lognormal"]
+    if drift == 0.0 and d2d_sigma == 0.0:
+        return w
+    cache_key = (w.shape, polarity)
+    cache = _M2_STATE[f"_d2d_cache_{polarity}"]
+    if cache is None:
+        return w
+    if cache_key in cache:
+        multiplier = cache[cache_key]
+    else:
+        rng = np.random.default_rng(seed=_m2_seed(f"weight_{polarity}"))
+        # D2D: log-normal multiplier per cell
+        if d2d_sigma > 0.0:
+            multiplier = np.exp(rng.normal(0.0, d2d_sigma, size=w.shape))
+        else:
+            multiplier = np.ones(w.shape, dtype=np.float64)
+        # Drift: G(t) = G(0) * (1 + t/tau)^alpha  with t/tau = 1.0 fixed
+        if drift != 0.0:
+            multiplier = multiplier * ((1.0 + 1.0) ** drift)
+        cache[cache_key] = multiplier
+    perturbed = (w.astype(np.float64) * multiplier).round().astype(w.dtype)
+    return perturbed
+
+
+def _m2_apply_read_noise(pos_sum: np.ndarray, neg_sum: np.ndarray,
+                         sum_max: int, adc_bits: int,
+                         stage_id: int = 0, sample_id: int = 0,
+                         t_idx: int = 0) -> tuple:
+    """§2.3 — additive Gaussian on raw MAC sum (pre-ADC), in LSB units."""
+    if M2_NONIDEALITY_OFF:
+        return pos_sum, neg_sum
+    sigma_lsb = _M2_STATE["sigma_read_lsb"]
+    if sigma_lsb == 0.0:
+        return pos_sum, neg_sum
+    adc_max = (1 << adc_bits) - 1
+    raw_sigma = sigma_lsb * sum_max / max(adc_max, 1)
+    rng = np.random.default_rng(seed=_m2_seed(f"read_{stage_id}_{sample_id}_{t_idx}"))
+    pos_noise = rng.normal(0.0, raw_sigma, size=pos_sum.shape).round().astype(np.int64)
+    neg_noise = rng.normal(0.0, raw_sigma, size=neg_sum.shape).round().astype(np.int64)
+    return pos_sum + pos_noise, neg_sum + neg_noise
+
+
+def _m2_apply_adc_offset(adc_pos: np.ndarray, adc_neg: np.ndarray,
+                         adc_bits: int) -> tuple:
+    """§2.5 — per-output-channel offset, sampled once per seed."""
+    if M2_NONIDEALITY_OFF:
+        return adc_pos, adc_neg
+    sigma_lsb = _M2_STATE["sigma_adc_offset_lsb"]
+    if sigma_lsb == 0.0:
+        return adc_pos, adc_neg
+    cache = _M2_STATE["_adc_offset_cache"]
+    if cache is None:
+        return adc_pos, adc_neg
+    out_dim = adc_pos.shape[0]
+    if out_dim not in cache:
+        rng = np.random.default_rng(seed=_m2_seed(f"adc_offset_{out_dim}"))
+        cache[out_dim] = rng.normal(0.0, sigma_lsb, size=out_dim).round().astype(np.int64)
+    offset = cache[out_dim]
+    adc_max = (1 << adc_bits) - 1
+    new_pos = np.clip(adc_pos + offset, 0, adc_max)
+    new_neg = np.clip(adc_neg + offset, 0, adc_max)
+    return new_pos, new_neg
+
+
 def _cim_mac_scheme_b_integer(
     wl_spike: np.ndarray,       # int vector, shape [in_dim], values 0/1
     w_pos: np.ndarray,          # int matrix, shape [in_dim, out_dim]
     w_neg: np.ndarray,
+    *,
+    stage_id: int = 0,
+    sample_id: int = 0,
+    t_idx: int = 0,
 ) -> np.ndarray:
     """Scheme-B differential MAC + V1 integer ADC (SUM_MAX=960 frozen).
 
     Used only by legacy count-bitplane (V1 / 8×8) path. V2 streamed rate uses
     ``_cim_mac_scheme_b_v2`` with parameterized sum_max/adc_bits.
+
+    M2 hooks (round-2-NIT-inline M2-R2-N2): when M2_NONIDEALITY_OFF
+    is False, drift/D2D apply to (w_pos, w_neg) before MAC; read-noise
+    applies between pos_sum/neg_sum and rtl_adc_scale; ADC offset
+    applies post-rtl_adc_scale, all using V1-frozen SUM_MAX=960 +
+    8-bit ADC_MAX=255 from `_vendored_from_v1.integer_reference`. With
+    flag at True default, all hooks short-circuit and this function is
+    byte-identical to pre-M2 behavior.
     """
+    w_pos = _m2_apply_weight_perturbation(w_pos, "pos")
+    w_neg = _m2_apply_weight_perturbation(w_neg, "neg")
     pos_sum = (wl_spike @ w_pos).astype(np.int64)
     neg_sum = (wl_spike @ w_neg).astype(np.int64)
+    pos_sum, neg_sum = _m2_apply_read_noise(
+        pos_sum, neg_sum, sum_max=SUM_MAX, adc_bits=8,
+        stage_id=stage_id, sample_id=sample_id, t_idx=t_idx,
+    )
     adc_pos = np.array([rtl_adc_scale(int(v)) for v in pos_sum], dtype=np.int64)
     adc_neg = np.array([rtl_adc_scale(int(v)) for v in neg_sum], dtype=np.int64)
+    adc_pos, adc_neg = _m2_apply_adc_offset(adc_pos, adc_neg, adc_bits=8)
     return adc_pos - adc_neg
 
 
@@ -72,15 +263,32 @@ def _cim_mac_scheme_b_v2(
     w_neg: np.ndarray,
     sum_max: int,
     adc_bits: int = 8,
+    *,
+    stage_id: int = 0,
+    sample_id: int = 0,
+    t_idx: int = 0,
 ) -> np.ndarray:
     """V2 Scheme-B differential MAC + parameterized ADC for streamed rate.
 
     Uses ``rtl_adc_scale_v2(sum_max=sum_max, adc_bits=adc_bits)`` so per-stage
     ``active_wl`` or ``array`` full-scale policy can be honored, and ADC can
     go 10/12-bit without changing V1 vendored code.
+
+    M2 hooks (round-2-NIT-inline + design §2.2-§2.5): when
+    M2_NONIDEALITY_OFF is False, drift/D2D apply to (w_pos, w_neg)
+    before MAC; read-noise applies pre-ADC on the raw_sums; ADC offset
+    applies post-ADC LSB-domain. With flag at True default, all hooks
+    short-circuit and this function is byte-identical to pre-M2
+    behavior (preserved by m2_anchor_check.py regression).
     """
+    w_pos = _m2_apply_weight_perturbation(w_pos, "pos")
+    w_neg = _m2_apply_weight_perturbation(w_neg, "neg")
     pos_sum = (wl_spike @ w_pos).astype(np.int64)
     neg_sum = (wl_spike @ w_neg).astype(np.int64)
+    pos_sum, neg_sum = _m2_apply_read_noise(
+        pos_sum, neg_sum, sum_max=sum_max, adc_bits=adc_bits,
+        stage_id=stage_id, sample_id=sample_id, t_idx=t_idx,
+    )
     adc_pos = np.array(
         [rtl_adc_scale_v2(int(v), sum_max=sum_max, adc_bits=adc_bits) for v in pos_sum],
         dtype=np.int64,
@@ -89,6 +297,7 @@ def _cim_mac_scheme_b_v2(
         [rtl_adc_scale_v2(int(v), sum_max=sum_max, adc_bits=adc_bits) for v in neg_sum],
         dtype=np.int64,
     )
+    adc_pos, adc_neg = _m2_apply_adc_offset(adc_pos, adc_neg, adc_bits=adc_bits)
     return adc_pos - adc_neg
 
 
