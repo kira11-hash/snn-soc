@@ -90,6 +90,22 @@ class RunResult:
     def baseline_output_md5(self) -> str:
         return _md5_json([list(x) for x in self.output_counts])
 
+    @property
+    def correct_count(self) -> int:
+        """Number of samples whose predicted class matches the label.
+
+        Together with `total_count` lets a re-plotter compute binomial
+        confidence intervals or alternative metrics without going back
+        to the raw inference run. Per user 2026-05-08 (Q4 SCI replot
+        requirement).
+        """
+        return int(sum(int(p == y) for p, y in zip(self.predictions, self.labels)))
+
+    @property
+    def total_count(self) -> int:
+        """Number of samples evaluated this run (= len(sample_indices))."""
+        return int(len(self.sample_indices))
+
 
 def _stable_seed(*parts: object) -> int:
     payload = json.dumps(parts, ensure_ascii=False, sort_keys=False, default=str)

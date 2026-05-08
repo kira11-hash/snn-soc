@@ -64,16 +64,25 @@ CONFIG_LABELS = {"1": real_inf.CONFIG_V1, "4": real_inf.CONFIG_LENET5}
 
 
 def run_inference_anchor(config_id: str) -> tuple:
-    """Run one anchor inference (M2_NONIDEALITY_OFF=True, all knobs 0)."""
+    """Run one anchor inference (M2_NONIDEALITY_OFF=True, all knobs 0).
+
+    Returns: (accuracy_pct, correct_count, total_count,
+              sample_indices_md5, baseline_output_md5).
+    """
     eng.m2_reset()
     print(f"M2_NONIDEALITY_OFF=True (anchor) config_id={config_id}")
     result = real_inf.run_anchor(config_id)
-    return result.accuracy_pct, result.sample_indices_md5, result.baseline_output_md5
+    return (result.accuracy_pct, result.correct_count, result.total_count,
+            result.sample_indices_md5, result.baseline_output_md5)
 
 
 def run_inference_perturbed(config_id: str, dim: str,
                             sweep_value: float, seed: int) -> tuple:
-    """Run one perturbed inference."""
+    """Run one perturbed inference.
+
+    Returns: (accuracy_pct, correct_count, total_count,
+              sample_indices_md5, baseline_output_md5).
+    """
     knob_kwargs = {
         "drift": {"drift_alpha": sweep_value},
         "read":  {"sigma_read_lsb": sweep_value},
@@ -91,7 +100,8 @@ def run_inference_perturbed(config_id: str, dim: str,
     result = real_inf.run_perturbed(config_id, dim, sweep_value, seed)
     anchor = real_inf.run_anchor(config_id)
     eng.m2_reset()
-    return result.accuracy_pct, anchor.sample_indices_md5, anchor.baseline_output_md5
+    return (result.accuracy_pct, result.correct_count, result.total_count,
+            anchor.sample_indices_md5, anchor.baseline_output_md5)
 
 
 def main() -> int:
@@ -117,15 +127,21 @@ def main() -> int:
             # shape stays regular without silently mixing anchor and sweep
             # semantics at sweep_value=0.
             if sweep_value == 0.0:
-                acc, idx_md5, base_md5 = run_inference_anchor(config_id)
+                acc, correct, total, idx_md5, base_md5 = run_inference_anchor(config_id)
             else:
-                acc, idx_md5, base_md5 = run_inference_perturbed(
+                acc, correct, total, idx_md5, base_md5 = run_inference_perturbed(
                     config_id, args.dim, sweep_value, seed
                 )
+            # Column order (per user 2026-05-08 Q4 SCI replot requirement):
+            #   - correct_count + total_count immediately after seed so a
+            #     re-plotter can recompute accuracy / Wilson CI / cumulative
+            #     metrics without parsing the float `accuracy` field.
             rows.append({
                 "dim": args.dim,
                 "sweep_value": sweep_value,
                 "seed": seed,
+                "correct_count": correct,
+                "total_count": total,
                 "accuracy": acc,
                 "sample_indices_md5": idx_md5,
                 "baseline_output_md5": base_md5,
