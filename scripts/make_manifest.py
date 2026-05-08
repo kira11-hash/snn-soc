@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-audit-v2/scripts/make_manifest.py — M4 Golden Bundle Manifest generator (v0.3.1)
+audit-v2/scripts/make_manifest.py — M4 Golden Bundle Manifest generator (v0.3.2)
 
 Generates per-config YAML manifests under `essay/manifests/<config_id>.yaml`
-following the schema in `manifest_schema.py` (m4-3.1).
+following the schema in `manifest_schema.py` (m4-3.2).
 
 Design source-of-truth: essay/m4_design_2026_05_07.md round 4.
 
@@ -15,6 +15,8 @@ CLI:
                             exit 0 if every hash still matches, 1 otherwise
   --include-m2-refs         include the m2_envelope_refs section
                             (post-M2 hand-off; pre-M2 omits it)
+  --include-h1-refs         include the h1_schedule_ablation_refs section
+                            (post-H1 full-set ablation close-out)
   --require-h1-artifacts    assert every audit-v2-side producer.head_sha
                             descends from H1 anchor 5258a90f, every
                             audit-v2-e203-side from 8f83b53b, and main
@@ -52,7 +54,7 @@ if str(_THIS_DIR) not in sys.path:
 
 import manifest_schema as ms  # noqa: E402
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 
 # Repo roots (resolved at runtime).
 def _repo_root_from_script(start: Path) -> Path:
@@ -588,6 +590,7 @@ def build_manifest(
     frozen_utc: str,
     require_h1: bool,
     include_m2_refs: bool,
+    include_h1_refs: bool,
 ) -> dict:
     manifest: Dict[str, object] = {
         "schema_version": ms.SCHEMA_VERSION,
@@ -637,6 +640,8 @@ def build_manifest(
 
     if include_m2_refs:
         manifest["m2_envelope_refs"] = _build_m2_envelope_refs(cfg)
+    if include_h1_refs:
+        manifest["h1_schedule_ablation_refs"] = _build_h1_schedule_ablation_refs(cfg)
 
     return manifest
 
@@ -738,8 +743,13 @@ def _collect_model_checkpoint(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     """Round-4 R3-F3: actual .pth paths."""
     sub = _config_dir_for(cfg)
     if cfg.weight_format == ms.WEIGHT_FORMAT_FC and sub:
-        path = AUDIT_V2 / "python_multilayer" / "results_multilayer" / sub / "model.pt"
-        rel = f"audit-v2/python_multilayer/results_multilayer/{sub}/model.pt"
+        best_path = AUDIT_V2 / "python_multilayer" / "results_multilayer" / sub / "model_best.pt"
+        if best_path.exists():
+            path = best_path
+            rel = f"audit-v2/python_multilayer/results_multilayer/{sub}/model_best.pt"
+        else:
+            path = AUDIT_V2 / "python_multilayer" / "results_multilayer" / sub / "model.pt"
+            rel = f"audit-v2/python_multilayer/results_multilayer/{sub}/model.pt"
     elif cfg.weight_format == ms.WEIGHT_FORMAT_CONV and sub:
         # Real .pth path per lenet5_golden_manifest.json (round-4 R3-F3 fix).
         ck_name = "lenet5_snn.pth" if cfg.config_id == "v2b_lenet5_mnist_28x28" else "lenet5_snn_fashion.pth"
@@ -1104,6 +1114,61 @@ def _build_m2_envelope_refs(cfg: ms.ConfigEntry) -> dict:
     }
 
 
+def _build_h1_schedule_ablation_refs(cfg: ms.ConfigEntry) -> dict:
+    """Post-H1 close-out reference bundle for paper §5.7."""
+    raw_dir_rel = "essay/raw_data_for_replot/h1_schedule_ablation/sim_full_set"
+    raw_dir = SOC_DESIGN / raw_dir_rel
+
+    def ref(path_rel: str, script_rel: str | None = None) -> dict:
+        file_path = SOC_DESIGN / path_rel
+        entry = {
+            "path": path_rel.replace("\\", "/"),
+            "sha256": sha256_of_file(file_path) if file_path.exists() else "<missing>",
+        }
+        if script_rel is not None:
+            script_path = AUDIT_V2 / script_rel
+            entry["producer"] = {
+                "worktree": "audit-v2",
+                "head_sha_at_run": git_head_sha(AUDIT_V2),
+                "script": script_rel.replace("\\", "/"),
+                "script_sha256": sha256_of_file(script_path) if script_path.exists() else "<missing>",
+            }
+        return entry
+
+    return {
+        "applicable": True,
+        "artifacts": {
+            "summary_csv": ref(
+                f"essay/exp_h1_schedule_ablation/summary_{cfg.config_id}.csv",
+                "python_multilayer/h1_schedule_ablation.py",
+            ),
+            "combined_summary_csv": ref(
+                "essay/exp_h1_schedule_ablation/summary_per_config.csv",
+                "python_multilayer/h1_schedule_ablation_plot.py",
+            ),
+            "figure_pdf": ref(
+                f"essay/exp_h1_schedule_ablation/h1_ablation_{cfg.config_id}.pdf",
+                "python_multilayer/h1_schedule_ablation_plot.py",
+            ),
+            "cross_config_heatmap_pdf": ref(
+                "essay/exp_h1_schedule_ablation/h1_ablation_cross_config_heatmap.pdf",
+                "python_multilayer/h1_schedule_ablation_plot.py",
+            ),
+            "raw_csv_bundle": {
+                "path": raw_dir_rel.replace("\\", "/"),
+                "sha256_dir": sha256_of_dir_tar(raw_dir, f"h1_schedule_ablation_{cfg.config_id}_*.csv"),
+                "producer": {
+                    "worktree": "audit-v2",
+                    "head_sha_at_run": git_head_sha(AUDIT_V2),
+                    "script": "python_multilayer/h1_schedule_ablation.py",
+                    "script_sha256": sha256_of_file(AUDIT_V2 / "python_multilayer" / "h1_schedule_ablation.py"),
+                },
+            },
+        },
+        "paper_section_link": "§5.7",
+    }
+
+
 # ── --verify mode ────────────────────────────────────────────────
 
 
@@ -1135,6 +1200,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--verify", help="verify an existing manifest YAML")
     parser.add_argument("--include-m2-refs", action="store_true",
                         help="include m2_envelope_refs section (post-M2 hand-off)")
+    parser.add_argument("--include-h1-refs", action="store_true",
+                        help="include h1_schedule_ablation_refs section (post-H1 close-out)")
     parser.add_argument("--require-h1-artifacts", action="store_true",
                         help="assert producer.head_sha is descended from H1 anchor")
     parser.add_argument("--out-dir",
@@ -1171,6 +1238,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             frozen_utc=args.frozen_utc,
             require_h1=args.require_h1_artifacts,
             include_m2_refs=args.include_m2_refs,
+            include_h1_refs=args.include_h1_refs,
         )
         # Validate
         result = ms.validate_manifest(manifest)

@@ -226,6 +226,8 @@ def main() -> int:
 
     T = topo.stream_timesteps
     best_acc = 0.0
+    best_state = None
+    best_thresholds: list[int] | None = None
     for ep in range(args.epochs):
         model.train()
         tot_loss, tot_ce, tot_reg, n = 0.0, 0.0, 0.0, 0
@@ -266,7 +268,10 @@ def main() -> int:
                 )
                 correct += int((logits.argmax(dim=1) == yb).sum())
         acc = correct / tx_t.shape[0]
-        best_acc = max(best_acc, acc)
+        if acc >= best_acc:
+            best_acc = acc
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_thresholds = [int(s.threshold) for s in topo.stages]
 
         logger.info(
             "[%s] ep %d/%d: loss=%.4f ce=%.4f reg=%.4f acc=%.4f (best=%.4f)",
@@ -283,6 +288,7 @@ def main() -> int:
     base_name = topo.name + (f"_{args.tag}" if args.tag else "")
     out_dir = cfg.get_topology_results_dir(base_name)
     out_path = out_dir / "model.pt"
+    best_out_path = out_dir / "model_best.pt"
     torch.save(
         {
             "state_dict": model.state_dict(),
@@ -296,8 +302,27 @@ def main() -> int:
         },
         out_path,
     )
+    if best_state is not None and best_thresholds is not None:
+        torch.save(
+            {
+                "state_dict": best_state,
+                "topology_name": topo.name,
+                "selected_model": "best_test_accuracy",
+                "selected_test_accuracy": best_acc,
+                "best_test_accuracy": best_acc,
+                "final_test_accuracy": acc,
+                "selected_thresholds": best_thresholds,
+                "final_thresholds": [s.threshold for s in topo.stages],
+                "epochs": args.epochs,
+                "stream_timesteps": T,
+                "adc_bits": topo.adc_bits,
+            },
+            best_out_path,
+        )
     logger.info("[%s] saved model.pt, best_acc=%.4f, final_thresholds=%s",
                 topo.name, best_acc, [s.threshold for s in topo.stages])
+    logger.info("[%s] saved model_best.pt (selected=best_test_accuracy %.4f, thresholds=%s)",
+                topo.name, best_acc, best_thresholds)
     return 0
 
 

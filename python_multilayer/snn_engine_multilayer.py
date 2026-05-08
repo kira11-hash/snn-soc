@@ -85,10 +85,87 @@ _M2_STATE = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────
+# H1 Per-Layer LIF Schedule hooks
+#
+# Default state: disabled. All stages use their topology-default threshold
+# and soft-reset semantics, preserving byte-parity with the pre-H1 engine.
+#
+# When enabled via `h1_set_schedule(...)`, stage `i` resolves:
+#   effective_threshold = floor(stage.threshold * threshold_multiplier[i])
+#   reset_mode = reset_modes[i]   (0 = soft reset, 1 = hard reset)
+# and injects those values at the LIF compare/reset point.
+# ─────────────────────────────────────────────────────────────────
+
+_H1_STATE = {
+    "enabled": False,
+    "threshold_multipliers": tuple(),
+    "reset_modes": tuple(),
+}
+
+
+def h1_reset() -> None:
+    """Restore default per-stage threshold + soft-reset behavior."""
+    _H1_STATE.update({
+        "enabled": False,
+        "threshold_multipliers": tuple(),
+        "reset_modes": tuple(),
+    })
+
+
+def h1_set_schedule(
+    *,
+    threshold_multipliers: Sequence[float],
+    reset_modes: Sequence[int],
+) -> None:
+    """Enable an H1 per-layer schedule for subsequent inference calls."""
+    if len(threshold_multipliers) != len(reset_modes):
+        raise ValueError(
+            "threshold_multipliers and reset_modes must have the same length "
+            f"(got {len(threshold_multipliers)} vs {len(reset_modes)})"
+        )
+    for idx, multiplier in enumerate(threshold_multipliers):
+        if float(multiplier) <= 0.0:
+            raise ValueError(
+                f"threshold_multipliers[{idx}] must be > 0, got {multiplier!r}"
+            )
+    normalized_reset_modes: list[int] = []
+    for idx, mode in enumerate(reset_modes):
+        mode_i = int(mode)
+        if mode_i not in (0, 1):
+            raise ValueError(f"reset_modes[{idx}] must be 0 or 1, got {mode!r}")
+        normalized_reset_modes.append(mode_i)
+    _H1_STATE.update({
+        "enabled": True,
+        "threshold_multipliers": tuple(float(x) for x in threshold_multipliers),
+        "reset_modes": tuple(normalized_reset_modes),
+    })
+
+
+def h1_resolve_stage_lif(
+    default_threshold: int,
+    stage_idx: int | None,
+) -> tuple[int, int]:
+    """Return `(effective_threshold, reset_mode)` for one stage.
+
+    `reset_mode`: 0 = soft reset (`membrane -= threshold`),
+                  1 = hard reset (`membrane = 0`).
+    """
+    if not _H1_STATE["enabled"] or stage_idx is None:
+        return int(default_threshold), 0
+    multipliers = _H1_STATE["threshold_multipliers"]
+    reset_modes = _H1_STATE["reset_modes"]
+    if stage_idx < 0 or stage_idx >= len(multipliers):
+        return int(default_threshold), 0
+    threshold = max(1, int(np.floor(float(default_threshold) * multipliers[stage_idx])))
+    return threshold, reset_modes[stage_idx]
+
+
 def m2_reset() -> None:
     """Restore byte-parity defaults — anchor row uses this."""
     global M2_NONIDEALITY_OFF
     M2_NONIDEALITY_OFF = True
+    h1_reset()
     _M2_STATE.update({
         "drift_alpha": 0.0,
         "sigma_read_lsb": 0.0,
@@ -369,6 +446,8 @@ def _run_stage_streamed_rate(
     w_neg: np.ndarray,
     sum_max: int,
     adc_bits: int = 8,
+    *,
+    stage_idx: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """V2 streamed-rate stage forward (true BSRC semantics).
 
@@ -393,15 +472,19 @@ def _run_stage_streamed_rate(
     membrane = np.zeros(out_dim, dtype=np.int64)
     spike_counts = np.zeros(out_dim, dtype=np.int64)
     spike_stream_out = np.zeros((T, out_dim), dtype=np.int64)
+    effective_threshold, reset_mode = h1_resolve_stage_lif(stage.threshold, stage_idx)
 
     for t in range(T):
         wl = wl_stream[t].astype(np.int64)
         diff = _cim_mac_scheme_b_v2(wl, w_pos, w_neg, sum_max=sum_max, adc_bits=adc_bits)
         membrane += diff
-        fired = membrane >= stage.threshold
+        fired = membrane >= effective_threshold
         spike_stream_out[t, fired] = 1
         spike_counts += fired.astype(np.int64)
-        membrane[fired] -= stage.threshold
+        if reset_mode:
+            membrane[fired] = 0
+        else:
+            membrane[fired] -= effective_threshold
 
     return spike_counts, membrane, spike_stream_out
 
@@ -413,6 +496,8 @@ def _run_stage_streamed_rate_tiled(
     w_neg_tiles: list[np.ndarray],
     sum_max_per_tile: list[int],         # len == N_tiles
     adc_bits: int = 8,
+    *,
+    stage_idx: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """REV 3.1 D1 + D7: tile-correct partial-sum streamed stage forward.
 
@@ -507,12 +592,16 @@ def _run_stage_streamed_rate_tiled(
     membrane = np.zeros(out_dim, dtype=np.int64)
     spike_counts = np.zeros(out_dim, dtype=np.int64)
     spike_stream_out = np.zeros((T, out_dim), dtype=np.int64)
+    effective_threshold, reset_mode = h1_resolve_stage_lif(stage.threshold, stage_idx)
     for t in range(T):
         membrane += partial_diff_buffer[t]
-        fired = membrane >= stage.threshold
+        fired = membrane >= effective_threshold
         spike_stream_out[t, fired] = 1
         spike_counts += fired.astype(np.int64)
-        membrane[fired] -= stage.threshold
+        if reset_mode:
+            membrane[fired] = 0
+        else:
+            membrane[fired] -= effective_threshold
 
     return spike_counts, membrane, spike_stream_out
 
@@ -522,6 +611,8 @@ def _run_stage_bitplane(
     pixel_vec: np.ndarray,             # uint8 shape [in_dim], values 0-255
     w_pos: np.ndarray,
     w_neg: np.ndarray,
+    *,
+    stage_idx: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run a bit-plane stage (stage 0, or stage N>0 in 2B-serial mode).
 
@@ -549,6 +640,7 @@ def _run_stage_bitplane(
     spike_mask = np.zeros(out_dim, dtype=np.int64)
 
     wl_in = np.clip(pixel_vec, 0, SPIKE_COUNT_MAX).astype(np.int64)
+    effective_threshold, reset_mode = h1_resolve_stage_lif(stage.threshold, stage_idx)
 
     # Refractory spike cap per frame (matches trainer's RTL_REFRACTORY_K).
     # RTL must implement an equivalent per-neuron per-frame counter when
@@ -562,14 +654,17 @@ def _run_stage_bitplane(
             wl_spike = ((wl_in >> bit) & 1).astype(np.int64)
             diff = _cim_mac_scheme_b_integer(wl_spike, w_pos, w_neg)
             membrane += diff * (1 << bit)
-            fired = (membrane >= stage.threshold)
+            fired = membrane >= effective_threshold
             if refractory_k is not None:
                 fired = fired & (frame_fire < int(refractory_k))
                 frame_fire += fired.astype(np.int64)
             fired_i = fired.astype(np.int64)
             spike_mask = spike_mask | fired_i
             spike_counts += fired_i
-            membrane[fired] -= stage.threshold
+            if reset_mode:
+                membrane[fired] = 0
+            else:
+                membrane[fired] -= effective_threshold
 
     return spike_counts, membrane, spike_mask
 
@@ -579,6 +674,8 @@ def _run_stage_binary(
     spike_mask_in: np.ndarray,         # binary int shape [in_dim]
     w_pos: np.ndarray,
     w_neg: np.ndarray,
+    *,
+    stage_idx: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run a subsequent stage (no bit-plane expansion).
 
@@ -590,14 +687,18 @@ def _run_stage_binary(
     membrane = np.zeros(out_dim, dtype=np.int64)
     spike_counts = np.zeros(out_dim, dtype=np.int64)
     spike_mask = np.zeros(out_dim, dtype=np.int64)
+    effective_threshold, reset_mode = h1_resolve_stage_lif(stage.threshold, stage_idx)
 
     for _frame in range(stage.timesteps):
         diff = _cim_mac_scheme_b_integer(spike_mask_in, w_pos, w_neg)
         membrane += diff
-        fired = membrane >= stage.threshold
+        fired = membrane >= effective_threshold
         spike_mask = spike_mask | fired.astype(np.int64)  # OR accumulate, matching RTL post-fix
         spike_counts += fired.astype(np.int64)
-        membrane[fired] -= stage.threshold
+        if reset_mode:
+            membrane[fired] = 0
+        else:
+            membrane[fired] -= effective_threshold
 
     return spike_counts, membrane, spike_mask
 
@@ -651,17 +752,19 @@ def snn_inference_multilayer_sample(
                     "under input_encoding='bitplane'. For streamed rate use "
                     "input_encoding='streamed_rate'."
                 )
-            counts, membrane, mask = _run_stage_bitplane(stage, pixel_vec, w_pos, w_neg)
+            counts, membrane, mask = _run_stage_bitplane(
+                stage, pixel_vec, w_pos, w_neg, stage_idx=i
+            )
         else:
             if stage.use_bitplane:
                 assert prev_counts is not None, "unreachable"
                 counts, membrane, mask = _run_stage_bitplane(
-                    stage, prev_counts, w_pos, w_neg
+                    stage, prev_counts, w_pos, w_neg, stage_idx=i
                 )
             else:
                 assert prev_mask is not None, "unreachable"
                 counts, membrane, mask = _run_stage_binary(
-                    stage, prev_mask, w_pos, w_neg
+                    stage, prev_mask, w_pos, w_neg, stage_idx=i
                 )
 
         per_stage_counts.append(counts)
@@ -717,6 +820,7 @@ def _snn_inference_streamed_rate_sample(
 
         counts, membrane, stream = _run_stage_streamed_rate(
             stage, wl_stream, w_pos, w_neg, sum_max=sum_max, adc_bits=adc_bits,
+            stage_idx=i,
         )
         per_stage_counts.append(counts)
         per_stage_membrane.append(membrane)

@@ -37,12 +37,19 @@ if [ -f "$SOC_DESIGN/essay/exp_m2_envelope/sample_provenance.yaml" ]; then
     M2_ARGS+=(--include-m2-refs)
 fi
 
+H1_ARGS=()
+if [ -f "$SOC_DESIGN/essay/exp_h1_schedule_ablation/summary_per_config.csv" ]; then
+    echo "[verify] detected post-H1 full-set artifacts; enabling --include-h1-refs"
+    H1_ARGS+=(--include-h1-refs)
+fi
+
 echo "[verify] regenerating manifests in $TMP_DIR (frozen-utc=$FROZEN_UTC)"
 python3 "$HERE/make_manifest.py" \
     --all \
     --frozen-utc "$FROZEN_UTC" \
     --out-dir "$TMP_DIR" \
     --require-h1-artifacts \
+    "${H1_ARGS[@]}" \
     "${M2_ARGS[@]}"
 
 DRIFT=0

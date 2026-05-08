@@ -1,16 +1,17 @@
 """
-audit-v2/scripts/manifest_schema.py — M4 Golden Bundle Manifest schema (m4-3.1)
+audit-v2/scripts/manifest_schema.py — M4 Golden Bundle Manifest schema (m4-3.2)
 
 Canonical schema definition for the per-config YAML manifests under
 `essay/manifests/`. Imported by `make_manifest.py` for both generation
 and `--verify`.
 
-Schema versioned `m4-3.1`:
+Schema versioned `m4-3.2`:
   - m4-1.0  Round-1 (flat per-config block)
   - m4-2.0  Round-2 (per-artifact provenance + 3-tier schema)
   - m4-3.0  Round-3 (heterogeneous weight_hex.format enum)
   - m4-3.1  Round-4 (real export-manifest filenames + role-based H1
                      skip + correct LeNet-5 tile count)
+  - m4-3.2  Round-5 (post-H1 full-set ablation reference block)
 
 Design source-of-truth: essay/m4_design_2026_05_07.md round 4.
 """
@@ -20,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
-SCHEMA_VERSION = "m4-3.1"
+SCHEMA_VERSION = "m4-3.2"
 
 # Evidence tiers (paper §3 Table-2)
 TIER_BOARD = "board"
@@ -420,6 +421,20 @@ def validate_manifest(manifest: dict) -> ValidationResult:
             if applicable not in (True, False):
                 result.errors.append(
                     f"m2_envelope_refs.applicable: expected boolean, "
+                    f"got {applicable!r} (no <unknown> third state)"
+                )
+
+    # 8) h1_schedule_ablation_refs (round-5): optional from day one; if
+    #    present, must use the same boolean applicable discipline as M2 refs.
+    h1refs = manifest.get("h1_schedule_ablation_refs")
+    if h1refs is not None:
+        if not isinstance(h1refs, dict):
+            result.errors.append("h1_schedule_ablation_refs: expected dict if present")
+        else:
+            applicable = h1refs.get("applicable")
+            if applicable not in (True, False):
+                result.errors.append(
+                    f"h1_schedule_ablation_refs.applicable: expected boolean, "
                     f"got {applicable!r} (no <unknown> third state)"
                 )
 
