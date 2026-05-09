@@ -24,6 +24,9 @@ CLI:
                             ROUND-4 R3-F5 fix: artifacts whose role:
                             starts "backward-compat reference" check
                             against M3 anchors instead.
+  --soc-design <path>       override the paper/docs repo root instead of
+                            relying on the default sibling checkout or
+                            environment variable
   --out-dir <path>          override output directory (default: essay/manifests/)
 
 Exit codes:
@@ -1324,6 +1327,7 @@ def verify_manifest(yaml_path: Path) -> bool:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    global SOC_DESIGN
     parser = argparse.ArgumentParser(description="M4 Golden Bundle Manifest generator")
     parser.add_argument("--config-id", help="config_id (one of the 6 canonical)")
     parser.add_argument("--all", action="store_true", help="generate all 6")
@@ -1336,10 +1340,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="include h1_schedule_ablation_refs section (post-H1 close-out)")
     parser.add_argument("--require-h1-artifacts", action="store_true",
                         help="assert producer.head_sha is descended from H1 anchor")
+    parser.add_argument("--soc-design", default="", help="override SoC Design root")
     parser.add_argument("--out-dir",
-                        default=str(SOC_DESIGN / "essay" / "manifests"),
+                        default="",
                         help="output directory")
     args = parser.parse_args(argv)
+
+    if args.soc_design:
+        SOC_DESIGN = Path(args.soc_design).resolve()
 
     if args.verify:
         ok = verify_manifest(Path(args.verify))
@@ -1348,7 +1356,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.frozen_utc:
         args.frozen_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    out_dir = Path(args.out_dir)
+    out_dir = Path(args.out_dir) if args.out_dir else (SOC_DESIGN / "essay" / "manifests")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     targets: List[ms.ConfigEntry]
