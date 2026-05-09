@@ -2356,26 +2356,26 @@ xsct scripts/program_zcu102_c0.tcl
 
 **学习路径（step by step）**：
 
-1. **先读 design intent**：`essay/m1_design_*.md` + `essay/h1_full_close_out_*.md`（M1 是 H1-full close-out 的前置条件，所以两份文档交叉记录）
+1. **先读 design intent**：`../SoC Design/essay/m1_design_doc_2026_05_05.md` + `../SoC Design/essay/m1_phase1_close_out_2026_05_06.md`
 2. **读 RTL 顶层集成**：`rtl/top/snn_soc_v2b_top.sv` —— grep `trace_hash`，看 M1 module 怎么挂在 stage_engine 输出端，怎么暴露 CSR window
-3. **读 RTL module 本体**：`rtl/.../trace_hash_recorder*.sv`
+3. **读 RTL module 本体**：`rtl/snn/trace_hash_recorder.sv` + `rtl/snn/trace_hash_recorder_pkg.sv`
    - CRC32 多项式（标准 IEEE 802.3 / 0xEDB88320 反向）
    - per-(layer_idx, t) 索引，写入 BRAM
-   - CSR：HASH_BASE / HASH_LEN / HASH_DUMP_PORT
-4. **读 ARM 固件 driver**：`fw/arm/src/v2b_trace_hash*.c`
-   - 读 BRAM via memory-mapped CSR
-   - dump 到 UART（`stdout`）
-5. **读 E203 固件 driver**：`audit-v2-e203/fw/.../v2b_trace_hash_e203.c`
-   - 同样 memory-mapped CSR 读，但通过 ICB bus
-6. **读 Python diff tool**：`scripts/trace_hash_diff.py`
+   - CSR：`TRACE_HASH_CTRL / TRACE_HASH_LOG_COUNT / TRACE_HASH_LOG_RD_ADDR / TRACE_HASH_LOG_RD_DATA / TRACE_HASH_LOG_RD_META`
+4. **读 ARM 固件 driver**：`fw/include/v2b_trace_hash.h` + `fw/src/v2b_trace_hash.c`
+   - ARM 不是单独 wrapper 源文件；共享 core 由 `fw/arm/build_arm_firmware.sh` 编进 ARM 镜像
+   - dump 到 UART（canonical `TRACE_HASH_BEGIN ... HASH ... TRACE_HASH_END` 格式）
+5. **读 E203 固件 driver**：`../audit-v2-e203/fw/v2_e203_smoke/src/v2b_trace_hash_e203.c` + `../audit-v2-e203/fw/src/v2b_trace_hash.c`
+   - E203 wrapper 只覆写 `V2B_SOC_BASE`；UART payload 与 ARM 保持 byte-identical
+6. **读 Python diff tool**：`python_multilayer/trace_hash_diff.py`
    - 解析两条 UART log，line-by-line 对比 hash
    - 报 `MATCH` 或 `DIVERGENCE @ (layer=N, t=K)` 定位错位
 7. **读 SVA 与 TB**：
    - `tb/v2b_partial_write_invariant_tb.sv`（部分写不破坏 hash）
-   - 看 `essay/m1_design_*.md` 里的"6-sub-test TB" 列表
-8. **跑 smoke**：在 audit-v2-round6 worktree
+   - 看 `../SoC Design/essay/m1_design_doc_2026_05_05.md` 里的"6-sub-test TB" 列表
+8. **跑一个真实 diff**：先从 `../SoC Design/essay/manifests/v2b_fc_fashion14_2L.yaml` 找到 `artifacts.trace_hash_logs.{h1_arm,h1_e203}` 的 log 路径，再在 audit-v2-round6 worktree 里执行
    ```bash
-   cd python_multilayer && bash run_trace_hash_smoke.sh   # 名字以实际为准
+   python python_multilayer/trace_hash_diff.py --arm <arm_log> --e203 <e203_log>
    ```
 
 **关键 invariant**：M1 hash recorder 的 enable bit 默认 OFF；开了之后 RTL 行为应当 byte-bit identical（hash 是 readout 副产品，不影响推理结果）。
@@ -2390,21 +2390,21 @@ xsct scripts/program_zcu102_c0.tcl
 
 **学习路径**：
 
-1. **先读 design intent**：`essay/m3_*.md`
-2. **读 ARM 固件**：`fw/arm/src/m3_segments*.c`
+1. **先读 design intent**：`../SoC Design/essay/m3_phase2a_design_2026_05_06.md` + `../SoC Design/essay/m3_phase2a_close_out_2026_05_06.md`
+2. **读 ARM 固件**：`fw/src/v2b_m3_cycles.c` + `fw/arm/src/v2b_m3_cycles_arm.c`
    - 用 ARM A53 的 `PMCCNTR`（performance monitor cycle counter）取 timestamp
    - 5 个 segment 的 delineation 点（每段开始/结束打 timestamp）
    - 每个 sample 写一行 CSV：`config_id, sample_idx, host_setup_cyc, dma_xfer_cyc, accel_active_cyc, readback_cyc, host_decode_cyc, total_cyc`
-3. **读 E203 固件**：`audit-v2-e203/fw/.../m3_segments_e203.c`
+3. **读 E203 固件**：`../audit-v2-e203/fw/src/v2b_m3_cycles.c` + `../audit-v2-e203/fw/v2_e203_smoke/src/v2b_m3_cycles_e203.c`
    - 用 RISC-V 的 `mcycle / mcycleh` 取 timestamp（RV32 拼成 64-bit）
    - 同样 5 段
-4. **读 Python plotter**：`python_multilayer/m3_plot.py`
+4. **读 Python plotter**：`python_multilayer/m3_latency_plot.py`
    - 读 `m3_segments.csv`
    - 5 段堆叠 bar chart，每个 config 一根
-5. **读 §8 能耗 envelope formula**：在 `essay/paper_draft_round6_3_inputs.md` §8 prose
+5. **读 §8 能耗 envelope formula**：在 `../SoC Design/essay/paper_draft_round6_3_inputs.md` §8 prose
    - `mean_total_cycles × 5W / 1.2GHz × 1000` ≈ 4642.7 mJ
    - **5W 是 ZCU102 datasheet TDP whole-board，不是 measured PL subsystem**——Round 6 LLM hallucination audit 后明确 prose framing
-6. **看输出**：`essay/exp_m3_latency_partition/m3_segments.csv` + 5-段 stacked bar PDF/PNG
+6. **看输出**：`../SoC Design/essay/exp_latency_partition/m3_segments.csv` + `../SoC Design/essay/exp_latency_partition/m3_stacked_bar.{pdf,png}`
 
 **关键 invariant**：cycle counter 不能影响 inference 结果——counter read 是非阻塞的，counter 之间不能改变 critical path。
 
@@ -2416,7 +2416,7 @@ xsct scripts/program_zcu102_c0.tcl
 
 ### 27.1 RTL 设计
 
-文件：`rtl/top/snn_soc_v2b_top.sv` LIF CSR window + `stage_engine_v2 cfg_reset_mode` 串接
+文件：`rtl/top/snn_soc_v2b_top.sv` LIF CSR window + `rtl/snn/stage_engine_v2.sv` 的 `cfg_reset_mode` 串接
 
 CSR map（**必背**）：
 ```
@@ -2444,41 +2444,38 @@ CSR map（**必背**）：
 `fw/include/v2b_lif_schedule.h` + `fw/src/v2b_lif_schedule.c`
 
 ```c
-// 写一个 schedule slot
-void v2b_lif_set_slot(uint8_t slot_idx, uint16_t threshold, uint8_t reset_mode);
-// 设置当前 stage 用哪个 slot
-void v2b_lif_set_layer_idx(uint8_t slot_idx);
-// 一键 bypass LUT (恢复 pre-H1 行为)
-void v2b_lif_global_mode_bypass(void);
-// 一键启用 LUT
-void v2b_lif_global_mode_lut(void);
+int v2b_lif_schedule_reset_to_global(void);
+int v2b_lif_schedule_enable_per_layer(void);
+int v2b_lif_schedule_set_layer(uint8_t layer_idx, uint16_t threshold, uint8_t reset_mode);
+int v2b_lif_schedule_get_layer(uint8_t layer_idx, uint16_t *out_threshold, uint8_t *out_reset_mode);
+uint32_t v2b_lif_schedule_dump_uart(const char *config_name, const char *host_name);
+
+/* 当前 stage 选哪个 slot 不是 helper 函数，而是 scheduler 直接写：
+ *   V2B_SOC_LIF_LAYER_IDX = slot_idx;
+ */
 ```
 
 ### 27.4 E203 固件 ABI
 
-`audit-v2-e203/fw/.../v2b_lif_schedule_e203.c` —— 与 ARM 一致的 ABI，host-agnostic helpers。同一份 schedule 配置在 ARM / E203 上行为应当 byte-exact identical。
+`../audit-v2-e203/fw/v2_e203_smoke/src/v2b_lif_schedule_e203.c` + `../audit-v2-e203/fw/src/v2b_lif_schedule.c` —— E203 wrapper 只改 `V2B_SOC_BASE`，公共 ABI 与 ARM 完全一致；同一份 schedule 配置在 ARM / E203 上行为应当 byte-exact identical。
 
 ### 27.5 Python engine plumbing（M2 + H1 共享 4-knob pattern）
 
 `python_multilayer/snn_engine_multilayer.py` —— grep `_H1_STATE` / `h1_set_schedule` / `h1_resolve_stage_lif`
 
 ```python
-# 模块级 state dict，default disabled
-_H1_STATE = {"enabled": False, "schedules": []}
+_H1_STATE = {
+    "enabled": False,
+    "threshold_multipliers": tuple(),
+    "reset_modes": tuple(),
+}
 
-def h1_set_schedule(schedules):
-    """schedules = list of (threshold_multiplier, reset_mode) per layer."""
-    _H1_STATE["enabled"] = True
-    _H1_STATE["schedules"] = schedules
+def h1_set_schedule(*, threshold_multipliers, reset_modes) -> None: ...
+def h1_reset() -> None: ...
 
-def h1_reset():
-    _H1_STATE["enabled"] = False
-    _H1_STATE["schedules"] = []
-
-def h1_resolve_stage_lif(stage_idx, default_threshold):
-    """Inference loop call: returns (effective_threshold, effective_reset_mode)."""
+def h1_resolve_stage_lif(default_threshold, stage_idx):
     if not _H1_STATE["enabled"] or stage_idx is None:
-        return (int(default_threshold), 0)  # bypass = pre-H1 byte-parity
+        return int(default_threshold), 0
     ...
 ```
 
@@ -2496,36 +2493,40 @@ def h1_resolve_stage_lif(stage_idx, default_threshold):
 
 ```python
 _M2_STATE = {
-    "drift_alpha": 0.0,        # 0 = no drift
-    "read_noise_sigma": 0.0,   # 0 = no read noise
-    "d2d_sigma": 0.0,          # 0 = no D2D variation
-    "adc_offset_sigma": 0.0,   # 0 = no ADC offset
-    "rng_seed": None,
+    "drift_alpha": 0.0,
+    "sigma_read_lsb": 0.0,
+    "sigma_d2d_lognormal": 0.0,
+    "sigma_adc_offset_lsb": 0.0,
+    "seed_base": 0,
+    "config_id": "",
+    "sweep_dim": "",
+    "sweep_value": 0.0,
 }
 
-def m2_set_state(**kwargs): ...
-def m2_reset():
-    _M2_STATE.update({"drift_alpha": 0.0, ...})
+def m2_set_state(*, config_id, sweep_dim, sweep_value, seed_base, **kwargs) -> None: ...
+def m2_reset() -> None:
+    M2_NONIDEALITY_OFF = True
     h1_reset()  # 同时复位 H1，保 anchor parity
+    _M2_STATE.update({"drift_alpha": 0.0, ...})
 ```
 
 每个 knob 在 inference loop 里的应用点：
-- `drift_alpha`：weight = `weight × pow(t / t_ref, drift_alpha)`（t = wall-time since program）
-- `read_noise_sigma`：每次读时 `weight += N(0, read_noise_sigma)`
-- `d2d_sigma`：在 conductance codebook 量化时每个 device 加一次性 N(0, d2d_sigma) offset
-- `adc_offset_sigma`：每次 ADC readout 加 N(0, adc_offset_sigma)
+- `drift_alpha`：对 weight 施加固定-run multiplier，代码里写成 `multiplier *= (1.0 + 1.0) ** drift_alpha`
+- `sigma_read_lsb`：对 raw MAC sum（pre-ADC）加 Gaussian noise
+- `sigma_d2d_lognormal`：每个 cell 一次性 log-normal multiplier（同一 seed 内跨 sample 复用）
+- `sigma_adc_offset_lsb`：每个输出通道一次性 offset（post-ADC LSB-domain）
 
 ### 28.2 Anchor check（必看）
 
 `python_multilayer/m2_anchor_check.py` —— **0-default 必须 reproduce paper §3 Table-3 ±0.5%**。
 
 ```bash
-# 100-sample 子集
-python3 m2_anchor_check.py --config-id v1_fc_8x8_mnist
-# expected: Config #1 anchor = 87.00% (vs Table-3 86.74%, Δ within 0.5%)
+# run one anchor at a time（或不带参数同时跑 #1/#4）
+python3 m2_anchor_check.py --config 1
+# expected: real anchor accuracy stays within ±0.5% of 86.74%
 
-python3 m2_anchor_check.py --config-id v2b_lenet5_mnist_28x28
-# expected: Config #4 anchor = 93.00% (vs Table-3 93.03%, Δ within 0.5%)
+python3 m2_anchor_check.py --config 4
+# expected: real anchor accuracy stays within ±0.5% of 93.03%
 ```
 
 如果 fail，说明 H1 / M2 plumbing 破坏了 byte-parity——不能 commit，先修。
@@ -2542,7 +2543,7 @@ python3 m2_envelope_sweep.py --all
 #   read_sigma    ∈ [0, 8] LSB step 1.33        (7 points)
 #   d2d_sigma     ∈ [0, 0.50] step 0.083        (7 points)
 #   adc_sigma     ∈ [0, 16] LSB step 2.66       (7 points)
-# 输出：essay/exp_m2_envelope/sweep_{drift,read,d2d,adc}_{config}.csv
+# 输出：../SoC Design/essay/exp_m2_envelope/m2_envelope_<config>_{drift,read,d2d,adc}.csv
 ```
 
 每个 row 包含 `correct_count, total_count, accuracy_pct, delta_vs_baseline_pct`（M4_M2_GATE close-out 后加的列）。
@@ -2568,33 +2569,36 @@ python3 m2_envelope_sweep.py --all
 
 ### 29.1 Schema 字段含义
 
-`scripts/manifest_schema.py` —— Pydantic model，m4-3.2 字段：
+`scripts/manifest_schema.py` —— dataclass + validator，m4-3.2 字段：
 
 ```yaml
+schema_version: m4-3.2
 config:
   id: v1_fc_8x8_mnist
   number: 1
-  network_topology: [64, 10]
+  topology: "FC SNN 64->10"
   ...
-evidence_tier: board   # 或 path-eq / sim
+evidence_tier: board   # 或 path-equivalent / sim-only
 generator:
   by: audit-v2/scripts/make_manifest.py v0.3.2
   schema: m4-3.2
   utc_frozen: 2026-05-08T00:00:00Z
 artifacts:
   bitstream_arm:
-    path: h1_closeout_logs/.../arm_h1/v2b_arm_demo_bd_wrapper.bit  # Round 4 后改 frozen snapshot
+    path: h1_closeout_logs/phase4_bitstreams_20260507/arm_h1/v2b_arm_demo_bd_wrapper.bit
     sha256: ...
     producer:
       worktree: audit-v2
-      head_sha: 7e80a39b   # Hard Constraint 12: 必须等于当前 audit-v2 HEAD
-      branch: feature/v2-addon-h1-audit-round4
+      head_sha: cbf9dccd   # 当前 committed manifests 里的 artifact-producing close-out HEAD
+      branch: feature/v2-addon-h1-audit-round6
   bitstream_e203:
-    path: audit-v2-e203/.../v2_e203_lenet5.elf
+    path: h1_closeout_logs/phase4_bitstreams_20260507/e203_smoke_h1/snn_soc_v2b_e203_fpga_top.bit
     sha256: ...
     producer:
       worktree: audit-v2-e203
       head_sha: 8f83b53b
+  firmware_e203_elf:
+    path: audit-v2-e203/fw/v2_e203_smoke/out/v2_e203_smoke.elf
   weight_hex:
     format: v1-single-layer | fc-multi-layer | conv-multi-tile
     layers: [...]   # 每个 layer 一个 hex pair (pos/neg)
@@ -2604,23 +2608,32 @@ artifacts:
   model_checkpoint: ...
   topologies_yaml: ...
   input_fmap_dataset: ...
-  python_golden: ...
+  python_integer_reference_golden: ...
   trace_hash_logs:    # M1 produces these
     h1_arm: ...
     h1_e203: ...
 m2_envelope_refs:    # post-M2 添加
   applicable: true | false
-  sweep_csvs: [...]
+  artifacts:
+    csv_drift: ...
+    csv_read_noise: ...
+    csv_d2d: ...
+    csv_adc_offset: ...
+    sample_provenance_yaml: ...
 h1_schedule_ablation_refs:   # post-Round-3 添加
-  summary_csv: essay/exp_h1_schedule_ablation/summary_v2b_*.csv
-  per_schedule_csvs: [...]
+  applicable: true | false
+  artifacts:
+    summary_csv: ...
+    combined_summary_csv: ...
+    raw_csv_bundle: ...
 inherits_from:        # path-equivalent 配置
   reference_config_id: v2b_fc_fashion14_2L
-  config_specific_artifacts:
-    input_fmap_dataset: ...
-    weight_hex: ...
-    python_golden: ...
-    cosim_byte_match_certificate: ...
+  reference_config_number: 2
+config_specific_artifacts:
+  input_fmap_dataset: ...
+  weight_hex: ...
+  python_integer_reference_golden: ...
+  cosim_byte_match_certificate: ...
 ```
 
 ### 29.2 Generator + Verifier
@@ -2640,7 +2653,7 @@ bash scripts/manifest_verify_ci.sh
 
 ### 29.3 Hard Constraint 12（必看）
 
-`producer.head_sha` 必须等于**当前 audit-v2 HEAD**。如果你改了 audit-v2 的脚本但忘记 regen manifests，verify_ci 会报 drift。Round 4 / Round 5 各违反过一次（Codex 自己改了脚本但 regen 用了上一轮的 HEAD），都被 Claude 在 post-FF 时补回（`1f901bfa` / `72146657` / `1f901bfa` 等 regen commit）。
+`producer.head_sha` 必须等于**生成这些 manifests 时的 artifact-producing audit-v2 HEAD**。如果你改了 audit-v2 的脚本但忘记立刻从那个新 HEAD regen manifests，verify_ci 会报 drift。后续的 doc-only commit 可以继续前进，但不会 retroactively 改写历史 artifact 的 `producer.head_sha`；Round 4 / Round 5 各违反过一次，最后靠紧邻 regen commit 补回。
 
 ### 29.4 Round 4 ARM bitstream snapshot freeze（重点学）
 
@@ -2785,13 +2798,14 @@ JSON archive：`essay/exp_h1_schedule_ablation/h1_lenet5_equivalence_check.json`
 
 ## H.1 Audit 入口脚本
 
-`scripts/manifest_verify_ci.sh` —— 顺序跑 7 个 gate：
+`scripts/manifest_verify_ci.sh` —— 直接覆盖 manifest / LeNet-5 equivalence / REPRODUCE / paper-asset 这 4 条；`M2_*` 和 `H1_SMOKE_FULL_SET_PASS` 仍是 companion gates：
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AUDIT_V2="$(cd "$HERE/.." && pwd)"
-SOC_DESIGN="${SOC_DESIGN:-$(cd "$AUDIT_V2/.." && pwd)/SoC Design}"  # Round 5: SOC_DESIGN env var
+SOC_DESIGN_DEFAULT="$(cd "$AUDIT_V2/.." && pwd)/SoC Design"
+SOC_DESIGN="${SOC_DESIGN:-$SOC_DESIGN_DEFAULT}"
 MANIFESTS_DIR="$SOC_DESIGN/essay/manifests"
 
 # 1. 检测 post-M2 / post-H1 状态
@@ -2802,7 +2816,9 @@ H1_ARGS=()
 
 # 2. 在 tmp dir 重新生成 manifests
 TMP_DIR="$(mktemp -d)"
-python3 "$HERE/make_manifest.py" --all --frozen-utc 2026-05-08T00:00:00Z \
+python3 "$HERE/make_manifest.py" --all \
+    --soc-design "$SOC_DESIGN" \
+    --frozen-utc 2026-05-08T00:00:00Z \
     --out-dir "$TMP_DIR" --require-h1-artifacts \
     "${H1_ARGS[@]}" "${M2_ARGS[@]}"
 
@@ -2815,12 +2831,13 @@ for committed in "$MANIFESTS_DIR"/*.yaml; do
 done
 
 # 4. 跑后续 gate
-bash "$HERE/run_lenet5_equivalence.sh"          # H1_LENET5_EQUIVALENCE_PASS
-python3 "$HERE/reproduce_sanity_check.py"       # REPRODUCE_SANITY_PASS (Round 3 加)
-python3 "$HERE/paper_asset_sanity_check.py"     # PAPER_ASSET_SANITY_PASS (Round 5 加)
+python3 "$AUDIT_V2/python_multilayer/h1_lenet5_equivalence_check.py" --out-json \
+    "$SOC_DESIGN/essay/exp_h1_schedule_ablation/h1_lenet5_equivalence_check.json"
+python3 "$HERE/reproduce_sanity_check.py" --audit-v2 "$AUDIT_V2" --soc-design "$SOC_DESIGN"
+python3 "$HERE/paper_asset_sanity_check.py" --soc-design "$SOC_DESIGN"
 
 # 5. 总结
-[ "$DRIFT" -eq 0 ] && echo "M4_MANIFEST_VERIFY_PASS"
+echo "[RESULT] M4_MANIFEST_VERIFY_PASS"
 ```
 
 ## H.2 7 个永久 gate 详细
@@ -2835,29 +2852,31 @@ python3 "$HERE/paper_asset_sanity_check.py"     # PAPER_ASSET_SANITY_PASS (Round
 | `REPRODUCE_SANITY_PASS` | `scripts/reproduce_sanity_check.py` | REPRODUCE.md 提到的 paths/configs/snippets 都 resolve（post-Round-3）|
 | `PAPER_ASSET_SANITY_PASS` | `scripts/paper_asset_sanity_check.py` | paper.bib ≥ 21 entries / 21 DOIs / 0 placeholder（post-Round-5）|
 
+`manifest_verify_ci.sh` 当前直接调用的是第 3/4/6/7 条；第 1/2/5 条仍需单独运行。
+
 ## H.3 Round 5 引入的 paper_asset_sanity_check 的攻击防御
 
 `scripts/paper_asset_sanity_check.py`（~80 行）—— Round 5 audit 发现 reviewer 可以删 paper.bib 而 verify_ci 不抓。修：
 
 ```python
+import argparse
 import re
 from pathlib import Path
 
-def main():
-    bib = Path(SOC_DESIGN) / "essay" / "paper.bib"
+PLACEHOLDER_PATTERN = re.compile(r"placeholder|tbd|<missing>", re.IGNORECASE)
+ENTRY_PATTERN = re.compile(r"^@\w+\{", re.MULTILINE)
+DOI_PATTERN = re.compile(r"\bdoi\s*=", re.IGNORECASE)
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--soc-design", required=True)
+    args = parser.parse_args(argv)
+    bib = Path(args.soc_design).resolve() / "essay" / "paper.bib"
     text = bib.read_text(encoding="utf-8")
-    entries = re.findall(r"^@\w+\{", text, re.MULTILINE)
-    dois = re.findall(r"DOI=\{[^}]+\}", text, re.IGNORECASE)
-    # 防 placeholder
-    placeholders = re.findall(r"<TBD|TODO|<PLACEHOLDER", text, re.IGNORECASE)
-    if len(entries) < 21:
-        print(f"FAIL: paper.bib has only {len(entries)} entries, need ≥ 21")
-        return 1
-    if len(dois) < 21:
-        print(f"FAIL: paper.bib has only {len(dois)} DOIs, need ≥ 21")
-        return 1
-    if placeholders:
-        print(f"FAIL: paper.bib has {len(placeholders)} placeholder strings")
+    entries = ENTRY_PATTERN.findall(text)
+    dois = DOI_PATTERN.findall(text)
+    if len(entries) < 21 or len(dois) < 21 or PLACEHOLDER_PATTERN.search(text):
+        print("PAPER_ASSET_SANITY_FAIL")
         return 1
     print(f"[ok]   paper.bib sanity checked: entries={len(entries)} doi_entries={len(dois)}")
     print("PAPER_ASSET_SANITY_PASS")
@@ -2885,10 +2904,10 @@ artifacts:
     sha256: 8520acdb...
     producer:
       worktree: audit-v2                   ← (audit-v2-round6 worktree)
-      head_sha: cbf9dccd                   ← (Round 6 final HEAD)
+      head_sha: cbf9dccd                   ← artifact-producing close-out HEAD；当前 doc tip 可以更晚
       branch: feature/v2-addon-h1-audit-round6
   bitstream_e203:
-    path: audit-v2-e203/.../snn_soc_v2b_e203_fpga_top.bit
+    path: h1_closeout_logs/phase4_bitstreams_20260507/e203_smoke_h1/snn_soc_v2b_e203_fpga_top.bit
     producer:
       worktree: audit-v2-e203              ← (audit-v2-e203 worktree)
       head_sha: 8f83b53b
@@ -2896,7 +2915,7 @@ artifacts:
     layers: ...                            ← from audit-v2 results_multilayer/.../model_best.pt
     producer:
       script: audit-v2/python_multilayer/exporter_multilayer.py
-      head_sha: cbf9dccd
+      head_sha: cbf9dccd                   ← exporter 运行时 HEAD；不是今天 worktree tip 的别名
   trace_hash_logs:
     h1_arm: ...                            ← M1 produces these
     h1_e203: ...
@@ -2926,9 +2945,13 @@ cd "../SoC Design"
 git add essay/manifests/*.yaml
 git commit -m "essay: regen manifests post-..."
 
-# Step 5：跑 verify_ci
+# Step 5：跑 verify_ci（直接覆盖 M4 + H1 equivalence + REPRODUCE + PAPER_ASSET）
 bash "../audit-v2-round6/scripts/manifest_verify_ci.sh"
-# 预期：M4_MANIFEST_VERIFY_PASS + 6 个 sub-gate PASS
+# 如需 7 个永久 gate 全绿，再额外回到 audit-v2-round6 跑：
+#   cd "../audit-v2-round6"
+#   python python_multilayer/m2_anchor_check.py
+#   bash python_multilayer/m2_smoke.sh
+#   python python_multilayer/h1_smoke_full_set.py
 ```
 
 **Hard Constraint 12**：Step 2 与 Step 4 必须在**同一 commit 或紧邻 commit**。Round 4 / Round 5 各违反过一次，被 Claude 在 post-FF 时补回。
@@ -2946,8 +2969,8 @@ bash "../audit-v2-round6/scripts/manifest_verify_ci.sh"
 | Tables 1/2/3 | drafted | `paper_draft` §3 |
 | §3.1-§3.5 / §4.1-§4.3 / §5.1-§5.6 主体 | **未写** | TBD |
 | §3.6 / §4.4 / §5.7 / §5.8 / §7.5 / §8 / Appendix | drafted | `paper_draft` |
-| GPT Pro DR advisory prompt | **READY** | `essay/gpt_pro_deep_research_prompt_2026_05_08.md` |
-| REPRODUCE.md cold-start | **READY** | `essay/REPRODUCE.md` |
+| GPT Pro DR advisory prompt | **READY** | `../SoC Design/essay/gpt_pro_deep_research_prompt_2026_05_08.md` |
+| REPRODUCE.md cold-start | **READY** | `../SoC Design/essay/REPRODUCE.md` |
 
 ## I.4 Part F-I 阅读建议（顺藤摸瓜）
 
@@ -2955,13 +2978,13 @@ bash "../audit-v2-round6/scripts/manifest_verify_ci.sh"
 
 ```
 Step 1（30 min）  audit-v2-e203/doc/06 Part E + Part F-I    ← E203 firmware 路径细节
-Step 2（1 hour）  essay/m{1,2,3,4}_design_*.md + h1_full_*  ← 5 大里程碑设计文档
-Step 3（30 min）  essay/codex_*audit*.md（spot-check）       ← Audit campaign 6 轮 prompt（选读）
-Step 4（30 min）  essay/REPRODUCE.md + essay/manifests/README.md
+Step 2（1 hour）  ../SoC Design/essay/m1_design_doc_2026_05_05.md + ../SoC Design/essay/m3_phase2a_design_2026_05_06.md + ../SoC Design/essay/h1_full_design_2026_05_07.md + ../SoC Design/essay/m2_design_2026_05_07.md + ../SoC Design/essay/m4_design_2026_05_07.md
+Step 3（30 min）  ../SoC Design/essay/codex_full_audit_round6_2026_05_09.md  ← 同目录顺着读 round2-5 / followups
+Step 4（30 min）  ../SoC Design/essay/REPRODUCE.md + ../SoC Design/essay/manifests/README.md
 ```
 
 ---
 
-*Part F-I 最后更新：2026-05-09（H1_FULL_AUDIT_ROUND6_PASS 之后追加；audit-v2 chain HEAD = cbf9dccd；audit campaign SATURATED；7 永久门禁 GREEN；本 doc/06 应当与 main / audit-v2-e203 的 Part F-I 内容一致）*
+*Part F-I 最后更新：2026-05-09（H1_FULL_AUDIT_ROUND6_PASS 之后追加；current manifests still anchor the artifact-producing audit-v2 close-out HEAD `cbf9dccd`；audit campaign SATURATED；7 永久门禁 GREEN；本 doc/06 应当与 main / audit-v2-e203 的 Part F-I 内容一致）*
 
 **学习建议**：本分支是"evidence branch"，优先看 `doc/arm-fpga-demo/00_architecture.md` 与板级证据日志（含 LeNet-5 板验日志），再回到 RTL 看实现。建议在阅读 cim_mac_behavioral_v2 / stage_engine_v2 / conv_ctrl_v2 之前先把 V1 的 cim_macro_blackbox / cim_array_ctrl 看懂，这样能看出 V2.B 重构的关键演进点。CONV 扩展（阶段 23）是 V2.B 第一次端到端跑真实 CNN 拓扑，是阅读项目的"high-water mark"。
