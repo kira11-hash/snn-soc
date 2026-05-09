@@ -76,6 +76,9 @@ AUDIT_V2 = _repo_root_from_script(_THIS_DIR)
 SOC_DESIGN = _path_from_env("SOC_DESIGN", AUDIT_V2.parent / "SoC Design")
 AUDIT_V2_E203 = _path_from_env("AUDIT_V2_E203", AUDIT_V2.parent / "audit-v2-e203")
 AUDIT_FPGA = _path_from_env("AUDIT_FPGA", AUDIT_V2.parent / "audit-fpga")
+AUDIT_V2_NAME = os.environ.get("AUDIT_V2_NAME", "audit-v2")
+AUDIT_V2_E203_NAME = os.environ.get("AUDIT_V2_E203_NAME", "audit-v2-e203")
+AUDIT_FPGA_NAME = os.environ.get("AUDIT_FPGA_NAME", "audit-fpga")
 H1_CLOSEOUT = _path_from_env(
     "H1_CLOSEOUT",
     AUDIT_V2.parent / "h1_closeout_logs" / "phase4_bitstreams_20260507",
@@ -134,6 +137,27 @@ def sha256_of_dir_tar(dir_path: Path, file_pattern_glob: str) -> str:
         h.update(sha256_of_file(p).encode("ascii"))
         h.update(b"\n")
     return h.hexdigest()
+
+
+def repo_relpath(path: Path) -> str:
+    """Return a canonical repo-relative path independent of worktree folder names."""
+    resolved = path.resolve()
+    roots = (
+        (AUDIT_V2.resolve(), AUDIT_V2_NAME),
+        (AUDIT_V2_E203.resolve(), AUDIT_V2_E203_NAME),
+        (AUDIT_FPGA.resolve(), AUDIT_FPGA_NAME),
+        (SOC_DESIGN.resolve(), "SoC Design"),
+        (AUDIT_V2.parent.resolve(), ""),
+    )
+    for root, logical_name in roots:
+        try:
+            rel = resolved.relative_to(root).as_posix()
+            if logical_name:
+                return f"{logical_name}/{rel}" if rel else logical_name
+            return rel
+        except ValueError:
+            continue
+    raise ValueError(f"{resolved} is not under a known repo root")
 
 
 # ── Git utilities ─────────────────────────────────────────────────
@@ -550,7 +574,7 @@ def _collect_conv_weight_hex(config_dir_name: str, require_h1: bool) -> dict:
                 export_meta = json.load(f)
             ck_rel = export_meta.get("checkpoint", "")
             if ck_rel:
-                checkpoint_path = (base / ck_rel).resolve().relative_to(AUDIT_V2.parent).as_posix()
+                checkpoint_path = repo_relpath((base / ck_rel).resolve())
         except (OSError, ValueError):
             pass
 
@@ -670,7 +694,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
         e203_elf = AUDIT_FPGA / "fw" / "e203_smoke" / "out" / "e203_smoke.elf"
         return {
             "bitstream_e203": {
-                "path": str(e203_bit.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+                "path": repo_relpath(e203_bit),
                 "md5": md5_of_file(e203_bit) if e203_bit.exists() else "<missing>",
                 "sha256": sha256_of_file(e203_bit) if e203_bit.exists() else "<missing>",
                 "producer": producer_block(
@@ -681,7 +705,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
                 ),
             },
             "firmware_e203_elf": {
-                "path": str(e203_elf.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+                "path": repo_relpath(e203_elf),
                 "sha256": sha256_of_file(e203_elf) if e203_elf.exists() else "<missing>",
                 "producer": producer_block(
                     worktree_label="audit-fpga",
@@ -704,7 +728,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     arm_bit = (AUDIT_V2 / "fpga_synth" / "zcu102_arm_demo"
                / "zcu102_arm_demo.runs" / "impl_1" / "v2b_arm_demo_bd_wrapper.bit")
     arts["bitstream_arm"] = {
-        "path": str(arm_bit.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+        "path": repo_relpath(arm_bit),
         "md5": md5_of_file(arm_bit) if arm_bit.exists() else "<missing>",
         "sha256": sha256_of_file(arm_bit) if arm_bit.exists() else "<missing>",
         "producer": producer_block(
@@ -721,7 +745,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     else:
         e203_bit = H1_CLOSEOUT / "e203_lenet5_h1" / "snn_soc_v2b_e203_fpga_top.bit"
     arts["bitstream_e203"] = {
-        "path": str(e203_bit.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+        "path": repo_relpath(e203_bit),
         "md5": md5_of_file(e203_bit) if e203_bit.exists() else "<missing>",
         "sha256": sha256_of_file(e203_bit) if e203_bit.exists() else "<missing>",
         "producer": producer_block(
@@ -740,7 +764,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
         elf_variant = "lenet5"
     arm_elf = AUDIT_V2 / "fw" / "arm" / "out" / "v2b_arm_demo.elf"
     arts["firmware_arm_elf"] = {
-        "path": str(arm_elf.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+        "path": repo_relpath(arm_elf),
         "sha256": sha256_of_file(arm_elf) if arm_elf.exists() else "<missing>",
         "producer": producer_block(
             worktree_label="audit-v2",
@@ -756,7 +780,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     e203_elf_name = "v2_e203_smoke.elf" if cfg.config_id == "v2b_fc_fashion14_2L" else "v2_e203_lenet5.elf"
     e203_elf = AUDIT_V2_E203 / "fw" / "v2_e203_smoke" / "out" / e203_elf_name
     arts["firmware_e203_elf"] = {
-        "path": str(e203_elf.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+        "path": repo_relpath(e203_elf),
         "sha256": sha256_of_file(e203_elf) if e203_elf.exists() else "<missing>",
         "producer": producer_block(
             worktree_label="audit-v2-e203",
@@ -807,7 +831,7 @@ def _build_v1_board_validation() -> dict:
             "plus the ZCU102 E203 programmed-inference UART capture."
         ),
         "sample_align_log": {
-            "path": str(sample_align.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(sample_align),
             "sha256": sha256_of_file(sample_align) if sample_align.exists() else "<missing>",
             "pass_sentinel": "SAMPLE_ALIGN_PASS (100/100 samples matched)",
             "role": "preserved V1 Python-to-RTL alignment regression",
@@ -819,7 +843,7 @@ def _build_v1_board_validation() -> dict:
             ),
         },
         "e203_uart_capture": {
-            "path": str(uart_capture.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(uart_capture),
             "sha256": sha256_of_file(uart_capture) if uart_capture.exists() else "<missing>",
             "pass_sentinel": "FPGA_E203_PROGRAMMED_INFERENCE_PASS",
             "run_date": "2026-05-03",
@@ -854,7 +878,7 @@ def _collect_model_checkpoint(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
         # V1 paper-source checkpoint
         path = V1_PYTHON_DIR / "weights_full" / "avgpool_8x8.pt"
         return {
-            "path": str(path.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(path),
             "sha256": sha256_of_file(path) if path.exists() else "<missing>",
             "producer": producer_block(
                 worktree_label="audit-v2",
@@ -1010,7 +1034,7 @@ def _collect_trace_hash_logs(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
 
     return {
         "h1_arm": {
-            "path": str(h1_arm.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(h1_arm),
             "sha256": sha256_of_file(h1_arm) if h1_arm.exists() else "<missing>",
             "pass_sentinel": pass_arm,
             "run_date": "2026-05-08",
@@ -1023,7 +1047,7 @@ def _collect_trace_hash_logs(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             ),
         },
         "h1_e203": {
-            "path": str(h1_e203.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(h1_e203),
             "sha256": sha256_of_file(h1_e203) if h1_e203.exists() else "<missing>",
             "pass_sentinel": pass_e203,
             "run_date": "2026-05-08",
@@ -1036,7 +1060,7 @@ def _collect_trace_hash_logs(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             ),
         },
         "m3_baseline_arm": {
-            "path": str(m3_arm.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(m3_arm),
             "sha256": sha256_of_file(m3_arm) if m3_arm.exists() else "<missing>",
             "role": "backward-compat reference (pre-H1 RTL; v2.B HEAD baseline)",
             "producer": producer_block(
@@ -1048,7 +1072,7 @@ def _collect_trace_hash_logs(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             ),
         },
         "m3_baseline_e203": {
-            "path": str(m3_e203.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "path": repo_relpath(m3_e203),
             "sha256": sha256_of_file(m3_e203) if m3_e203.exists() else "<missing>",
             "role": "backward-compat reference (pre-H1 RTL; v2.B HEAD baseline)",
             "producer": producer_block(
@@ -1128,7 +1152,7 @@ def _collect_path_eq_certificate(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     if cfg.config_id == "v2b_fc_mnist14_2L":
         log_path = AUDIT_V2 / "python_multilayer" / "results_multilayer" / "mnist14_multilayer_golden" / "cosim_full_log.txt"
         return {
-            "cosim_log": str(log_path.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "cosim_log": repo_relpath(log_path),
             "cosim_log_sha256": sha256_of_file(log_path) if log_path.exists() else "<missing>",
             "pass_sentinel": "AXI_ARM_COSIM_RESIDENT_14X14_TB_PASS",
             "role": "100% byte match between RTL sim and python_integer_reference",
@@ -1142,7 +1166,7 @@ def _collect_path_eq_certificate(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     if cfg.config_id == "v2b_lenet5_fashion_28x28":
         log_path = AUDIT_V2 / "python_multilayer" / "results_conv" / "lenet5_fashion" / "cosim_full_log.txt"
         return {
-            "cosim_log": str(log_path.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "cosim_log": repo_relpath(log_path),
             "cosim_log_sha256": sha256_of_file(log_path) if log_path.exists() else "<missing>",
             "pass_sentinel": "LENET5_COSIM_TB_PASS mode=--full bundle=lenet5_fashion samples=10",
             "role": "100% byte match between RTL sim and python_integer_reference",

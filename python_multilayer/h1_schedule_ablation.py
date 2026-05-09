@@ -7,6 +7,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -29,7 +30,7 @@ from topologies import TopologyConfig, get_topology_by_name, load_topology_file
 
 
 ROOT = Path(__file__).resolve().parent
-PAPER_ROOT = ROOT.parent.parent / "SoC Design"
+PAPER_ROOT = Path(os.environ.get("SOC_DESIGN", ROOT.parent.parent / "SoC Design")).resolve()
 DEFAULT_OUT_DIR = PAPER_ROOT / "essay" / "exp_h1_schedule_ablation"
 MAX_LAYER_SLOTS = 8
 

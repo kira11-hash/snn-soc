@@ -49,11 +49,17 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 MAKE_MANIFEST_PY="$HERE/make_manifest.py"
 H1_EQ_PY="$AUDIT_V2/python_multilayer/h1_lenet5_equivalence_check.py"
+REPRO_SANITY_PY="$HERE/reproduce_sanity_check.py"
 TMP_DIR_PY="$TMP_DIR"
+AUDIT_V2_PY="$AUDIT_V2"
+SOC_DESIGN_PY="$SOC_DESIGN"
 if [ "$USE_WIN_PYTHON" -eq 1 ] && command -v wslpath >/dev/null 2>&1; then
     MAKE_MANIFEST_PY="$(wslpath -w "$MAKE_MANIFEST_PY")"
     H1_EQ_PY="$(wslpath -w "$H1_EQ_PY")"
+    REPRO_SANITY_PY="$(wslpath -w "$REPRO_SANITY_PY")"
     TMP_DIR_PY="$(wslpath -w "$TMP_DIR")"
+    AUDIT_V2_PY="$(wslpath -w "$AUDIT_V2")"
+    SOC_DESIGN_PY="$(wslpath -w "$SOC_DESIGN")"
 fi
 
 M2_ARGS=()
@@ -105,6 +111,11 @@ fi
 
 echo "[verify] running LeNet-5 slow/fast equivalence gate"
 "$PYTHON_BIN" "$H1_EQ_PY"
+
+echo "[verify] checking REPRODUCE.md command/file chain"
+"$PYTHON_BIN" "$REPRO_SANITY_PY" \
+    --audit-v2 "$AUDIT_V2_PY" \
+    --soc-design "$SOC_DESIGN_PY"
 
 echo ""
 echo "============================================"
