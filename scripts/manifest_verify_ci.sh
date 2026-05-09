@@ -19,6 +19,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 AUDIT_V2="$(cd "$HERE/.." && pwd)"
 SOC_DESIGN_DEFAULT="$(cd "$AUDIT_V2/.." && pwd)/SoC Design"
 SOC_DESIGN="${SOC_DESIGN:-$SOC_DESIGN_DEFAULT}"
+if printf '%s' "$SOC_DESIGN" | grep -Eq '^[A-Za-z]:[\\/]' && command -v wslpath >/dev/null 2>&1; then
+    SOC_DESIGN="$(wslpath -u "$SOC_DESIGN")"
+fi
 MANIFESTS_DIR="$SOC_DESIGN/essay/manifests"
 WIN_PYTHON="/mnt/c/Users/24201/AppData/Local/Python/bin/python.exe"
 if [ -x "$WIN_PYTHON" ]; then
@@ -37,6 +40,10 @@ fi
 
 # Use a fixed --frozen-utc so the regen is byte-deterministic.
 FROZEN_UTC="${FROZEN_UTC:-2026-05-08T00:00:00Z}"
+DIFF_ARGS=()
+if diff --help 2>/dev/null | grep -q -- '--strip-trailing-cr'; then
+    DIFF_ARGS+=(--strip-trailing-cr)
+fi
 
 if [ "$USE_WIN_PYTHON" -eq 1 ]; then
     TMP_DIR="$AUDIT_V2/.manifest_verify_tmp.$$"
@@ -50,6 +57,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 MAKE_MANIFEST_PY="$HERE/make_manifest.py"
 H1_EQ_PY="$AUDIT_V2/python_multilayer/h1_lenet5_equivalence_check.py"
 REPRO_SANITY_PY="$HERE/reproduce_sanity_check.py"
+PAPER_ASSET_SANITY_PY="$HERE/paper_asset_sanity_check.py"
 TMP_DIR_PY="$TMP_DIR"
 AUDIT_V2_PY="$AUDIT_V2"
 SOC_DESIGN_PY="$SOC_DESIGN"
@@ -57,6 +65,7 @@ if [ "$USE_WIN_PYTHON" -eq 1 ] && command -v wslpath >/dev/null 2>&1; then
     MAKE_MANIFEST_PY="$(wslpath -w "$MAKE_MANIFEST_PY")"
     H1_EQ_PY="$(wslpath -w "$H1_EQ_PY")"
     REPRO_SANITY_PY="$(wslpath -w "$REPRO_SANITY_PY")"
+    PAPER_ASSET_SANITY_PY="$(wslpath -w "$PAPER_ASSET_SANITY_PY")"
     TMP_DIR_PY="$(wslpath -w "$TMP_DIR")"
     AUDIT_V2_PY="$(wslpath -w "$AUDIT_V2")"
     SOC_DESIGN_PY="$(wslpath -w "$SOC_DESIGN")"
@@ -92,9 +101,9 @@ for committed in "$MANIFESTS_DIR"/*.yaml; do
         DRIFT=$((DRIFT + 1))
         continue
     fi
-    if ! diff -q "$committed" "$regen" >/dev/null 2>&1; then
+    if ! diff -q "${DIFF_ARGS[@]}" "$committed" "$regen" >/dev/null 2>&1; then
         echo "[FAIL] $name: drifted vs regenerated"
-        diff -u "$committed" "$regen" | head -40
+        diff -u "${DIFF_ARGS[@]}" "$committed" "$regen" | head -40
         DRIFT=$((DRIFT + 1))
     else
         echo "[ok]   $name"
@@ -121,6 +130,10 @@ echo "[verify] running LeNet-5 slow/fast equivalence gate"
 echo "[verify] checking REPRODUCE.md command/file chain"
 "$PYTHON_BIN" "$REPRO_SANITY_PY" \
     --audit-v2 "$AUDIT_V2_PY" \
+    --soc-design "$SOC_DESIGN_PY"
+
+echo "[verify] checking paper-facing bibliography asset sanity"
+"$PYTHON_BIN" "$PAPER_ASSET_SANITY_PY" \
     --soc-design "$SOC_DESIGN_PY"
 
 echo ""
