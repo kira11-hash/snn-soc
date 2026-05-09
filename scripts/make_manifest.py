@@ -83,6 +83,7 @@ H1_CLOSEOUT = _path_from_env(
     "H1_CLOSEOUT",
     AUDIT_V2.parent / "h1_closeout_logs" / "phase4_bitstreams_20260507",
 )
+ARM_H1_SNAPSHOT = H1_CLOSEOUT / "arm_h1"
 V1_PYTHON_DIR = AUDIT_V2 / "项目相关文件" / "器件对齐" / "Python建模"
 
 
@@ -725,8 +726,11 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     arts: Dict[str, object] = {}
 
     # ARM bitstream — round-4 R3-F4 actual filename
-    arm_bit = (AUDIT_V2 / "fpga_synth" / "zcu102_arm_demo"
-               / "zcu102_arm_demo.runs" / "impl_1" / "v2b_arm_demo_bd_wrapper.bit")
+    arm_bit_live = (AUDIT_V2 / "fpga_synth" / "zcu102_arm_demo"
+                    / "zcu102_arm_demo.runs" / "impl_1" / "v2b_arm_demo_bd_wrapper.bit")
+    arm_bit = ARM_H1_SNAPSHOT / "v2b_arm_demo_bd_wrapper.bit"
+    if not arm_bit.exists():
+        arm_bit = arm_bit_live
     arts["bitstream_arm"] = {
         "path": repo_relpath(arm_bit),
         "md5": md5_of_file(arm_bit) if arm_bit.exists() else "<missing>",
@@ -762,7 +766,10 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
         elf_variant = "fashion14"
     else:
         elf_variant = "lenet5"
-    arm_elf = AUDIT_V2 / "fw" / "arm" / "out" / "v2b_arm_demo.elf"
+    arm_elf_live = AUDIT_V2 / "fw" / "arm" / "out" / "v2b_arm_demo.elf"
+    arm_elf = ARM_H1_SNAPSHOT / "v2b_arm_demo.elf"
+    if not arm_elf.exists():
+        arm_elf = arm_elf_live
     arts["firmware_arm_elf"] = {
         "path": repo_relpath(arm_elf),
         "sha256": sha256_of_file(arm_elf) if arm_elf.exists() else "<missing>",

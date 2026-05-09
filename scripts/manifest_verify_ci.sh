@@ -101,6 +101,12 @@ for committed in "$MANIFESTS_DIR"/*.yaml; do
     fi
 done
 
+if grep -R -n "<missing>" "$TMP_DIR"/*.yaml >/dev/null 2>&1; then
+    echo "[FAIL] regenerated manifests still contain <missing> placeholders"
+    grep -R -n "<missing>" "$TMP_DIR"/*.yaml | head -40
+    DRIFT=$((DRIFT + 1))
+fi
+
 if [ "$DRIFT" -gt 0 ]; then
     echo ""
     echo "============================================"

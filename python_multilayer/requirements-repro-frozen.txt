@@ -1,0 +1,17 @@
+# Frozen runtime package snapshot for H1_FULL_AUDIT_ROUND4_PASS (2026-05-09).
+# Use this when you want a narrower, paper-facing repro environment than the
+# broader range-based requirements.txt.
+
+PyYAML==6.0.3
+pydantic==2.13.2
+torch==2.10.0+cpu
+torchvision==0.25.0+cpu
+numpy==2.3.5
+scipy==1.17.1
+pandas==2.3.3
+openpyxl==3.1.5
+pytest==9.0.3
+
+# Dev-only formatters remain optional and stay range-pinned in requirements.txt:
+#   black
+#   ruff
