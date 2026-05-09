@@ -84,7 +84,7 @@ if [ -f "$SOC_DESIGN/essay/exp_h1_schedule_ablation/summary_per_config.csv" ]; t
 fi
 
 echo "[verify] regenerating manifests in $TMP_DIR (frozen-utc=$FROZEN_UTC)"
-"$PYTHON_BIN" "$MAKE_MANIFEST_PY" \
+SOC_DESIGN="$SOC_DESIGN_PY" "$PYTHON_BIN" "$MAKE_MANIFEST_PY" \
     --all \
     --frozen-utc "$FROZEN_UTC" \
     --out-dir "$TMP_DIR_PY" \
