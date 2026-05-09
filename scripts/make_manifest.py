@@ -330,6 +330,10 @@ def producer_block(
     """Build a producer: block. Adds h1_anchor_check or m3_anchor_check
     when require_h1=True (round-3 R2-F4 + round-4 R3-F5).
     """
+    # Local audit branch names are workspace-volatile and can change
+    # across clean close-out branches without changing artifact content.
+    # Keep provenance pinned to commit SHAs so M4 stays branch-stable.
+    extra.pop("branch", None)
     block: Dict[str, object] = {"worktree": worktree_label, "head_sha": head_sha}
     block.update(extra)
     if require_h1 and head_sha != "<unknown>":
