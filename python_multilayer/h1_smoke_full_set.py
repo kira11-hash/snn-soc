@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import h1_schedule_ablation as ablation
@@ -17,13 +18,28 @@ HEADLINE = 82.38
 
 
 def _summary_map() -> dict[str, dict[str, object]]:
-    rows = ablation.rebuild_summary_csv(config_id=CONFIG_ID, out_dir=OUT_DIR)
-    return {str(row["schedule_name"]): row for row in rows}
+    rows: dict[str, dict[str, object]] = {}
+    for schedule_name in (BASELINE, SCHED_A, SCHED_B):
+        raw_csv = ablation._raw_csv_path(CONFIG_ID, schedule_name)
+        with raw_csv.open("r", encoding="utf-8", newline="") as f:
+            reader = list(csv.DictReader(f))
+        correct = sum(int(row["correct"]) for row in reader)
+        total = len(reader)
+        rows[schedule_name] = {
+            "schedule_name": schedule_name,
+            "accuracy_pct": f"{100.0 * correct / total:.4f}",
+        }
+    return rows
 
 
 def main() -> int:
+    summary_csv = OUT_DIR / f"summary_{CONFIG_ID}.csv"
+    summary_backup = summary_csv.read_text(encoding="utf-8") if summary_csv.exists() else None
     for schedule_name in (BASELINE, SCHED_A, SCHED_B):
         ablation.run_schedule(config_id=CONFIG_ID, schedule_name=schedule_name, out_dir=OUT_DIR)
+
+    if summary_backup is not None:
+        summary_csv.write_text(summary_backup, encoding="utf-8")
 
     rows = _summary_map()
     baseline = float(rows[BASELINE]["accuracy_pct"])

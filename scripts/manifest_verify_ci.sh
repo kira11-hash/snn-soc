@@ -17,7 +17,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AUDIT_V2="$(cd "$HERE/.." && pwd)"
-SOC_DESIGN="$(cd "$AUDIT_V2/.." && pwd)/SoC Design"
+SOC_DESIGN_DEFAULT="$(cd "$AUDIT_V2/.." && pwd)/SoC Design"
+SOC_DESIGN="${SOC_DESIGN:-$SOC_DESIGN_DEFAULT}"
 MANIFESTS_DIR="$SOC_DESIGN/essay/manifests"
 WIN_PYTHON="/mnt/c/Users/24201/AppData/Local/Python/bin/python.exe"
 if [ -x "$WIN_PYTHON" ]; then
@@ -29,7 +30,8 @@ else
 fi
 
 if [ ! -d "$MANIFESTS_DIR" ]; then
-    echo "[FATAL] $MANIFESTS_DIR does not exist; run --all first to populate"
+    echo "[FATAL] $MANIFESTS_DIR does not exist."
+    echo "[FATAL] If audit-v2 is not checked out beside 'SoC Design', export SOC_DESIGN=/abs/path/to/SoC Design and retry."
     exit 2
 fi
 

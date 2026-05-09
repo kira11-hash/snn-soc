@@ -235,7 +235,7 @@ COMMON_REQUIRED_FIELDS = (
     "artifacts",
 )
 
-BOARD_REQUIRED_ARTIFACTS = (
+BOARD_REQUIRED_ARTIFACTS_V2B = (
     "bitstream_arm",
     "bitstream_e203",
     "firmware_arm_elf",
@@ -247,6 +247,17 @@ BOARD_REQUIRED_ARTIFACTS = (
     "python_integer_reference_golden",
     "runtime_csr_dump",
     "trace_hash_logs",
+)
+
+BOARD_REQUIRED_ARTIFACTS_V1 = (
+    "bitstream_e203",
+    "firmware_e203_elf",
+    "weight_hex",
+    "model_checkpoint",
+    "topologies_yaml",
+    "input_fmap_dataset",
+    "python_integer_reference_golden",
+    "board_validation",
 )
 
 PATH_EQ_REQUIRED_FIELDS = (
@@ -289,7 +300,7 @@ class ValidationResult:
 
 
 def validate_manifest(manifest: dict) -> ValidationResult:
-    """Validate one parsed manifest dict against schema m4-3.1.
+    """Validate one parsed manifest dict against schema m4-3.2.
 
     Returns ValidationResult; caller checks `.ok()` and reads
     `.errors` / `.warnings` for reporting.
@@ -360,7 +371,12 @@ def validate_manifest(manifest: dict) -> ValidationResult:
         if not isinstance(artifacts, dict):
             result.errors.append("artifacts: expected dict for board tier")
         else:
-            for art in BOARD_REQUIRED_ARTIFACTS:
+            required_board = (
+                BOARD_REQUIRED_ARTIFACTS_V1
+                if canonical.weight_format == WEIGHT_FORMAT_V1
+                else BOARD_REQUIRED_ARTIFACTS_V2B
+            )
+            for art in required_board:
                 if art not in artifacts:
                     result.errors.append(f"artifacts.{art}: missing (board tier)")
     elif tier == TIER_PATH_EQ:
@@ -444,7 +460,7 @@ def validate_manifest(manifest: dict) -> ValidationResult:
 def list_required_artifacts_for_tier(tier: str) -> Tuple[str, ...]:
     """Return the artifact-key tuple required for a given tier."""
     if tier == TIER_BOARD:
-        return BOARD_REQUIRED_ARTIFACTS
+        return BOARD_REQUIRED_ARTIFACTS_V2B
     if tier == TIER_PATH_EQ:
         return PATH_EQ_REQUIRED_CONFIG_SPECIFIC
     if tier == TIER_SIM_ONLY:

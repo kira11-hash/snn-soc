@@ -7,9 +7,13 @@ global:
   preprocess: avgpool_8x8
 v1_baseline:
   python_dir: ../项目相关文件/器件对齐/Python建模
-  weight_pos_hex: results/exports/weight_pos.hex
-  weight_neg_hex: results/exports/weight_neg.hex
-  alignment_manifest: results/exports/rtl_stimulus_batch100/alignment_manifest.json
+  # V1 parity now reads the preserved V1 stimulus bundle plus the committed
+  # fpga/cim_model HEX pair used by the paper-facing V1 path.
+  weight_pos_hex: ../../../fpga/cim_model/weight_pos.hex
+  weight_neg_hex: ../../../fpga/cim_model/weight_neg.hex
+  alignment_manifest: results/exports/rtl_stimulus/alignment_manifest.json
+  # Historical V1 full-test reference kept for parity scripts; the paper's
+  # Table-3 headline for Config #1 is the frozen validation-split 86.74%.
   reported_full_test_accuracy: 0.8776
   alignment_subset_accuracy: null
   frozen_rtl_threshold: 2550

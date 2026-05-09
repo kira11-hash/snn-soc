@@ -67,10 +67,19 @@ def _repo_root_from_script(start: Path) -> Path:
     raise RuntimeError(f"could not find audit-v2 root from {start}")
 
 
+def _path_from_env(name: str, default: Path) -> Path:
+    raw = os.environ.get(name)
+    return Path(raw).resolve() if raw else default.resolve()
+
+
 AUDIT_V2 = _repo_root_from_script(_THIS_DIR)
-SOC_DESIGN = AUDIT_V2.parent / "SoC Design"
-AUDIT_V2_E203 = AUDIT_V2.parent / "audit-v2-e203"
-H1_CLOSEOUT = AUDIT_V2.parent / "h1_closeout_logs" / "phase4_bitstreams_20260507"
+SOC_DESIGN = _path_from_env("SOC_DESIGN", AUDIT_V2.parent / "SoC Design")
+AUDIT_V2_E203 = _path_from_env("AUDIT_V2_E203", AUDIT_V2.parent / "audit-v2-e203")
+AUDIT_FPGA = _path_from_env("AUDIT_FPGA", AUDIT_V2.parent / "audit-fpga")
+H1_CLOSEOUT = _path_from_env(
+    "H1_CLOSEOUT",
+    AUDIT_V2.parent / "h1_closeout_logs" / "phase4_bitstreams_20260507",
+)
 V1_PYTHON_DIR = AUDIT_V2 / "项目相关文件" / "器件对齐" / "Python建模"
 
 
@@ -324,6 +333,8 @@ def _worktree_path(label: str) -> Optional[Path]:
         return AUDIT_V2
     if label == "audit-v2-e203":
         return AUDIT_V2_E203
+    if label == "audit-fpga":
+        return AUDIT_FPGA
     return None
 
 
@@ -654,6 +665,39 @@ def build_manifest(
 
 
 def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
+    if cfg.config_id == "v1_fc_8x8_mnist":
+        e203_bit = AUDIT_FPGA / "fpga_synth" / "zcu102_e203_demo" / "out" / "snn_soc_fpga_top.bit"
+        e203_elf = AUDIT_FPGA / "fw" / "e203_smoke" / "out" / "e203_smoke.elf"
+        return {
+            "bitstream_e203": {
+                "path": str(e203_bit.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+                "md5": md5_of_file(e203_bit) if e203_bit.exists() else "<missing>",
+                "sha256": sha256_of_file(e203_bit) if e203_bit.exists() else "<missing>",
+                "producer": producer_block(
+                    worktree_label="audit-fpga",
+                    head_sha=git_head_sha(AUDIT_FPGA),
+                    branch=git_branch(AUDIT_FPGA),
+                    build_script="fpga_synth/zcu102_e203_demo/build_e203_demo.sh",
+                ),
+            },
+            "firmware_e203_elf": {
+                "path": str(e203_elf.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+                "sha256": sha256_of_file(e203_elf) if e203_elf.exists() else "<missing>",
+                "producer": producer_block(
+                    worktree_label="audit-fpga",
+                    head_sha=git_head_sha(AUDIT_FPGA),
+                    branch=git_branch(AUDIT_FPGA),
+                    build_script="fw/e203_smoke/build_e203_smoke.sh",
+                ),
+            },
+            "weight_hex": _collect_weight_hex(cfg, require_h1),
+            "model_checkpoint": _collect_model_checkpoint(cfg, require_h1),
+            "topologies_yaml": _collect_topologies_yaml(require_h1),
+            "input_fmap_dataset": _collect_input_fmap(cfg, require_h1),
+            "python_integer_reference_golden": _collect_python_golden(cfg, require_h1),
+            "board_validation": _build_v1_board_validation(),
+        }
+
     arts: Dict[str, object] = {}
 
     # ARM bitstream — round-4 R3-F4 actual filename
@@ -744,6 +788,50 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
     }
     arts["trace_hash_logs"] = _collect_trace_hash_logs(cfg, require_h1)
     return arts
+
+
+def _build_v1_board_validation() -> dict:
+    """Preserved V1 evidence lane.
+
+    Config #1 predates the V2.B H1 dual-host trace_hash infrastructure. The
+    honest paper-facing closure is therefore:
+      1. frozen 100-sample V1 Python↔RTL alignment bundle, and
+      2. preserved ZCU102 E203 programmed-inference UART capture.
+    """
+    sample_align = AUDIT_FPGA / "sim" / "sample_align.log"
+    uart_capture = AUDIT_FPGA / "doc" / "main-fpga-e203" / "uart_capture_20260503_round3_postfix_reverify.txt"
+    return {
+        "evidence_note": (
+            "Config #1 predates the V2.B H1 dual-host trace_hash lane; "
+            "preserved V1 evidence is the frozen 100-sample alignment bundle "
+            "plus the ZCU102 E203 programmed-inference UART capture."
+        ),
+        "sample_align_log": {
+            "path": str(sample_align.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "sha256": sha256_of_file(sample_align) if sample_align.exists() else "<missing>",
+            "pass_sentinel": "SAMPLE_ALIGN_PASS (100/100 samples matched)",
+            "role": "preserved V1 Python-to-RTL alignment regression",
+            "producer": producer_block(
+                worktree_label="audit-fpga",
+                head_sha=git_head_sha(AUDIT_FPGA),
+                branch=git_branch(AUDIT_FPGA),
+                sim_script="sim/run_sample_align.sh",
+            ),
+        },
+        "e203_uart_capture": {
+            "path": str(uart_capture.relative_to(AUDIT_V2.parent)).replace("\\", "/"),
+            "sha256": sha256_of_file(uart_capture) if uart_capture.exists() else "<missing>",
+            "pass_sentinel": "FPGA_E203_PROGRAMMED_INFERENCE_PASS",
+            "run_date": "2026-05-03",
+            "role": "preserved V1 ZCU102 programmed-inference UART capture",
+            "producer": producer_block(
+                worktree_label="audit-fpga",
+                head_sha=git_head_sha(AUDIT_FPGA),
+                branch=git_branch(AUDIT_FPGA),
+                capture_script="scripts/fpga_bringup_capture.sh",
+            ),
+        },
+    }
 
 
 def _collect_model_checkpoint(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
