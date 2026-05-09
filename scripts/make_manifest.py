@@ -372,6 +372,13 @@ def _collect_fc_weight_hex(config_dir_name: str, require_h1: bool) -> dict:
     export-before-manifest is required.
     """
     base = AUDIT_V2 / "python_multilayer" / "results_multilayer" / config_dir_name
+    best_checkpoint = base / "model_best.pt"
+    if best_checkpoint.exists():
+        checkpoint_path = best_checkpoint
+        checkpoint_rel = f"python_multilayer/results_multilayer/{config_dir_name}/model_best.pt"
+    else:
+        checkpoint_path = base / "model.pt"
+        checkpoint_rel = f"python_multilayer/results_multilayer/{config_dir_name}/model.pt"
     weights_dir = base / "weights"
     if not weights_dir.is_dir():
         return {
@@ -389,7 +396,7 @@ def _collect_fc_weight_hex(config_dir_name: str, require_h1: bool) -> dict:
                 head_sha=git_head_sha(AUDIT_V2),
                 require_h1=require_h1,
                 script="python_multilayer/exporter_multilayer.py",
-                source_checkpoint=f"python_multilayer/results_multilayer/{config_dir_name}/model.pt",
+                source_checkpoint=checkpoint_rel,
                 export_manifest_filename=ms.EXPORT_MANIFEST_FILENAME[ms.WEIGHT_FORMAT_FC],
             ),
         }
@@ -440,10 +447,10 @@ def _collect_fc_weight_hex(config_dir_name: str, require_h1: bool) -> dict:
             head_sha=git_head_sha(AUDIT_V2),
             require_h1=require_h1,
             script="python_multilayer/exporter_multilayer.py",
-            source_checkpoint=f"python_multilayer/results_multilayer/{config_dir_name}/model.pt",
+            source_checkpoint=checkpoint_rel,
             source_checkpoint_sha256=(
-                sha256_of_file(base / "model.pt")
-                if (base / "model.pt").exists()
+                sha256_of_file(checkpoint_path)
+                if checkpoint_path.exists()
                 else "<missing>"
             ),
             export_manifest={
@@ -1135,36 +1142,42 @@ def _build_h1_schedule_ablation_refs(cfg: ms.ConfigEntry) -> dict:
             }
         return entry
 
-    return {
-        "applicable": True,
-        "artifacts": {
-            "summary_csv": ref(
-                f"essay/exp_h1_schedule_ablation/summary_{cfg.config_id}.csv",
-                "python_multilayer/h1_schedule_ablation.py",
-            ),
-            "combined_summary_csv": ref(
-                "essay/exp_h1_schedule_ablation/summary_per_config.csv",
-                "python_multilayer/h1_schedule_ablation_plot.py",
-            ),
-            "figure_pdf": ref(
-                f"essay/exp_h1_schedule_ablation/h1_ablation_{cfg.config_id}.pdf",
-                "python_multilayer/h1_schedule_ablation_plot.py",
-            ),
-            "cross_config_heatmap_pdf": ref(
-                "essay/exp_h1_schedule_ablation/h1_ablation_cross_config_heatmap.pdf",
-                "python_multilayer/h1_schedule_ablation_plot.py",
-            ),
-            "raw_csv_bundle": {
-                "path": raw_dir_rel.replace("\\", "/"),
-                "sha256_dir": sha256_of_dir_tar(raw_dir, f"h1_schedule_ablation_{cfg.config_id}_*.csv"),
-                "producer": {
-                    "worktree": "audit-v2",
-                    "head_sha_at_run": git_head_sha(AUDIT_V2),
-                    "script": "python_multilayer/h1_schedule_ablation.py",
-                    "script_sha256": sha256_of_file(AUDIT_V2 / "python_multilayer" / "h1_schedule_ablation.py"),
-                },
+    artifacts = {
+        "summary_csv": ref(
+            f"essay/exp_h1_schedule_ablation/summary_{cfg.config_id}.csv",
+            "python_multilayer/h1_schedule_ablation.py",
+        ),
+        "combined_summary_csv": ref(
+            "essay/exp_h1_schedule_ablation/summary_per_config.csv",
+            "python_multilayer/h1_schedule_ablation_plot.py",
+        ),
+        "figure_pdf": ref(
+            f"essay/exp_h1_schedule_ablation/h1_ablation_{cfg.config_id}.pdf",
+            "python_multilayer/h1_schedule_ablation_plot.py",
+        ),
+        "cross_config_heatmap_pdf": ref(
+            "essay/exp_h1_schedule_ablation/h1_ablation_cross_config_heatmap.pdf",
+            "python_multilayer/h1_schedule_ablation_plot.py",
+        ),
+        "raw_csv_bundle": {
+            "path": raw_dir_rel.replace("\\", "/"),
+            "sha256_dir": sha256_of_dir_tar(raw_dir, f"h1_schedule_ablation_{cfg.config_id}_*.csv"),
+            "producer": {
+                "worktree": "audit-v2",
+                "head_sha_at_run": git_head_sha(AUDIT_V2),
+                "script": "python_multilayer/h1_schedule_ablation.py",
+                "script_sha256": sha256_of_file(AUDIT_V2 / "python_multilayer" / "h1_schedule_ablation.py"),
             },
         },
+    }
+    if cfg.config_id in {"v2b_lenet5_mnist_28x28", "v2b_lenet5_fashion_28x28"}:
+        artifacts["lenet5_equivalence_check_json"] = ref(
+            "essay/exp_h1_schedule_ablation/h1_lenet5_equivalence_check.json",
+            "python_multilayer/h1_lenet5_equivalence_check.py",
+        )
+    return {
+        "applicable": True,
+        "artifacts": artifacts,
         "paper_section_link": "§5.7",
     }
 

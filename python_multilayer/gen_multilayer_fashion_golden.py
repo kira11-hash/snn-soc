@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
 import _vendored_from_v1.data_utils as v1_data  # noqa: E402
 from adc_scale_v2 import rtl_adc_scale_v2  # noqa: E402
 from exporter_multilayer import _quantize_stage_weights, _get_device_levels_for_export  # noqa: E402
+from gen_multilayer_bundle import resolve_best_or_final_model_path  # noqa: E402
 from snn_engine_multilayer import _run_stage_streamed_rate, encode_pixel_to_spike_stream  # noqa: E402
 from topologies import get_topology_by_name, load_topology_file  # noqa: E402
 import config_multilayer as cfg  # noqa: E402
@@ -100,7 +101,9 @@ def main(num_samples: int = 10) -> int:
     adc_bits = int(topo.adc_bits)           # 10
 
     # Load P4 trained model (overnight run)
-    model_path = ROOT / "results_multilayer" / "196_64_10" / "model.pt"
+    model_path = resolve_best_or_final_model_path(
+        ROOT / "results_multilayer" / "196_64_10" / "model.pt"
+    )
     if not model_path.exists():
         print(f"[FATAL] model not found: {model_path}")
         return 1

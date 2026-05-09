@@ -80,6 +80,20 @@ python run_multilayer.py --all --topology 64_32_10
 pytest tests/test_exported_hex_parity.py -v
 ```
 
+## H1 follow-up gates
+
+- `python h1_smoke_full_set.py`
+  - Config #2 (`v2b_fc_fashion14_2L`) smoke for the H1 full-set flow.
+  - Rebuilds `essay/exp_h1_schedule_ablation/summary_v2b_fc_fashion14_2L.csv`
+    from the current raw CSVs and emits `H1_SMOKE_FULL_SET_PASS`.
+- `python h1_lenet5_equivalence_check.py`
+  - 100-sample LeNet-5 slow/fast equivalence gate on Config #4
+    (`v2b_lenet5_mnist_28x28`) using the same deterministic subset as
+    `m2_real_inference.py`.
+  - Checks both `baseline` and `reset_mixed_soft_early`, writes
+    `essay/exp_h1_schedule_ablation/h1_lenet5_equivalence_check.json`,
+    and emits `H1_LENET5_EQUIVALENCE_PASS` on zero mismatches.
+
 ## 关键口径
 
 ### 数据集 + 预处理

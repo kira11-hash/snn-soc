@@ -39,6 +39,18 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger("streamed_train")
 
 
+def _load_state_dict_and_thresholds(model_path: Path) -> tuple[dict[str, torch.Tensor], list[int] | None]:
+    state = torch.load(model_path, map_location="cpu", weights_only=False)
+    if isinstance(state, dict):
+        state_dict = state.get("state_dict", state)
+        for key in ("selected_thresholds", "final_thresholds", "best_thresholds"):
+            values = state.get(key)
+            if values:
+                return state_dict, [int(v) for v in values]
+        return state_dict, None
+    return state, None
+
+
 def _load_data(topology: TopologyConfig):
     data_dir = str(cfg.ROOT_DIR / "data")
     # Pick input size from topology input_dim.
@@ -165,6 +177,12 @@ def main() -> int:
     ap.add_argument("--rate-band-weight", type=float, default=0.05)
     ap.add_argument("--calib-interval", type=int, default=5, help="Epochs between threshold calibrations")
     ap.add_argument("--init-std", type=float, default=0.1)
+    ap.add_argument("--init-from", default="", help="Optional checkpoint to load before training")
+    ap.add_argument(
+        "--save-epoch-checkpoints",
+        action="store_true",
+        help="Write epoch_XX.pt snapshots after each evaluation pass",
+    )
     ap.add_argument("--subset", type=int, default=0, help="If >0, use this many training samples only")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--stream-timesteps", type=int, default=None,
@@ -211,12 +229,34 @@ def main() -> int:
 
     # Build model
     model = MultiLayerANN(topo)
-    for layer in model.layers:
-        nn.init.normal_(layer.weight, std=args.init_std)
+    init_from = Path(args.init_from).resolve() if args.init_from else None
+    if init_from is not None:
+        if not init_from.exists():
+            logger.error("init checkpoint not found: %s", init_from)
+            return 2
+        state_dict, saved_thresholds = _load_state_dict_and_thresholds(init_from)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing or unexpected:
+            logger.warning(
+                "[%s] init-from %s loaded with missing=%s unexpected=%s",
+                topo.name, init_from, missing, unexpected,
+            )
+        if saved_thresholds is not None:
+            for stage, threshold in zip(topo.stages, saved_thresholds):
+                stage.__dict__["threshold"] = int(threshold)
+        logger.info("[%s] resumed from %s", topo.name, init_from)
+        if saved_thresholds is not None:
+            logger.info("[%s] restored thresholds from checkpoint: %s", topo.name, saved_thresholds)
+    else:
+        for layer in model.layers:
+            nn.init.normal_(layer.weight, std=args.init_std)
 
     # Initial threshold calibration (warmup-free first shot)
-    logger.info("[%s] initial threshold calibration:", topo.name)
-    _calibrate_thresholds(model, tx, topo)
+    if init_from is None:
+        logger.info("[%s] initial threshold calibration:", topo.name)
+        _calibrate_thresholds(model, tx, topo)
+    else:
+        logger.info("[%s] skipping initial threshold calibration (resumed checkpoint)", topo.name)
 
     opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     ce = nn.CrossEntropyLoss()
@@ -228,6 +268,9 @@ def main() -> int:
     best_acc = 0.0
     best_state = None
     best_thresholds: list[int] | None = None
+    base_name = topo.name + (f"_{args.tag}" if args.tag else "")
+    out_dir = cfg.get_topology_results_dir(base_name)
+    out_dir.mkdir(parents=True, exist_ok=True)
     for ep in range(args.epochs):
         model.train()
         tot_loss, tot_ce, tot_reg, n = 0.0, 0.0, 0.0, 0
@@ -279,14 +322,29 @@ def main() -> int:
             tot_loss / n, tot_ce / n, tot_reg / n, acc, best_acc,
         )
 
+        if args.save_epoch_checkpoints:
+            epoch_path = out_dir / f"epoch_{ep + 1:02d}.pt"
+            torch.save(
+                {
+                    "state_dict": {k: v.detach().cpu().clone() for k, v in model.state_dict().items()},
+                    "topology_name": topo.name,
+                    "epoch": ep + 1,
+                    "best_test_accuracy": best_acc,
+                    "final_test_accuracy": acc,
+                    "final_thresholds": [s.threshold for s in topo.stages],
+                    "stream_timesteps": T,
+                    "adc_bits": topo.adc_bits,
+                },
+                epoch_path,
+            )
+            logger.info("[%s] saved %s", topo.name, epoch_path.name)
+
         # Periodic threshold calibration
-        if (ep + 1) % args.calib_interval == 0 and ep < args.epochs - 1:
+        if args.calib_interval > 0 and (ep + 1) % args.calib_interval == 0 and ep < args.epochs - 1:
             logger.info("[%s] threshold calib at ep %d:", topo.name, ep + 1)
             _calibrate_thresholds(model, tx, topo)
 
     # Save final model (tag suffix so parallel runs don't clobber)
-    base_name = topo.name + (f"_{args.tag}" if args.tag else "")
-    out_dir = cfg.get_topology_results_dir(base_name)
     out_path = out_dir / "model.pt"
     best_out_path = out_dir / "model_best.pt"
     torch.save(

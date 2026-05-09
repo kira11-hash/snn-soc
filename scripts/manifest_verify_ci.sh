@@ -19,6 +19,14 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 AUDIT_V2="$(cd "$HERE/.." && pwd)"
 SOC_DESIGN="$(cd "$AUDIT_V2/.." && pwd)/SoC Design"
 MANIFESTS_DIR="$SOC_DESIGN/essay/manifests"
+WIN_PYTHON="/mnt/c/Users/24201/AppData/Local/Python/bin/python.exe"
+if [ -x "$WIN_PYTHON" ]; then
+    PYTHON_BIN="$WIN_PYTHON"
+    USE_WIN_PYTHON=1
+else
+    PYTHON_BIN="${PYTHON_BIN:-python3}"
+    USE_WIN_PYTHON=0
+fi
 
 if [ ! -d "$MANIFESTS_DIR" ]; then
     echo "[FATAL] $MANIFESTS_DIR does not exist; run --all first to populate"
@@ -28,8 +36,23 @@ fi
 # Use a fixed --frozen-utc so the regen is byte-deterministic.
 FROZEN_UTC="${FROZEN_UTC:-2026-05-08T00:00:00Z}"
 
-TMP_DIR="$(mktemp -d)"
+if [ "$USE_WIN_PYTHON" -eq 1 ]; then
+    TMP_DIR="$AUDIT_V2/.manifest_verify_tmp.$$"
+    rm -rf "$TMP_DIR"
+    mkdir -p "$TMP_DIR"
+else
+    TMP_DIR="$(mktemp -d)"
+fi
 trap 'rm -rf "$TMP_DIR"' EXIT
+
+MAKE_MANIFEST_PY="$HERE/make_manifest.py"
+H1_EQ_PY="$AUDIT_V2/python_multilayer/h1_lenet5_equivalence_check.py"
+TMP_DIR_PY="$TMP_DIR"
+if [ "$USE_WIN_PYTHON" -eq 1 ] && command -v wslpath >/dev/null 2>&1; then
+    MAKE_MANIFEST_PY="$(wslpath -w "$MAKE_MANIFEST_PY")"
+    H1_EQ_PY="$(wslpath -w "$H1_EQ_PY")"
+    TMP_DIR_PY="$(wslpath -w "$TMP_DIR")"
+fi
 
 M2_ARGS=()
 if [ -f "$SOC_DESIGN/essay/exp_m2_envelope/sample_provenance.yaml" ]; then
@@ -44,10 +67,10 @@ if [ -f "$SOC_DESIGN/essay/exp_h1_schedule_ablation/summary_per_config.csv" ]; t
 fi
 
 echo "[verify] regenerating manifests in $TMP_DIR (frozen-utc=$FROZEN_UTC)"
-python3 "$HERE/make_manifest.py" \
+"$PYTHON_BIN" "$MAKE_MANIFEST_PY" \
     --all \
     --frozen-utc "$FROZEN_UTC" \
-    --out-dir "$TMP_DIR" \
+    --out-dir "$TMP_DIR_PY" \
     --require-h1-artifacts \
     "${H1_ARGS[@]}" \
     "${M2_ARGS[@]}"
@@ -77,6 +100,9 @@ if [ "$DRIFT" -gt 0 ]; then
     echo "============================================"
     exit 1
 fi
+
+echo "[verify] running LeNet-5 slow/fast equivalence gate"
+"$PYTHON_BIN" "$H1_EQ_PY"
 
 echo ""
 echo "============================================"

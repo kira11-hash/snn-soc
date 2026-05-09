@@ -187,10 +187,14 @@ def cmd_export(topology: TopologyConfig) -> None:
 
     out_dir = cfg.get_topology_results_dir(topology.name)
     model_path = out_dir / "model.pt"
+    best_model_path = out_dir / "model_best.pt"
+    if best_model_path.exists():
+        model_path = best_model_path
     if not model_path.exists():
         raise SystemExit(
             f"Model not found at {model_path}; run --train first for this topology."
         )
+    logger.info("Export source checkpoint: %s", model_path.name)
     model = load_model(model_path, topology)
 
     manifest = export_topology(topology, model.state_dict(), out_dir)

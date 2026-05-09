@@ -4,7 +4,7 @@
   "role": "v2_demo",
   "num_fc_stages": 2,
   "input_dim": 196,
-  "generated_at": "2026-05-08T10:07:51.771194+00:00",
+  "generated_at": "2026-05-09T07:05:15.139180+00:00",
   "quantization": {
     "weight_bits": 4,
     "use_device_levels": true
@@ -21,9 +21,9 @@
       "threshold": 16,
       "weight_pos_hex": "weights/L0_pos.hex",
       "weight_neg_hex": "weights/L0_neg.hex",
-      "weight_pos_sha256": "08514e43bcc5acfcda1b7b54f010f9d5b83b7b5e723fa2aeb7b4394fc7f5b45e",
-      "weight_neg_sha256": "29d0799b83c88d5487393477c42d8b4e16a01421abb0ef016d91059d8e3310ac",
-      "nonzero_cells": 12525,
+      "weight_pos_sha256": "ddb575e934228ed2b26e9bb8fac8014fc5420c402fd607a8bcbf468a2a48224e",
+      "weight_neg_sha256": "c6533ef04d152ddf2c907637cf2ed6763c0f286f2907e931e6214f3e98e6c30f",
+      "nonzero_cells": 12527,
       "physical_cells": 25088
     },
     {
@@ -37,11 +37,11 @@
       "threshold": 8,
       "weight_pos_hex": "weights/L1_pos.hex",
       "weight_neg_hex": "weights/L1_neg.hex",
-      "weight_pos_sha256": "ba133fe49536efdf39c21c39d9b01cc96fc9573b6f9881fd6bf48bae62a1d125",
-      "weight_neg_sha256": "92cd69158abeef13e4bb7b832c371ec8bd9fbeb64ce16c74c27781ea2f05bd21",
-      "nonzero_cells": 640,
+      "weight_pos_sha256": "9e2c5e0b4bbb1269e7f8f64843b8e932154df3942600e5a7b116c6d646481e0c",
+      "weight_neg_sha256": "938c33128043899d6ec8704f3ffc271f8d86cbbe977bb67276639ecbb7a2ad27",
+      "nonzero_cells": 639,
       "physical_cells": 1280
     }
   ],
-  "total_nonzero_cells": 13165
+  "total_nonzero_cells": 13166
 }

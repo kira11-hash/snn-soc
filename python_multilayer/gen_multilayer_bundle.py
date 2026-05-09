@@ -32,6 +32,13 @@ from snn_engine_multilayer import _run_stage_streamed_rate, encode_pixel_to_spik
 from topologies import get_topology_by_name, load_topology_file  # noqa: E402
 
 
+def resolve_best_or_final_model_path(model_path: Path) -> Path:
+    best_path = model_path.with_name("model_best.pt")
+    if best_path.exists():
+        return best_path
+    return model_path
+
+
 @dataclass
 class FakeStage:
     in_dim: int
@@ -101,6 +108,7 @@ def _quantized_stage_weights(topo_name: str, model_path: Path) -> tuple[list[Fak
     if topo.input_encoding != "streamed_rate":
         raise ValueError(f"{topo_name} is not a streamed_rate topology")
 
+    model_path = resolve_best_or_final_model_path(model_path)
     state_dict = _load_state_dict(model_path)
     levels = _get_device_levels_for_export(2 ** cfg.QAT_WEIGHT_BITS)
     fake_stages: list[FakeStage] = []
