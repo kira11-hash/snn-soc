@@ -200,7 +200,7 @@ CANONICAL_CONFIGS: Tuple[ConfigEntry, ...] = (
         adc_bits=10,
         reported_accuracy=84.05,
         reported_accuracy_source="paper §3 Table-3 row #5",
-        tier=TIER_SIM_ONLY,
+        tier=TIER_BOARD,
         weight_format=WEIGHT_FORMAT_FC,
     ),
     ConfigEntry(

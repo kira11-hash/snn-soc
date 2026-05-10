@@ -1,0 +1,6 @@
+config_id v2b_fc_fashion28_2L
+baseline_kind board_equivalent_tiled_fc
+tile_cap 256
+tile_sum_max_policy active_wl_per_tile
+stage1_sum_max 960
+trace_hash_host python

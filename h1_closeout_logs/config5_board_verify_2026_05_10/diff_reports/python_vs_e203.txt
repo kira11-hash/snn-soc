@@ -1,0 +1,10 @@
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=0 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=1 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=2 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=3 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=4 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=5 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=6 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=7 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=8 entries=128
+TRACE_HASH_DIFF MATCH config=v2b_fc_fashion28_2L sample=9 entries=128

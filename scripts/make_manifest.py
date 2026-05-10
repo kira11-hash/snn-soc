@@ -87,6 +87,7 @@ H1_CLOSEOUT = _path_from_env(
     AUDIT_V2.parent / "h1_closeout_logs" / "phase4_bitstreams_20260507",
 )
 ARM_H1_SNAPSHOT = H1_CLOSEOUT / "arm_h1"
+CONFIG5_CLOSEOUT = AUDIT_V2 / "h1_closeout_logs" / "config5_board_verify_2026_05_10"
 V1_PYTHON_DIR = AUDIT_V2 / "项目相关文件" / "器件对齐" / "Python建模"
 
 
@@ -728,6 +729,129 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             "input_fmap_dataset": _collect_input_fmap(cfg, require_h1),
             "python_integer_reference_golden": _collect_python_golden(cfg, require_h1),
             "board_validation": _build_v1_board_validation(),
+        }
+
+    if cfg.config_id == "v2b_fc_fashion28_2L":
+        baseline_dir = CONFIG5_CLOSEOUT / "python_baseline"
+        arm_bit = CONFIG5_CLOSEOUT / "bitstream" / "v2b_arm_demo_bd_wrapper.bit"
+        e203_bit = CONFIG5_CLOSEOUT / "bitstream" / "snn_soc_v2b_e203_fashion28.bit"
+        arm_elf = CONFIG5_CLOSEOUT / "arm" / "v2b_arm_demo.elf"
+        e203_elf = CONFIG5_CLOSEOUT / "e203" / "v2_e203_fashion28.elf"
+        arm_log = CONFIG5_CLOSEOUT / "arm" / "uart_capture_arm.log"
+        e203_log = CONFIG5_CLOSEOUT / "e203" / "uart_capture_e203.log"
+        return {
+            "bitstream_arm": {
+                "path": repo_relpath(arm_bit),
+                "md5": md5_of_file(arm_bit) if arm_bit.exists() else "<missing>",
+                "sha256": sha256_of_file(arm_bit) if arm_bit.exists() else "<missing>",
+                "producer": producer_block(
+                    worktree_label="audit-v2",
+                    head_sha=git_head_sha(AUDIT_V2),
+                    require_h1=require_h1,
+                    build_script="scripts/program_zcu102_c0.tcl + existing ARM H1 bitstream reuse",
+                    build_variant="fashion28",
+                ),
+            },
+            "bitstream_e203": {
+                "path": repo_relpath(e203_bit),
+                "md5": md5_of_file(e203_bit) if e203_bit.exists() else "<missing>",
+                "sha256": sha256_of_file(e203_bit) if e203_bit.exists() else "<missing>",
+                "producer": producer_block(
+                    worktree_label="audit-v2-e203",
+                    head_sha=git_head_sha(AUDIT_V2_E203),
+                    require_h1=require_h1,
+                    build_script="fpga_synth/zcu102_v2_e203_demo/build_v2_e203_demo.sh",
+                    build_variant="fashion28",
+                    copied_to_main_at_closeout=False,
+                ),
+            },
+            "firmware_arm_elf": {
+                "path": repo_relpath(arm_elf),
+                "sha256": sha256_of_file(arm_elf) if arm_elf.exists() else "<missing>",
+                "producer": producer_block(
+                    worktree_label="audit-v2",
+                    head_sha=git_head_sha(AUDIT_V2),
+                    require_h1=require_h1,
+                    build_script="fw/arm/build_arm_firmware.sh",
+                    build_variant="fashion28",
+                ),
+            },
+            "firmware_e203_elf": {
+                "path": repo_relpath(e203_elf),
+                "sha256": sha256_of_file(e203_elf) if e203_elf.exists() else "<missing>",
+                "producer": producer_block(
+                    worktree_label="audit-v2-e203",
+                    head_sha=git_head_sha(AUDIT_V2_E203),
+                    require_h1=require_h1,
+                    build_script="fw/v2_e203_smoke/build_v2_e203_smoke.sh",
+                    build_variant="fashion28",
+                ),
+            },
+            "weight_hex": _collect_weight_hex(cfg, require_h1),
+            "model_checkpoint": _collect_model_checkpoint(cfg, require_h1),
+            "topologies_yaml": _collect_topologies_yaml(require_h1),
+            "input_fmap_dataset": {
+                "sample_count": len(list(baseline_dir.glob("sample_*_wl_stream.hex"))) if baseline_dir.is_dir() else 0,
+                "sample_files_pattern": "audit-v2/h1_closeout_logs/config5_board_verify_2026_05_10/python_baseline/sample_*_wl_stream.hex",
+                "sample_files_tar_sha256": sha256_of_dir_tar(baseline_dir, "sample_*_wl_stream.hex"),
+                "producer": producer_block(
+                    worktree_label="audit-v2",
+                    head_sha=git_head_sha(AUDIT_V2),
+                    require_h1=require_h1,
+                    script="python_multilayer/gen_multilayer_fashion28_trace_baseline.py",
+                    dataset_source="Fashion-MNIST official test split",
+                    split_seed="class-first one-per-class board-equivalent tiled baseline",
+                ),
+            },
+            "python_integer_reference_golden": {
+                "bundle_path": "audit-v2/h1_closeout_logs/config5_board_verify_2026_05_10/python_baseline/",
+                "files_pattern": "sample_*_{counts,predicted,label}.txt + trace_hash_python.log",
+                "bundle_tar_sha256": sha256_of_dir_tar(baseline_dir, "sample_*"),
+                "producer": producer_block(
+                    worktree_label="audit-v2",
+                    head_sha=git_head_sha(AUDIT_V2),
+                    require_h1=require_h1,
+                    script="python_multilayer/gen_multilayer_fashion28_trace_baseline.py",
+                ),
+            },
+            "runtime_csr_dump": {
+                "hex": "trace-hash board lane used as primary byte-exact proof for Config #5",
+                "producer": producer_block(
+                    worktree_label="audit-v2",
+                    head_sha=git_head_sha(AUDIT_V2),
+                    require_h1=require_h1,
+                    firmware_function="v2b_trace_hash_dump_uart",
+                    firmware_source="fw/arm/src/arm_main_fashion28.c + fw/v2_e203_smoke/src/v2_e203_fashion28_main.c",
+                ),
+            },
+            "trace_hash_logs": {
+                "h1_arm": {
+                    "path": repo_relpath(arm_log),
+                    "sha256": sha256_of_file(arm_log) if arm_log.exists() else "<missing>",
+                    "pass_sentinel": "ARM_FPGA_DEMO_SCHEDULER_FASHION28_PASS",
+                    "run_date": "2026-05-10",
+                    "role": "Config #5 board-verified log",
+                    "producer": producer_block(
+                        worktree_label="audit-v2",
+                        head_sha=git_head_sha(AUDIT_V2),
+                        require_h1=require_h1,
+                        capture_script="scripts/capture_uart.py",
+                    ),
+                },
+                "h1_e203": {
+                    "path": repo_relpath(e203_log),
+                    "sha256": sha256_of_file(e203_log) if e203_log.exists() else "<missing>",
+                    "pass_sentinel": "FPGA_V2_E203_FASHION28_INFER_PASS",
+                    "run_date": "2026-05-10",
+                    "role": "Config #5 board-verified log",
+                    "producer": producer_block(
+                        worktree_label="audit-v2-e203",
+                        head_sha=git_head_sha(AUDIT_V2_E203),
+                        require_h1=require_h1,
+                        capture_script="scripts/capture_uart.py",
+                    ),
+                },
+            },
         }
 
     arts: Dict[str, object] = {}

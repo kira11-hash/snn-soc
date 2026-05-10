@@ -20,6 +20,7 @@
 | 当前审计修复是否需要 reburn | **已完成 reburn + fresh UART reverify（2026-05-04）** |
 | 板级 PASS 标记（v2 Fashion） | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 | **板级 PASS 标记（v2-conv LeNet-5）** | **`ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample 全 PASS，counts byte-exact，argmax 全对）** |
+| Config #5 工程状态（2026-05-10） | `v2b_fc_fashion28_2L` 已补齐 dual-host board lane：ARM `ARM_FPGA_DEMO_SCHEDULER_FASHION28_PASS` + E203 `FPGA_V2_E203_FASHION28_INFER_PASS`，并与 Python board-equivalent baseline 做 `10/10` trace-hash byte-exact 对齐 |
 
 **学习时请按照"先 Part A → Part B → Part C（如需了解 ASIC 主线）→ Part D（本分支特有）"的顺序**。Part D 假设你已经熟悉 V1 主线 + V1.1 加固层；如果你只想学 ARM PS-PL 集成，可以从 Part D 开始。Part D 末尾的阶段 23 / 24 是 v2-conv LeNet-5 扩展，建议先把阶段 19-22（v2 Fashion 基线）看懂再进。
 
