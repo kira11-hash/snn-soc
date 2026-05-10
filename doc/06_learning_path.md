@@ -2969,18 +2969,21 @@ bash "../audit-v2-round6/scripts/manifest_verify_ci.sh"
 
 | 资产 | 状态 | 文件位置 |
 |---|---|---|
-| Canonical narrative anchor | frozen | `../SoC Design/essay/paper_narrative_spec_2026_05_08.md`（11.1-11.9 changelog） |
+| Canonical narrative anchor | frozen | `../SoC Design/essay/paper_narrative_spec_2026_05_08.md`（11.1-11.10 changelog） |
 | 论文 prose 主体 | drafted partial | `../SoC Design/essay/paper_draft_round6_3_inputs.md` |
 | BibTeX | **READY**（30 verified DOI-backed entries） | `../SoC Design/essay/paper.bib` |
 | Figure 1+2 | **READY**（PDF + PNG） | `../SoC Design/essay/figures/` |
 | Tables 1/2/3 | drafted | `paper_draft` §3 |
 | §3.1-§3.5 / §4.1-§4.3 / §5.1-§5.6 主体 | **未写** | TBD |
-| §3.6 / §4.4 / §5.7 / §5.8 / §7.5 / §8 / Appendix | drafted | `paper_draft` |
+| §3.6 / §4.4 / §5.7 / §5.8 / §5.9 / §7.5 / §8 / Appendix | drafted | `paper_draft` |
 | GPT Pro DR advisory prompt | **READY** | `../SoC Design/essay/gpt_pro_deep_research_prompt_2026_05_08.md` |
 | REPRODUCE.md cold-start | **READY** | `../SoC Design/essay/REPRODUCE.md` |
 | Trace-hash coverage summary | **READY** | `../SoC Design/essay/exp_trace_hash_coverage/coverage.csv` |
 | 4-axis unique-point coverage | **READY** | `../SoC Design/essay/exp_4axis_combinatorial_coverage/coverage_matrix.csv` |
 | Claude DR decision log | **READY** | `../SoC Design/essay/claude_dr_integration_2026_05_10.md` |
+| GPT DR decision log | **READY** | `../SoC Design/essay/gpt_dr_integration_2026_05_10.md` |
+| Resource table source bundle | **READY** | `../SoC Design/essay/raw_data_for_replot/resource_utilization/` |
+| M4 user-decision memo | **OPEN USER DECISION** | `../SoC Design/essay/m4_framing_decision_for_user_2026_05_10.md` |
 
 ## I.4 Part F-I 阅读建议（顺藤摸瓜）
 
@@ -2995,6 +2998,6 @@ Step 4（30 min）  ../SoC Design/essay/REPRODUCE.md + ../SoC Design/essay/manif
 
 ---
 
-*Part F-I 最后更新：2026-05-10（Claude DR integration：paper bundle 新增 trace-hash / 4-axis coverage 工件与决策矩阵；canonical narrative 扩展到 §11.9；current manifests 仍锚在 artifact-producing audit-v2 close-out HEAD `cbf9dccd`，其余 Round-6 close-out 结论不变）*
+*Part F-I 最后更新：2026-05-10（GPT DR integration：paper bundle 再新增 §5.9 resource table 源报告包、GPT DR decision log、M4 user-decision memo；canonical narrative 扩展到 §11.10；current manifests 仍锚在 artifact-producing audit-v2 close-out HEAD `cbf9dccd`，其余 Round-6 close-out 结论不变）*
 
 **学习建议**：本分支是"evidence branch"，优先看 `doc/arm-fpga-demo/00_architecture.md` 与板级证据日志（含 LeNet-5 板验日志），再回到 RTL 看实现。建议在阅读 cim_mac_behavioral_v2 / stage_engine_v2 / conv_ctrl_v2 之前先把 V1 的 cim_macro_blackbox / cim_array_ctrl 看懂，这样能看出 V2.B 重构的关键演进点。CONV 扩展（阶段 23）是 V2.B 第一次端到端跑真实 CNN 拓扑，是阅读项目的"high-water mark"。
