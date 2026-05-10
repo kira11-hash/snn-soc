@@ -32,6 +32,23 @@ int v2b_infer_resident_14x14_trace(const uint8_t *pixel_196,
                                    int32_t *counts_out_10,
                                    uint32_t sample_id);
 
+void v2b_load_mac_weights_packed(const uint8_t *packed_weights,
+                                 uint32_t row_offset,
+                                 uint32_t in_dim,
+                                 uint32_t out_dim,
+                                 uint32_t full_out_dim);
+
+int v2b_infer_resident_28x28(const uint8_t *pixel_784,
+                             const uint8_t *s0_w_packed,
+                             const uint8_t *s1_w_packed,
+                             int32_t *counts_out_10);
+
+int v2b_infer_resident_28x28_trace(const uint8_t *pixel_784,
+                                   const uint8_t *s0_w_packed,
+                                   const uint8_t *s1_w_packed,
+                                   int32_t *counts_out_10,
+                                   uint32_t sample_id);
+
 /* M3 Phase 2A variant: caller supplies an initialised v2b_m3_state_t whose
  * 5 cumulative segments are populated as the inference progresses through
  * HOST_SETUP / TRANSFER / ACCEL_ACTIVE / READBACK / DECODE. Caller must

@@ -21,7 +21,7 @@
 #                                直接在编译时传入即可，无需改 C 源码。
 #   TOOLCHAIN_BIN=/path         — 覆盖交叉 gcc 路径。默认：
 #                                 /d/Xilinx/Vitis/2022.2/gnu/aarch64/nt/aarch64-none/bin
-#   ARM_FW_VARIANT=lenet5|fashion14
+#   ARM_FW_VARIANT=lenet5|fashion14|fashion28
 #                               — 选择当前要生成的 ARM firmware 入口。
 #   ARM_FW_EXTRA_DEFS="-DMACRO=VALUE ..."
 #                               — 追加给 C 编译阶段的额外宏定义。
@@ -247,6 +247,14 @@ case "$ARM_FW_VARIANT" in
     compile "$HERE/src/v2b_scheduler_arm.c"
     compile "$HERE/src/arm_main_fashion14_h1_schedB.c"
     REQUIRED_SYMS=("arm_main" "v2b_infer_resident_14x14_h1" "uart_init" "golden_fashion10" "_start")
+    ;;
+  fashion28)
+    echo "[build_arm_firmware] 重新生成 Fashion28 黄金参考 header"
+    python "$HERE/scripts/gen_golden_fashion28_header.py"
+    compile "$HERE/src/golden_fashion28.c"
+    compile "$HERE/src/v2b_scheduler_fashion28_arm.c"
+    compile "$HERE/src/arm_main_fashion28.c"
+    REQUIRED_SYMS=("arm_main" "v2b_infer_resident_28x28_trace" "uart_init" "golden_fashion28" "_start")
     ;;
   *)
     echo "[FATAL] unsupported ARM_FW_VARIANT=$ARM_FW_VARIANT" >&2
