@@ -1,0 +1,13 @@
+STRICT_MATCH=9/10
+SUPPORT_AWARE_MATCH=10/10
+ARM_LABELS_CORRECT=10/10
+00 label=0 old=0 new=0 arm=0 e203=0 support=[0] strict_ok=True support_ok=True
+01 label=1 old=1 new=1 arm=1 e203=1 support=[1] strict_ok=True support_ok=True
+02 label=2 old=2 new=2 arm=2 e203=2 support=[2] strict_ok=True support_ok=True
+03 label=3 old=3 new=3 arm=3 e203=3 support=[3] strict_ok=True support_ok=True
+04 label=4 old=4 new=4 arm=4 e203=4 support=[4, 6] strict_ok=True support_ok=True
+05 label=5 old=5 new=5 arm=5 e203=5 support=[5] strict_ok=True support_ok=True
+06 label=6 old=0 new=6 arm=6 e203=6 support=[0, 6] strict_ok=False support_ok=True
+07 label=7 old=7 new=7 arm=7 e203=7 support=[7] strict_ok=True support_ok=True
+08 label=8 old=8 new=8 arm=8 e203=8 support=[8] strict_ok=True support_ok=True
+09 label=9 old=9 new=9 arm=9 e203=9 support=[9] strict_ok=True support_ok=True

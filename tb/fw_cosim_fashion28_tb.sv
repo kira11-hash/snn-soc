@@ -5,6 +5,7 @@
 // Config #5 firmware-style cosim TB.
 // Mirrors the board scheduler contract:
 //   - stage 0: 784 -> 64, 4 tiles under 256-WL cap
+//              with fixed full-stage sum_max on every tile
 //   - stage 1: 64 -> 10 single-tile streamed stage
 //   - expected counts come from the board-equivalent Python baseline bundle
 //======================================================================
@@ -17,6 +18,7 @@ module fw_cosim_fashion28_tb;
   localparam int S0_IN_DIM = 784, S0_OUT_DIM = 64;
   localparam int S1_IN_DIM = 64,  S1_OUT_DIM = 10;
   localparam int S0_THR = 16;
+  localparam int S0_SUM_MAX = S0_IN_DIM * 15;
   localparam int S1_THR = 8, S1_SUM_MAX = 960;
   localparam int WL_CAP = 256;
   localparam int WL_PAD = 1024;
@@ -252,7 +254,7 @@ module fw_cosim_fashion28_tb;
         tile_in_dim = tile_stop - tile_start;
         sw_load_input_stream_tile(tile_start, tile_in_dim);
         sw_load_mac_weights_s0_tile(tile_start, tile_in_dim);
-        sw_run_stage_cfg(tile_in_dim, S0_OUT_DIM, S0_THR, tile_in_dim * 15,
+        sw_run_stage_cfg(tile_in_dim, S0_OUT_DIM, S0_THR, S0_SUM_MAX,
                          BUF_SEL_INPUT_SRAM, BUF_DST_STREAM_A, 1'b1, (tile_idx == 3));
       end
 

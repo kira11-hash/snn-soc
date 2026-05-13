@@ -9,6 +9,10 @@
  *       256 + 256 + 256 + 16
  *   - cross-tile accumulation is handled by stage_engine_v2 tile_mode +
  *     tile_partial_buf; only the final tile emits the stage-0 spike stream
+ *   - each stage-0 tile uses the fixed full-stage sum_max (784 * 15), not
+ *     tile_in_dim * 15. That keeps the tiled deployment path much closer to
+ *     the historical untiled Config #5 reference without an RTL redesign to
+ *     defer ADC until after cross-tile accumulation.
  *   - stage 1 remains a single-tile 64 -> 10 streamed stage
  *
  * This file is host-agnostic and is intended to be compiled through thin
@@ -31,6 +35,7 @@
 #define F28_S0_IN_DIM       784u
 #define F28_S0_OUT_DIM       64u
 #define F28_S0_THRESHOLD     16u
+#define F28_S0_FIXED_SUM_MAX (F28_S0_IN_DIM * 15u)
 #define F28_S1_IN_DIM        64u
 #define F28_S1_OUT_DIM       10u
 #define F28_S1_THRESHOLD      8u
@@ -95,7 +100,8 @@ static uint32_t f28_stage0_tile_in_dim(uint32_t tile_idx)
 
 static uint32_t f28_stage0_tile_sum_max(uint32_t tile_in_dim)
 {
-    return tile_in_dim * 15u;
+    (void)tile_in_dim;
+    return F28_S0_FIXED_SUM_MAX;
 }
 
 static void f28_encode_pixel_even_rate_slice(const uint8_t *pixels,

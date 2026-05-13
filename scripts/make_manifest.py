@@ -87,7 +87,7 @@ H1_CLOSEOUT = _path_from_env(
     AUDIT_V2.parent / "h1_closeout_logs" / "phase4_bitstreams_20260507",
 )
 ARM_H1_SNAPSHOT = H1_CLOSEOUT / "arm_h1"
-CONFIG5_CLOSEOUT = AUDIT_V2 / "h1_closeout_logs" / "config5_board_verify_2026_05_10"
+CONFIG5_CLOSEOUT = AUDIT_V2 / "h1_closeout_logs" / "config5_board_verify_fix_2026_05_12"
 V1_PYTHON_DIR = AUDIT_V2 / "项目相关文件" / "器件对齐" / "Python建模"
 
 
@@ -792,7 +792,7 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
             "topologies_yaml": _collect_topologies_yaml(require_h1),
             "input_fmap_dataset": {
                 "sample_count": len(list(baseline_dir.glob("sample_*_wl_stream.hex"))) if baseline_dir.is_dir() else 0,
-                "sample_files_pattern": "audit-v2/h1_closeout_logs/config5_board_verify_2026_05_10/python_baseline/sample_*_wl_stream.hex",
+                "sample_files_pattern": "audit-v2/h1_closeout_logs/config5_board_verify_fix_2026_05_12/python_baseline/sample_*_wl_stream.hex",
                 "sample_files_tar_sha256": sha256_of_dir_tar(baseline_dir, "sample_*_wl_stream.hex"),
                 "producer": producer_block(
                     worktree_label="audit-v2",
@@ -800,11 +800,11 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
                     require_h1=require_h1,
                     script="python_multilayer/gen_multilayer_fashion28_trace_baseline.py",
                     dataset_source="Fashion-MNIST official test split",
-                    split_seed="class-first one-per-class board-equivalent tiled baseline",
+                    split_seed="class-first one-per-class fixed-summax tiled baseline",
                 ),
             },
             "python_integer_reference_golden": {
-                "bundle_path": "audit-v2/h1_closeout_logs/config5_board_verify_2026_05_10/python_baseline/",
+                "bundle_path": "audit-v2/h1_closeout_logs/config5_board_verify_fix_2026_05_12/python_baseline/",
                 "files_pattern": "sample_*_{counts,predicted,label}.txt + trace_hash_python.log",
                 "bundle_tar_sha256": sha256_of_dir_tar(baseline_dir, "sample_*"),
                 "producer": producer_block(
@@ -829,8 +829,8 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
                     "path": repo_relpath(arm_log),
                     "sha256": sha256_of_file(arm_log) if arm_log.exists() else "<missing>",
                     "pass_sentinel": "ARM_FPGA_DEMO_SCHEDULER_FASHION28_PASS",
-                    "run_date": "2026-05-10",
-                    "role": "Config #5 board-verified log",
+                    "run_date": "2026-05-12",
+                    "role": "Config #5 fixed-rerun board log",
                     "producer": producer_block(
                         worktree_label="audit-v2",
                         head_sha=git_head_sha(AUDIT_V2),
@@ -842,8 +842,8 @@ def _build_board_artifacts(cfg: ms.ConfigEntry, require_h1: bool) -> dict:
                     "path": repo_relpath(e203_log),
                     "sha256": sha256_of_file(e203_log) if e203_log.exists() else "<missing>",
                     "pass_sentinel": "FPGA_V2_E203_FASHION28_INFER_PASS",
-                    "run_date": "2026-05-10",
-                    "role": "Config #5 board-verified log",
+                    "run_date": "2026-05-12",
+                    "role": "Config #5 fixed-rerun board log",
                     "producer": producer_block(
                         worktree_label="audit-v2-e203",
                         head_sha=git_head_sha(AUDIT_V2_E203),

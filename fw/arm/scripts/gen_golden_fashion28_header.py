@@ -8,7 +8,7 @@ reloads the class-first Fashion-MNIST 28x28 samples, and emits compact C data:
 - packed stage-1 weights: `{neg[7:4], pos[3:0]}` bytes for `64 x 10`
 - per-sample raw pixels `uint8 pixel_784[784]`
 - per-sample expected counts `uint8 expected_counts[10]`
-- per-sample expected class
+- per-sample ground-truth label
 """
 
 from __future__ import annotations
@@ -103,10 +103,10 @@ def main() -> int:
 
     samples = []
     for k in range(NUM_SAMPLES):
-        _, _, counts_i64, pred, _label = compute_config5_board_equivalent(k)
+        _, _, counts_i64, _pred, label = compute_config5_board_equivalent(k)
         counts = counts_i64.astype(np.uint8)
         pixels = load_pixels_for_sample(k)
-        samples.append({"pixels": pixels, "counts": counts, "pred": pred})
+        samples.append({"pixels": pixels, "counts": counts, "label": label})
 
     OUT_INC.parent.mkdir(parents=True, exist_ok=True)
     OUT_SRC.parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +162,7 @@ extern const v2b_fashion28_sample_t golden_fashion28[{NUM_SAMPLES}];
             f.write("    .expected_counts = {\n")
             f.write(fmt_uint8_array(sample["counts"], per_line=10))
             f.write("\n    },\n")
-            f.write(f"    .expected_class = {sample['pred']}u,\n")
+            f.write(f"    .expected_class = {sample['label']}u,\n")
             f.write("  },\n")
         f.write("};\n")
 

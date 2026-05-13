@@ -20,7 +20,7 @@
 | 当前审计修复是否需要 reburn | **已完成 reburn + fresh UART reverify（2026-05-04）** |
 | 板级 PASS 标记（v2 Fashion） | `ARM_FPGA_DEMO_ACCEL_FASHION10_PASS` + `ARM_FPGA_DEMO_SCHEDULER_FASHION10_PASS` |
 | **板级 PASS 标记（v2-conv LeNet-5）** | **`ARM_FPGA_DEMO_LENET5_PASS`（10/10 sample 全 PASS，counts byte-exact，argmax 全对）** |
-| Config #5 工程状态（2026-05-10） | `v2b_fc_fashion28_2L` 已补齐 dual-host board lane：ARM `ARM_FPGA_DEMO_SCHEDULER_FASHION28_PASS` + E203 `FPGA_V2_E203_FASHION28_INFER_PASS`，并与 Python board-equivalent baseline 做 `10/10` trace-hash byte-exact 对齐 |
+| Config #5 工程状态（2026-05-13） | `v2b_fc_fashion28_2L` 已完成 fixed-summax rerun：ARM `ARM_FPGA_DEMO_SCHEDULER_FASHION28_PASS` + E203 `FPGA_V2_E203_FASHION28_INFER_PASS`，与 fixed Python baseline 做 `10/10` trace-hash byte-exact 对齐；历史 sim-only 对照为 strict `9/10`、support-aware `10/10`（sample 06 tie-support `{0,6}`） |
 
 **学习时请按照"先 Part A → Part B → Part C（如需了解 ASIC 主线）→ Part D（本分支特有）"的顺序**。Part D 假设你已经熟悉 V1 主线 + V1.1 加固层；如果你只想学 ARM PS-PL 集成，可以从 Part D 开始。Part D 末尾的阶段 23 / 24 是 v2-conv LeNet-5 扩展，建议先把阶段 19-22（v2 Fashion 基线）看懂再进。
 
@@ -2999,6 +2999,6 @@ Step 4（30 min）  ../SoC Design/essay/REPRODUCE.md + ../SoC Design/essay/manif
 
 ---
 
-*Part F-I 最后更新：2026-05-10（GPT DR integration：paper bundle 再新增 §5.9 resource table 源报告包、GPT DR decision log、M4 user-decision memo；canonical narrative 扩展到 §11.10；current manifests 仍锚在 artifact-producing audit-v2 close-out HEAD `cbf9dccd`，其余 Round-6 close-out 结论不变）*
+*Part F-I 最后更新：2026-05-13（Config #5 fixed-rerun provenance tidy：paper bundle 继续保留 GPT DR integration 的新增资源；Config #5 manifests 已刷新到 `config5_board_verify_fix_2026_05_12/` 并重新锚定到当前 artifact-producing audit-v2 / audit-v2-e203 heads）*
 
 **学习建议**：本分支是"evidence branch"，优先看 `doc/arm-fpga-demo/00_architecture.md` 与板级证据日志（含 LeNet-5 板验日志），再回到 RTL 看实现。建议在阅读 cim_mac_behavioral_v2 / stage_engine_v2 / conv_ctrl_v2 之前先把 V1 的 cim_macro_blackbox / cim_array_ctrl 看懂，这样能看出 V2.B 重构的关键演进点。CONV 扩展（阶段 23）是 V2.B 第一次端到端跑真实 CNN 拓扑，是阅读项目的"high-water mark"。

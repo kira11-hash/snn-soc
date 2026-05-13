@@ -1,0 +1,7 @@
+config_id v2b_fc_fashion28_2L
+baseline_kind board_tiled_fixed_stage0_summax
+tile_cap 256
+stage0_tile_sum_max 11760
+tile_sum_max_policy fixed_full_stage_sum_max
+stage1_sum_max 960
+trace_hash_host python

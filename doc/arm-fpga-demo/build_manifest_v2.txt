@@ -1,5 +1,5 @@
 # v2-arm-fpga-demo build manifest v2
-Git branch: feature/v2-addon-h1
+Git branch: feature/v2-addon-config5-board-verify
 
 Vivado version: Vivado v2022.2 (64-bit) SW Build 3671981 on Fri Oct 14 05:00:03 MDT 2022|IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
 Resolved psu_init.tcl: fpga_synth/zcu102_arm_demo/zcu102_arm_demo.gen/sources_1/bd/v2b_arm_demo_bd/ip/v2b_arm_demo_bd_zynq_ultra_ps_e_0_0/psu_init.tcl
@@ -8,8 +8,8 @@ AArch64 GCC version: aarch64-xilinx-elf-gcc.exe (GCC) 11.2.0
 V2B_SOC_BASE override: 0xA0000000u
 
 Bitstream path: fpga_synth/zcu102_arm_demo/zcu102_arm_demo.runs/impl_1/v2b_arm_demo_bd_wrapper.bit
-Bitstream SHA256: 5692931d231e6a331d7718ee725108e1396571f0068aeca71cb41e42da374ec2
+Bitstream SHA256: 8520acdb241dd7a4ee4c0305b040d942587401fbcbceca646896b8113becea97
 XSA path: fpga_synth/zcu102_arm_demo.xsa
 XSA SHA256: ed38af3c5566437e5219625bced26498a5bf2a46a09863541f9eb0efb71c4522
 ELF path: fw/arm/out/v2b_arm_demo.elf
-ELF SHA256: a334be7f15b16ff9f3aaf0a06d3cb3ef015eefde779423ceeefc0f841195aa48
+ELF SHA256: 653225ea360d159102a02a84c7421903d30e0ced5e36abc71c39590d1fba71fc

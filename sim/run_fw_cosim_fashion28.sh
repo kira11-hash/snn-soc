@@ -16,7 +16,11 @@ run_iverilog -g2012 -gno-assertions -I../rtl/top -f sim_fw_cosim_fashion28.f \
   -s fw_cosim_fashion28_tb -o "$RUN_DIR/fw_cosim_fashion28_tb.out"
 
 LOG="$RUN_DIR/fw_cosim_fashion28_tb.log"
-run_vvp "$RUN_DIR/fw_cosim_fashion28_tb.out" | tee "$LOG"
+VVP_ARGS=()
+if [ -n "${GOLDEN_DIR:-}" ]; then
+  VVP_ARGS+=("+GOLDEN_DIR=${GOLDEN_DIR}")
+fi
+run_vvp "$RUN_DIR/fw_cosim_fashion28_tb.out" "${VVP_ARGS[@]}" | tee "$LOG"
 
 if grep -q "FW_COSIM_FASHION28_TB_PASS" "$LOG"; then
   echo "============================================"
