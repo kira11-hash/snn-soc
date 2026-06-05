@@ -70,6 +70,20 @@
   - **hidden-gate agreement = 1.0000**（SNN 隐层发放与 ANN 1-bit 激活逐元素 100% 一致 → 推导正确、gate 完美复现）
   - **full-frame = 87.85% ≈ ANN(EMA) 87.46%** → **SNN 架构能完整表达 ANN，~7pp gap 非结构性**
   - strict = 59.35%（输出阈值未标定，最早发放非正确类）
-- **★ 重构认知**：① gate 复现已解决(87.85% full-frame、零训练)；② **E7 的 surrogate 训练把 full-frame 从 87.85% 训坏到 80.5%**(为治早停牺牲判别力、两头不讨好)；③ 剩余唯一问题 = **输出层时序标定**(让正确类最早发)，且这是 latency-accuracy 旋钮(输出阈值高→晚发→逼近 full-frame 87.85;低→早发)。**接力文档"研究级 ~6pp 硬骨头"基本翻案**。
+- **★ 重构认知**：① gate 复现已解决(87.85% full-frame、零训练)；② E7 训练后 full-frame 只 80.5%（⚠ 当时归因为"训练训坏"过头了——E7 同时用了 `fire_fraction` 阈值初始化，混了因，**已由 E9 消融精炼**，见下）；③ 输出层时序标定是 latency-accuracy 旋钮。**接力文档"研究级 ~6pp 硬骨头"基本翻案**。
 - **bias 问题（用户提问）**：数字 CIM 可加训练 bias = **常数 bias 行**(恒开输入行 + W-bit 权重行，同二值 cell，+1 行 PPA 可忽略、无 ADC/乘法)。TTFS nuance：阈值吸收部分 bias(故 ANN 端 E6 只 +0.16pp)，但 ramp 下 bias 行贡献 `(t+1)·b`(随时间累积)、阈值是时间无关偏移 → 不同自由度，**bias 行在 SNN 可能比 ANN 更有用**(候选 Phase-2 杠杆)。注：E6 `bias=True` 是 float-bias 代理，硬件版是常数 cell 行。
 - **下一步候选**：① 输出层时序标定(`θ_out[k]∝1/scale_out[k]` 让 earliest-spike 复现 ANN argmax / 或冻结 gate-init 只训输出时序 / 或输出阈值 sweep 出 latency-accuracy Pareto，起点 87.85%)；② 常数 bias 行(SNN)；③ 是否接受 full-frame 部署(87.85%@T cycle)换取无训练。**待 Codex 审 + 用户定向**。
+
+**Part 6c+ Phase 2.5：Codex 审 + E8 全量 + E9 因果消融（2026-06-05，本地 158 绿）**：
+- **Codex 审（第四轮，全 P1/P2 已采纳修复，无 P0）**：P1.3 `eval_ttfs_ramp` deeper-net 早停 bug（中间隐层误用 early_exit）→ 已改中间层 full、仅输出早停（main 不触发）；P2.1 `_quant_unsigned` 注 1-bit 边界 half-to-even tie；P2.2 `test_spiking` 阈值断言 →≥1。Codex 收窄断言 A/B/D（别说"所有 QAT 证伪"/"唯一问题"），**已采纳**。
+- **E8 全量诊断（50ep, n_eval2000，验断言 B 非假象，P1.2）**：ANN 10k=87.46/sub=87.75；**SNN full-frame=87.85≈ANN**；SNN-vs-ANN 预测吻合 **98.4%**；hidden-gate **100%**；**out-scale CV=0.158 但 int-argmax vs scaled-argmax 吻合 98.4%**（丢 per-class 输出 scale 只翻 1.6% 决策 → 这就是无-scale 整数膜 argmax 能复现 ANN 的原因）。**断言 B 实锤**。
+- **★ E8 输出阈值 Pareto（gate-init，零训练，`θ_out[k]=round(c/scale_out[k])` sweep c）**：c=1.0→strict 59.4%@t2.9；c=1.5→69.5%@t5.3；**c=2.0→85.55%@t11**；c≥3→87.85%@t16(全 fallback)。低延迟段 guard-window 有用(c=1.0: strict59%→guardΔ2 66%@t4.8)。
+- **★★ E9 因果消融（gate-init 阈值固定、只变是否训练，隔离 P1.1 的混因，`train_spiking gate_threshold_init=True`）**：gate-init+**训练**(seed0) → strict=**84.50%@t6.7** / full-frame=**83.30%**。**对比 E8 gate-init 不训练 full=87.85**：
+  - **断言 C 成立但精炼**：训练确实把 **full-frame 从 87.85 拉到 83.30（−4.55pp）**——隔离了阈值初始化混因后，"surrogate 训练损害 full-frame 判别力"为真。
+  - **但训练是"延迟优化器"**：把发放拉早（strict 84.50%@**t6.7** vs 不训练需 t≈11 才 85.55%；t≈6.7 处不训练只 ~75%）。即**训练牺牲峰值精度换早停延迟**。
+  - E9 full 83.30 > E7(fire_fraction+train) full 80.55 → **gate-init 对训练版也有帮助**。
+- **★ Phase-2 最终结论 + 部署 recipe（latency-accuracy Pareto 前沿，单 seed，待多 seed 复核）**：
+  - **准确率模式**：gate-init **不训练** → **87.85%@t16**（=ANN）或 85.55%@t11。
+  - **低延迟模式**：gate-init **+训练** → **84.50%@t6.7**。
+  - 二者并集即 Pareto 前沿。**SNN accuracy 基本解决**（解析 gate-init + 输出标定，无需/可选训练），不再是研究级硬骨头。
+- **下一步（用户定向）**：accuracy 既已解决/够用，倾向**转 Phase 3 非理想鲁棒性**（真正赢面轴）。可选精修：per-class θ_out 坐标搜索把拐点左移、常数 bias 行、多 seed 复核 E8/E9。

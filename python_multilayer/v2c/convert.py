@@ -141,15 +141,16 @@ def eval_ttfs_ramp(model, images: np.ndarray, labels: np.ndarray, T: int, in_bit
     fallback = np.zeros(n, dtype=bool)
     latency = np.empty(n, dtype=np.int64)
     for i in range(n):
-        hid_times = _ramp_hidden_times(vq[i], cells1, W1, hid, th1, T, in_bits)
-        st = hid_times                                        # hidden first-spike times
-        stream2 = ttfs.ttfs_times_to_stream(st, T)            # hidden spikes -> output layer input
-        cells2, W2, out_dim, th2 = layers[1]
-        st, mem, _ = fwd.ttfs_layer_forward(stream2, cells2, W2, out_dim, th2, early_exit=True)
-        # remaining layers (deeper nets): chain like multilayer_ttfs_forward
-        for cells_l, W_l, od_l, th_l in layers[2:]:
-            st, mem, _ = fwd.ttfs_layer_forward(ttfs.ttfs_times_to_stream(st, T), cells_l, W_l, od_l,
-                                                th_l, early_exit=True)
+        st = _ramp_hidden_times(vq[i], cells1, W1, hid, th1, T, in_bits)   # input-layer hidden times
+        # middle hidden layers run the FULL frame; only the OUTPUT (last) layer early-exits — same
+        # chaining as multilayer_ttfs_forward / eval_ttfs_ramp_modes (a hidden layer that early-exits
+        # would truncate its spike train and corrupt deeper layers; main is 2-layer so unaffected).
+        for cells_l, W_l, od_l, th_l in layers[1:-1]:
+            st, _, _ = fwd.ttfs_layer_forward(ttfs.ttfs_times_to_stream(st, T), cells_l, W_l, od_l,
+                                              th_l, early_exit=False)
+        cells_o, W_o, od_o, th_o = layers[-1]
+        st, mem, _ = fwd.ttfs_layer_forward(ttfs.ttfs_times_to_stream(st, T), cells_o, W_o, od_o,
+                                            th_o, early_exit=True)
         pred, fb = fwd.ttfs_classify(st, mem)
         preds[i] = pred
         fallback[i] = fb

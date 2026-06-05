@@ -94,7 +94,9 @@ class QuantLinear(nn.Module):
 def _quant_unsigned(x: torch.Tensor, bits, hi: float = 1.0) -> torch.Tensor:
     """Uniform [0,hi] -> ``bits`` levels with a straight-through gradient. ``bits=None`` -> identity.
     Used to model the V2C multi-bit (bit-serial) INPUT and phase-coded hidden ACTIVATIONS in the
-    reference ANN, so its accuracy maps the precision-vs-accuracy Pareto the spiking net trades on."""
+    reference ANN, so its accuracy maps the precision-vs-accuracy Pareto the spiking net trades on.
+    NB at ``bits=1`` the on/off boundary is ``relu(x) >= hi/2`` only up to ``torch.round``'s half-to-
+    even tie exactly at ``hi/2`` (a measure-zero edge; matters for the E8 gate-equivalence claim)."""
     if bits is None:
         return x
     levels = (1 << bits) - 1

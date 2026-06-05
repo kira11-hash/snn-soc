@@ -66,7 +66,7 @@ def test_export_int_weights_and_thresholds(W):
         wi = layer.export_int().cpu().numpy()
         assert int(wi.min()) >= lo and int(wi.max()) <= hi
         assert thr.shape == (layer.out_features,) and thr.dtype == torch.long
-        assert int(thr.min()) >= 0                            # positive integer threshold
+        assert int(thr.min()) >= 1                            # export clamps θ_int>=1 (no t=0 fire)
 
 
 def test_thresholds_positive():

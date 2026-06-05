@@ -76,7 +76,7 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
                   beta_mem=0.3, thr_init=1.0, weight_standardize=False, ettfs_init=False,
                   decode_gamma=None, fire_fraction=None, force_fire=False,
                   input_mode="ttfs", in_bits=4, teacher=None, kd_alpha=0.5, kd_temp=4.0,
-                  init_from_ann=False, hidden_kd=0.0, ann_act_hi=2.0,
+                  init_from_ann=False, gate_threshold_init=False, hidden_kd=0.0, ann_act_hi=2.0,
                   device="auto", seed=0, verbose=True):
     """Train the spiking V2C MLP; returns ``(model, history)`` (model carries EMA weights, on CPU)."""
     torch.manual_seed(seed)
@@ -112,6 +112,13 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
     if fire_fraction is not None:                                          # data-driven θ init (else fixed thr_init)
         model.init_thresholds_from_data(_encode(xtr[:1024], T, input_mode, in_bits),
                                         fire_fraction=fire_fraction)
+    if init_from_ann and gate_threshold_init:                              # override HIDDEN θ with the ANN
+        # 1-bit-gate equivalent so the spiking hidden fires iff the matched ANN's hidden activates
+        # (softplus(log_thr)=T·(act_hi/2)·levels_in -> export rounds /scale). Lets the causal ablation
+        # hold the hidden-threshold init constant and vary only training (P1.1), vs fire_fraction init.
+        levels_in = (1 << in_bits) - 1
+        with torch.no_grad():
+            model.log_thr[0].fill_(T * (ann_act_hi / 2.0) * levels_in)
     if teacher is not None:
         teacher = teacher.to(dev).eval()
     opt = torch.optim.AdamW(_param_groups(model, weight_decay), lr=lr, betas=(0.9, 0.99))

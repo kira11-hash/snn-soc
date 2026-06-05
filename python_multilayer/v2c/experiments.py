@@ -168,60 +168,108 @@ def cmd_E7(args):
               flush=True)
 
 
-def cmd_E8(args):
-    """Threshold reproduction (Phase-2 SNN diagnostic). Init the SNN from the matched ANN (copy
-    weights+scale), then SET the hidden integer threshold to the ANN's 1-bit-gate equivalent
-        θ_int = round(T·(act_hi/2)·levels_in / scale),
-    derived from: z1_ann = (scale/levels_in)·z1_int (in4 input dequant) and the ANN hidden fires iff
-    z1_ann >= act_hi/2, while the ramp SNN hidden fires within-frame iff z1_int >= θ_int/T — equate.
-    Setting softplus(log_thr)=T·(act_hi/2)·levels_in makes export round that per-output by /scale.
-
-    Tests AT INIT (no spiking training) whether reproducing the gate reproduces the ANN:
-      (1) SNN-hidden-fires vs ANN-hidden-active agreement (is the gate actually reproduced?);
-      (2) golden full-frame acc (NB full-frame argmax drops the per-class OUTPUT scale, so it bounds
-          what hidden-gate fidelity alone can buy — a low number here points at the output decode)."""
+def _gate_init_snn(snn, ann, T_steps, act_hi=2.0, in_bits=4):
+    """Copy ANN weights+scale into the spiking net and set its HIDDEN integer threshold to the ANN
+    1-bit-gate equivalent: softplus(log_thr_hidden) = T·(act_hi/2)·levels_in, so export rounds it by
+    /scale per output (boundary exact up to torch.round's half-to-even tie — see model._quant_unsigned)."""
     import torch
-    import spiking as S
-    in_bits, act_hi = 4, 2.0
     levels_in = (1 << in_bits) - 1
-    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
-    dev = T.pick_device("auto")
-    xte, yte = _test_xy("fashion_mnist", dev)
-    ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
-                           input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
-                           seed=0, verbose=args.verbose)
-    ann_acc = T.evaluate_proxy(ann, xte, yte)
-    ann = ann.cpu()
-    snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
     with torch.no_grad():
         for sl, al in zip(snn.layers, ann.layers):
             sl.weight.copy_(al.weight)
             sl.log_scale.copy_(al.log_scale)
-        snn.log_thr[0].fill_(args.T * (act_hi / 2.0) * levels_in)   # hidden: ANN-gate equivalent
-        snn.log_thr[1].fill_(1.0)                                    # output: low thr (full-frame ignores it)
-    nb = 1000
-    x01 = torch.from_numpy(te_imgs[:nb].astype("float32") / 255.0)
-    snn_fired = (snn.per_layer_first_times(S.encode_ramp(x01, args.T, in_bits))[0] < args.T).float()
-    ann_active = ann.hidden_acts(x01)[0]                             # [nb,246] 0/1
-    agree = float((snn_fired == ann_active).float().mean())
-    r = C.eval_ttfs_ramp_modes(snn, te_imgs, te_labels, args.T, in_bits=in_bits, deltas=(1, 2, 4),
-                               n_eval=args.n_eval)
-    print(f"[E8] ANN(EMA)={ann_acc:.4f} | hidden-gate agreement={agree:.4f} | SNN@init "
-          f"strict={r['strict']['acc']:.4f} guardΔ2={r['guard'][2]['acc']:.4f} "
-          f"full-frame={r['full_frame']['acc']:.4f}  (n_eval={r['n']})", flush=True)
+        snn.log_thr[0].fill_(T_steps * (act_hi / 2.0) * levels_in)
+    return snn
+
+
+def cmd_E8(args):
+    """Gate-init diagnostics (P1.2) + output-threshold calibration Pareto (F3). Trains the matched ANN
+    once, inits the SNN from it with the ANN-gate hidden threshold (θ=round(T·(act_hi/2)·levels_in/
+    scale)), then — NO spiking training:
+      (A) verifies full-frame≈ANN is REAL, not a subset/discriminator artifact: same-subset ANN acc,
+          ANN-vs-SNN-full pred agreement, hidden-gate agreement (on n_eval), output-scale CV, and
+          integer-argmax vs scaled-argmax agreement (does dropping the per-class output scale flip the
+          decision?);
+      (B) sweeps the output threshold θ_out[k]=round(c/scale_out[k]) over c -> the strict early-exit
+          latency-accuracy Pareto (full-frame is the c->∞, timing-free ceiling)."""
+    import torch
+    import spiking as S
+    in_bits, act_hi = 4, 2.0
+    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
+    dev = T.pick_device("auto")
+    xte, yte = _test_xy("fashion_mnist", dev)
+    n = args.n_eval
+    ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+                           input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
+                           seed=0, verbose=args.verbose)
+    ann_acc_10k = T.evaluate_proxy(ann, xte, yte)
+    ann_acc_sub = T.evaluate_proxy(ann, xte[:n], yte[:n])
+    ann = ann.cpu()
+    # ---- (A) P1.2 diagnostics: is full-frame≈ANN real? ----
+    x01 = torch.from_numpy(te_imgs[:n].astype("float32") / 255.0)
+    y_sub = torch.from_numpy(te_labels[:n].astype("int64"))
+    with torch.no_grad():
+        ann_pred = ann(x01).argmax(1)                                  # scaled logits = ANN's real decision
+        occ = ann.hidden_acts(x01)[0]                                  # [n,246] 1-bit hidden occurrence
+        w_out_int = ann.layers[-1].export_int().float()               # [10,246]
+        int_pred = (occ @ w_out_int.t()).argmax(1)                     # scale-free integer-MAC argmax
+        sc_out = ann.layers[-1].scale.detach().squeeze(-1)            # [10] per-class output scale
+    int_vs_scaled = float((int_pred == ann_pred).float().mean())      # dropping output scale flips decision?
+    cv = float((sc_out.std() / sc_out.mean()).abs())
+    snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
+    _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
+    with torch.no_grad():
+        snn_fired = (snn.per_layer_first_times(S.encode_ramp(x01, args.T, in_bits))[0] < args.T).float()
+        gate_agree = float((snn_fired == occ).float().mean())         # SNN hidden fires vs ANN 1-bit active
+        _, mem_int, _, _ = snn(S.encode_ramp(x01, args.T, in_bits))
+        snn_full_pred = mem_int.argmax(1)                              # SNN full-frame decision
+    snn_full_acc = float((snn_full_pred == y_sub).float().mean())
+    snn_vs_ann = float((snn_full_pred == ann_pred).float().mean())
+    print(f"[E8-diag] ANN acc 10k={ann_acc_10k:.4f} sub(n={n})={ann_acc_sub:.4f} | "
+          f"SNN full-frame={snn_full_acc:.4f} | SNN-vs-ANN pred-agree={snn_vs_ann:.4f} | "
+          f"hidden-gate agree={gate_agree:.4f} | out-scale CV={cv:.3f} | "
+          f"int-vs-scaled argmax agree={int_vs_scaled:.4f}", flush=True)
+    # ---- (B) F3 output-threshold sweep -> strict latency-accuracy Pareto ----
+    for c in [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 8.0, 16.0, 32.0]:
+        with torch.no_grad():
+            snn.log_thr[1].fill_(float(c))                            # softplus(c)~c -> θ_out=round(c/scale_out)
+        r = C.eval_ttfs_ramp_modes(snn, te_imgs, te_labels, args.T, in_bits=in_bits, deltas=(2,), n_eval=n)
+        print(f"[E8-sweep] c={c:6.1f} strict={r['strict']['acc']:.4f}@t≈{r['strict']['latency']:.1f} "
+              f"guardΔ2={r['guard'][2]['acc']:.4f}@{r['guard'][2]['latency']:.1f} "
+              f"full={r['full_frame']['acc']:.4f}", flush=True)
+
+
+def cmd_E9(args):
+    """Causal ablation (P1.1): hold the HIDDEN threshold init at the ANN-gate value and run FULL
+    spiking training, vs E8's gate-init + no-train (full-frame ~87.85%). Isolates the confound in
+    断言 C (E7 = fire_fraction-init + train; E8 = gate-init + no-train):
+      full-frame stays high -> training is fine; E7's drop was the fire_fraction hidden-threshold init;
+      full-frame drops      -> surrogate training itself drags full-frame down."""
+    import train_spiking as TS
+    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
+    for s in range(args.seeds):
+        model, _ = TS.train_spiking(dataset="fashion_mnist", arch="main", W=4, T=args.T,
+                                    epochs=args.epochs, input_mode="ramp", in_bits=4,
+                                    init_from_ann=True, gate_threshold_init=True, fire_fraction=0.5,
+                                    kd_alpha=0.2, ann_act_hi=2.0, seed=s, verbose=args.verbose)
+        r = C.eval_ttfs_ramp_modes(model, te_imgs, te_labels, args.T, in_bits=4, deltas=(1, 2, 4),
+                                   n_eval=args.n_eval)
+        print(f"[E9-gate+train] seed={s} strict={r['strict']['acc']:.4f}@{r['strict']['latency']:.1f} "
+              f"guardΔ2={r['guard'][2]['acc']:.4f} guardΔ4={r['guard'][4]['acc']:.4f} "
+              f"full-frame={r['full_frame']['acc']:.4f}", flush=True)
 
 
 def main():
-    ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN bridge E7)")
-    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8"])
+    ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN bridge/diag E7-E9)")
+    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9"])
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
     ap.add_argument("--n-eval", type=int, default=2000, help="golden eval sample count (E7 only)")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
-    {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4,
-     "E5": cmd_E5, "E6": cmd_E6, "E7": cmd_E7, "E8": cmd_E8}[args.exp](args)
+    {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4, "E5": cmd_E5,
+     "E6": cmd_E6, "E7": cmd_E7, "E8": cmd_E8, "E9": cmd_E9}[args.exp](args)
 
 
 if __name__ == "__main__":
