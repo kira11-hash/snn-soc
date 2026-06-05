@@ -259,6 +259,30 @@ def cmd_E9(args):
               f"full-frame={r['full_frame']['acc']:.4f}", flush=True)
 
 
+def _theta_of(c_vec, sc_out):
+    import numpy as np
+    return np.maximum(1, np.rint(np.asarray(c_vec) / sc_out)).astype(np.int64)
+
+
+def _calibrate_cvec(traj_cal, y_cal, sc_out, lam, T, c_grid, n_out=10, rounds=3, init=2.0):
+    """Greedy per-class coordinate descent of ``c_k`` maximizing ``acc - lam·lat/T`` on
+    ``(traj_cal, y_cal)`` (observed frontier; local-optimum risk). ``θ_out = _theta_of(c_vec, sc_out)``.
+    Shared by E10 (Pareto) and E11 (the FROZEN deployed thresholds for early-exit robustness)."""
+    import numpy as np
+    c_vec = np.full(n_out, init)
+    for _ in range(rounds):
+        for k in range(n_out):
+            best_c, best_o = c_vec[k], None
+            for cand in c_grid:
+                cv = c_vec.copy(); cv[k] = cand
+                preds, lat = C.strict_decode_from_traj(traj_cal, _theta_of(cv, sc_out), T)
+                o = float((preds == y_cal).mean()) - lam * float(lat.mean()) / T
+                if best_o is None or o > best_o:
+                    best_o, best_c = o, cand
+            c_vec[k] = best_c
+    return c_vec
+
+
 def cmd_E10(args):
     """Per-class output-threshold coordinate search (F5): push the latency knee left of the global-c
     Pareto. Gate-init SNN (NO spiking training); precompute output membrane trajectories once on a
@@ -307,17 +331,7 @@ def cmd_E10(args):
                 a, l, _ = acc_lat(traj_te, y_te, np.full(10, c))
                 print(f"[E10-global seed0] c={c:.2f} TEST acc={a:.4f}@t≈{l:.1f}", flush=True)
         for lam in lams:
-            c_vec = np.full(10, 2.0)                                  # init at the global-c knee
-            for _ in range(3):                                        # greedy coordinate descent (observed frontier)
-                for k in range(10):
-                    best_c, best_o = c_vec[k], None
-                    for cand in c_grid:
-                        cv = c_vec.copy(); cv[k] = cand
-                        a, l, _ = acc_lat(traj_cal, y_cal, cv)
-                        o = a - lam * l / args.T
-                        if best_o is None or o > best_o:
-                            best_o, best_c = o, cand
-                    c_vec[k] = best_c
+            c_vec = _calibrate_cvec(traj_cal, y_cal, sc_out, lam, args.T, c_grid)
             ca, cl, _ = acc_lat(traj_cal, y_cal, c_vec)
             ta, tl, fb = acc_lat(traj_te, y_te, c_vec)
             agg[lam]["acc"].append(ta); agg[lam]["lat"].append(tl)
@@ -331,33 +345,54 @@ def cmd_E10(args):
 
 
 def cmd_E11(args):
-    """Phase 3 — non-ideal robustness (the SOTA-able axis). Gate-init SNN (deployed, no training), then
-    sweep digital cell-fault rate for each mode (stuck0 / stuck1 / flip) -> full-frame accuracy-vs-fault
-    -rate. Digital binary cells + 1-bit sense are immune-by-construction to the analog variation/ADC
-    noise that costs analog CIM 10-50%+; this draws the curve. Analog-CIM baseline comparison TBD."""
+    """Phase 3 robustness (Codex#3-reworked). Gate-init SNN; calibrate per-class θ_out on CLEAN train
+    (λ=0.5 early-exit point) and FREEZE it; then per digital fault mode (stuck0/stuck1/invert STATIC +
+    read_ber ASYMMETRIC) sweep BOTH (a) full-frame accuracy and (b) DEPLOYED early-exit accuracy+latency
+    under faults (Codex#3 P1.2). Multi-seed: ANN seeds × fault trials (P1.1). Analog baseline is
+    illustrative/optimistic (literature anchors the real analog fragility — see V2C_Codex审查_Phase-AB)."""
+    import statistics
+    import numpy as np
     import robustness as R
     import spiking as S
     in_bits, act_hi = 4, 2.0
+    tr_imgs, tr_labels = D.load_dataset(args.dataset, train=True)
     te_imgs, te_labels = D.load_dataset(args.dataset, train=False)
-    ann, _ = T.train_model(dataset=args.dataset, arch="main", W=4, epochs=args.epochs,
-                           input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
-                           seed=0, verbose=args.verbose)
-    ann = ann.cpu()
-    snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
-    _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
-    print(f"[E11] dataset={args.dataset} T={args.T} n_eval={args.n_eval} analog_only={args.analog_only}", flush=True)
-    rates = (0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
-    if not args.analog_only:                                         # DIGITAL: our binary-cell bit faults
-        for mode in R.FAULT_MODES:
-            sw = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
-                                    rates=rates, n_eval=args.n_eval, trials=5, seed=0)
-            pts = "  ".join(f"r={r:.3f}:{m:.4f}±{s:.4f}" for r, (m, s) in sw.items())
-            print(f"[E11-digital {mode:6s}] {pts}", flush=True)
-    # ANALOG baseline (matched ANN with conductance variation σ + ADC) — the 'analog collapses' contrast
-    asw = R.analog_reference_sweep(ann, te_imgs, te_labels, in_bits=in_bits, adc_bits=5,
-                                   n_eval=args.n_eval, trials=5, seed=0)
-    apts = "  ".join(f"σ={s:.2f}:{m:.4f}±{sd:.4f}" for s, (m, sd) in asw.items())
-    print(f"[E11-analog adc5] {apts}", flush=True)
+    n = args.n_eval
+    c_grid = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0]
+    rates = (0.0, 0.01, 0.02, 0.05, 0.1)
+    ref = 0.02                                                       # reference fault rate for the seed-aggregate
+    p10d, p01d = R.read_ber_from_device()                           # device-grounded asymmetric read-BER
+    print(f"[E11] dataset={args.dataset} seeds={args.seeds} n_eval={n} trials={args.trials} "
+          f"read_ber(device) p10={p10d:.4f} p01={p01d:.4f}; sweep uses asymmetric p10:p01=1:0.5", flush=True)
+    agg = {m: {"ff": [], "da": [], "dl": []} for m in R.FAULT_MODES}
+    for s in range(args.seeds):
+        ann, _ = T.train_model(dataset=args.dataset, arch="main", W=4, epochs=args.epochs,
+                               input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
+                               seed=s, verbose=args.verbose)
+        ann = ann.cpu()
+        sc_out = ann.layers[-1].scale.detach().squeeze(-1).numpy()
+        snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
+        _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
+        if not args.analog_only:
+            traj_cal, _ = C.ramp_output_trajectories(snn, tr_imgs, args.T, in_bits=in_bits, n_eval=n)
+            theta = _theta_of(_calibrate_cvec(traj_cal, tr_labels[:n], sc_out, 0.5, args.T, c_grid), sc_out)
+            for mode in R.FAULT_MODES:
+                kw = dict(p10=1.0, p01=0.5) if mode == "read_ber" else {}   # asymmetric read-BER scaling
+                ff = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
+                                        rates=rates, n_eval=n, trials=args.trials, seed=s, **kw)
+                dep = R.deployed_robustness_sweep(snn, theta, te_imgs, te_labels, args.T, in_bits=in_bits,
+                                                  mode=mode, rates=rates, n_eval=n, trials=args.trials, seed=s, **kw)
+                print(f"[E11 s{s} {mode:8s} full] " + " ".join(f"{r:.3f}:{m:.3f}" for r, (m, sd) in ff.items()), flush=True)
+                print(f"[E11 s{s} {mode:8s} depl] " + " ".join(f"{r:.3f}:{m:.3f}@t{lt:.1f}" for r, (m, sd, lt, ls) in dep.items()), flush=True)
+                agg[mode]["ff"].append(ff[ref][0]); agg[mode]["da"].append(dep[ref][0]); agg[mode]["dl"].append(dep[ref][2])
+        asw = R.analog_reference_sweep(ann, te_imgs, te_labels, in_bits=in_bits, n_eval=n, trials=args.trials, seed=s)
+        print(f"[E11 s{s} analog-illus] " + " ".join(f"σ{sg:.2f}:{m:.3f}" for sg, (m, sd) in asw.items()), flush=True)
+    if args.seeds > 1 and not args.analog_only:
+        for m in R.FAULT_MODES:
+            a = agg[m]
+            print(f"[E11-AGG {m:8s} @r={ref}] full={statistics.mean(a['ff']):.3f}±{statistics.pstdev(a['ff']):.3f} "
+                  f"deployed={statistics.mean(a['da']):.3f}±{statistics.pstdev(a['da']):.3f}"
+                  f"@t{statistics.mean(a['dl']):.1f} ({len(a['ff'])} seeds)", flush=True)
 
 
 def main():
@@ -370,6 +405,7 @@ def main():
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
     ap.add_argument("--n-eval", type=int, default=2000, help="golden eval sample count (E7 only)")
     ap.add_argument("--analog-only", action="store_true", help="E11: skip the digital sweep, run only the analog baseline")
+    ap.add_argument("--trials", type=int, default=5, help="E11: fault-pattern / device-instance trials per point")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4, "E5": cmd_E5, "E6": cmd_E6,
