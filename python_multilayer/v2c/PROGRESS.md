@@ -86,10 +86,12 @@
   - per-class Pareto(test)：λ0 → **87.75%@t11.4**；λ0.5 → **84.55%@t7.0**；λ1 → 66.25%@t3.5。global-c(精确) c2=81.10%@t9.1 / c3=87.85%@t16。
   - **★ per-class 把拐点从 t≈11 推到 t≈7**：84.55%@**t7.0**（同延迟 +3.5pp）、高精度点 87.75% 从 t16 提前到 **t11.4**。
   - **★★ 标定全面压过训练**：per-class(零训练) 84.55%@t7.0 ≈ E9 训练 84.50%@t6.7，**但标定同时保住 87.75%@t11.4 高精度，训练版 full-frame 只剩 83.30%**。⚠ 注：E8 sweep 的 c 标签是 `softplus(c)` 偏移（c2 实为 ~2.13），E10 用精确 c。calib→test gap ~1pp。
-- **★ Phase-2 最终结论 + 部署 recipe（latency-accuracy 前沿，单 seed 待多 seed 复核）**：**SNN = 解析 gate-init（隐层阈值=ANN 1-bit gate 等价式）+ per-class 输出阈值标定，零 spiking 训练**。一条旋钮(λ) 给整条前沿：
-  - 准确率模式 **87.75%@t11.4**（≈ANN）/ full-frame 87.85%@t16；
-  - 低延迟模式 **84.55%@t7.0**。
-  - **训练不需要**（标定即达同延迟点且保住精度上限）。接力文档"研究级 ~6pp 硬骨头"**翻案**：是阈值标定问题，非训练/结构问题。比 E7 旧 80.5% 提升 +4~7pp。
+- **★ F7 定稿（E10 多 seed + full 10k，`experiments.py E10 --seeds 3 --n-eval 10000`，2026-06-06）**：⚠ **上面 E10 的 87.75/84.55 是 single-seed/n2000 preliminary，保留作对照；下为定稿数（两者并列保留）**。定稿（3 seeds, full 10k test）：
+  - λ0 → **87.03% ± 0.11% @ t≈12.3**（fallback~0.59，≈ full-frame）
+  - λ0.5 → **82.21% ± 1.13% @ t≈6.4**（早停平衡点，**比 preliminary 84.55 掉 ~2.3pp、且有 ±1.1% seed 方差**）
+  - λ1 → 64.34% ± 1.74% @ t≈3.2
+  - per-class 仍优于 global-c（82.2%@t6.4 vs global ~70-75%@t6），但绝对值更保守；"标定压过训练"定性成立、与 E9(84.5%@t6.7 preliminary)的差距在公平口径下落入噪声。**Codex 的 single-seed 警告被验证——F7 做得值。**
+- **★ Phase-2 最终结论 + 部署 recipe**：**SNN = 解析 gate-init（隐层阈值=ANN 1-bit gate 等价式）+ per-class 输出阈值标定，零 spiking 训练**。一条旋钮(λ) 给整条前沿：**准确率模式 87.0%@t≈12（≈ANN）/ 早停平衡 82.2%@t≈6.4**。训练不需要（标定即达同延迟点且保住精度上限）。接力文档"研究级 ~6pp 硬骨头"**翻案**：是阈值标定问题，非训练/结构问题。比 E7 旧 80.5% 提升（full-frame +6.5pp，早停点 +1.7pp@更低延迟）。
 - **下一步（用户定向）**：accuracy 已解决/够用，倾向**转 Phase 3 非理想鲁棒性**（真正赢面轴；基建 `eval_ttfs_ramp_modes`/`ramp_output_trajectories` + golden 故障注入可直接做）。可选精修：常数 bias 行、多 seed 复核 E8/E9/E10、calib 集独立化。
 
 **Codex 二审（2026-06-06，无 P0，全 P1/P2 采纳）+ 口径红线**：

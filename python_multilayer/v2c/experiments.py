@@ -195,11 +195,11 @@ def cmd_E8(args):
     import torch
     import spiking as S
     in_bits, act_hi = 4, 2.0
-    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
+    te_imgs, te_labels = D.load_dataset(args.dataset, train=False)
     dev = T.pick_device("auto")
-    xte, yte = _test_xy("fashion_mnist", dev)
+    xte, yte = _test_xy(args.dataset, dev)
     n = args.n_eval
-    ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+    ann, _ = T.train_model(dataset=args.dataset, arch="main", W=4, epochs=args.epochs,
                            input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
                            seed=0, verbose=args.verbose)
     ann_acc_10k = T.evaluate_proxy(ann, xte, yte)
@@ -274,14 +274,15 @@ def cmd_E10(args):
     import numpy as np
     import spiking as S
     in_bits, act_hi = 4, 2.0
-    tr_imgs, tr_labels = D.load_dataset("fashion_mnist", train=True)
-    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
+    tr_imgs, tr_labels = D.load_dataset(args.dataset, train=True)
+    te_imgs, te_labels = D.load_dataset(args.dataset, train=False)
     n = args.n_eval
     c_grid = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0]
     lams = [0.0, 0.5, 1.0]
     agg = {lam: {"acc": [], "lat": []} for lam in lams}                # F7: aggregate across seeds
+    print(f"[E10] dataset={args.dataset} seeds={args.seeds} n_eval={n} epochs={args.epochs}", flush=True)
     for s in range(args.seeds):
-        ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+        ann, _ = T.train_model(dataset=args.dataset, arch="main", W=4, epochs=args.epochs,
                                input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
                                seed=s, verbose=args.verbose)
         ann = ann.cpu()
@@ -337,13 +338,14 @@ def cmd_E11(args):
     import robustness as R
     import spiking as S
     in_bits, act_hi = 4, 2.0
-    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
-    ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+    te_imgs, te_labels = D.load_dataset(args.dataset, train=False)
+    ann, _ = T.train_model(dataset=args.dataset, arch="main", W=4, epochs=args.epochs,
                            input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
                            seed=0, verbose=args.verbose)
     ann = ann.cpu()
     snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
     _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
+    print(f"[E11] dataset={args.dataset} T={args.T} n_eval={args.n_eval}", flush=True)
     rates = (0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
     for mode in R.FAULT_MODES:
         sw = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
@@ -355,6 +357,8 @@ def cmd_E11(args):
 def main():
     ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN E7-E10 + robustness E11)")
     ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E11"])
+    ap.add_argument("--dataset", default="fashion_mnist", choices=list(D.DATASETS),
+                    help="dataset for the gate-init pipeline (E8/E10/E11)")
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
