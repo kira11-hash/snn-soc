@@ -209,7 +209,12 @@ def eval_ttfs_ramp_modes(model, images: np.ndarray, labels: np.ndarray, T: int, 
 
     Hidden layers run the full frame and only the OUTPUT layer's decision varies (correct for deeper
     nets too, unlike :func:`eval_ttfs_ramp`'s early-exit chaining). Returns per-mode ``acc`` + mean
-    decision ``latency`` (the cycle the class is committed; fallback counts as T)."""
+    decision ``latency``.
+
+    ⚠ ``latency`` is the ALGORITHMIC output-decision timestep (0..T), NOT a hardware cycle / µs / FPS —
+    do not compare it directly to FPGA/ASIC TTFS papers. The projected RTL latency adds the ``in_bits``
+    bit-serial input phases + the ramp's T accumulate steps + stripe / layer-scheduling / inter-macro
+    parallelism, which are a separate (PPA) accounting. Report the two numbers separately."""
     images = np.asarray(images)
     labels = np.asarray(labels)
     n = len(images) if n_eval is None else min(int(n_eval), len(images))

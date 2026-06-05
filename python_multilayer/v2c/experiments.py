@@ -261,11 +261,15 @@ def cmd_E9(args):
 
 def cmd_E10(args):
     """Per-class output-threshold coordinate search (F5): push the latency knee left of the global-c
-    Pareto (85.55%@t11). Gate-init SNN (NO spiking training); precompute output membrane trajectories
-    once on a TRAIN calibration set and the TEST set; coordinate-descend per-class c_k (θ_out[k]=
-    round(c_k/scale_out[k])) to maximize acc - λ·latency/T on CALIB, then report on TEST. Calibrating on
-    train and reporting on test avoids tuning thresholds to the test set. Traces the per-class Pareto
-    over λ vs the global-c baseline."""
+    Pareto. Gate-init SNN (NO spiking training); precompute output membrane trajectories once on a
+    TRAIN calibration set and the TEST set; coordinate-descend per-class c_k (θ_out[k]=round(c_k/
+    scale_out[k])) to maximize acc - λ·latency/T on CALIB, then report on TEST. Calibrating on train
+    and reporting on test avoids tuning thresholds to the test set.
+
+    ⚠ This is an OBSERVED calibrated frontier, not the global optimum: greedy coordinate descent over a
+    discrete c-grid from a fixed init (c=2) can sit in a local optimum. Single seed, n=n_eval subset —
+    a preliminary frontier; the final paper number needs multi-seed + full test + a held-out calib
+    split (see PROGRESS F7). Latency is the algorithmic timestep, not an RTL cycle (see convert.py)."""
     import numpy as np
     import spiking as S
     in_bits, act_hi = 4, 2.0
@@ -309,8 +313,11 @@ def cmd_E10(args):
                         best_o, best_c = o, cand
                 c_vec[k] = best_c
         ca, cl = acc_lat(traj_cal, y_cal, c_vec)
-        ta, tl = acc_lat(traj_te, y_te, c_vec)
-        print(f"[E10-perclass λ={lam:.1f}] TEST acc={ta:.4f}@t≈{tl:.1f}  (calib {ca:.4f}@{cl:.1f})", flush=True)
+        preds_te, lat_te = C.strict_decode_from_traj(traj_te, theta_of(c_vec), args.T)
+        ta, tl = float((preds_te == y_te).mean()), float(lat_te.mean())
+        fb = float((lat_te == args.T).mean())                         # fallback rate (no spike -> full-frame)
+        print(f"[E10-perclass λ={lam:.1f}] TEST acc={ta:.4f}@t≈{tl:.1f} fallback={fb:.3f}  "
+              f"(calib {ca:.4f}@{cl:.1f})  c_vec={np.round(c_vec, 2).tolist()}", flush=True)
 
 
 def main():

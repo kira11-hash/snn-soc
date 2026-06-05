@@ -121,3 +121,16 @@ def test_strict_decode_from_traj_matches_golden_strict():
     g = C.eval_ttfs_ramp_modes(net, imgs, labs, T, in_bits=in_bits, deltas=(1,), n_eval=40)
     assert float((preds == labs[:40]).mean()) == pytest.approx(g["strict"]["acc"])
     assert float(lat.mean()) == pytest.approx(g["strict"]["latency"])
+
+
+def test_strict_decode_from_traj_handcrafted():
+    # exercise all three decode paths on hand-built trajectories (guards the coordinate-search metric).
+    T = 4
+    theta = np.array([5, 5, 5], dtype=np.int64)
+    traj = np.zeros((3, T, 3), dtype=np.int64)
+    traj[0] = [[0, 0, 0], [1, 6, 2], [1, 7, 2], [1, 8, 3]]   # early-fire: class1 crosses 5 at t=1
+    traj[1] = [[0, 0, 0], [1, 1, 1], [2, 2, 2], [2, 3, 4]]   # no crossing -> fallback argmax final = class2
+    traj[2] = [[0, 0, 0], [3, 0, 3], [6, 0, 5], [7, 0, 6]]   # tie at t=2: class0=6 vs class2=5 -> class0
+    preds, lat = C.strict_decode_from_traj(traj, theta, T)
+    assert preds.tolist() == [1, 2, 0]
+    assert lat.tolist() == [1, T, 2]                         # fallback latency = T

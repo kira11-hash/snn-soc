@@ -91,3 +91,11 @@
   - 低延迟模式 **84.55%@t7.0**。
   - **训练不需要**（标定即达同延迟点且保住精度上限）。接力文档"研究级 ~6pp 硬骨头"**翻案**：是阈值标定问题，非训练/结构问题。比 E7 旧 80.5% 提升 +4~7pp。
 - **下一步（用户定向）**：accuracy 已解决/够用，倾向**转 Phase 3 非理想鲁棒性**（真正赢面轴；基建 `eval_ttfs_ramp_modes`/`ramp_output_trajectories` + golden 故障注入可直接做）。可选精修：常数 bias 行、多 seed 复核 E8/E9/E10、calib 集独立化。
+
+**Codex 二审（2026-06-06，无 P0，全 P1/P2 采纳）+ 口径红线**：
+- **★ latency = 算法 timestep，非硬件 cycle/µs/FPS**（已注 `convert.eval_ttfs_ramp_modes` docstring）。论文须分开写 algorithmic timestep 与 projected RTL cycle（ramp `in_bits` bit-serial 相位 + T accumulate + stripe/层/宏调度另算）。**别拿 t≈7/11.4 直接对标 FPGA/ASIC 文献**。
+- **数字口径**：E8/E9/E10 全 **single-seed / n=2000 preliminary**；定稿前需 **≥3 seeds + full 10k test + 独立 calib split**（F7，已建任务、暂缓——accuracy 非胜负手）。
+- **per-class = observed calibrated frontier**（贪心坐标下降、离散网格、固定 init，可能局部最优；非全局最优）。
+- **结论判定**：B PASS / C 收窄 PASS（只能说"当前 surrogate recipe 损害 full-frame"、不能泛化"所有训练有害"）/ D PASS 待稳健复核 / recipe 合理（最干净、PPA 最稳、叙事最好）。
+- **★ 同行对标 + 叙事定位**：raw accuracy 非 SOTA（TQ-TTFS Fashion 90.2%@24µs 但非 CIM；8T-SRAM-TTFS 81.4%@196ns 硅片；Neuro-CIM 310 TOPS/W 主打能效）。**V2C 卖点应写成：单宏小 MLP + W4 二值 RRAM cell + 无 ADC/无推理乘法约束下逼近 matched ANN，并用 per-class 阈值给早停 Pareto**——而非拼准确率。
+- **Codex 优先级建议**（与本项目战略一致）：高 EV 低成本 = E10 多 seed/full-10k 定稿 + 输出 c_vec/fallback/classwise + strict+guardΔ 联合标定；中 = TQ-TTFS 式输出时间量化/桶解码减 wrong-early、常数 bias 行、可微轨迹损失替代贪心；低 EV = 继续 surrogate 端到端训练(已被标定超越)、大改隐层时序/多比特隐层(伤稀疏 headline)。**结论：别再硬抠 SNN 训练，补 E10 稳健性后转鲁棒性 + RTL/PPA/SOP-J。**
