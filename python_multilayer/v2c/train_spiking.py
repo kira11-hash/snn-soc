@@ -76,7 +76,7 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
                   beta_mem=0.3, thr_init=1.0, weight_standardize=False, ettfs_init=False,
                   decode_gamma=None, fire_fraction=None, force_fire=False,
                   input_mode="ttfs", in_bits=4, teacher=None, kd_alpha=0.5, kd_temp=4.0,
-                  device="auto", seed=0, verbose=True):
+                  init_from_ann=False, device="auto", seed=0, verbose=True):
     """Train the spiking V2C MLP; returns ``(model, history)`` (model carries EMA weights, on CPU)."""
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -91,6 +91,23 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
     model = S.V2CSpikingMLP(ARCHS[arch], W, T=T, beta=beta, thr_init=thr_init,
                             decode_gamma=decode_gamma, ettfs_init=ettfs_init,
                             weight_standardize=weight_standardize, force_fire=force_fire).to(dev)
+    if init_from_ann:
+        # matched-teacher init (Codex/Nature-2024 route): a 1-bit-hidden quantized ANN of the SAME
+        # arch/W reaches ~the architectural ceiling cheaply (its binary hidden == the ramp TTFS hidden's
+        # z1>=θ gate). Copy its weights as the spiking init and distil from it, so the spiking net
+        # fine-tunes spike timing from the ANN solution instead of training from scratch.
+        ann, ann_hist = train_model(dataset=dataset, arch=arch, W=W, epochs=epochs,
+                                    input_bits=in_bits, act_bits=1, device=device, seed=seed,
+                                    verbose=False)
+        ann = ann.to(dev)
+        with torch.no_grad():
+            for sl, al in zip(model.layers, ann.layers):
+                sl.weight.copy_(al.weight)
+                sl.log_scale.copy_(al.log_scale)
+        if verbose:
+            print(f"  [init-from-ann] matched 1-bit-hidden ANN acc={ann_hist[-1]['test_acc']:.4f} -> spiking init")
+        if teacher is None:
+            teacher = ann                                                  # also KD from the matched ANN
     if fire_fraction is not None:                                          # data-driven θ init (else fixed thr_init)
         model.init_thresholds_from_data(_encode(xtr[:1024], T, input_mode, in_bits),
                                         fire_fraction=fire_fraction)
@@ -161,6 +178,8 @@ def main():
     ap.add_argument("--in-bits", type=int, default=4, help="input bit-depth for ramp mode")
     ap.add_argument("--kd", action="store_true", help="distill from a float-activation ANN teacher")
     ap.add_argument("--kd-alpha", type=float, default=0.5, help="KD weight (0..1); lower = gentler")
+    ap.add_argument("--init-from-ann", action="store_true",
+                    help="init spiking weights from a matched 1-bit-hidden ANN + distil from it")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -179,7 +198,8 @@ def main():
                                 weight_standardize=args.ws, ettfs_init=args.ettfs_init,
                                 decode_gamma=args.decode_gamma, fire_fraction=args.fire_frac,
                                 force_fire=args.force_fire, input_mode=args.input_mode, in_bits=args.in_bits,
-                                teacher=teacher, kd_alpha=args.kd_alpha, device=args.device, seed=args.seed)
+                                teacher=teacher, kd_alpha=args.kd_alpha, init_from_ann=args.init_from_ann,
+                                device=args.device, seed=args.seed)
     spk_acc = hist[-1]["test_acc"]
     print("\n=== V2C Part 6b spiking result ===")
     print(f"  full-frame acc (no early-exit, ceiling) : {spk_acc:.4f}  ({args.input_mode} input, W={args.W} T={args.T})")
