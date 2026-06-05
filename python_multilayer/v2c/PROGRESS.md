@@ -101,3 +101,20 @@
 - **结论判定**：B PASS / C 收窄 PASS（只能说"当前 surrogate recipe 损害 full-frame"、不能泛化"所有训练有害"）/ D PASS 待稳健复核 / recipe 合理（最干净、PPA 最稳、叙事最好）。
 - **★ 同行对标 + 叙事定位**：raw accuracy 非 SOTA（TQ-TTFS Fashion 90.2%@24µs 但非 CIM；8T-SRAM-TTFS 81.4%@196ns 硅片；Neuro-CIM 310 TOPS/W 主打能效）。**V2C 卖点应写成：单宏小 MLP + W4 二值 RRAM cell + 无 ADC/无推理乘法约束下逼近 matched ANN，并用 per-class 阈值给早停 Pareto**——而非拼准确率。
 - **Codex 优先级建议**（与本项目战略一致）：高 EV 低成本 = E10 多 seed/full-10k 定稿 + 输出 c_vec/fallback/classwise + strict+guardΔ 联合标定；中 = TQ-TTFS 式输出时间量化/桶解码减 wrong-early、常数 bias 行、可微轨迹损失替代贪心；低 EV = 继续 surrogate 端到端训练(已被标定超越)、大改隐层时序/多比特隐层(伤稀疏 headline)。**结论：别再硬抠 SNN 训练，补 E10 稳健性后转鲁棒性 + RTL/PPA/SOP-J。**
+
+**Part 6c+ Phase A（多数据集×多seed 精度/延迟）+ Phase B（鲁棒性），2026-06-06**：
+- **★ Phase A：同一套零训练 gate-init + per-class 输出标定，三数据集都泛化**（3 seeds, full 10k test，准确率模式 λ0 / 早停 λ0.5）：
+
+  | 数据集 | λ0（≈ANN） | λ0.5 早停 |
+  |---|---|---|
+  | **MNIST** | 98.36% ± 0.04 @ t≈9.9 | 95.98% @ t≈5.3 |
+  | **Fashion** | 87.03% ± 0.11 @ t≈12.3 | 82.21% @ t≈6.4 |
+  | **KMNIST** | 89.85% ± 0.15 @ t≈13.1 | 86.96% @ t≈7.8 |
+
+  → **承重假设 A2（gate-init 复现 ANN / output-scale 近均匀）跨数据集成立**，方差极小。MNIST≈ANN 天花板。
+- **★ Phase B 数字鲁棒性（gate-init full-frame，clean→故障率，3 模式×5 trial，`experiments.py E11`）**：三数据集均**优雅降级，现实 RRAM 故障区(~1-2%)几乎不掉**；flip(读翻转)最伤、stuck 较缓。
+  - Fashion(clean 87.85)：flip 1%→86.1 / 5%→74.2 / 10%→55.1；stuck0 5%→83.7。
+  - MNIST(clean 98.0)：flip 1%→97.4 / 5%→88.3 / 10%→61.0；stuck0 5%→96.1（最稳）。
+  - KMNIST(clean 89.7)：flip 1%→87.7 / 5%→76.5 / 10%→57.9。
+- **⚠ Phase B analog 基线 — 抓到建模问题，已修+重做中**：home-grown 模拟 CIM 模型 ① 旧 ADC 用全局 full-scale=max|sum| 被离群值主导 → Fashion σ=0 就崩到 69.65%(数据集相关假象，已改 per-output full-scale)；② per-weight 电导 σ 在大 fan-in MAC 里被平均掉 → σ 效应太轻(MNIST σ0→0.3 只掉 0.5pp)、不真实。**根因：真实模拟脆弱主要来自不被平均的项(ADC 量化/IR-drop/drift/非线性)，纯 per-weight-σ 低估之。结论：analog 对照应锚定已发表数据(σ>10% 退化、drift 1月 68%→19%、SAF)，家酿模型仅作 illustrative(明确标注)。** 正用 per-output ADC 重跑(`E11 --analog-only`)。
+- **V2C 鲁棒性叙事(最稳)**：数字二值 cell + 1-bit 数字 sense + 无 ADC → **结构上零暴露**于电导 variation/drift/ADC 量化(模拟 CIM 的退化源)，只受罕见数字位错(实测优雅降级)；模拟脆弱锚定文献。这是唯一今天可信的 SOTA-able 轴。
