@@ -347,11 +347,16 @@ def cmd_E11(args):
     _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
     print(f"[E11] dataset={args.dataset} T={args.T} n_eval={args.n_eval}", flush=True)
     rates = (0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
-    for mode in R.FAULT_MODES:
+    for mode in R.FAULT_MODES:                                        # DIGITAL: our binary-cell bit faults
         sw = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
                                 rates=rates, n_eval=args.n_eval, trials=5, seed=0)
         pts = "  ".join(f"r={r:.3f}:{m:.4f}±{s:.4f}" for r, (m, s) in sw.items())
-        print(f"[E11-robust {mode:6s}] {pts}", flush=True)
+        print(f"[E11-digital {mode:6s}] {pts}", flush=True)
+    # ANALOG baseline (matched ANN with conductance variation σ + ADC) — the 'analog collapses' contrast
+    asw = R.analog_reference_sweep(ann, te_imgs, te_labels, in_bits=in_bits, adc_bits=5,
+                                   n_eval=args.n_eval, trials=5, seed=0)
+    apts = "  ".join(f"σ={s:.2f}:{m:.4f}±{sd:.4f}" for s, (m, sd) in asw.items())
+    print(f"[E11-analog adc5] {apts}", flush=True)
 
 
 def main():

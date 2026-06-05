@@ -74,3 +74,57 @@ def robustness_sweep(model, images, labels, T, in_bits=4, mode="flip",
                 for _ in range(trials)]
         out[float(r)] = (float(np.mean(accs)), float(np.std(accs)))
     return out
+
+
+# --- ANALOG CIM baseline (for the "digital binary stays flat / analog collapses" comparison) ---------
+# A SIMPLIFIED, clearly-labeled analog ADC-based CIM model (NOT a calibrated device model): the SAME
+# matched-ANN integer weights, but the MAC suffers the analog non-idealities a digital binary array is
+# immune to — per-weight conductance variation N(0,σ) and a finite-resolution ADC on the analog partial
+# sum. Used only as a contrast baseline; the fairness caveats are flagged for Codex review.
+
+def _adc_quantize(s: np.ndarray, adc_bits) -> np.ndarray:
+    """Symmetric mid-rise ADC: clip to the per-array dynamic range and quantize to ``adc_bits`` levels.
+    ``adc_bits=None`` -> ideal (no quantization)."""
+    if adc_bits is None:
+        return s
+    R = float(np.abs(s).max()) + 1e-12                     # full-scale = observed dynamic range
+    step = 2.0 * R / ((1 << adc_bits) - 1)
+    return np.round(s / step) * step
+
+
+def _analog_mac(x, W_int, scale, sigma, adc_bits, rng):
+    """Analog MAC of ``x[N,in]`` with integer weights perturbed by per-weight conductance variation
+    ``N(0,σ)`` (multiplicative) + an ADC on the analog partial sum; per-output ``scale`` applied after."""
+    W_pert = W_int * (1.0 + sigma * rng.standard_normal(W_int.shape))
+    s = _adc_quantize(x @ W_pert.T, adc_bits)
+    return s * scale.reshape(1, -1)
+
+
+def analog_reference_acc(ann, x_in, y, sigma, adc_bits, rng):
+    """One analog-CIM device instance running the matched ANN (in4 input, 1-bit hidden, bias=False) with
+    conductance variation + ADC. Returns logit-argmax accuracy. ``sigma=0`` & ``adc_bits=None`` == ANN."""
+    W0 = ann.layers[0].export_int().cpu().numpy().astype(np.float64)
+    s0 = ann.layers[0].scale.detach().cpu().numpy().reshape(-1)
+    W1 = ann.layers[1].export_int().cpu().numpy().astype(np.float64)
+    s1 = ann.layers[1].scale.detach().cpu().numpy().reshape(-1)
+    act_hi = float(ann.act_hi)
+    z0 = _analog_mac(x_in, W0, s0, sigma, adc_bits, rng)              # [N,hid]
+    h = act_hi * (np.maximum(z0, 0.0) >= act_hi / 2.0)               # 1-bit hidden activation {0,act_hi}
+    z1 = _analog_mac(h, W1, s1, sigma, adc_bits, rng)                # [N,out] logits
+    return float((z1.argmax(axis=1) == np.asarray(y)).mean())
+
+
+def analog_reference_sweep(ann, images, labels, in_bits=4, adc_bits=5,
+                           sigmas=(0.0, 0.05, 0.1, 0.15, 0.2, 0.3), n_eval=2000, trials=5, seed=0):
+    """Analog-CIM accuracy vs conductance-variation σ (fixed ADC resolution), averaged over ``trials``
+    device instances. The contrast curve to :func:`robustness_sweep`. Returns ``{σ: (mean, std)}``."""
+    rng = np.random.default_rng(seed)
+    n = len(images) if n_eval is None else min(int(n_eval), len(images))
+    levels = (1 << in_bits) - 1
+    x_in = np.round(np.asarray(images)[:n].astype(np.float64) / 255.0 * levels) / levels   # in4 input
+    y = np.asarray(labels)[:n]
+    out = {}
+    for sg in sigmas:
+        accs = [analog_reference_acc(ann, x_in, y, sg, adc_bits, rng) for _ in range(trials)]
+        out[float(sg)] = (float(np.mean(accs)), float(np.std(accs)))
+    return out
