@@ -109,3 +109,4 @@ sim/verdi_config_file
 # Keep them tracked.
 !board_logs/*.log
 !board_logs/*.txt
+sim/v2c/build/
