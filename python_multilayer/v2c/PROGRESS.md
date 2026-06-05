@@ -63,3 +63,13 @@
 - **E2**：act_hi=2.0 经 prior-grid + E0/E6 三次确认最优；7 点全网格未重跑(低 EV)。model.py 默认 act_hi=4.0 未改(所有 matched/部署/init-from-ann 调用都显式传 2.0，默认值在真实路径不触发)。
 - **新增可复用基建**：`model._pact_quant`+`V2CMLP(pact=)`(softplus 保正、精确 PACT 梯度 only-saturated→α)；`train.train_model(warm_start_state=)`(staged QAT)；**`convert.eval_ttfs_ramp_modes`(strict / guard-window Δ / full-frame 三点 Pareto，E7 + 鲁棒性曲线共用)** + 重构提取 `_ramp_hidden_times`。测试 +3(2 PACT + 1 modes)。
 - **下一步（Phase 2 改善 SNN，用户已拍板收口 ANN 进 SNN）**：E7 = 用最佳 ANN(= cold matched，`--init-from-ann` 内部即训此)init SNN(ramp/T16/in4/fire-frac0.5/init-from-ann/KDα0.2)，跑 `eval_ttfs_ramp_modes` 出 strict(当前 81.25%)/guardΔ/full-frame Pareto——**guard-window 可不重训回收 early-exit 损失**(错误类早发一拍)。再评估是否需训练范式重写(temporal rank loss + wrong-early penalty)。
+
+**Part 6c+ Phase 2：SNN 桥接 + 阈值复现诊断（E7/E8，2026-06-05，本地 158 绿）**：
+- **E7（训练后 SNN，`experiments.py E7`，ramp/T16/in4/fire-frac0.5/init-from-ann/KDα0.2，seed0，n_eval2000）**：strict=**80.45%**@t≈9.6 / guardΔ1=80.30 / guardΔ2=80.60 / guardΔ4=80.80@12.8 / **full-frame=80.55%**@16。**full-frame ≈ strict（早停代价 ~0.1pp）→ gap 不是时序/早停问题，guard-window 几乎回收不了**。接力文档建议的 temporal-rank/wrong-early loss 是治时序的，**打偏**。
+- **★★ E8 阈值复现诊断（`experiments.py E8`，关键翻案结果）**：把 SNN 隐层整数阈值**直接设成 ANN 1-bit gate 等价值** `θ_int = round(T·(act_hi/2)·levels_in/scale)`（推导：`z1_ann=(scale/levels_in)·z1_int`、ANN 隐层发放 ⟺ `z1_ann≥act_hi/2`；ramp SNN 帧内发放 ⟺ `z1_int≥θ_int/T`；等号联立。实现：`softplus(log_thr_hidden)=T·(act_hi/2)·levels_in`，export 再 /scale）。**无 spiking 训练**，结果：
+  - **hidden-gate agreement = 1.0000**（SNN 隐层发放与 ANN 1-bit 激活逐元素 100% 一致 → 推导正确、gate 完美复现）
+  - **full-frame = 87.85% ≈ ANN(EMA) 87.46%** → **SNN 架构能完整表达 ANN，~7pp gap 非结构性**
+  - strict = 59.35%（输出阈值未标定，最早发放非正确类）
+- **★ 重构认知**：① gate 复现已解决(87.85% full-frame、零训练)；② **E7 的 surrogate 训练把 full-frame 从 87.85% 训坏到 80.5%**(为治早停牺牲判别力、两头不讨好)；③ 剩余唯一问题 = **输出层时序标定**(让正确类最早发)，且这是 latency-accuracy 旋钮(输出阈值高→晚发→逼近 full-frame 87.85;低→早发)。**接力文档"研究级 ~6pp 硬骨头"基本翻案**。
+- **bias 问题（用户提问）**：数字 CIM 可加训练 bias = **常数 bias 行**(恒开输入行 + W-bit 权重行，同二值 cell，+1 行 PPA 可忽略、无 ADC/乘法)。TTFS nuance：阈值吸收部分 bias(故 ANN 端 E6 只 +0.16pp)，但 ramp 下 bias 行贡献 `(t+1)·b`(随时间累积)、阈值是时间无关偏移 → 不同自由度，**bias 行在 SNN 可能比 ANN 更有用**(候选 Phase-2 杠杆)。注：E6 `bias=True` 是 float-bias 代理，硬件版是常数 cell 行。
+- **下一步候选**：① 输出层时序标定(`θ_out[k]∝1/scale_out[k]` 让 earliest-spike 复现 ANN argmax / 或冻结 gate-init 只训输出时序 / 或输出阈值 sweep 出 latency-accuracy Pareto，起点 87.85%)；② 常数 bias 行(SNN)；③ 是否接受 full-frame 部署(87.85%@T cycle)换取无训练。**待 Codex 审 + 用户定向**。

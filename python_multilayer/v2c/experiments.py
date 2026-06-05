@@ -168,9 +168,52 @@ def cmd_E7(args):
               flush=True)
 
 
+def cmd_E8(args):
+    """Threshold reproduction (Phase-2 SNN diagnostic). Init the SNN from the matched ANN (copy
+    weights+scale), then SET the hidden integer threshold to the ANN's 1-bit-gate equivalent
+        θ_int = round(T·(act_hi/2)·levels_in / scale),
+    derived from: z1_ann = (scale/levels_in)·z1_int (in4 input dequant) and the ANN hidden fires iff
+    z1_ann >= act_hi/2, while the ramp SNN hidden fires within-frame iff z1_int >= θ_int/T — equate.
+    Setting softplus(log_thr)=T·(act_hi/2)·levels_in makes export round that per-output by /scale.
+
+    Tests AT INIT (no spiking training) whether reproducing the gate reproduces the ANN:
+      (1) SNN-hidden-fires vs ANN-hidden-active agreement (is the gate actually reproduced?);
+      (2) golden full-frame acc (NB full-frame argmax drops the per-class OUTPUT scale, so it bounds
+          what hidden-gate fidelity alone can buy — a low number here points at the output decode)."""
+    import torch
+    import spiking as S
+    in_bits, act_hi = 4, 2.0
+    levels_in = (1 << in_bits) - 1
+    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
+    dev = T.pick_device("auto")
+    xte, yte = _test_xy("fashion_mnist", dev)
+    ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+                           input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
+                           seed=0, verbose=args.verbose)
+    ann_acc = T.evaluate_proxy(ann, xte, yte)
+    ann = ann.cpu()
+    snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
+    with torch.no_grad():
+        for sl, al in zip(snn.layers, ann.layers):
+            sl.weight.copy_(al.weight)
+            sl.log_scale.copy_(al.log_scale)
+        snn.log_thr[0].fill_(args.T * (act_hi / 2.0) * levels_in)   # hidden: ANN-gate equivalent
+        snn.log_thr[1].fill_(1.0)                                    # output: low thr (full-frame ignores it)
+    nb = 1000
+    x01 = torch.from_numpy(te_imgs[:nb].astype("float32") / 255.0)
+    snn_fired = (snn.per_layer_first_times(S.encode_ramp(x01, args.T, in_bits))[0] < args.T).float()
+    ann_active = ann.hidden_acts(x01)[0]                             # [nb,246] 0/1
+    agree = float((snn_fired == ann_active).float().mean())
+    r = C.eval_ttfs_ramp_modes(snn, te_imgs, te_labels, args.T, in_bits=in_bits, deltas=(1, 2, 4),
+                               n_eval=args.n_eval)
+    print(f"[E8] ANN(EMA)={ann_acc:.4f} | hidden-gate agreement={agree:.4f} | SNN@init "
+          f"strict={r['strict']['acc']:.4f} guardΔ2={r['guard'][2]['acc']:.4f} "
+          f"full-frame={r['full_frame']['acc']:.4f}  (n_eval={r['n']})", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN bridge E7)")
-    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7"])
+    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8"])
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
@@ -178,7 +221,7 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4,
-     "E5": cmd_E5, "E6": cmd_E6, "E7": cmd_E7}[args.exp](args)
+     "E5": cmd_E5, "E6": cmd_E6, "E7": cmd_E7, "E8": cmd_E8}[args.exp](args)
 
 
 if __name__ == "__main__":
