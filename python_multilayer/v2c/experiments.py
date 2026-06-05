@@ -345,13 +345,14 @@ def cmd_E11(args):
     ann = ann.cpu()
     snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
     _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
-    print(f"[E11] dataset={args.dataset} T={args.T} n_eval={args.n_eval}", flush=True)
+    print(f"[E11] dataset={args.dataset} T={args.T} n_eval={args.n_eval} analog_only={args.analog_only}", flush=True)
     rates = (0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
-    for mode in R.FAULT_MODES:                                        # DIGITAL: our binary-cell bit faults
-        sw = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
-                                rates=rates, n_eval=args.n_eval, trials=5, seed=0)
-        pts = "  ".join(f"r={r:.3f}:{m:.4f}±{s:.4f}" for r, (m, s) in sw.items())
-        print(f"[E11-digital {mode:6s}] {pts}", flush=True)
+    if not args.analog_only:                                         # DIGITAL: our binary-cell bit faults
+        for mode in R.FAULT_MODES:
+            sw = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
+                                    rates=rates, n_eval=args.n_eval, trials=5, seed=0)
+            pts = "  ".join(f"r={r:.3f}:{m:.4f}±{s:.4f}" for r, (m, s) in sw.items())
+            print(f"[E11-digital {mode:6s}] {pts}", flush=True)
     # ANALOG baseline (matched ANN with conductance variation σ + ADC) — the 'analog collapses' contrast
     asw = R.analog_reference_sweep(ann, te_imgs, te_labels, in_bits=in_bits, adc_bits=5,
                                    n_eval=args.n_eval, trials=5, seed=0)
@@ -368,6 +369,7 @@ def main():
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
     ap.add_argument("--n-eval", type=int, default=2000, help="golden eval sample count (E7 only)")
+    ap.add_argument("--analog-only", action="store_true", help="E11: skip the digital sweep, run only the analog baseline")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4, "E5": cmd_E5, "E6": cmd_E6,

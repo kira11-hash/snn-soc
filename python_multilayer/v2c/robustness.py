@@ -83,11 +83,14 @@ def robustness_sweep(model, images, labels, T, in_bits=4, mode="flip",
 # sum. Used only as a contrast baseline; the fairness caveats are flagged for Codex review.
 
 def _adc_quantize(s: np.ndarray, adc_bits) -> np.ndarray:
-    """Symmetric mid-rise ADC: clip to the per-array dynamic range and quantize to ``adc_bits`` levels.
-    ``adc_bits=None`` -> ideal (no quantization)."""
+    """Symmetric mid-rise ADC quantizing the analog partial sum to ``adc_bits`` levels. ``adc_bits=None``
+    -> ideal. Full-scale is PER-OUTPUT (per column's observed range) — a data-calibrated, OPTIMISTIC
+    ADC (a real fixed-range ADC would be coarser for sparse sums); a single global full-scale is the
+    other extreme and is dominated by outliers (it artifactually collapsed Fashion). This illustrative
+    model sits between; the analog-fragility claim is anchored in published σ/drift numbers, not here."""
     if adc_bits is None:
         return s
-    R = float(np.abs(s).max()) + 1e-12                     # full-scale = observed dynamic range
+    R = np.abs(s).max(axis=0, keepdims=True) + 1e-12       # per-output full-scale (not a fixed-range ADC)
     step = 2.0 * R / ((1 << adc_bits) - 1)
     return np.round(s / step) * step
 
