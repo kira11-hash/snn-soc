@@ -250,14 +250,17 @@ def eval_ttfs_ramp_modes(model, images: np.ndarray, labels: np.ndarray, T: int, 
     return out
 
 
-def ramp_output_trajectories(model, images: np.ndarray, T: int, in_bits: int = 4, n_eval=None):
+def ramp_output_trajectories(model, images: np.ndarray, T: int, in_bits: int = 4, n_eval=None,
+                             layers=None):
     """Per-sample OUTPUT-layer membrane trajectory ``traj[n, T, out]`` for the ramp path. The membrane
     is THRESHOLD-INDEPENDENT, so any per-output threshold can be decoded offline against ``traj`` with
     :func:`strict_decode_from_traj` (no re-running the layers) — the basis for a fast output-threshold
-    coordinate search. Returns ``(traj int64, n)``."""
+    coordinate search. If ``layers`` is given (e.g. with fault-injected cells) it is used directly and
+    ``model`` may be ``None`` — the basis for robustness fault-sweeps. Returns ``(traj int64, n)``."""
     images = np.asarray(images)
     n = len(images) if n_eval is None else min(int(n_eval), len(images))
-    layers, _ = export_v2c_layers(model)
+    if layers is None:
+        layers, _ = export_v2c_layers(model)
     cells1, W1, hid, th1 = layers[0]
     th1 = np.asarray(th1, dtype=np.int64)
     vq = _ramp_quantize(images, n, in_bits)

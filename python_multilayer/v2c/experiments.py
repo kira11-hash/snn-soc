@@ -270,59 +270,91 @@ def cmd_E10(args):
     discrete c-grid from a fixed init (c=2) can sit in a local optimum. Single seed, n=n_eval subset —
     a preliminary frontier; the final paper number needs multi-seed + full test + a held-out calib
     split (see PROGRESS F7). Latency is the algorithmic timestep, not an RTL cycle (see convert.py)."""
+    import statistics
     import numpy as np
     import spiking as S
     in_bits, act_hi = 4, 2.0
     tr_imgs, tr_labels = D.load_dataset("fashion_mnist", train=True)
     te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
     n = args.n_eval
+    c_grid = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0]
+    lams = [0.0, 0.5, 1.0]
+    agg = {lam: {"acc": [], "lat": []} for lam in lams}                # F7: aggregate across seeds
+    for s in range(args.seeds):
+        ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+                               input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
+                               seed=s, verbose=args.verbose)
+        ann = ann.cpu()
+        sc_out = ann.layers[-1].scale.detach().squeeze(-1).numpy()    # [10] per-class output scale
+        snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
+        _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
+        # calibrate on TRAIN (distinct from the reported TEST; the ANN saw train, so this is a mild
+        # optimism — quantified by the calib->test gap below), report on TEST.
+        traj_cal, _ = C.ramp_output_trajectories(snn, tr_imgs, args.T, in_bits=in_bits, n_eval=n)
+        traj_te, _ = C.ramp_output_trajectories(snn, te_imgs, args.T, in_bits=in_bits, n_eval=n)
+        y_cal, y_te = tr_labels[:n], te_labels[:n]
+
+        def theta_of(c_vec):
+            return np.maximum(1, np.rint(np.asarray(c_vec) / sc_out)).astype(np.int64)
+
+        def acc_lat(traj, y, c_vec):
+            preds, lat = C.strict_decode_from_traj(traj, theta_of(c_vec), args.T)
+            return float((preds == y).mean()), float(lat.mean()), float((lat == args.T).mean())
+
+        if s == 0:                                                    # global-c baseline once
+            for c in [1.0, 1.5, 2.0, 3.0]:
+                a, l, _ = acc_lat(traj_te, y_te, np.full(10, c))
+                print(f"[E10-global seed0] c={c:.2f} TEST acc={a:.4f}@t≈{l:.1f}", flush=True)
+        for lam in lams:
+            c_vec = np.full(10, 2.0)                                  # init at the global-c knee
+            for _ in range(3):                                        # greedy coordinate descent (observed frontier)
+                for k in range(10):
+                    best_c, best_o = c_vec[k], None
+                    for cand in c_grid:
+                        cv = c_vec.copy(); cv[k] = cand
+                        a, l, _ = acc_lat(traj_cal, y_cal, cv)
+                        o = a - lam * l / args.T
+                        if best_o is None or o > best_o:
+                            best_o, best_c = o, cand
+                    c_vec[k] = best_c
+            ca, cl, _ = acc_lat(traj_cal, y_cal, c_vec)
+            ta, tl, fb = acc_lat(traj_te, y_te, c_vec)
+            agg[lam]["acc"].append(ta); agg[lam]["lat"].append(tl)
+            print(f"[E10 seed={s} λ={lam:.1f}] TEST acc={ta:.4f}@t≈{tl:.1f} fallback={fb:.3f} "
+                  f"(calib {ca:.4f}@{cl:.1f}) c_vec={np.round(c_vec, 2).tolist()}", flush=True)
+    if args.seeds > 1:                                                # F7 aggregate
+        for lam in lams:
+            a, l = agg[lam]["acc"], agg[lam]["lat"]
+            print(f"[E10-AGG λ={lam:.1f}] acc={statistics.mean(a):.4f}±{statistics.pstdev(a):.4f} "
+                  f"lat={statistics.mean(l):.1f}±{statistics.pstdev(l):.1f}  ({len(a)} seeds, n={n})", flush=True)
+
+
+def cmd_E11(args):
+    """Phase 3 — non-ideal robustness (the SOTA-able axis). Gate-init SNN (deployed, no training), then
+    sweep digital cell-fault rate for each mode (stuck0 / stuck1 / flip) -> full-frame accuracy-vs-fault
+    -rate. Digital binary cells + 1-bit sense are immune-by-construction to the analog variation/ADC
+    noise that costs analog CIM 10-50%+; this draws the curve. Analog-CIM baseline comparison TBD."""
+    import robustness as R
+    import spiking as S
+    in_bits, act_hi = 4, 2.0
+    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
     ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
                            input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
                            seed=0, verbose=args.verbose)
     ann = ann.cpu()
-    sc_out = ann.layers[-1].scale.detach().squeeze(-1).numpy()       # [10] per-class output scale
     snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
     _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
-    traj_cal, _ = C.ramp_output_trajectories(snn, tr_imgs, args.T, in_bits=in_bits, n_eval=n)
-    traj_te, _ = C.ramp_output_trajectories(snn, te_imgs, args.T, in_bits=in_bits, n_eval=n)
-    y_cal, y_te = tr_labels[:n], te_labels[:n]
-
-    def theta_of(c_vec):
-        return np.maximum(1, np.rint(np.asarray(c_vec) / sc_out)).astype(np.int64)
-
-    def acc_lat(traj, y, c_vec):
-        preds, lat = C.strict_decode_from_traj(traj, theta_of(c_vec), args.T)
-        return float((preds == y).mean()), float(lat.mean())
-
-    # global-c baseline on TEST (apples-to-apples with the offline decode)
-    for c in [1.0, 1.5, 2.0, 3.0]:
-        a, l = acc_lat(traj_te, y_te, np.full(10, c))
-        print(f"[E10-global] c={c:.2f} TEST acc={a:.4f}@t≈{l:.1f}", flush=True)
-    # per-class coordinate descent for a range of latency pressures λ
-    c_grid = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0]
-    for lam in [0.0, 0.5, 1.0, 2.0, 4.0]:
-        c_vec = np.full(10, 2.0)                                       # init at the global-c knee
-        for _ in range(3):                                            # coordinate-descent rounds
-            for k in range(10):
-                best_c, best_o = c_vec[k], None
-                for cand in c_grid:
-                    cv = c_vec.copy(); cv[k] = cand
-                    a, l = acc_lat(traj_cal, y_cal, cv)
-                    o = a - lam * l / args.T
-                    if best_o is None or o > best_o:
-                        best_o, best_c = o, cand
-                c_vec[k] = best_c
-        ca, cl = acc_lat(traj_cal, y_cal, c_vec)
-        preds_te, lat_te = C.strict_decode_from_traj(traj_te, theta_of(c_vec), args.T)
-        ta, tl = float((preds_te == y_te).mean()), float(lat_te.mean())
-        fb = float((lat_te == args.T).mean())                         # fallback rate (no spike -> full-frame)
-        print(f"[E10-perclass λ={lam:.1f}] TEST acc={ta:.4f}@t≈{tl:.1f} fallback={fb:.3f}  "
-              f"(calib {ca:.4f}@{cl:.1f})  c_vec={np.round(c_vec, 2).tolist()}", flush=True)
+    rates = (0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
+    for mode in R.FAULT_MODES:
+        sw = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode=mode,
+                                rates=rates, n_eval=args.n_eval, trials=5, seed=0)
+        pts = "  ".join(f"r={r:.3f}:{m:.4f}±{s:.4f}" for r, (m, s) in sw.items())
+        print(f"[E11-robust {mode:6s}] {pts}", flush=True)
 
 
 def main():
-    ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN bridge/diag E7-E10)")
-    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10"])
+    ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN E7-E10 + robustness E11)")
+    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E11"])
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
@@ -330,7 +362,7 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4, "E5": cmd_E5, "E6": cmd_E6,
-     "E7": cmd_E7, "E8": cmd_E8, "E9": cmd_E9, "E10": cmd_E10}[args.exp](args)
+     "E7": cmd_E7, "E8": cmd_E8, "E9": cmd_E9, "E10": cmd_E10, "E11": cmd_E11}[args.exp](args)
 
 
 if __name__ == "__main__":
