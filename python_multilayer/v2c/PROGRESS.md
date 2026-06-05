@@ -82,8 +82,12 @@
   - **断言 C 成立但精炼**：训练确实把 **full-frame 从 87.85 拉到 83.30（−4.55pp）**——隔离了阈值初始化混因后，"surrogate 训练损害 full-frame 判别力"为真。
   - **但训练是"延迟优化器"**：把发放拉早（strict 84.50%@**t6.7** vs 不训练需 t≈11 才 85.55%；t≈6.7 处不训练只 ~75%）。即**训练牺牲峰值精度换早停延迟**。
   - E9 full 83.30 > E7(fire_fraction+train) full 80.55 → **gate-init 对训练版也有帮助**。
-- **★ Phase-2 最终结论 + 部署 recipe（latency-accuracy Pareto 前沿，单 seed，待多 seed 复核）**：
-  - **准确率模式**：gate-init **不训练** → **87.85%@t16**（=ANN）或 85.55%@t11。
-  - **低延迟模式**：gate-init **+训练** → **84.50%@t6.7**。
-  - 二者并集即 Pareto 前沿。**SNN accuracy 基本解决**（解析 gate-init + 输出标定，无需/可选训练），不再是研究级硬骨头。
-- **下一步（用户定向）**：accuracy 既已解决/够用，倾向**转 Phase 3 非理想鲁棒性**（真正赢面轴）。可选精修：per-class θ_out 坐标搜索把拐点左移、常数 bias 行、多 seed 复核 E8/E9。
+- **★ E10 per-class 输出阈值坐标搜索（F5，gate-init 零训练，train 标定/test 报数，`experiments.py E10`）**：每类 `θ_out[k]=round(c_k/scale_out[k])`，坐标下降最大化 `acc−λ·lat/T`。预计算输出膜轨迹 `convert.ramp_output_trajectories`（阈值无关），离线 `convert.strict_decode_from_traj`（向量化，测试锁定 == golden strict）。
+  - per-class Pareto(test)：λ0 → **87.75%@t11.4**；λ0.5 → **84.55%@t7.0**；λ1 → 66.25%@t3.5。global-c(精确) c2=81.10%@t9.1 / c3=87.85%@t16。
+  - **★ per-class 把拐点从 t≈11 推到 t≈7**：84.55%@**t7.0**（同延迟 +3.5pp）、高精度点 87.75% 从 t16 提前到 **t11.4**。
+  - **★★ 标定全面压过训练**：per-class(零训练) 84.55%@t7.0 ≈ E9 训练 84.50%@t6.7，**但标定同时保住 87.75%@t11.4 高精度，训练版 full-frame 只剩 83.30%**。⚠ 注：E8 sweep 的 c 标签是 `softplus(c)` 偏移（c2 实为 ~2.13），E10 用精确 c。calib→test gap ~1pp。
+- **★ Phase-2 最终结论 + 部署 recipe（latency-accuracy 前沿，单 seed 待多 seed 复核）**：**SNN = 解析 gate-init（隐层阈值=ANN 1-bit gate 等价式）+ per-class 输出阈值标定，零 spiking 训练**。一条旋钮(λ) 给整条前沿：
+  - 准确率模式 **87.75%@t11.4**（≈ANN）/ full-frame 87.85%@t16；
+  - 低延迟模式 **84.55%@t7.0**。
+  - **训练不需要**（标定即达同延迟点且保住精度上限）。接力文档"研究级 ~6pp 硬骨头"**翻案**：是阈值标定问题，非训练/结构问题。比 E7 旧 80.5% 提升 +4~7pp。
+- **下一步（用户定向）**：accuracy 已解决/够用，倾向**转 Phase 3 非理想鲁棒性**（真正赢面轴；基建 `eval_ttfs_ramp_modes`/`ramp_output_trajectories` + golden 故障注入可直接做）。可选精修：常数 bias 行、多 seed 复核 E8/E9/E10、calib 集独立化。

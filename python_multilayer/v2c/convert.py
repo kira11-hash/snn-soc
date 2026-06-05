@@ -243,3 +243,50 @@ def eval_ttfs_ramp_modes(model, images: np.ndarray, labels: np.ndarray, T: int, 
                   for d in deltas},
     }
     return out
+
+
+def ramp_output_trajectories(model, images: np.ndarray, T: int, in_bits: int = 4, n_eval=None):
+    """Per-sample OUTPUT-layer membrane trajectory ``traj[n, T, out]`` for the ramp path. The membrane
+    is THRESHOLD-INDEPENDENT, so any per-output threshold can be decoded offline against ``traj`` with
+    :func:`strict_decode_from_traj` (no re-running the layers) — the basis for a fast output-threshold
+    coordinate search. Returns ``(traj int64, n)``."""
+    images = np.asarray(images)
+    n = len(images) if n_eval is None else min(int(n_eval), len(images))
+    layers, _ = export_v2c_layers(model)
+    cells1, W1, hid, th1 = layers[0]
+    th1 = np.asarray(th1, dtype=np.int64)
+    vq = _ramp_quantize(images, n, in_bits)
+    out_dim = layers[-1][2]
+    traj = np.empty((n, T, out_dim), dtype=np.int64)
+    for i in range(n):
+        st = _ramp_hidden_times(vq[i], cells1, W1, hid, th1, T, in_bits)
+        for cells_l, W_l, od_l, th_l in layers[1:-1]:            # middle hidden layers run full
+            st, _, _ = fwd.ttfs_layer_forward(ttfs.ttfs_times_to_stream(st, T), cells_l, W_l, od_l,
+                                              th_l, early_exit=False)
+        cells_o, W_o, od_o, th_o = layers[-1]
+        _, traj[i] = _layer_membrane_trajectory(ttfs.ttfs_times_to_stream(st, T), cells_o, W_o, od_o, th_o)
+    return traj, n
+
+
+def strict_decode_from_traj(traj: np.ndarray, theta_out: np.ndarray, T: int):
+    """Vectorized strict early-exit decode from precomputed output trajectories ``traj[N,T,out]`` and a
+    per-output integer threshold ``theta_out[out]`` — matches eval_ttfs_ramp_modes' strict / Δ=0 policy
+    (earliest threshold crossing wins; tie -> highest membrane at that step -> lowest index; none ->
+    argmax final membrane). Returns ``(preds[N], latency[N])`` (latency = decision step, T if fallback)."""
+    traj = np.asarray(traj)
+    N, Tt, out = traj.shape
+    theta = np.asarray(theta_out, dtype=np.int64).reshape(1, 1, out)
+    crossed = traj >= theta                                       # [N,T,out]
+    ever = crossed.any(axis=1)                                    # [N,out]
+    first_t = np.where(ever, crossed.argmax(axis=1), T)           # argmax -> first True; T if never
+    earliest = first_t.min(axis=1)                                # [N]
+    fired = earliest < T
+    gather_t = np.clip(earliest, 0, Tt - 1)
+    mem_at = np.take_along_axis(traj, gather_t[:, None, None], axis=1)[:, 0, :]   # membrane at earliest [N,out]
+    tie = (first_t == earliest[:, None]) & fired[:, None]         # classes firing at the earliest step
+    masked = np.where(tie, mem_at, np.iinfo(np.int64).min)
+    pred_fire = masked.argmax(axis=1)                             # ties -> highest membrane -> lowest idx
+    pred_fb = traj[:, -1, :].argmax(axis=1)                       # no spike -> argmax final membrane
+    preds = np.where(fired, pred_fire, pred_fb).astype(np.int64)
+    latency = np.where(fired, earliest, T).astype(np.int64)
+    return preds, latency

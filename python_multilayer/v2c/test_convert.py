@@ -103,3 +103,21 @@ def test_ramp_decision_modes_pareto():
     assert r["guard"][4]["latency"] <= r["full_frame"]["latency"] == T
     for m in [r["strict"], r["guard"][1], r["guard"][2], r["guard"][4], r["full_frame"]]:
         assert 0.0 <= m["acc"] <= 1.0
+
+
+def test_strict_decode_from_traj_matches_golden_strict():
+    # the offline trajectory decode (used by the output-threshold coordinate search) must reproduce
+    # the golden eval_ttfs_ramp_modes strict acc + latency exactly at the model's own threshold.
+    torch.manual_seed(0)
+    T, in_bits = 16, 4
+    net = S.V2CSpikingMLP([784, 246, 10], 4, T=T)
+    with torch.no_grad():
+        net.log_thr[1].fill_(2.0)                                    # moderate output thr -> some fire
+    imgs, labs = _imgs(40, seed=11)
+    traj, nt = C.ramp_output_trajectories(net, imgs, T, in_bits=in_bits, n_eval=40)
+    assert traj.shape == (40, T, 10) and nt == 40
+    theta_out = net.export_int_thresholds()[-1].cpu().numpy()        # the model's output integer threshold
+    preds, lat = C.strict_decode_from_traj(traj, theta_out, T)
+    g = C.eval_ttfs_ramp_modes(net, imgs, labs, T, in_bits=in_bits, deltas=(1,), n_eval=40)
+    assert float((preds == labs[:40]).mean()) == pytest.approx(g["strict"]["acc"])
+    assert float(lat.mean()) == pytest.approx(g["strict"]["latency"])

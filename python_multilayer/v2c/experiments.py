@@ -259,17 +259,71 @@ def cmd_E9(args):
               f"full-frame={r['full_frame']['acc']:.4f}", flush=True)
 
 
+def cmd_E10(args):
+    """Per-class output-threshold coordinate search (F5): push the latency knee left of the global-c
+    Pareto (85.55%@t11). Gate-init SNN (NO spiking training); precompute output membrane trajectories
+    once on a TRAIN calibration set and the TEST set; coordinate-descend per-class c_k (θ_out[k]=
+    round(c_k/scale_out[k])) to maximize acc - λ·latency/T on CALIB, then report on TEST. Calibrating on
+    train and reporting on test avoids tuning thresholds to the test set. Traces the per-class Pareto
+    over λ vs the global-c baseline."""
+    import numpy as np
+    import spiking as S
+    in_bits, act_hi = 4, 2.0
+    tr_imgs, tr_labels = D.load_dataset("fashion_mnist", train=True)
+    te_imgs, te_labels = D.load_dataset("fashion_mnist", train=False)
+    n = args.n_eval
+    ann, _ = T.train_model(dataset="fashion_mnist", arch="main", W=4, epochs=args.epochs,
+                           input_bits=in_bits, act_bits=1, bias=False, act_hi=act_hi,
+                           seed=0, verbose=args.verbose)
+    ann = ann.cpu()
+    sc_out = ann.layers[-1].scale.detach().squeeze(-1).numpy()       # [10] per-class output scale
+    snn = S.V2CSpikingMLP([784, 246, 10], 4, T=args.T)
+    _gate_init_snn(snn, ann, args.T, act_hi, in_bits)
+    traj_cal, _ = C.ramp_output_trajectories(snn, tr_imgs, args.T, in_bits=in_bits, n_eval=n)
+    traj_te, _ = C.ramp_output_trajectories(snn, te_imgs, args.T, in_bits=in_bits, n_eval=n)
+    y_cal, y_te = tr_labels[:n], te_labels[:n]
+
+    def theta_of(c_vec):
+        return np.maximum(1, np.rint(np.asarray(c_vec) / sc_out)).astype(np.int64)
+
+    def acc_lat(traj, y, c_vec):
+        preds, lat = C.strict_decode_from_traj(traj, theta_of(c_vec), args.T)
+        return float((preds == y).mean()), float(lat.mean())
+
+    # global-c baseline on TEST (apples-to-apples with the offline decode)
+    for c in [1.0, 1.5, 2.0, 3.0]:
+        a, l = acc_lat(traj_te, y_te, np.full(10, c))
+        print(f"[E10-global] c={c:.2f} TEST acc={a:.4f}@t≈{l:.1f}", flush=True)
+    # per-class coordinate descent for a range of latency pressures λ
+    c_grid = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0]
+    for lam in [0.0, 0.5, 1.0, 2.0, 4.0]:
+        c_vec = np.full(10, 2.0)                                       # init at the global-c knee
+        for _ in range(3):                                            # coordinate-descent rounds
+            for k in range(10):
+                best_c, best_o = c_vec[k], None
+                for cand in c_grid:
+                    cv = c_vec.copy(); cv[k] = cand
+                    a, l = acc_lat(traj_cal, y_cal, cv)
+                    o = a - lam * l / args.T
+                    if best_o is None or o > best_o:
+                        best_o, best_c = o, cand
+                c_vec[k] = best_c
+        ca, cl = acc_lat(traj_cal, y_cal, c_vec)
+        ta, tl = acc_lat(traj_te, y_te, c_vec)
+        print(f"[E10-perclass λ={lam:.1f}] TEST acc={ta:.4f}@t≈{tl:.1f}  (calib {ca:.4f}@{cl:.1f})", flush=True)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN bridge/diag E7-E9)")
-    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9"])
+    ap = argparse.ArgumentParser(description="V2C experiment campaign (ANN ceiling E0-E6 + SNN bridge/diag E7-E10)")
+    ap.add_argument("exp", choices=["E0", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10"])
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--T", type=int, default=16, help="TTFS timesteps (E7 only)")
     ap.add_argument("--n-eval", type=int, default=2000, help="golden eval sample count (E7 only)")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
-    {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4, "E5": cmd_E5,
-     "E6": cmd_E6, "E7": cmd_E7, "E8": cmd_E8, "E9": cmd_E9}[args.exp](args)
+    {"E0": cmd_E0, "E2": cmd_E2, "E3": cmd_E3, "E4": cmd_E4, "E5": cmd_E5, "E6": cmd_E6,
+     "E7": cmd_E7, "E8": cmd_E8, "E9": cmd_E9, "E10": cmd_E10}[args.exp](args)
 
 
 if __name__ == "__main__":
