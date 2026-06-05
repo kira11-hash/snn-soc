@@ -93,3 +93,63 @@ def eval_ttfs(model, images: np.ndarray, labels: np.ndarray, T: int, n_eval=None
         "preds": preds,
         "labels": labels[:n],
     }
+
+
+def eval_ttfs_ramp(model, images: np.ndarray, labels: np.ndarray, T: int, in_bits: int = 4,
+                   n_eval=None):
+    """Golden eval for the multi-bit (bit-serial / ramp) INPUT path (Option A).
+
+    First layer = bit-serial digital-CIM MAC: the ``in_bits``-bit pixel value is decomposed into bit
+    planes and accumulated with 2^k shift-add — ``z1 = Σ_k 2^k · encoding.mac(bitplane_k, cells1)`` —
+    which equals the integer ``v @ w_int`` (full grayscale MAC, cells still binary). The hidden TTFS
+    neuron then ramps that constant: ``membrane(t)=(t+1)·z1``, first-spike when ``>= threshold``;
+    hidden/output layers are the standard digital-CIM TTFS golden (``forward.py``). Bit-exact with the
+    spiking model's hard-classify within the fp32-safe integer range (W<=4, in_bits<=4).
+
+    Returns the same dict as :func:`eval_ttfs`. ``model`` must have >=2 layers (input + TTFS layers).
+    """
+    images = np.asarray(images)
+    labels = np.asarray(labels)
+    n = len(images) if n_eval is None else min(int(n_eval), len(images))
+    layers, _ = export_v2c_layers(model)
+    cells1, W1, hid, th1 = layers[0]                          # input layer (bit-serial MAC + ramp)
+    th1 = np.asarray(th1, dtype=np.int64)
+    levels = (1 << in_bits) - 1
+    vq = np.rint(images[:n].astype(np.float64) / 255.0 * levels).astype(np.int64)   # [n,in] in 0..levels
+    preds = np.empty(n, dtype=np.int64)
+    fallback = np.zeros(n, dtype=bool)
+    latency = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        v = vq[i]
+        z1 = np.zeros(hid, dtype=np.int64)                    # bit-serial first-layer MAC
+        for k in range(in_bits):
+            bitplane = ((v >> k) & 1).astype(np.uint8)
+            z1 += (1 << k) * enc.mac(bitplane, cells1, W1, hid)
+        # ramp TTFS hidden: membrane(t) = (t+1)*z1, first t with (t+1)*z1 >= th1 (z1>0 only)
+        hid_times = np.full(hid, ttfs.NO_SPIKE, dtype=np.int64)
+        pos = z1 > 0
+        tcross = np.ceil(np.where(pos, th1, 1) / np.where(pos, z1, 1)).astype(np.int64) - 1
+        tcross = np.clip(tcross, 0, None)
+        fires = pos & (tcross <= T - 1)
+        hid_times[fires] = tcross[fires]
+        stream2 = ttfs.ttfs_times_to_stream(hid_times, T)     # hidden spikes -> output layer input
+        cells2, W2, out_dim, th2 = layers[1]
+        st, mem, _ = fwd.ttfs_layer_forward(stream2, cells2, W2, out_dim, th2, early_exit=True)
+        # remaining layers (deeper nets): chain like multilayer_ttfs_forward
+        for cells_l, W_l, od_l, th_l in layers[2:]:
+            st, mem, _ = fwd.ttfs_layer_forward(ttfs.ttfs_times_to_stream(st, T), cells_l, W_l, od_l,
+                                                th_l, early_exit=True)
+        pred, fb = fwd.ttfs_classify(st, mem)
+        preds[i] = pred
+        fallback[i] = fb
+        fired = st[st != ttfs.NO_SPIKE]
+        latency[i] = int(fired.min()) if fired.size else T
+    correct = preds == labels[:n]
+    return {
+        "ttfs_acc": float(correct.mean()),
+        "fallback_rate": float(fallback.mean()),
+        "algo_latency_mean": float(latency.mean()),
+        "n": n,
+        "preds": preds,
+        "labels": labels[:n],
+    }

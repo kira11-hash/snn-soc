@@ -192,8 +192,13 @@ def main():
         print(f"  fallback rate                           : {g['fallback_rate']:.4f}")
         print(f"  algo first-spike latency (mean)         : {g['algo_latency_mean']:.2f} / T={args.T}")
     else:
-        print("  (ramp/multi-bit input: golden digital-CIM forward is bit-serial — TBD; "
-              "reporting the spiking model's hard-classify accuracy above.)")
+        # multi-bit ramp input: bit-serial first-layer golden (encoding.mac per bit-plane + shift-add).
+        te_imgs, te_labels = data_mod.load_dataset(args.dataset, train=False)
+        g = C.eval_ttfs_ramp(model, te_imgs, te_labels, args.T, in_bits=args.in_bits, n_eval=args.n_ttfs)
+        print(f"  golden TTFS-ramp acc, EARLY-EXIT/DEPLOYED : {g['ttfs_acc']:.4f}  (n={g['n']})")
+        print(f"  early-exit latency-accuracy cost          : {spk_acc - g['ttfs_acc']:+.4f}  (decides at t~{g['algo_latency_mean']:.1f})")
+        print(f"  fallback rate                             : {g['fallback_rate']:.4f}")
+        print(f"  algo first-spike latency (mean)           : {g['algo_latency_mean']:.2f} / T={args.T}")
 
 
 if __name__ == "__main__":

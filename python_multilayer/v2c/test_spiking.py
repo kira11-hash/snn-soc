@@ -174,3 +174,13 @@ def test_ramp_forward_grad_finite():
     S.ttfs_loss(e, ml, torch.randint(0, 10, (8,))).backward()
     g = net.layers[0].weight.grad
     assert g is not None and torch.isfinite(g).all()
+
+
+def test_fp32_membrane_guard_raises_unsafe_config():
+    # the integer membrane is accumulated in fp32 (exact only < 2^24). W=8 + 8-bit input + T=32 pushes
+    # it past that -> not bit-exact with the int64 golden -> must raise loudly (not silently lose bits).
+    torch.manual_seed(0)
+    net = S.V2CSpikingMLP([784, 64, 10], 8, T=32)
+    ramp = S.encode_ramp(torch.rand(4, 784), 32, in_bits=8)
+    with pytest.raises(ValueError):
+        net(ramp)

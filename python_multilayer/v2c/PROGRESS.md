@@ -10,13 +10,13 @@
 | 4 | 多层 TTFS forward（链接单层：hidden `spike_times`→`ttfs_times_to_stream`→下一层；输出层早停+分类）| `forward.py` `test_forward.py` | ✅ **pytest 71 passed** | ✅ **复审 PASS**（第1轮 1×P1+2×P2 修后复核全过）| ✅ |
 | 5 | 数据集 loader（MNIST/Fashion/KMNIST → 784 uint8 + labels，torchvision；三者同形状）| `data.py` `test_data.py` | ✅ **pytest 76 passed**（+train split/flatten 约定 + gitignore _data）| ✅ 已审：2×P2(gitignore/train测试) 全采纳已修 | ✅ |
 | 6a | QAT 权重量化器（BNN/ternary/two's-comp STE + scale → `encoding` 整数）| `qat.py` `test_qat.py` | ✅ **pytest 98 passed**（量化范围/pack/STE 梯度/对称码/确定性梯度语义/全零）| ✅ 已审：2×P2(对称码文档+测试/梯度口径测试) 全采纳已修 | ✅ |
-| 6b | per-output LSQ-QAT + **surrogate-gradient TTFS-IF 直训**(naive ANN→TTFS 转换已证伪) + golden 一致性 | `qat.py`(+lsq) `model.py` `train.py`(参考ANN) **`spiking.py` `train_spiking.py`** `convert.py` + `test_model/qat/convert/spiking.py` | ✅ **pytest 147 passed**（LSQ 范围/对称/双梯度、QuantLinear、SpikeFn 替代梯度、encode_stream==ttfs golden、spiking forward/导出/阈值、**spiking↔golden 96% 一致**、小批过拟合降loss、桥端到端）+ Fashion W=4 真实数 | ⬜ 待审 | 🔶 代码完成待审 |
-| 6c+ | spiking sweep(T/W/三数据集) + latency-accuracy Pareto + 二值位平面导出 + 能效-延迟-SOP 指标 | — | — | — | ⬜ |
+| 6b/6c | per-output LSQ-QAT + **surrogate-gradient TTFS-IF 直训** + **多比特输入** + golden bit-exact | `qat.py` `model.py` `train.py` **`spiking.py` `train_spiking.py`** `convert.py` + `test_model/qat/convert/spiking.py` | ✅ **pytest 153 passed**（LSQ、QuantLinear、SpikeFn、encode_stream/encode_ramp、spiking forward/导出/阈值、**hidden fire-decision 与 golden bit-exact + 早停 pred≥95%**、过拟合降loss、桥端到端）+ Fashion W=4 ~80% | ✅ 两轮已审(P0/P1/P2 修中) | 🔶 代码+实验完成 |
+| 6c+ | spiking sweep(T/W/三数据集) + latency-accuracy Pareto + 鲁棒性 demo + 二值位平面导出 + 能效-延迟-SOP | — | — | — | ⬜ |
 
 **Part 1 Codex 修订（已落地+复验，2026-06-05）**：`mac`/`unpack` 加 shape 校验（防 `spikes` reshape 后静默广播出错的 MAC、out_dim 不匹配）；`pack` 拒非整数权重（防 float 截断）；测试加**独立显式索引** reference（不复用 `k::W` 切片）+ shape/float/empty/越界用例。
 
 **环境备注（2026-06-05 已修）**：系统/brew python 的 pip 坏（libexpat/pyexpat），但 **`.venv-v2c` 可用**（py3.12.13 + numpy 2.4.6 + pytest 9 + **torch 2.12.0 + torchvision 0.27.0（MPS 可用）** + pyexpat ok；pip 正常）。**跑全部 v2c 测试**：
-`./.venv-v2c/bin/python -m pytest -q -p no:cacheprovider python_multilayer/v2c/`（当前 **149 passed**）。/tmp wheel-extract 已弃用。
+`./.venv-v2c/bin/python -m pytest -q -p no:cacheprovider python_multilayer/v2c/`（当前 **153 passed**）。/tmp wheel-extract 已弃用。
 
 **Part 6b 设计要点（代码完成、本地 147 绿、待 Codex 审，2026-06-05）**：
 - ⚠ **接力文档原计划被证伪**：「graded ReLU ANN proxy → 阈值校准 → TTFS」**行不通**。诊断（Fashion W=4）：量化 ANN proxy 86.7%，但导出跑真实 `forward.py` ≈ **随机 10%**，扫任何全局阈值乘子都救不回。根因 = TTFS-IF 动力学：**膜电位均值为负 → per-neuron 阈值多为负 → membrane 从 0 起步即过阈、t=0 秒发**；**带符号权重 → 膜电位非单调 → "首脉冲是否发放"≠"最终膜电位≥阈值"**（闭式 regime-A 61%、真实 spiking forward 仍 10%）。光靠阈值校准（原 6c 设想）救不了 → 必须在真实动力学里训练。

@@ -9,6 +9,7 @@ import pytest  # noqa: E402
 import torch  # noqa: E402
 
 import convert as C  # noqa: E402
+import encoding as enc  # noqa: E402
 import spiking as S  # noqa: E402
 
 
@@ -61,3 +62,26 @@ def test_high_threshold_forces_fallback():
     r = C.eval_ttfs(net, imgs, labs, T=8, n_eval=8)
     assert r["fallback_rate"] == 1.0
     assert r["algo_latency_mean"] == 8
+
+
+def test_ramp_bitserial_equivalence_and_golden():
+    # (1) the bit-serial first-layer golden MAC must equal the direct integer MAC v@w_int (the
+    # hardware claim: in_bits binary phase-planes + 2^k shift-add == multi-bit grayscale MAC).
+    # (2) the ramp golden (eval_ttfs_ramp) must match the spiking model's hard-classify.
+    torch.manual_seed(0)
+    T, in_bits = 16, 4
+    net = S.V2CSpikingMLP([784, 246, 10], 4, T=T)
+    imgs, labs = _imgs(30, seed=5)
+    layers, _ = C.export_v2c_layers(net)
+    cells1, W1, hid, _ = layers[0]
+    w_int1 = net.layers[0].export_int().cpu().numpy()                # [hid, in]
+    levels = (1 << in_bits) - 1
+    v = np.rint(imgs[0].astype(np.float64) / 255.0 * levels).astype(np.int64)
+    z_bitserial = sum((1 << k) * enc.mac(((v >> k) & 1).astype(np.uint8), cells1, W1, hid)
+                      for k in range(in_bits))
+    assert np.array_equal(z_bitserial, v @ w_int1.T)                 # bit-serial == direct integer MAC
+    x01 = torch.from_numpy(imgs.astype(np.float32) / 255.0)
+    _, mem_int, _, ft = net(S.encode_ramp(x01, T, in_bits))
+    preds_spk = S.hard_classify(ft, mem_int, T).numpy()
+    g = C.eval_ttfs_ramp(net, imgs, labs, T, in_bits=in_bits, n_eval=30)
+    assert g["n"] == 30 and (preds_spk == g["preds"]).mean() >= 0.9  # only output early-exit/tie differs

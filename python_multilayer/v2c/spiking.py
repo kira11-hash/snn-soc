@@ -184,16 +184,17 @@ class V2CSpikingMLP(nn.Module):
         effs = []
         for layer, thr in zip(self.layers, self.thresholds()):
             s = layer.scale.detach().squeeze(-1).clamp(min=1e-8)               # [out], per-output step
-            effs.append(s * qat._round_ste(thr / s))
+            effs.append(s * qat._round_ste(thr / s).clamp(min=1.0))           # θ_int>=1 (no t=0 fire)
         return effs
 
     @torch.no_grad()
     def export_int_thresholds(self):
-        """Per-layer deployed integer thresholds ``round(softplus(log_thr)/scale)`` (int64)."""
+        """Per-layer deployed integer thresholds ``max(1, round(softplus(log_thr)/scale))`` (int64).
+        Clamped to >=1: a 0 threshold makes the neuron fire at t=0 before any evidence accumulates."""
         out = []
         for layer, thr in zip(self.layers, self.thresholds()):
             s = layer.scale.squeeze(-1).clamp(min=1e-8)
-            out.append(torch.round(thr / s).long())
+            out.append(torch.round(thr / s).clamp(min=1.0).long())
         return out
 
     def _layer_spikes(self, x, w_q, w_int, thr_eff, theta_int, force_fire: bool = False):
@@ -211,6 +212,14 @@ class V2CSpikingMLP(nn.Module):
         b = x.shape[0]
         out = w_q.shape[0]
         w_int_f = w_int.to(x.dtype)                                            # exact integer values
+        # fp32 holds integers exactly only below 2^24; the integer membrane must stay under that for
+        # the hard fire-decision to be bit-exact with the int64 golden (true for W<=4 + <=4-bit input;
+        # W=8 / 8-bit input can exceed it). Guard so unsafe configs fail loudly, not silently lose bits.
+        bound = self.T * float(x.detach().abs().max()) * float(w_int_f.abs().sum(dim=1).max())
+        if bound >= 2 ** 24:
+            raise ValueError(
+                f"integer membrane bound {bound:.0f} >= 2^24: fp32 not bit-exact with the int64 golden "
+                f"— use W<=4 and in_bits<=4 (safe), or an int64 golden path")
         mem_q = torch.zeros(b, out, device=x.device, dtype=x.dtype)           # differentiable (grad path)
         mem_i = torch.zeros(b, out, device=x.device, dtype=x.dtype)           # exact integer (golden path)
         fired = torch.zeros(b, out, device=x.device, dtype=x.dtype)
