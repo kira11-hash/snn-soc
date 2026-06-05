@@ -44,3 +44,22 @@
 - **★ init-from-ann gap-closer（Codex 推荐 matched-init，有效）**:先训匹配的 1-bit 隐层 ANN(87%)→ 拷 `weight/log_scale` 初始化 spiking + 温和 KD → **golden 部署 81.25%(延迟≈0、ramp 在 t=0 即给完整灰度 MAC)**。`train_spiking --init-from-ann`。**精度全景 `68(二值)→78.8(ramp)→79.8(+KD)→81.25(+init-from-ann)`**,gap 收到 ~5.6pp。
 - **★ SNN 卡在 ~81%、与 teacher/init 脱钩（2026-06-05 实测结论）**:试遍便宜+中等杠杆,**SNN 一律 ~80-81%**。`act_hi` grid(`model.V2CMLP.act_hi`,1-bit 隐层二值阈=act_hi/2):**act_hi=2.0 最优,ANN 86.84→87.29%**(白拿 +0.45pp);但用 act_hi=2.0+bias=False 的更强 teacher(87.48%)重 init SNN → golden **80.45%(没涨)**。hidden-occurrence 蒸馏(`--hidden-kd`,已修梯度伸缩相消 bug→改发放余量 BCEWithLogits)→ 79.1%(更差,init 已对齐权重、蒸馏只扰动时序)。**最佳 SNN 仍是 init-from-ann 的 81.25%**。**结论:剩 ~6pp 是 surrogate-TTFS 训练硬骨头,teacher 再好也传不过去 → 闭合需训练范式重写(temporal rank loss + wrong-early penalty),研究级、回报不确定。** Codex 误报已驳:`log_scale` no-decay 其实正确(`"log_scale".endswith("scale")`=True)。
 - **下一步（建议②）**:① 继续闭合 ~6pp 需研究级范式重写(回报不确定);② **★转非理想鲁棒性 demo(真正 win,accuracy 本就非胜负手,81% 够用,强烈建议)**;③ ANN 参考上界可继续抬(PACT/staged-QAT → ~88,但 SNN 不跟,只助参考数);④ 三数据集/T sweep + ramp golden PPA cycle 计数。
+
+**Part 6c+ Phase 1：拔高 matched ANN 实验（按 Codex 计划 E0–E7，2026-06-05，本地 158 绿）**：
+- **驱动**：新建 `experiments.py`（E0–E6 多 seed mean±std；E7 = SNN 桥接 + golden Pareto）。**修了 train.py 隐性坑**：`history[-1]['test_acc']` 是 raw 权重精度、非 EMA 部署精度 → driver 改评估返回的 EMA 网络。EMA 为部署权重，全部数为 EMA。
+- **结果表（Fashion-MNIST，main 784-246-10，W4/in4/act1/act_hi=2.0，5 seeds，EMA 部署）**：
+
+  | 实验 | 内容 | acc | vs E0 |
+  |---|---|---|---|
+  | **E0** | cold 基线 bias=False | **87.21% ± 0.14%** | 基准 |
+  | E1 | log_scale no-decay | **误报，实证驳回** | — |
+  | E3 | PACT 可学习激活 clip | 87.12% ± 0.19% | 持平 |
+  | E4 | staged QAT(A20/B10/C15/D10+finetune) | 86.78% ± 0.18% | −0.43 |
+  | E5 | teacher-assistant KD(α=0.5) | 87.03% ± 0.17% | −0.18 |
+  | **E6** | constant bias row(bias=True) | **87.37% ± 0.18%** | **+0.16** ★最佳 |
+
+- **★ 结论：ANN 已到天花板 ~87.4%，Codex「QAT 技巧能拔到 88%」假设被系统实验证伪**。cold recipe(AdamW+cosine+LS+平移+EMA+LSQ)已近最优，PACT/staged/KD **全无增益**；唯一边际正贡献是 **bias row(+0.16pp，PPA 便宜：一条常开二值 cell 行)**。这反向坐实战略判断：**单宏 784-246-10 下 accuracy 非胜负手**。
+- **E1 实证**：`layers.*.log_scale` 落 NO_DECAY 组(wd=0)；Codex 又看错 `"log_scale".endswith("scale")`=True。`_param_groups` 另把 `*alpha*`(PACT clip)也排除 WD。
+- **E2**：act_hi=2.0 经 prior-grid + E0/E6 三次确认最优；7 点全网格未重跑(低 EV)。model.py 默认 act_hi=4.0 未改(所有 matched/部署/init-from-ann 调用都显式传 2.0，默认值在真实路径不触发)。
+- **新增可复用基建**：`model._pact_quant`+`V2CMLP(pact=)`(softplus 保正、精确 PACT 梯度 only-saturated→α)；`train.train_model(warm_start_state=)`(staged QAT)；**`convert.eval_ttfs_ramp_modes`(strict / guard-window Δ / full-frame 三点 Pareto，E7 + 鲁棒性曲线共用)** + 重构提取 `_ramp_hidden_times`。测试 +3(2 PACT + 1 modes)。
+- **下一步（Phase 2 改善 SNN，用户已拍板收口 ANN 进 SNN）**：E7 = 用最佳 ANN(= cold matched，`--init-from-ann` 内部即训此)init SNN(ramp/T16/in4/fire-frac0.5/init-from-ann/KDα0.2)，跑 `eval_ttfs_ramp_modes` 出 strict(当前 81.25%)/guardΔ/full-frame Pareto——**guard-window 可不重训回收 early-exit 损失**(错误类早发一拍)。再评估是否需训练范式重写(temporal rank loss + wrong-early penalty)。

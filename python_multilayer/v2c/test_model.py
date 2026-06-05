@@ -86,6 +86,26 @@ def test_mlp_all_params_get_grad():
         assert p.grad is not None and torch.isfinite(p.grad).all(), name
 
 
+def test_pact_quant_clips_and_grads_to_alpha():
+    # PACT activation == clip(relu(x), 0, alpha); gradient reaches alpha ONLY from saturated (x>alpha).
+    alpha = torch.tensor(2.0, requires_grad=True)
+    x = torch.tensor([-1.0, 0.5, 1.0, 5.0])                 # only 5.0 saturates above alpha=2
+    y = M._pact_quant(x, bits=None, alpha=alpha)            # bits=None -> pure clip (no quant)
+    assert torch.allclose(y, torch.tensor([0.0, 0.5, 1.0, 2.0]))
+    y.sum().backward()
+    assert float(alpha.grad) == pytest.approx(1.0)          # exactly one saturated element -> dα=1
+
+
+def test_pact_mlp_builds_and_all_params_get_grad():
+    net = M.V2CMLP([784, 64, 10], W=4, input_bits=4, act_bits=1, act_hi=2.0, pact=True)
+    assert net.log_act_alpha is not None and len(net.log_act_alpha) == 1   # one hidden activation
+    out = net(torch.rand(16, 784))
+    assert out.shape == (16, 10)
+    torch.nn.functional.cross_entropy(out, torch.randint(0, 10, (16,))).backward()
+    for name, p in net.named_parameters():
+        assert p.grad is not None and torch.isfinite(p.grad).all(), name   # incl. log_act_alpha
+
+
 def test_bad_arch_and_width_list_raise():
     with pytest.raises(ValueError):
         M.make_mlp("nope", 4)

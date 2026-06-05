@@ -85,3 +85,21 @@ def test_ramp_bitserial_equivalence_and_golden():
     preds_spk = S.hard_classify(ft, mem_int, T).numpy()
     g = C.eval_ttfs_ramp(net, imgs, labs, T, in_bits=in_bits, n_eval=30)
     assert g["n"] == 30 and (preds_spk == g["preds"]).mean() >= 0.9  # only output early-exit/tie differs
+
+
+def test_ramp_decision_modes_pareto():
+    # strict / guard-window(Δ) / full-frame decision policies for the latency-accuracy Pareto.
+    torch.manual_seed(0)
+    T, in_bits = 16, 4
+    net = S.V2CSpikingMLP([784, 246, 10], 4, T=T)
+    imgs, labs = _imgs(40, seed=7)
+    r = C.eval_ttfs_ramp_modes(net, imgs, labs, T, in_bits=in_bits, deltas=(0, 1, 2, 4), n_eval=40)
+    g = C.eval_ttfs_ramp(net, imgs, labs, T, in_bits=in_bits, n_eval=40)
+    assert r["n"] == 40
+    assert r["strict"]["acc"] == pytest.approx(g["ttfs_acc"])         # strict == eval_ttfs_ramp
+    assert r["guard"][0]["acc"] == pytest.approx(r["strict"]["acc"])  # guard Δ=0 == strict
+    # decision latency is monotone: strict <= guard(Δ) grows with Δ <= full-frame (=T)
+    assert r["strict"]["latency"] <= r["guard"][1]["latency"] <= r["guard"][4]["latency"]
+    assert r["guard"][4]["latency"] <= r["full_frame"]["latency"] == T
+    for m in [r["strict"], r["guard"][1], r["guard"][2], r["guard"][4], r["full_frame"]]:
+        assert 0.0 <= m["acc"] <= 1.0

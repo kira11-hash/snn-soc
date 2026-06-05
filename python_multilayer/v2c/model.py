@@ -103,6 +103,22 @@ def _quant_unsigned(x: torch.Tensor, bits, hi: float = 1.0) -> torch.Tensor:
     return xq * (hi / levels)
 
 
+def _pact_quant(x: torch.Tensor, bits, alpha: torch.Tensor) -> torch.Tensor:
+    """PACT activation (Choi 2018, arXiv 1805.06085): clip ``relu(x)`` to a LEARNABLE upper bound
+    ``alpha``, then quantize to ``bits`` levels (STE). Unlike a fixed ``act_hi``, the clip co-adapts
+    with the weights during training. The ``alpha - relu(alpha - relu(x))`` form equals
+    ``clip(relu(x), 0, alpha)`` and routes gradient to ``alpha`` only from SATURATED activations
+    (``x > alpha`` -> d/dalpha = 1), exactly as PACT prescribes. ``alpha`` must be > 0 (callers pass
+    ``softplus(log_act_alpha)``). PPA-neutral: at deploy the 1-bit hidden threshold is ``alpha/2``."""
+    y = alpha - F.relu(alpha - F.relu(x))                        # = clip(relu(x), 0, alpha)
+    if bits is None:
+        return y
+    levels = (1 << bits) - 1
+    yc = y * (levels / alpha)
+    yq = (torch.round(yc) - yc).detach() + yc                    # STE round in [0, alpha]
+    return yq * (alpha / levels)
+
+
 class V2CMLP(nn.Module):
     """Stack of :class:`QuantLinear` with ReLU between hidden layers; returns logits.
 
@@ -112,7 +128,8 @@ class V2CMLP(nn.Module):
     multi-bit-hidden precision so its accuracy is the achievable ceiling for that precision.
     """
 
-    def __init__(self, dims, W, bias: bool = True, input_bits=None, act_bits=None, act_hi: float = 4.0):
+    def __init__(self, dims, W, bias: bool = True, input_bits=None, act_bits=None, act_hi: float = 4.0,
+                 pact: bool = False):
         super().__init__()
         if len(dims) < 2:
             raise ValueError("dims must have >= 2 entries (in, ..., out)")
@@ -125,9 +142,25 @@ class V2CMLP(nn.Module):
         self.input_bits = input_bits
         self.act_bits = act_bits
         self.act_hi = act_hi
+        self.pact = pact
         self.layers = nn.ModuleList(
             QuantLinear(dims[i], dims[i + 1], widths[i], bias=bias) for i in range(n_layers)
         )
+        # PACT: a learnable clip per HIDDEN activation (n_layers-1 of them), softplus-parameterised so
+        # alpha>0 (same positivity trick as QuantLinear.scale). Init at act_hi (the fixed-clip optimum).
+        self.log_act_alpha = None
+        if pact:
+            inv = math.log(math.expm1(act_hi))                              # softplus^{-1}(act_hi)
+            self.log_act_alpha = nn.ParameterList(
+                nn.Parameter(torch.tensor(float(inv))) for _ in range(n_layers - 1)
+            )
+
+    def _hidden_act(self, x: torch.Tensor, i: int) -> torch.Tensor:
+        """Quantized hidden activation after layer ``i``: PACT learnable clip if enabled, else the
+        fixed ``act_hi`` clip. Both are a clipped ReLU quantized to ``act_bits`` levels."""
+        if self.pact:
+            return _pact_quant(x, self.act_bits, F.softplus(self.log_act_alpha[i]))
+        return _quant_unsigned(F.relu(x), self.act_bits, hi=self.act_hi)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = _quant_unsigned(x, self.input_bits, hi=1.0)             # multi-bit input
@@ -135,7 +168,7 @@ class V2CMLP(nn.Module):
         for i, layer in enumerate(self.layers):
             x = layer(x)
             if i != last:
-                x = _quant_unsigned(F.relu(x), self.act_bits, hi=self.act_hi)   # multi-bit hidden act
+                x = self._hidden_act(x, i)                          # multi-bit hidden act
         return x
 
     @torch.no_grad()
@@ -149,7 +182,7 @@ class V2CMLP(nn.Module):
         for i, layer in enumerate(self.layers):
             x = layer(x)
             if i != last:
-                x = _quant_unsigned(F.relu(x), self.act_bits, hi=self.act_hi)
+                x = self._hidden_act(x, i)
                 acts.append((x > 0).float())
         return acts
 
