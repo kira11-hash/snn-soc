@@ -10,7 +10,7 @@
 | # | 模块 | 文件 | parity 对齐 | 状态 |
 |---|---|---|---|---|
 | 1 | 数字 CIM MAC（popcount→shift-add codebook）| `rtl/v2c/v2c_cim_mac.sv` | `encoding.mac`（W=1/2/4/8 + 784/W4 + 边界）| ✅ bit-exact |
-| 2 | TTFS-IF neuron/layer（积分+整数阈值+首spike早停）| `rtl/v2c/v2c_ttfs_layer.sv` | `forward.ttfs_layer_forward` | ⬜ |
+| 2 | TTFS-IF neuron/layer（积分+整数阈值+首spike早停）| `rtl/v2c/v2c_ttfs_layer.sv` | `forward.ttfs_layer_forward` | ✅ bit-exact（LANES 待加）|
 | 3 | ramp bit-serial 输入层 | — | `convert.eval_ttfs_ramp` 第一层 | ⬜ |
 | 4 | 多层链接/sequencer | — | `forward.multilayer_ttfs_forward` | ⬜ |
 | 5 | 非理想注入（LFSR/ROM）| — | 理想模式==golden；故障模式 vs `robustness` | ⬜ |
@@ -30,3 +30,12 @@
 - ✅ 范围：PSUM_W 默认 20，覆盖到 IN_DIM=1024/W=8（max |psum|=128·1024=131072 < 2^19）。
 - ✅ PPA 定位：此为**单输出原语**。宏级 PPA（128-bit 读宽=32 输出/stripe 的时分复用、跨层单份 ALU 复用）在累积/sequencer 模块实现，不在此并行铺 256 份。popcount 树是主组合成本，综合器优化。
 - 📌 后续可选：popcount 用显式 compressor tree 控时序（先交综合器推）；MSB-negate 的 two's-comp 已验，ternary (1,1) illegal 由上层 pack 保证不产生（非理想路径的 (1,1)→0 由差分式天然处理，计数在 Python 侧）。
+
+## 模块 2：v2c_ttfs_layer（TTFS-IF FC 层）— ✅（LANES 待加）
+**功能**：每 timestep 用 v2c_cim_mac 累积膜电位，per-output 整数阈值，首 spike 锁存时间，early_exit 在首个有 spike 的 timestep 末停。FSM（IDLE/RUN/DONE），1 输出/cycle 时分复用单份 MAC。memories（cells/spike/thr）行为级（TB $readmemh；硅上 cells=RRAM 宏、spike/θ=BRAM）。
+**parity**：`sim/v2c/run_ttfs_layer.sh`，18 帧 **bit-exact**（spike_times + membrane + n_steps）：W∈{1,2,4}、early_exit on/off、生产输出层 IN=784/OUT=10/W4/T16。
+**严苛自审**：
+- ✅ 正确性：18 帧 bit-exact，覆盖 fire/no-fire（spike_time=T→Python −1）、早停、首输出即发的边界（`any_fired || will_fire`）。
+- ✅ 可综合：FSM 寄存器化、membrane/stime/fired regfile（OUT_DIM 份 flop，OUT=246 ~8k flop）、无 latch（全 cased）。cells_mem 行为级=parity 模型，硅上是宏读出（W 读/cycle → 宏读宽/调度在宏集成步）。
+- ⚠ **PPA/延迟关键**：当前 **1 输出/cycle**（面积最优、单 MAC），延迟 = OUT_DIM×T cycle（隐层 246×16≈3936，输出 10×16=160）。**plan-v1.md 要 128-bit 读宽 = 32 输出/stripe（W=4）**——加 `LANES` 并行（32 输出/cycle）可把隐层降到 ~8 stripe×16≈128 cycle。**功能 parity 与 LANES 无关**（只变 cycle 数）→ 下一增量加 LANES 并复跑 parity。这是"延迟最低"的主旋钮。
+- ✅ 范围：MEM_W=28 / PSUM_W=22 覆盖 T·max|psum|。membrane 有符号、阈值正。
