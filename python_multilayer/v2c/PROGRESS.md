@@ -121,5 +121,9 @@
 
 **Phase B 返工（Codex#3 全采纳）+ Phase C RTL 起步（2026-06-06）**：
 - **鲁棒性返工（G1–G4，`robustness.py` 重写 + `E11`，167 测试绿）**：① G1 **deployed 早停鲁棒性**——冻结 clean 标定的 per-class θ_out(λ=0.5)，故障下 strict 解码 → acc+latency 同退化（full-frame≠deployed，Codex#3 P1.2）。② G2 故障物理拆 stuck0/1/invert(静态)+read_ber(非对称 P10/P01，`read_ber_from_device` 映射)。③ G3 多 seed(ANN seed×fault trials)。④ G4 analog 改固定标定 ADC+column 项。
-  - **Fashion deployed @2% 故障（3 seeds）**：stuck0 82.4%@t6.9 / stuck1 82.6%@t7.6 / invert 81.7%@t8.3 / read_ber 81.7%@t7.3（clean deployed ~82-83%）——**现实区优雅降级且早停延迟保持低**。MNIST 更稳(2% 故障 ~94-95%)。（KMNIST 多 seed 全量正收尾。）
+  - **★ 三数据集 deployed 早停鲁棒性 @2% 故障（3 seeds，acc@延迟）——全部优雅降级、延迟保持低**：
+    - Fashion：stuck0 82.4%@t6.9 / stuck1 82.6%@t7.6 / invert 81.7%@t8.3 / read_ber 81.7%@t7.3（full-frame 84.8-86.4%）
+    - MNIST：stuck0 95.0%@t6.1 / stuck1 94.8%@t6.6 / invert 93.3%@t6.9 / read_ber 94.6%@t6.5（full-frame 95.7-97.5%）
+    - KMNIST：stuck0 85.7%@t8.6 / stuck1 84.0%@t9.1 / invert 82.3%@t9.6 / read_ber 84.5%@t9.3（full-frame 85.4-88.8%）
+    - 三数据集 @2% 故障 deployed 只掉 **~2-3pp**（vs clean deployed），早停延迟 t6-9 保持低。flip/invert 较 stuck 略伤。**实测优雅降级 = V2C 数字侧鲁棒性主图。**
 - **★ Phase C RTL 起步（详见 `V2C_RTL进展.md`）**：3 核心 compute 模块 **bit-exact 对齐 Python golden**（iverilog parity，理想模式）：`v2c_cim_mac`↔`encoding.mac`、`v2c_ttfs_layer`↔`forward.ttfs_layer_forward`、`v2c_ramp_layer`↔`convert._ramp_hidden_times`。每模块 Python-golden 向量 parity + 严苛自审 + commit（自审抓修 ramp 层误加 early-exit 的 bug）。**PPA 现状**：1 输出/cycle 时分复用（功能对、面积小，但 popcount 路径长）；**PPA-最优下一步 = row-serial column-parallel 单bit累加**(plan 128-bit 读宽，fmax/延迟更优)。`cost.py` 冻结 SOP/cycle 公式。剩余 RTL：多层 top、非理想注入、P&V FSM、`snn_soc_v2c_top`。**DC(SMIC55nm)/FPGA(ZCU102) 用户跑**，我出 RTL+parity+脚本。Codex#4 prompt = `V2C_Codex审查_Phase-C-RTL.md`。
