@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | 1 | 数字 CIM MAC（popcount→shift-add codebook）| `rtl/v2c/v2c_cim_mac.sv` | `encoding.mac`（W=1/2/4/8 + 784/W4 + 边界）| ✅ bit-exact |
 | 2 | TTFS-IF neuron/layer（积分+整数阈值+首spike早停）| `rtl/v2c/v2c_ttfs_layer.sv` | `forward.ttfs_layer_forward` | ✅ bit-exact（LANES 待加）|
-| 3 | ramp bit-serial 输入层 | — | `convert.eval_ttfs_ramp` 第一层 | ⬜ |
+| 3 | ramp bit-serial 输入层 | `rtl/v2c/v2c_ramp_layer.sv` | `convert._ramp_hidden_times`（z1+hid时间）| ✅ bit-exact |
 | 4 | 多层链接/sequencer | — | `forward.multilayer_ttfs_forward` | ⬜ |
 | 5 | 非理想注入（LFSR/ROM）| — | 理想模式==golden；故障模式 vs `robustness` | ⬜ |
 | 6 | P&V FSM（V2C fork）| — | — | ⬜ |
@@ -39,3 +39,18 @@
 - ✅ 可综合：FSM 寄存器化、membrane/stime/fired regfile（OUT_DIM 份 flop，OUT=246 ~8k flop）、无 latch（全 cased）。cells_mem 行为级=parity 模型，硅上是宏读出（W 读/cycle → 宏读宽/调度在宏集成步）。
 - ⚠ **PPA/延迟关键**：当前 **1 输出/cycle**（面积最优、单 MAC），延迟 = OUT_DIM×T cycle（隐层 246×16≈3936，输出 10×16=160）。**plan-v1.md 要 128-bit 读宽 = 32 输出/stripe（W=4）**——加 `LANES` 并行（32 输出/cycle）可把隐层降到 ~8 stripe×16≈128 cycle。**功能 parity 与 LANES 无关**（只变 cycle 数）→ 下一增量加 LANES 并复跑 parity。这是"延迟最低"的主旋钮。
 - ✅ 范围：MEM_W=28 / PSUM_W=22 覆盖 T·max|psum|。membrane 有符号、阈值正。
+
+## 模块 3：v2c_ramp_layer（ramp 多比特输入层）— ✅
+**功能**：Phase A bit-serial：`z1[o]=Σ_k 2^k·mac(bitplane_k, w_o)`（输入无符号多比特→无输入侧 MSB 取负；权重符号在 MAC codebook 内）。Phase B ramp TTFS：`membrane(t)=(t+1)·z1`，首 t 满足 `(t+1)·z1≥θ` 发放（z1>0），divide-free（每拍 +z1）。时分复用单 MAC。
+**parity**：`sim/v2c/run_ramp_layer.sh`，14 帧 **bit-exact**（z1 + hidden spike_times），W∈{1,2,4}、IN/OUT 多尺寸。z1（Phase A）与 spike_times（Phase B）独立校验。
+**严苛自审**（★抓到 1 个真 bug）：
+- 🐛→✅ **bug 修复（留痕）**：初版给 ramp 层加了 early_exit（any-fired 停），但 **ramp=输入/隐层，必须算出所有隐层 spike 时间喂下一层**，golden `_ramp_hidden_times` 无早停 → early_exit=1 时 2 处 mismatch。**修：ramp 层恒 full-frame，去掉 early_exit；首 spike 早停只属输出层（v2c_ttfs_layer）**。per-neuron `fired` 锁存（单 spike）保留。复跑全 PASS。
+- ✅ 正确性：14 帧 bit-exact，z1 范围/符号 + 发放早/中/晚/不发 全覆盖。
+- ✅ 可综合：两相 FSM、无 latch、复用 MAC、Z_W/MEM_W 覆盖 Σ2^k·mac 与 T·z1。
+- 📌 PPA：同 row-serial column-parallel 优化方向（见下）。z1 计算可与宏读出融合。
+
+## ★ PPA 架构说明（DC 阶段关键，Codex 待审）
+当前 3 个 compute 模块**功能 bit-exact 对齐 Python**（理想模式 RTL==golden），数据通路是 **1 输出/cycle 时分复用单 MAC**（面积小、单份），但每 cycle 一个 **IN_DIM 位全 popcount** → **关键路径长（fmax 受限）+ 延迟=OUT×(T 或 in_bits) cycle**。
+**plan-v1.md 的 PPA-最优架构 = 事件行串行 + 列并行单bit累加**：激活的 spiking 行串行（事件驱动，稀疏→cycle 少）、每次读 128-bit 读宽（W=4→32 输出×4 bitplane 的列并行），每 active row 对各输出做 **单 bit 累加**（无每输出全 popcount 树）→ **关键路径短(fmax 高)、面积省(无大 popcount 树)、延迟随有效 spike + 早停**。
+→ **下一 RTL 增量 = 把数据通路改成 row-serial column-parallel（功能 parity 不变，只变 cycle/时序/面积）**；这是"时序最优延迟最低"的主架构，建议 Codex 审 + DC 量化。cost.py 已给 projected_cycles 公式。
+**剩余模块**：多层 top（ramp→ttfs 链，parity vs eval_ttfs_ramp 全程）、非理想注入（LFSR/ROM）、P&V FSM、snn_soc_v2c_top、DC/FPGA 脚本（用户跑）。
