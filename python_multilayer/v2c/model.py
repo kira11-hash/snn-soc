@@ -138,6 +138,21 @@ class V2CMLP(nn.Module):
                 x = _quant_unsigned(F.relu(x), self.act_bits, hi=self.act_hi)   # multi-bit hidden act
         return x
 
+    @torch.no_grad()
+    def hidden_acts(self, x: torch.Tensor):
+        """Per-hidden-layer binary occurrence ``[B,hidden]`` (1 iff the quantized ReLU activation is
+        nonzero) — the teacher target for the spiking net's hidden-firing distillation. With
+        ``act_bits=1`` this is exactly the matched ANN's 1-bit hidden activation that the spiking
+        hidden's ``z1>=θ`` firing should reproduce."""
+        x = _quant_unsigned(x, self.input_bits, hi=1.0)
+        acts, last = [], len(self.layers) - 1
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i != last:
+                x = _quant_unsigned(F.relu(x), self.act_bits, hi=self.act_hi)
+                acts.append((x > 0).float())
+        return acts
+
 
 def make_mlp(arch: str = "main", W=4, bias: bool = True, **kwargs) -> V2CMLP:
     """Build a V2C MLP by name (``"main"`` / ``"ablation"``) at encoding width ``W``."""

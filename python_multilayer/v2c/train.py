@@ -112,7 +112,7 @@ def evaluate_proxy(model: nn.Module, x: torch.Tensor, y: torch.Tensor, batch: in
 
 def train_model(dataset="fashion_mnist", arch="main", W=4, epochs=20, batch=128, lr=2e-3,
                 weight_decay=5e-4, label_smoothing=0.1, max_shift=2, ema_decay=0.999,
-                input_bits=None, act_bits=None, bias=True,
+                input_bits=None, act_bits=None, bias=True, act_hi=4.0,
                 teacher=None, kd_alpha=0.5, kd_temp=4.0, device="auto", seed=0, verbose=True):
     """Train the quantized proxy MLP; returns ``(model, history)``. ``model`` carries EMA weights."""
     torch.manual_seed(seed)
@@ -123,7 +123,7 @@ def train_model(dataset="fashion_mnist", arch="main", W=4, epochs=20, batch=128,
     xtr, ytr = _to_xy(tr_imgs, tr_labels, dev)
     xte, yte = _to_xy(te_imgs, te_labels, dev)
 
-    net = M.make_mlp(arch, W, bias=bias, input_bits=input_bits, act_bits=act_bits).to(dev)
+    net = M.make_mlp(arch, W, bias=bias, input_bits=input_bits, act_bits=act_bits, act_hi=act_hi).to(dev)
     opt = torch.optim.AdamW(_param_groups(net, weight_decay), lr=lr, betas=(0.9, 0.99))
     n_steps = epochs * ((xtr.shape[0] + batch - 1) // batch)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=n_steps)

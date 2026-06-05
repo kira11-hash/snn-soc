@@ -241,19 +241,27 @@ class V2CSpikingMLP(nn.Module):
             spikes.append(new)
         return torch.stack(spikes, dim=1), mem_q, mem_i, first_time
 
-    def forward(self, in_stream: torch.Tensor):
+    def forward(self, in_stream: torch.Tensor, return_hidden: bool = False):
         if in_stream.dim() != 3 or in_stream.shape[1] != self.T:
             raise ValueError(f"in_stream must be [B,T={self.T},in]; got {tuple(in_stream.shape)}")
         thr_effs = self._effective_thresholds()                                # float, grad to log_thr
         theta_ints = self.export_int_thresholds()                              # exact integer (no grad)
         x = in_stream
+        last = len(self.layers) - 1
         spikes = mem_q = mem_i = first_time = None
         scale_last = None
+        hidden_fired = []
         for li, layer in enumerate(self.layers):
             w_q, w_int = qat.lsq_quantize_weight(layer.effective_weight(), layer.scale, layer.W)
             theta_int = theta_ints[li].to(in_stream.dtype)                     # [out] integer-valued
             spikes, mem_q, mem_i, first_time = self._layer_spikes(
                 x, w_q, w_int, thr_effs[li], theta_int, force_fire=(self.force_fire and self.training))
+            if li != last:
+                # hidden FIRING MARGIN (mem_q - thr_eff; >0 == fires, for the monotone ramp final==max)
+                # as a distillation logit: BCE-with-logits gives a live gradient on mismatched neurons,
+                # whereas SpikeFn's surrogate vanishes far from threshold and the spike-train sum
+                # telescopes to ~0 gradient (s_hard stays 1 after crossing).
+                hidden_fired.append(mem_q - thr_effs[li])
             x = spikes                                                         # hidden spike train -> next
             scale_last = layer.scale
         tvec = torch.arange(self.T, device=in_stream.device, dtype=in_stream.dtype)
@@ -262,6 +270,8 @@ class V2CSpikingMLP(nn.Module):
         # mem_loss: differentiable membrane in INTEGER units (per-output scale divided out so the
         # cross-class argmax is order-identical to the golden integer membrane — P0 fix).
         mem_loss = mem_q / scale_last.detach().squeeze(-1).clamp(min=1e-8)
+        if return_hidden:
+            return earliness, mem_i, mem_loss, first_time, hidden_fired
         return earliness, mem_i, mem_loss, first_time
 
     @torch.no_grad()

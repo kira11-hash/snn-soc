@@ -76,7 +76,8 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
                   beta_mem=0.3, thr_init=1.0, weight_standardize=False, ettfs_init=False,
                   decode_gamma=None, fire_fraction=None, force_fire=False,
                   input_mode="ttfs", in_bits=4, teacher=None, kd_alpha=0.5, kd_temp=4.0,
-                  init_from_ann=False, device="auto", seed=0, verbose=True):
+                  init_from_ann=False, hidden_kd=0.0, ann_act_hi=2.0,
+                  device="auto", seed=0, verbose=True):
     """Train the spiking V2C MLP; returns ``(model, history)`` (model carries EMA weights, on CPU)."""
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -97,8 +98,8 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
         # z1>=θ gate). Copy its weights as the spiking init and distil from it, so the spiking net
         # fine-tunes spike timing from the ANN solution instead of training from scratch.
         ann, ann_hist = train_model(dataset=dataset, arch=arch, W=W, epochs=epochs,
-                                    input_bits=in_bits, act_bits=1, device=device, seed=seed,
-                                    verbose=False)
+                                    input_bits=in_bits, act_bits=1, bias=False, act_hi=ann_act_hi,
+                                    device=device, seed=seed, verbose=False)
         ann = ann.to(dev)
         with torch.no_grad():
             for sl, al in zip(model.layers, ann.layers):
@@ -128,10 +129,14 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
             xb = xtr[idx].view(-1, 1, 28, 28)
             xb = random_translate(xb, max_shift).view(idx.shape[0], -1).clamp(0, 1)
             stream = _encode(xb, T, input_mode, in_bits)
-            earliness, _, mem_loss, _ = model(stream)
+            do_hidden = hidden_kd > 0 and teacher is not None and hasattr(teacher, "hidden_acts")
+            if do_hidden:
+                earliness, _, mem_loss, _, hidden_fired = model(stream, return_hidden=True)
+            else:
+                earliness, _, mem_loss, _ = model(stream)
             loss = S.ttfs_loss(earliness, mem_loss, ytr[idx], beta_mem=beta_mem,
                                label_smoothing=label_smoothing)
-            if teacher is not None:                                         # KD from the float-ANN teacher
+            if teacher is not None:                                         # output KD (teacher logits)
                 with torch.no_grad():
                     t_logits = teacher(xb)
                 s_logits = (mem_loss - mem_loss.mean(1, keepdim=True).detach()) \
@@ -139,6 +144,14 @@ def train_spiking(dataset="fashion_mnist", arch="main", W=4, T=16, epochs=30, ba
                 kd = F.kl_div(F.log_softmax(s_logits / kd_temp, 1), F.softmax(t_logits / kd_temp, 1),
                               reduction="batchmean") * (kd_temp ** 2)
                 loss = (1 - kd_alpha) * loss + kd_alpha * kd
+            if do_hidden:                                                  # hidden-occurrence distillation
+                with torch.no_grad():
+                    t_hidden = teacher.hidden_acts(xb)                     # 0/1 teacher hidden bit
+                # hidden_fired = firing margin (mem_q-thr_eff); normalise then BCE-with-logits so the
+                # spiking hidden fires iff the matched ANN's hidden activates.
+                hd = sum(F.binary_cross_entropy_with_logits(hf / (hf.detach().std() + 1e-5), th)
+                         for hf, th in zip(hidden_fired, t_hidden))
+                loss = loss + hidden_kd * hd
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)   # SNN BPTT stability
@@ -180,6 +193,8 @@ def main():
     ap.add_argument("--kd-alpha", type=float, default=0.5, help="KD weight (0..1); lower = gentler")
     ap.add_argument("--init-from-ann", action="store_true",
                     help="init spiking weights from a matched 1-bit-hidden ANN + distil from it")
+    ap.add_argument("--hidden-kd", type=float, default=0.0,
+                    help="hidden-occurrence distillation weight (match spiking firing to the ANN hidden bit)")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -199,7 +214,7 @@ def main():
                                 decode_gamma=args.decode_gamma, fire_fraction=args.fire_frac,
                                 force_fire=args.force_fire, input_mode=args.input_mode, in_bits=args.in_bits,
                                 teacher=teacher, kd_alpha=args.kd_alpha, init_from_ann=args.init_from_ann,
-                                device=args.device, seed=args.seed)
+                                hidden_kd=args.hidden_kd, device=args.device, seed=args.seed)
     spk_acc = hist[-1]["test_acc"]
     print("\n=== V2C Part 6b spiking result ===")
     print(f"  full-frame acc (no early-exit, ceiling) : {spk_acc:.4f}  ({args.input_mode} input, W={args.W} T={args.T})")
