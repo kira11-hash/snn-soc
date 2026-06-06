@@ -57,16 +57,18 @@
 
 ## 9. ★ 最终开工 spec（两方汇总定稿 v1.0）
 ### 9.1 模块（`v2c_top_core`）
-`input_event_builder`（{row,bitmask} list + dense_bypass）→ `read_scheduler`（128b 对齐，出 {aligned_col_base,lane_offset,valid_lanes}）→ `mac_array32`（32 lane int4 解码加：`w=b0+2b1+4b2−8b3`；输入层 `z1+=w<<k`、输出层 `mem+=w`）→ `hidden_timegen_bucket_writer`（z1→spike_time→bucket[t]，无 hidden early-exit）→ `output_bucket_engine`（桶累积+融合决策，禁 row 内提前比）→ `fault_injector`（ideal bypass）→ `pv_fsm/arbiter`（frame-level lock）→ `counters/CSR`。
+`input_event_builder`（{row,bitmask} list + dense_bypass）→ `read_scheduler`（128b 对齐，出 {aligned_col_base,lane_offset,valid_lanes}）→【**`fault_injector` 在此**：作用于 cells/read path、**取数前**注入；理想模式 bypass】→ `mac_array32`（32 lane：int4 解码 `w=b0+2b1+4b2−8b3` + W1/W2 码本 + **ternary (1,1)→0 且出 `ternary_illegal_count`**；输入层 `z1+=w<<k`[bit-event 首版] / 一行融合 `Σ_k bit_k?(w<<k)`[value-event 候选]、输出层 `mem+=w`；**W8 单宏 top 显式 reject → 双宏分流**）→ `hidden_timegen_bucket_writer`（z1→spike_time→bucket[t]，无 hidden early-exit）→ `output_bucket_engine`（桶累积+融合决策，禁 row 内提前比，**出 `pred/fallback/t_exit`**）→ `pv_fsm/arbiter`（**sideband**，frame-level lock）→ `counters/CSR`（**sideband**）。
+- ★ **event 口径（Codex P0，钉死；`cost.input_skip_cycles` 已统一+测试）**：`row_event`=非零像素数 / `bit_event`=Σpopcount(vq)（首版=§K0b）/ `value_event`=row_event（一行融合 in_bits、~½ bit_event、DC A/B 候选）。**spec / RTL counter / cost.py / 论文必须同口径**（否则各自"看着对、最后对不上"）。
+- `fault_injector` + `pv_fsm` + `counters` 都是 **sideband**，不在线性数据通路末尾。
 ### 9.2 开工优先级（两方一致）
 1. `layer_map + mac_array32`（地基）→ exhaustive parity vs `encoding.mac`（W=1/2/4/8）。
-2. `input_event_builder + ramp_z1_rowstream` → `event_count==Σpopcount(vq)`、`z1==_ramp_hidden_times`（复现 §K cycle）。
-3. `hidden_timegen_bucket_writer` → spike_time vs `_ramp_hidden_times`。
+2. `input_event_builder + ramp_z1_rowstream` → `event_count` 对三口径（`cost.input_skip_cycles`）、**`z1 == Σ_k 2^k·encoding.mac(bitplane_k)`**（z1 的定义；⚠ Codex P1：`_ramp_hidden_times` 返回 **spike time、不返回 z1**，别对错对象）。
+3. `hidden_timegen_bucket_writer` → **spike_time == `convert._ramp_hidden_times`**。
 4. `output_bucket_engine` → vs `ttfs_layer_forward(early_exit=True)`（重点防 row 内提前比）。
 5. `v2c_top_core + counters` → full top vs `eval_ttfs_ramp`（pred/fallback/membrane/spike/counters）。
 6. P&V + fault injection（ideal bypass 先通；故障模式 vs `robustness.py`）。
 ### 9.3 Counters（必内建，PPA 可信度核心）
-cycle_total / input_event_count(+by_bit[4]) / input_cycles / hidden_timegen_cycles / output_cycles / macro_read_count(hidden,output) / skipped_zero_events / hidden_fire_count / bucket_count[16] / max_bucket_depth / output_rows_consumed / t_exit / fallback_used / fault_flip_count / ternary_illegal_count / pv_retry_count / pv_fail_kind。
+cycle_total / **各 stage cycle**(input/hidden_timegen/output) / **row_event_count + bit_event_count(+by_bit[4])** / **macro_read_count(input/output/by_bit/by_stripe)** / skipped_zero_events / hidden_fire_count / bucket_count[16] / max_bucket_depth / output_rows_consumed / t_exit / fallback_used / **dense_bypass_used + reason** / **index_fifo_max_depth + overflow** / **read_latency_cycles_cfg** / fault_flip_count / ternary_illegal_count / pv_retry_count / pv_fail_kind。（Codex P1：read_count + event 双口径 + fifo + 读延迟配置必须有，否则 DC cycle / RRAM 读延迟 / 能耗账会混。）
 ### 9.4 Parity（每步 bit-exact + best/honest counters）
 layer_map → mac_array32(W1/2/4/8 exhaustive) → input_event_builder → z1 → hidden spike_time → output bucket → full top vs `eval_ttfs_ramp`。directed：全零/全15/单row单bit/负权MSB/末stripe mask/**output lane offset 22**/同timestep tie/fallback/no-spike/early-exit后future bucket squashed。
 ### 9.5 关键风险（两方共识）
@@ -78,11 +80,12 @@ layer_map → mac_array32(W1/2/4/8 exhaustive) → input_event_builder → z1 �
 RTL 的 RRAM cells 行为模型 + 权重解码 + 故障注入**必须 bit-exact 复现 Python**（`encoding.py` 自述即第 31-32 行"the bit-exact golden the RTL CIM macro must match in ideal mode"）：
 - **cells 布局**：`cells[in_dim, out_dim*W]` uint8{0,1}，**col = out*W + bit**（单宏多层 layer_base 偏移由放置层加）。
 - **三套编码解码（`mac_array32` 必须逐一对）**：W=1 BNN（cell=1→+1、=0→−1；MAC=2·pc−N_active）；W=2 ternary（col0=pos/w=+1、col1=neg/w=−1；MAC=pc_pos−pc_neg；**(1,1)=illegal→解 0 且计 `ternary_illegal_count`**）；W≥4 two's-comp（`cells[:,k::W]=(wu>>k)&1`，`wu=w&((1<<W)-1)`；MAC=Σ2^k·pc_k，**MSB(k=W-1) 取负**）。§9.1 的 `w=b0+2b1+4b2−8b3` 仅 W=4 特例，W=1/2 走各自码本。
-- **故障注入**：`fault_injector` 复现 `robustness.py` 的 `inject_cell_faults`（stuck0/1/invert 静态 + read_ber 非对称 P10/P01）+ `read_ber_from_device` 映射，作用在 packed cells；**理想模式=无故障 bypass=对 golden bit-exact**。
+- **故障注入**：`fault_injector` 复现 `robustness.py` 的 `inject_cell_faults`（stuck0/1/invert 静态 + read_ber 非对称 P10/P01）+ `read_ber_from_device` 映射，作用在 packed cells（**read 端、取数前，§9.1**）；**理想模式=无故障 bypass=对 golden bit-exact**。★ **fault 合约（Codex P1）：parity 用静态可加载 fault mask**（和 Python 每 trial 一份固定 faulted cells 一致）；**禁动态 per-read LFSR 翻转**（会和当前 golden 不 bit-exact）；若要 per-read BER 须另建 Python golden。W2 illegal (1,1) 故障向量手工注入。
 - **范围/边界**：`value_range`（W1/2 [-1,1]、W4 [-8,7]）、BNN 不可表 0。
 - **验证**：每模块对 `encoding.pack/unpack/mac` + `robustness.inject_cell_faults` 逐向量 bit-exact（复用现有 `v2c_cim_mac` parity 框架）。
 
 ### 9.8 PPA 增量候选（首版不做，待数据/确认后评估）
+- **★ value-event 融合（最值得，Codex 荐；不需宽读口、bit-exact）**：同一非零像素只读一次权重行、lane 内 `z+=Σ_k bit_k?(w<<k)`（4 个 gated shift-add）→ cycle 从 bit_event(8×Σpopcount ~6632) 降到 value_event(8×nnz ~2960)、**再 ½**；全 15 对抗最坏 25088→6272。代价 lane 内 4 gated shift-add（面积/时序 **DC A/B** vs bit-event 版）。**首版 bit-event 最稳，value-event 并行做 DC 对比**（比"列广播"更实在——不依赖跨-stripe 宽读口）。
 - **读-算流水（read-compute pipeline）**：边读下一行边算这一行，藏 RRAM 读延迟。**待老师"读延迟"数据**：读延迟 > 1 时钟周期才做（实在 PPA），否则不需要；无损（不改结果）。
 - **列广播**（一次读整行跨 8 stripe，再省 ~8×）：待器件/读出电路确认"跨-stripe 宽读口"。用户已定首版正常做、不追，作 future。
 - **帧间流水**：单宏单 ALU 下层间不能真重叠；连续多帧场景可帧间流水。待应用场景定。

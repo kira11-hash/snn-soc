@@ -85,5 +85,39 @@ def projected_cycles(in_dim=784, hid_dim=246, out_dim=10, W=4, in_bits=4, T=16, 
         "input_cycles": input_cyc, "output_cycles": output_cyc, "active_hidden_rows": active_rows,
         "projected_total_cycles": total, "algorithmic_t_exit": te,
         "note": "PROJECTION — read_bits=128 (plan P_READ_BITS); output cycles scale with ACTIVE hidden "
-                "rows (event-driven), kept separate from algorithmic t_exit; row_stream_cyc/overheads RTL-TBD.",
+                "rows (event-driven), kept separate from algorithmic t_exit; row_stream_cyc/overheads RTL-TBD. "
+                "input_cycles here = DENSE baseline; skip-zero projection (event口径) -> input_skip_cycles().",
+    }
+
+
+def input_skip_cycles(images, in_dim=784, hid_dim=246, W=4, in_bits=4, read_bits=128, n_eval=None):
+    """★ INPUT-layer cycle distribution under the 3 PINNED event-count conventions (Codex P0 — keep
+    spec / RTL counters / cost.py / paper on ONE口径). Per-image best+honest (best/mean/p95/worst).
+
+    Pinned names (input zero-skip only depends on the IMAGE, not weights):
+      dense       = in_bits × in_stripes × in_dim                 (baseline, no skip)
+      row_event   = count(vq != 0)   — # nonzero pixels (a row with any set bit)
+      bit_event   = Σ popcount(vq)   — # set input bits          (= §K0b cycle model, 首版最稳)
+      value_event = row_event        — one nonzero pixel read ONCE, its in_bits fused in-lane (DC A/B 候选)
+    skip cycle = in_stripes × event_count.  value_event ≈ ½ bit_event (nnz < Σpopcount), bit-exact.
+    `in_stripes = ceil(hid_dim·W / read_bits)`."""
+    images = np.asarray(images)
+    n = len(images) if n_eval is None else min(int(n_eval), len(images))
+    levels = (1 << in_bits) - 1
+    vq = np.rint(images[:n].astype(np.float64) / 255.0 * levels).astype(np.int64)        # [n,in]
+    in_stripes = int(np.ceil(hid_dim * W / read_bits))
+    set_bits = np.unpackbits(vq.astype(np.uint8)[..., None], axis=-1).sum(axis=(1, 2))   # [n] Σpopcount
+    nnz = (vq > 0).sum(axis=1)                                                            # [n] nonzero pixels
+
+    def _stats(x):
+        x = np.asarray(x)
+        return {"best": int(x.min()), "mean": float(x.mean()),
+                "p95": float(np.percentile(x, 95)), "worst": int(x.max())}
+
+    return {
+        "in_stripes": in_stripes,
+        "dense": in_bits * in_stripes * in_dim,                       # baseline (no skip)
+        "bit_event_cycles": _stats(in_stripes * set_bits),           # 首版 (= §K0b)
+        "value_event_cycles": _stats(in_stripes * nnz),              # DC A/B candidate (~2× fewer)
+        "row_event_count": _stats(nnz), "bit_event_count": _stats(set_bits),
     }

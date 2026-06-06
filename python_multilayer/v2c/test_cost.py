@@ -26,6 +26,21 @@ def test_output_sop_and_summary():
     assert s["input_sop"] == 0 and s["total_sop"] == 1230
 
 
+def test_input_skip_cycles_conventions():
+    # img0: 100 nonzero pixels at 255 (->level 15, popcount 4); img1: all zero
+    imgs = np.zeros((2, 784), np.uint8)
+    imgs[0, :100] = 255
+    r = cost.input_skip_cycles(imgs, in_dim=784, hid_dim=246, W=4, in_bits=4, read_bits=128)
+    assert r["in_stripes"] == 8                              # ceil(246*4/128)
+    assert r["dense"] == 4 * 8 * 784                         # baseline
+    assert r["row_event_count"]["worst"] == 100 and r["row_event_count"]["best"] == 0  # nonzero pixels
+    assert r["bit_event_count"]["worst"] == 400             # 100 px × popcount(15)=4
+    assert r["value_event_cycles"]["worst"] == 8 * 100      # in_stripes × nnz
+    assert r["bit_event_cycles"]["worst"] == 8 * 400        # in_stripes × Σpopcount
+    # value-event strictly cheaper than bit-event (nnz < Σpopcount) when any pixel has >1 set bit
+    assert r["value_event_cycles"]["worst"] < r["bit_event_cycles"]["worst"]
+
+
 def test_projected_cycles_structure():
     # read_bits=128 (plan-v1.md P_READ_BITS): hidden 246*W4 -> 8 input stripes, output 10*W4 -> 1 stripe
     c = cost.projected_cycles(in_dim=784, hid_dim=246, out_dim=10, W=4, in_bits=4, T=16, t_exit=7,
