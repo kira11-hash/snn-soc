@@ -54,25 +54,36 @@ def sop_summary(images, hidden_fire_count, in_dim=784, hid_dim=246, out_dim=10, 
 
 
 def projected_cycles(in_dim=784, hid_dim=246, out_dim=10, W=4, in_bits=4, T=16, t_exit=None,
-                     macro_cols=256, row_stream_cyc=1, phase_overhead=0, exit_overhead=0):
+                     read_bits=128, fired_hidden_by_exit=None, row_stream_cyc=1,
+                     phase_overhead=0, exit_overhead=0):
     """PROJECTED RTL cycle estimate (PARAMETERIZED — the hw costs are RTL-pinned, not fabricated here).
 
-    Structure (one inference):
-      input bit-serial MACs : ``in_bits`` phases × ``stripes`` × (``in_dim`` row-stream × ``row_stream_cyc`` + overhead)
-                              where ``stripes = ceil(hid_dim·W / macro_cols)`` (column tiling of the macro)
-      ramp accumulate       : folded into the input phase as a per-output register add (no extra array pass)
-      hidden TTFS layer     : the hidden→output MAC is single-spike; output early-exits at ``t_exit``
-      output decision       : ∝ ``t_exit`` (algorithmic timesteps committed)
-    ``row_stream_cyc`` / ``phase_overhead`` / ``exit_overhead`` are HARDWARE TBD (set from RTL/DC).
-    Returns a dict with the component cycle counts + total; treat as a projection until RTL pins the params."""
-    stripes = int(np.ceil(hid_dim * W / macro_cols))
-    input_cyc = in_bits * stripes * (in_dim * row_stream_cyc + phase_overhead)
+    The datapath is HETEROGENEOUS (the ramp input is dense, the hidden→output side is sparse):
+      INPUT layer  (784→hid, dense multi-bit bit-serial) : ``in_bits`` phases × ``in_stripes`` column
+        stripes × (``in_dim`` row-stream × ``row_stream_cyc`` + ``phase_overhead``). The ramp accumulate
+        folds into the phase as a per-output register add (no extra array pass). DENSE → no row sparsity.
+      OUTPUT layer (hid→out, event-driven row-serial)    : each hidden neuron that has FIRED by ``t_exit``
+        is streamed ONCE into the hidden→output MAC, across ``out_stripes`` output column stripes. The
+        cycle count therefore scales with the number of ACTIVE (fired) hidden rows, NOT with the
+        algorithmic timestep ``t_exit``. If ``fired_hidden_by_exit`` is not supplied we fall back to the
+        conservative worst case (all ``hid_dim`` rows).
+
+    ★ Column stripes use the FIXED read width ``read_bits`` (plan-v1.md:33 ``P_READ_BITS=128`` →
+    ``outputs_per_stripe = read_bits // W``; W=4 → 32 out/stripe → hidden 246=8 stripes, output 10=1).
+    ★ ALGORITHMIC ``t_exit`` (first-output-spike timestep) is reported SEPARATELY as
+    ``algorithmic_t_exit`` and is NOT conflated into the projected cycle count.
+    ``row_stream_cyc`` / ``phase_overhead`` / ``exit_overhead`` are HARDWARE TBD (set from RTL/DC)."""
     te = T if t_exit is None else t_exit
-    # hidden/output single-spike layer: a small MAC over the fired-hidden spike train, decided at t_exit
-    output_cyc = int(te) + exit_overhead
+    in_stripes = int(np.ceil(hid_dim * W / read_bits))
+    input_cyc = in_bits * in_stripes * (in_dim * row_stream_cyc + phase_overhead)
+    out_stripes = int(np.ceil(out_dim * W / read_bits))
+    active_rows = hid_dim if fired_hidden_by_exit is None else int(fired_hidden_by_exit)
+    output_cyc = active_rows * out_stripes * row_stream_cyc + exit_overhead * int(te)
     total = input_cyc + output_cyc
     return {
-        "stripes": stripes, "input_cycles": input_cyc, "output_cycles": output_cyc,
+        "in_stripes": in_stripes, "out_stripes": out_stripes,
+        "input_cycles": input_cyc, "output_cycles": output_cyc, "active_hidden_rows": active_rows,
         "projected_total_cycles": total, "algorithmic_t_exit": te,
-        "note": "PROJECTION — row_stream_cyc/overheads are RTL-TBD; algorithmic t_exit is separate.",
+        "note": "PROJECTION — read_bits=128 (plan P_READ_BITS); output cycles scale with ACTIVE hidden "
+                "rows (event-driven), kept separate from algorithmic t_exit; row_stream_cyc/overheads RTL-TBD.",
     }

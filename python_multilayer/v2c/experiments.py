@@ -384,8 +384,17 @@ def cmd_E11(args):
                                                   mode=mode, rates=rates, n_eval=n, trials=args.trials, seed=s, **kw)
                 print(f"[E11 s{s} {mode:8s} full] " + " ".join(f"{r:.3f}:{m:.3f}" for r, (m, sd) in ff.items()), flush=True)
                 print(f"[E11 s{s} {mode:8s} depl] " + " ".join(f"{r:.3f}:{m:.3f}@t{lt:.1f}" for r, (m, sd, lt, ls) in dep.items()), flush=True)
+                if mode == "read_ber":                                   # device-GROUNDED anchor (Codex#4 P1#1): use p10d/p01d directly, not the 1:0.5 scale
+                    dff = R.robustness_sweep(snn, te_imgs, te_labels, args.T, in_bits=in_bits, mode="read_ber",
+                                             rates=(1.0,), n_eval=n, trials=args.trials, seed=s, p10=p10d, p01=p01d)
+                    ddep = R.deployed_robustness_sweep(snn, theta, te_imgs, te_labels, args.T, in_bits=in_bits,
+                                                       mode="read_ber", rates=(1.0,), n_eval=n, trials=args.trials,
+                                                       seed=s, p10=p10d, p01=p01d)
+                    print(f"[E11 s{s} read_ber DEVICE p10={p10d:.2e} p01={p01d:.2e}] "
+                          f"full={dff[1.0][0]:.4f} deployed={ddep[1.0][0]:.4f}@t{ddep[1.0][2]:.1f}", flush=True)
                 agg[mode]["ff"].append(ff[ref][0]); agg[mode]["da"].append(dep[ref][0]); agg[mode]["dl"].append(dep[ref][2])
-        asw = R.analog_reference_sweep(ann, te_imgs, te_labels, in_bits=in_bits, n_eval=n, trials=args.trials, seed=s)
+        asw = R.analog_reference_sweep(ann, te_imgs, te_labels, in_bits=in_bits, n_eval=n,
+                                       trials=args.trials, seed=s, calib_images=tr_imgs)   # SEPARATE train-set ADC calib (Codex#4 P1#2)
         print(f"[E11 s{s} analog-illus] " + " ".join(f"σ{sg:.2f}:{m:.3f}" for sg, (m, sd) in asw.items()), flush=True)
     if args.seeds > 1 and not args.analog_only:
         for m in R.FAULT_MODES:

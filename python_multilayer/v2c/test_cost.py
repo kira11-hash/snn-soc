@@ -27,9 +27,16 @@ def test_output_sop_and_summary():
 
 
 def test_projected_cycles_structure():
+    # read_bits=128 (plan-v1.md P_READ_BITS): hidden 246*W4 -> 8 input stripes, output 10*W4 -> 1 stripe
     c = cost.projected_cycles(in_dim=784, hid_dim=246, out_dim=10, W=4, in_bits=4, T=16, t_exit=7,
-                              macro_cols=256, row_stream_cyc=1)
-    assert c["stripes"] == 4                                   # ceil(246*4 / 256) = ceil(3.84) = 4
-    assert c["input_cycles"] == 4 * 4 * 784                    # in_bits * stripes * (in_dim * 1)
-    assert c["output_cycles"] == 7 and c["algorithmic_t_exit"] == 7
+                              read_bits=128, fired_hidden_by_exit=100, row_stream_cyc=1)
+    assert c["in_stripes"] == 8                                # ceil(246*4 / 128) = ceil(7.69) = 8
+    assert c["out_stripes"] == 1                               # ceil(10*4 / 128) = 1
+    assert c["input_cycles"] == 4 * 8 * 784                    # in_bits * stripes * (in_dim * 1)
+    # output layer is EVENT-DRIVEN: cycles scale with ACTIVE hidden rows, NOT the algorithmic t_exit
+    assert c["output_cycles"] == 100 * 1 and c["active_hidden_rows"] == 100
+    assert c["algorithmic_t_exit"] == 7                        # algorithmic latency kept separate from cycles
     assert c["projected_total_cycles"] == c["input_cycles"] + c["output_cycles"]
+    # conservative fallback: no fired-hidden count -> worst case all hidden rows
+    c2 = cost.projected_cycles(hid_dim=246, out_dim=10, W=4, read_bits=128)
+    assert c2["active_hidden_rows"] == 246 and c2["output_cycles"] == 246

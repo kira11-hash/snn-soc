@@ -25,6 +25,8 @@ run 64  8  4 8  0 4
 run 64  8  4 8  1 4
 run 64  8  1 8  0 3
 run 64  8  2 8  0 3
-run 784 10 4 16 0 2          # output-layer production config (full-frame)
-run 784 10 4 16 1 2          # output-layer production config (early-exit)
+run 784 10 4 16 0 2          # large-IN smoke (full-frame) — stresses IN_DIM, not the real output layer
+run 784 10 4 16 1 2          # large-IN smoke (early-exit)
+run 246 10 4 16 0 2          # PRODUCTION output layer (246->10, full-frame) — exact main-net dims
+run 246 10 4 16 1 2          # PRODUCTION output layer (246->10, early-exit)
 if [ "$fail" -eq 0 ]; then echo "== ALL v2c_ttfs_layer parity PASS =="; else echo "== v2c_ttfs_layer parity FAIL =="; exit 1; fi

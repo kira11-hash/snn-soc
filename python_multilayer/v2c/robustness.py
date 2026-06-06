@@ -151,9 +151,12 @@ def _analog_layer(x, W_int, scale, sigma, R_col, adc_bits, g_col, b_col, sigma_r
 
 
 def analog_reference_sweep(ann, images, labels, in_bits=4, adc_bits=6, sigmas=(0.0, 0.05, 0.1, 0.2, 0.3),
-                           sigma_gain=0.02, sigma_off=0.02, sigma_read=0.02, n_eval=2000, trials=5, seed=0):
+                           sigma_gain=0.02, sigma_off=0.02, sigma_read=0.02, n_eval=2000, trials=5, seed=0,
+                           calib_images=None):
     """Illustrative/optimistic analog-CIM accuracy vs per-weight conductance σ, with fixed-cal ADC +
     per-column gain/offset/read-noise. Averaged over ``trials`` device instances. Returns ``{σ: (mean,std)}``.
+    The fixed ADC range is derived from a SEPARATE ``calib_images`` set (E11 passes the TRAIN images) so it
+    is NOT a test-batch oracle (Codex#4 P1#2); ``calib_images=None`` falls back to ``images`` (tests only).
     NB this UNDERSTATES real analog fragility (no drift/IR-drop/on-off); see the literature anchors."""
     rng = np.random.default_rng(seed)
     n = len(images) if n_eval is None else min(int(n_eval), len(images))
@@ -165,8 +168,11 @@ def analog_reference_sweep(ann, images, labels, in_bits=4, adc_bits=6, sigmas=(0
     s0 = ann.layers[0].scale.detach().cpu().numpy().reshape(-1)
     W1 = ann.layers[1].export_int().cpu().numpy().astype(np.float64)
     s1 = ann.layers[1].scale.detach().cpu().numpy().reshape(-1)
-    R0 = calibrate_adc_range(x_in @ W0.T)                                 # fixed ADC range from clean calib
-    h_cal = act_hi * (np.maximum((x_in @ W0.T) * s0.reshape(1, -1), 0.0) >= act_hi / 2.0)
+    cal = images if calib_images is None else calib_images               # SEPARATE calibration set (Codex#4 P1#2)
+    n_cal = len(cal) if n_eval is None else min(int(n_eval), len(cal))
+    x_cal = np.round(np.asarray(cal)[:n_cal].astype(np.float64) / 255.0 * levels) / levels
+    R0 = calibrate_adc_range(x_cal @ W0.T)                                # fixed ADC range from the SEPARATE calib set
+    h_cal = act_hi * (np.maximum((x_cal @ W0.T) * s0.reshape(1, -1), 0.0) >= act_hi / 2.0)
     R1 = calibrate_adc_range(h_cal @ W1.T)
     out = {}
     for sg in sigmas:

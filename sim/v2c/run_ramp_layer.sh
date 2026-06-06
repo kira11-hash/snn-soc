@@ -26,4 +26,5 @@ run 64  8  4 8  4 5
 run 64  8  1 8  4 3
 run 64  8  2 8  4 3
 run 256 32 4 16 4 3            # bigger hidden-dim config
+run 784 246 4 16 4 2           # PRODUCTION input layer (784->246, full-frame) — exact main-net dims
 if [ "$fail" -eq 0 ]; then echo "== ALL v2c_ramp_layer parity PASS =="; else echo "== v2c_ramp_layer parity FAIL =="; exit 1; fi
