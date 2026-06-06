@@ -142,6 +142,26 @@
 ## 12. 新对话接手第一步
 1. `Read` 本文件 + `PROGRESS.md` + `V2C_RTL进展.md` + `V2C_极致PPA创新点.md`（PPA 创新+调研）+ `plan-v1.md`（RTL 架构）。
 2. 跑 **167 Python 测试** + **3 个 RTL parity**（§1）确认环境 + 现状。
-3. **当前在等 Codex#4 回贴**（用户已发出 `V2C_Codex审查_Phase-C-RTL.md`）。回贴后：**逐条独立判定**（采纳/驳回，不盲从），尤其独立核验"双单调推测首-spike 提交"的 lossless 性 + novelty + E-ReCON 前作。
-4. **下一步 RTL = 落地 PPA-最优数据通路**：先做 **row-serial column-parallel + 双单调推测早停**（核心创新），**parity 保功能不变**（功能与数据流解耦——新版仍对 Python golden bit-exact），再做多层 top / 非理想注入 / P&V FSM / `snn_soc_v2c_top`。每落地一个 PPA 创新 → 回填 `V2C_极致PPA创新点.md` + commit。
-5. DC/FPGA 脚本写好交用户跑。取得成果就 commit（§0 git 规则）。
+3. **Codex#4 已判定落地（见 §13 + `V2C_极致PPA创新点.md §F` + commit 6f6ca67/ea13b86）**：P1#3/#4 采纳、P1#1/#2 降 P2、P2#5 采纳；★ **可行性分析否决了"双单调推测"，改选异构 co-design+skip-zero**（别再投双单调 bit-serial 推测）。
+4. **下一步 RTL（task #6）= 落地 §F 异构数据通路**：① skip-zero 量化（输入瓶颈主杠杆）② 异构数据通路（dense-input bit-parallel+skip-zero ‖ event-driven output row-serial），parity 保功能不变 ③ 模块4 多层 top（ramp→output 全链 parity vs eval_ttfs_ramp）。再做非理想注入 / P&V FSM / `snn_soc_v2c_top`。
+5. DC/FPGA 脚本写好交用户跑。**取得成果就 commit；每完成任务做全面自检；不拘泥旧决定、发现更极致 PPA/更大创新就改；给 Codex 的 prompt 也带这两条**（[[feedback-work-method]]）。
+
+---
+
+## 13. ★ 最新进展（2026-06-06 续）— Codex#4 判定 + 可行性分析 + 异构方案 + 5 条新工作指令
+**Codex#4 逐条独立判定（已落地，commit 6f6ca67/ea13b86）**：
+- P1#3 cost.py 读宽 256→128（plan P_READ_BITS=128，hidden 8 stripes，原低估 input cycle 2x）= 采纳。
+- P1#4 cost.py output cycle 从算法 t_exit 改为 active hidden rows（event-driven）= 采纳。
+- P1#1 read_ber device 值只 print 没用 → 加 device 锚点真跑；P1#2 analog calib=eval → 加独立 calib_images = 降 P2 修诚实口径。
+- P2#5 parity 加 production 维度 784→246 ramp / 246→10 ttfs（bit-exact、位宽够）= 采纳。
+- ⚠ Codex 没按要求自己做独立多-subagent 调研（单源偏差），novelty 对标基本抄我 §3a；E-ReCON ID 也是抄的（我已独立核实，见下）。
+
+**★ 可行性分析（数据驱动，gate-init SNN+真实 Fashion 权重，见 `V2C_极致PPA创新点.md §F`）**：
+- **否决"双单调 bit-serial MSB-first 推测"**：输入层 dense（占 99.8% cycle），MSB-first 推测 best-case 平均 14.49/16 bit-plane 才判定、0% 在 4 项内 → 输 bit-parallel 3.6×。输出层稀疏但绝对 cycle 仅 54，推测收益可忽略。lossless 成立（三条件：MSB-first 序 / z1 符号 / tie-break）但不划算。
+- **★ 选定方案 = 异构 TTFS-aware 数字二值 0T1R CIM 数据流 co-design**：输入层保持 plan bit-parallel + **skip-zero**（零行省 52.8%、零位上限 73.5%，dense 输入瓶颈唯一大杠杆）；输出层 event-driven row-serial（active rows ~54/246，fire-rate 22%）+ 首-spike 早停 + 决策融进累积尾。
+- **诚实再定位**：RTL 延迟瓶颈是 dense 输入层、TTFS 早停只省输出 <1% → "超低延迟"抓手是输入 skip-zero 不是 TTFS 早停；TTFS 稀疏价值在能耗/SOP + 延迟确定性（输入 dense 主导→worst≈mean）。
+- **E-ReCON 核实**：arxiv 2605.20717 真实存在（3T1R ReRAM/65nm/419 TOPS/W/AND-mul+10T28T adder tree/CNN+SNN）= related-work 主对标；V2C 差异 = 0T1R+TTFS ramp+无 ADC 鲁棒性+skip-zero。
+
+**★ 用户 5 条新工作指令（已入记忆，硬规则）**：① 每完成任务做全面自检；② 不拘泥旧决定、发现更极致 PPA/更大创新就改；③ 给 Codex 的 prompt 也带 ①②；④ 实验数据/idea/novelty/决策原因都留痕到专门文档；⑤ 汇报用大白话让用户理解。记忆：[[feedback-work-method]] [[feedback-record-keeping]] [[feedback-communication-chinese]]。
+
+**进行中**：基于"输入层 dense 是瓶颈"，分多 subagent 调研 ANN/DNN 加速器/LLM/DL 算法领域可借鉴的极致 PPA 方案（架构/算法/优化），找新创新点。
