@@ -23,14 +23,22 @@ V2C = 数字二值 0T1R RRAM-CIM + TTFS 加速器（cell 二值、W=4 跨 cell�
 - `rtl/v2c/v2c_ramp_layer.sv` ↔ `convert._ramp_hidden_times`：Phase A bit-serial `z1=Σ2^k·mac(bitplane_k)` + Phase B ramp TTFS（**full-frame**，输入/隐层无早停——自审抓到并修了误加 early-exit 的 bug）。parity 14 帧 bit-exact（z1+spike_times）。
 - 方法：每模块 Python-golden 向量 parity + 严苛自审 + commit；详见 `V2C_RTL进展.md`。`cost.py` 冻结了 SOP/projected-cycle 公式。
 
-## 3. ★★ 最想要你意见的：PPA-最优微架构（数据通路）
-**现状**：3 模块的数据通路是 **1 输出/cycle 时分复用单 MAC**，每 cycle 做一次 **IN_DIM(=784/1024) 位全 popcount**。→ 功能对、面积小（单份），但 **关键路径 = 784 位 popcount 加法树（fmax 受限）**，延迟 = OUT×(T 或 in_bits) cycle（隐层 246×16≈4000）。
-**plan-v1.md 的目标架构 = 事件行串行 + 列并行单bit累加**：只串行激活的 spiking 行（事件驱动，稀疏）；每次 128-bit 读宽（W=4→32 输出×4 bitplane 列并行）；每 active row 对各输出做 **单 bit 累加**（无每输出全 popcount 树）+ W 项 shift-add；首 spike 早停。→ 关键路径短（fmax 高）、面积省（无大 popcount 树）、延迟随有效 spike+早停。
-**请回答**：
-1. 这个 row-serial column-parallel 判断对吗？对"时序最优/延迟最低/面积最好"是不是正解？有没有更优的（如 bit-serial output、脉动、混合）？
-2. 怎么干净地实现 active-row 串行（priority encoder/leading-one 扫 spike 向量？每拍一行？还是分组）？128-bit 列读 + per-output 单bit累加 + shift-add 的微架构怎么排（寄存器/流水/时序）？
-3. 我该 **保留现功能版作 golden 参考模型 + 新建优化版**（两者都 parity），还是直接重构？风险？
-4. 给个粗 fmax/面积/延迟 量级直觉（SMIC55nm，784→246→10，W4，T16）——好让我对齐 22nm TTFS ASIC baseline（F-MNIST 95.67µJ/30FPS）。
+## 3. ★★★ 核心诉求：为「极致 PPA」做**论文级**架构/数据流/调度创新（请充分调研+搜索+深想）
+> 这是本 prompt 最重要的部分。用户的最高指令是**极致压榨 PPA**（面积最好/时序最优/延迟最低/能效最高），且要的是**能写进论文的 novelty**，不是普通工程。**请你充分检索文献、对比 SOTA、放开想象，给出为实现极致 PPA 可以做哪些创新**。
+
+**现状（诚实）**：当前 3 个 bit-exact 模块是**正确基线、非 novelty**——数据通路是 **1 输出/cycle 时分复用单 MAC**，每 cycle 一个 **IN_DIM(784) 位全 popcount**（关键路径长→fmax 受限；延迟=OUT×T≈4000）。**真正的极致-PPA 创新在接下来的 RTL。** 已沉淀方向在 `V2C_极致PPA创新点.md`（C1–C6），请你审阅、细化、补充、判 novelty。
+
+**我已想到的方向（请评判+深化+补更强的）**：
+- **C1 事件行串行 + 列并行单-bit 累加**：只串行 spiking 行（事件驱动稀疏）、128-bit 列读（W4→32 输出×4 bitplane 并行）、每 active row 对各输出**单 bit 累加**（消除每输出全 popcount 树→fmax↑面积↓）+ shift-add + 早停。
+- **C2 把"决策"藏进"累积"**（类比 **ETH ITA**：attention 与 softmax 同时算、把延迟开销藏住）：阈值比较 + 首-spike 早停检测**融进膜累积同一流水级**，不另起决策周期；首 spike 一出即门控全阵列。
+- **C3 bit-serial 输入相位 与 ramp 膜累积 流水重叠**藏住多比特输入开销；**C4 单份数据通路跨层时分复用**（无按层重编程）；**C5 skip-zero 稀疏跳过**。
+
+**请你回答（务必充分调研后作答）**：
+1. **检索 + 对标**：数字 CIM / TTFS / SNN / event-driven 加速器里，为极致 PPA 用过哪些**数据流/调度/架构/延迟隐藏**手法（举具体工作+做法+PPA 数）？哪些可迁移到 V2C？（类比 ITA 的 compute-fusion、GPU 的 fine-grain latency hiding、脉动、bit-serial、稀疏跳零、ping-pong、speculative early-stop…）
+2. **给微架构**：C1 row-serial column-parallel 怎么排最优——active-row 串行扫描（priority encoder/leading-one？分组？）、128-bit 列读 + per-output 单bit累加 + W-项 shift-add 的流水/时序/寄存器划分？关键路径与瓶颈在哪？
+3. **更强的 novelty**：除 C1–C6，**还有没有能把 V2C 推向极致 PPA 且可发表的 idea**？（哪怕激进——如 bit-serial-output、阈值预测推测早停、跨 timestep 流水、混合稀疏/稠密、近阈值/亚阈、数据相关时钟…）。每条标 novelty（vs 文献）+ PPA 收益量级 + 写论文的角度。
+4. **取舍**：保留现功能版作 golden 参考 + 新建优化版（都 parity），还是重构？风险？给个粗 fmax/面积/延迟/能效 量级（SMIC55nm，784→246→10，W4，T16），对标 22nm TTFS ASIC（F-MNIST 95.67µJ/30FPS）。
+> 把第 1、3 点当**重头**做——用户明确要"充分调研、搜索、思索为极致 PPA 怎么做创新，且是能写进论文的 idea"。结论凡值得写论文的，我会回填 `V2C_极致PPA创新点.md`。
 
 ## 4. (A) 检查（P0/P1/P2）
 1. **RTL 正确性/可综合**：parity 是理想模式 bit-exact，但请审 FSM 边界、signed/位宽（PSUM_W/MEM_W/Z_W 够不够，溢出？）、reset/start 握手、行为级 memory→宏/BRAM 映射的隐患、`always @*` 组合 popcount 的可综合性。

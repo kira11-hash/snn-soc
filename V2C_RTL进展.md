@@ -53,4 +53,5 @@
 当前 3 个 compute 模块**功能 bit-exact 对齐 Python**（理想模式 RTL==golden），数据通路是 **1 输出/cycle 时分复用单 MAC**（面积小、单份），但每 cycle 一个 **IN_DIM 位全 popcount** → **关键路径长（fmax 受限）+ 延迟=OUT×(T 或 in_bits) cycle**。
 **plan-v1.md 的 PPA-最优架构 = 事件行串行 + 列并行单bit累加**：激活的 spiking 行串行（事件驱动，稀疏→cycle 少）、每次读 128-bit 读宽（W=4→32 输出×4 bitplane 的列并行），每 active row 对各输出做 **单 bit 累加**（无每输出全 popcount 树）→ **关键路径短(fmax 高)、面积省(无大 popcount 树)、延迟随有效 spike + 早停**。
 → **下一 RTL 增量 = 把数据通路改成 row-serial column-parallel（功能 parity 不变，只变 cycle/时序/面积）**；这是"时序最优延迟最低"的主架构，建议 Codex 审 + DC 量化。cost.py 已给 projected_cycles 公式。
+**★ 极致 PPA 创新（论文 contribution 候选）专门记在 `V2C_极致PPA创新点.md`**——当前 3 模块是基线（非 novelty），论文级 PPA 创新（C1 事件行串行列并行、C2 决策藏进累积/ITA 式 fusion、C3 流水重叠…）在接下来的 RTL，Codex#4 prompt 已要求深挖。
 **剩余模块**：多层 top（ramp→ttfs 链，parity vs eval_ttfs_ramp 全程）、非理想注入（LFSR/ROM）、P&V FSM、snn_soc_v2c_top、DC/FPGA 脚本（用户跑）。
