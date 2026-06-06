@@ -82,10 +82,86 @@ arxiv **2605.20717 确认存在**（不再"待核"）：「E-ReCON: Energy- and 
 ### F4. §E0 lossless 性独立结论（留痕：虽否决，推导有效）
 独立验证 §E0 lossless 在三条件下成立——① **MSB-first 处理序**（two's-comp 唯一负权重位 MSB 先消化 → 剩余非负 → 界单调收紧）；② **z1 符号处理**（区间跨 0 不可 commit 发放、仍可淘汰）；③ **tie-break 一致**（同 timestep 按 golden index 序破）。**lossless 不是否决理由 — 否决理由是 PPA 收益（部分和收紧太慢）不划算。** Codex#4 只说"写成 interval-bound 即可"，既未做此推导也未做实测。
 
+## G. ★★ 外部调研（2026-06-06，CIM技巧/替代范式/编码 攻 dense 第一层）— 带链接
+> 目标：找能**结构性**砍 dense 输入层（占 99.8% cycle）PPA 的招，超越/互补 skip-zero。重点判可迁移性到「二值cell+popcount+无ADC+128b bit-parallel weight+TTFS ramp」+ TTFS 时间编码天然融合。
+
+### G1. ★最强候选：Time-Domain Popcount（race-logic 化 popcount，TTFS 原生）
+- **paper**：Efficient FPGA Implementation of Time-Domain Popcount, arxiv 2505.02181。做法一句：把 popcount 用**延迟链**算——置位数→正比的**传播延迟**（时间域 thermometer），不用二值加法树。
+- **PPA**：去掉 log(N) 加法树 → 省面积/功耗/glitch；输出**天然是延迟值**。
+- **可迁移性（高）**：当前基线短板 B1 = 每 cycle 784 位全 popcount 树（关键路径长、fmax 受限）。time-domain popcount **直接消除加法树**。**关键融合**：输出延迟可**直接喂 TTFS ramp / 阈值比较器**，无需转回二值再比阈——这正是 V2C 膜累积 `(t+1)·z≥θ` 要的。即 popcount→ramp→fire 全在时间域，省掉「popcount 二值化 + shift-add + 比较」整条数字尾。
+- **novelty（高）**：race-logic/time-domain popcount 已有(FPGA)，但**在数字二值 0T1R RRAM-CIM 的 bit-plane 读出列上做、且延迟直连 TTFS ramp** = 未见。和 §E0 否决的 bit-serial 推测不同：这是换 popcount 的**物理实现范式**，dense 友好（不依赖部分和收紧）。⚠ 待评估：ASIC 延迟链 PVT 敏感性 vs 全数字鲁棒卖点是否冲突（可做"粗粒度数字延迟=计数器"折中，见 Catwalk）。
+
+### G2. ★第二候选：操作数冗余复用 / popcount 记忆化（结构性砍 dense MAC，非 skip-zero）
+- **papers**：CREW (arxiv 2107.09408, computation reuse + unique-weight，**省 98% 乘法**、FC 存储省 25%)；Transitive Array (arxiv 2504.16339, transitive sparsity 结果复用，**7.46×/3.97× speedup, 2.31×/1.65× energy** vs Olive/BitVert, multiplication-free)；ΔNN 差分计算 (w_{m+1}·i=Δ·i+w_m·i 复用前次 MAC)。
+- **做法一句**：dense 第一层输入只有**极少 unique 模式**（4-bit 像素=仅 16 种值；或跨 784 维 bit-plane 内大量重复 bit-pattern），**算一次部分积/部分 popcount 然后复用**，不重复算。
+- **可迁移性（中-高）**：V2C 每 stripe 32 输出共用同一段 128-bit 权重读；**bit-plane k 上，多个输出列对同一组激活做 popcount → 激活侧 bit-pattern 复用**。或像素 4-bit→16 值，预算 16 种"权重子集 popcount"查表(LUT 化 CIM)，dense MAC 变查表。**对标 skip-zero 正交**：skip-zero 砍零，reuse 砍**重复的非零计算**，可叠加。
+- **novelty（中）**：computation-reuse 已知，但**在 TTFS 数字二值 CIM 上做 popcount-level 记忆化/unique-pattern 复用**未见；需实测 unique-pattern 率定收益（类比 §F 用真实 Fashion 权重跑）。
+
+### G3. 第三候选：Catwalk ramp-no-leak 时间域 MAC（TTFS 直接对标，验证 V2C ramp 选择）
+- **paper**：Catwalk: Unary Top-K for Ramp-No-Leak Neuron, arxiv 2508.21267。做法一句：ramp-no-leak 神经元在**时间域累积**加权脉冲，过阈 fire，结果即 spike timing（TTFS）；unary top-K 选择。
+- **PPA**：去二值加法树→单积分器+比较器；省面积/能耗。**数字实现**（时步计数器或数字控延迟），桥接 neuromorphic 与数字。
+- **可迁移性（中）**：直接验证 V2C 的 ramp-TTFS 路线（B2/A4）在 SOTA 是对的；可借其"数字时步 ramp"实现避 G1 的模拟延迟链 PVT 问题。**top-K 的硬件 WTA** 可用于输出层 10 路首-spike 优先编码（§E1 决策融合）。novelty 低（主要作 positioning + 借鉴），但**ramp-no-leak + 二值 CIM popcount 前端**组合可叙事。
+
+### G4. 评估过但**次优/不迁移**（诚实留痕）
+- **Stochastic computing**（all-in-mem SC ReRAM arxiv 2504.08340；StoX-Net 16×/8×/10× E/L/A）：超省面积，但 **PRNG 占 >80% 能耗/面积**，且位流长→延迟，dense 第一层精度/延迟不划算；与"无 ADC 确定性鲁棒"卖点冲突（SC 引入随机误差）。**不推荐**作 dense 层主线。
+- **RNS（剩余数系）**：分解大乘加，但 popcount-MAC 已无乘法器，RNS 收益不明显 + 转换开销；**不迁移**。
+- **纯 race-logic min/max（DNA/排序）**：AND/OR=min/max，无法做一般加法（causality 限制）→ 不能直接做加权和；只 G1 的 time-domain popcount 这种"延迟正比计数"形式可用。
+- **bit-level weight 列相似/重排**（arxiv 2511.14202 column similarity, 2410.21730 weight sorting）：合并相同/相似 bit 列省读出，**模拟 CIM 省 ADC 为主**；V2C 无 ADC，收益缩水，但"省权重列读出/复用"思路可与 G2 合流。
+
+### G5. 关键来源（带链接）
+- Time-Domain Popcount https://arxiv.org/pdf/2505.02181
+- CREW（98%乘法省）https://arxiv.org/pdf/2107.09408
+- Transitive Array https://arxiv.org/pdf/2504.16339 · ΔNN/CoDR https://arxiv.org/pdf/2104.09798
+- Catwalk ramp-no-leak https://arxiv.org/pdf/2508.21267
+- 时间域脉冲加权和(237.7 TOPS/W) https://pmc.ncbi.nlm.nih.gov/articles/PMC12463932/
+- all-in-mem SC ReRAM https://arxiv.org/html/2504.08340v1 · StoX-Net https://arxiv.org/pdf/2407.12378
+- 列相似 bit 重排 https://arxiv.org/html/2511.14202 · weight sorting/bit-stucking https://arxiv.org/html/2410.21730
+- Race Logic 综述 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9792072/ · 含 in-mem sorting 37×/138× energy
+
+## H. ★★ 多领域综合（2026-06-06，4 路 subagent：DNN/CNN加速器·LLM·DL模型算法·CIM范式）— dense 第一层多轴压缩
+> 在"否决 bit-serial 推测、选定异构 co-design+skip-zero"(§F) 后，分 4 路 subagent 从外部领域找**结构性砍 dense 第一层（占 99.8% cycle）**的招。**核心认知更新：dense 第一层瓶颈有 4 个正交、可叠乘的面**（之前只想到面①）。CIM 范式那路详见 §G。
+
+### H0. 4 个正交可叠乘的面（综合框架）
+| 面 | 攻击点 | 主手段 | 收益量级 | novelty | 风险/代价 |
+|---|---|---|---|---|---|
+| ① 输入激活侧 | 零像素/零位 | skip-zero（§F）| 50–73% | 中（机制已知，TTFS framing 新）| 低（已选定）|
+| ② 权重 bit 侧 | 权重 4 bit-plane 当前 100% dense | CSD/signed-digit bit 稀疏 + 冗余复用/LUT | bit 稀疏 ~33%+，reuse 叠加 | **高**（数字二值CIM+TTFS 上未见）| 低（复用现有 two's-comp shift-add）|
+| ③ 瓶颈本身大小 | 第一层 784×246×4b 过参数化 | 输入降维(28²→14²)+降比特(4→2)+低秩(784→r→246)| 单项 50–90%，叠加 ~87% | 中（降维老）/ **高**（低秩+TTFS-CIM 空白）| 精度 ~1–2%（accuracy 非胜负手可吃）|
+| ④ 计算物理范式 | popcount 加法树关键路径 | time-domain popcount（延迟链直喂 TTFS ramp）| 去 log(N) 加法树，fmax↑面积↓ | **高**（§G1）| PVT 敏感 vs 数字鲁棒卖点（数字计数器折中）|
+
+### H1. 面②权重 bit 稀疏（Agent DNN/CNN + LLM 收敛）
+- **CSD/signed-digit 权重编码**（DB-PIM HPCA'24 7.69×/83%能耗↓/<1%损失；BBS MICRO'24 3.03×；BitWave 列级 bit 稀疏+重排）：权重重编码成 {-1,0,+1} 无相邻非零，免费砍 ~33% 非零权重位，加 Fixed-Threshold(≤2 非零位/权重) 可更多。**落地**：复用 V2C two's-comp shift-add（符号机制已有），全零 bit-column 像 skip-zero 一样跳过 → 与面①叠乘(>85%)。**headline novelty 候选**。
+- **LUT-GEMM/BiQGEMM 二值权重部分积复用**（LUT-GEMM ICLR'24, BiQGEMM）：激活切 μ-子向量预算与所有 2^μ 二值模式点积存 LUT，权重行查表+累加，O(mn)→O(mn/μ)。**契合**：128-bit bit-parallel 读宽下同一权重 bit-pattern 跨 246 列高频复现。⚠ 待解：bit-serial 4-bit 激活与 LUT 建表耦合（也是 novelty 点）。
+- **冗余复用/popcount 记忆化**（CREW 98%乘法省；Transitive Array 7.46×）：像素仅 16 种值，重复模式算一次复用（详见 §G2，与 skip-zero 正交）。
+
+### H2. 面③瓶颈缩小（Agent DL 模型算法；利用 accuracy 非胜负手）
+- **输入降维** 28²→14² avg-pool/strided → 第一层 MAC↓75%、精度掉 1–2%。最稳、不动硬件（ANN 端做）、不破坏 ANN→SNN 解析映射。
+- **输入降比特** in_bits 4→2（learned 量化）→ bit-serial 周期↓50%、精度 <1%。与降维叠乘 ≈ 砍 87%、代价 ~2%。
+- **低秩分解** 784→r→246（r≈48）→ MAC↓~75%，需短 fine-tune + 中间 ReLU1 保单调映射。**novelty 高**（低秩+TTFS-CIM 空白），论文头条候选。
+- **固定二值稀疏随机投影**前置降维层（可直接烧进 RRAM 当免费降维，二值天然 popcount）。频域 DCT 低频输入砍 ~90% 但负值伤解析映射、风险高。
+
+### H3. 优先级 + 落地路线（综合判断）
+1. **先做面③降维+降比特**（最稳/最快/不动硬件）：第一层 25088→~3000 cycle；Python 验精度（3 数据集，目标掉 ≤2–3pp）。
+2. **叠面②CSD 权重 bit 稀疏 + 面①skip-zero**：headline novelty，复用现有 shift-add；先 Python 实测 bit-稀疏率（类比 §F 真实权重）。
+3. **面④time-domain popcount** 作激进 novelty：先评 PVT vs 鲁棒卖点（数字计数器折中）。
+4. **低秩分解**作论文 novelty 头条候选。
+- 4 面正交可叠乘 → 第一层有望 25088 砍到几百–一两千。**"多轴正交压缩 dense 第一层 on 数字二值 CIM+TTFS" = 比被否的双单调推测扎实得多的可发表故事。**
+- ⚠ 全部需像 §F 一样**用真实权重/数据实测收益 + parity 保功能**，别只引文献量级。
+
+### H4. 关键来源
+- DB-PIM https://arxiv.org/html/2404.09497v1 · BBS https://arxiv.org/abs/2409.05227 · BitWave https://arxiv.org/pdf/2507.12444
+- LUT-GEMM https://arxiv.org/html/2206.09557v4 · BiQGEMM https://ar5iv.labs.arxiv.org/html/2005.09904 · CIMPool https://arxiv.org/html/2503.22044
+- 低秩 SVD-FC https://www.mdpi.com/2076-3417/13/4/2704 · 二值稀疏随机投影 https://link.springer.com/chapter/10.1007/978-3-658-33198-6_51 · LC-TTFS https://arxiv.org/abs/2310.14978
+- 频域 DCT https://openaccess.thecvf.com/content_CVPR_2020/papers/Xu_Learning_in_the_Frequency_Domain_CVPR_2020_paper.pdf · Monarch 结构化矩阵 https://proceedings.mlr.press/v162/dao22a/dao22a.pdf
+- （CIM 范式那路 time-domain popcount / CREW / Catwalk 见 §G5）
+
 ## D. 待办
 - [x] Codex#4 回贴 → 逐条独立判定（采纳/驳回/降级），见 git + §F。
 - [x] 可行性分析选最优方案 → §F：否决 bit-serial 推测，选定异构 co-design + skip-zero。
-- [ ] **量化 skip-zero 落地收益**（零行/零位调度的 RTL 微架构 + 实测 cycle 节省，输入瓶颈主杠杆）。
-- [ ] 实现异构数据通路（dense-input bit-parallel + skip-zero ‖ event-driven output row-serial），parity 不变（功能与数据流解耦）。
-- [ ] 多层 top（模块4：ramp→output 全链 vs eval_ttfs_ramp）作优化数据通路的 parity 基线。
+- [x] 多领域 subagent 调研 → §G（CIM 范式）+ §H（4 面综合框架）。
+- [ ] **面③（最稳先做）**：Python 验输入降维(28²→14²)+降比特(4→2)+低秩(784→r→246) 精度代价（3 数据集，≤2–3pp），定 PPA 收益。
+- [ ] **面②（headline novelty）**：实测 CSD/signed-digit 权重 bit-稀疏率 + 冗余复用率（真实权重，类比 §F），定收益 + 落 RTL。
+- [ ] **面①+异构数据通路**：skip-zero RTL 微架构 + event-driven 输出 row-serial，parity 不变。
+- [ ] **面④（激进 novelty）**：评 time-domain popcount 的 PVT vs 鲁棒卖点（数字计数器折中）。
+- [ ] 模块4 多层 top（ramp→output 全链 vs eval_ttfs_ramp）作优化数据通路 parity 基线。
 - [ ] 每落地一项回填本文档（PPA 量级 + novelty 判断 + 写论文角度）。
