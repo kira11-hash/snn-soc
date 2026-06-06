@@ -78,3 +78,17 @@ layer_map → mac_array32(W1/2/4/8 exhaustive) → input_event_builder → z1 �
 ★ 功能：**output 层 mid-bucket 提前比较**（必整拍累完再比）+ **output lane-offset 22 未对齐 mapping**。★ worst-case：dense_bypass 兜底。严禁近似截断（保序雷区 §I0）。
 ### 9.6 评估 & 对照
 三桶：① 数字逻辑 DC 实测 + FPGA；② RRAM 阵列用**我们自己 0T1R 器件数据（IEDM/NC）**估算；③ 模拟外围 estimate。数字 vs 模拟 CIM 对照**用文献**。阵列用 plan 自己的。
+
+### 9.7 ★ RTL RRAM 行为模型 ↔ Python golden 契约（开工第一红线，用户强调）
+RTL 的 RRAM cells 行为模型 + 权重解码 + 故障注入**必须 bit-exact 复现 Python**（`encoding.py` 自述即第 31-32 行"the bit-exact golden the RTL CIM macro must match in ideal mode"）：
+- **cells 布局**：`cells[in_dim, out_dim*W]` uint8{0,1}，**col = out*W + bit**（单宏多层 layer_base 偏移由放置层加）。
+- **三套编码解码（`mac_array32` 必须逐一对）**：W=1 BNN（cell=1→+1、=0→−1；MAC=2·pc−N_active）；W=2 ternary（col0=pos/w=+1、col1=neg/w=−1；MAC=pc_pos−pc_neg；**(1,1)=illegal→解 0 且计 `ternary_illegal_count`**）；W≥4 two's-comp（`cells[:,k::W]=(wu>>k)&1`，`wu=w&((1<<W)-1)`；MAC=Σ2^k·pc_k，**MSB(k=W-1) 取负**）。§9.1 的 `w=b0+2b1+4b2−8b3` 仅 W=4 特例，W=1/2 走各自码本。
+- **故障注入**：`fault_injector` 复现 `robustness.py` 的 `inject_cell_faults`（stuck0/1/invert 静态 + read_ber 非对称 P10/P01）+ `read_ber_from_device` 映射，作用在 packed cells；**理想模式=无故障 bypass=对 golden bit-exact**。
+- **范围/边界**：`value_range`（W1/2 [-1,1]、W4 [-8,7]）、BNN 不可表 0。
+- **验证**：每模块对 `encoding.pack/unpack/mac` + `robustness.inject_cell_faults` 逐向量 bit-exact（复用现有 `v2c_cim_mac` parity 框架）。
+
+### 9.8 PPA 增量候选（首版不做，待数据/确认后评估）
+- **读-算流水（read-compute pipeline）**：边读下一行边算这一行，藏 RRAM 读延迟。**待老师"读延迟"数据**：读延迟 > 1 时钟周期才做（实在 PPA），否则不需要；无损（不改结果）。
+- **列广播**（一次读整行跨 8 stripe，再省 ~8×）：待器件/读出电路确认"跨-stripe 宽读口"。用户已定首版正常做、不追，作 future。
+- **帧间流水**：单宏单 ALU 下层间不能真重叠；连续多帧场景可帧间流水。待应用场景定。
+- 定性：延迟隐藏藏的是"读/判决/层间"附加开销，**非核心计算量**（核心靠跳零）；锦上添花。
