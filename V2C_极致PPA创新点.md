@@ -227,10 +227,40 @@ BBS 双向 https://arxiv.org/html/2409.05227 · BitWave https://arxiv.org/abs/25
 - ⚠ 输入跳零的真实代价（要 RTL 量）：稀疏行索引 / 负载不均（每图非零行数不同 → 变长延迟，**必报 worst-case**）；非零行地址生成逻辑面积。
 - ⚠ 跳零的功能是无损的（跳的是加 0）→ **只 RTL（事件行串行 only-nonzero-rows）、对现有 golden bit-exact parity，不改 Python 数值 golden**。
 
-## D. 待办（实测拍板后）
-- [x] 三轮调研（§G–§J）+ 实测拍板（§K）：收敛到**输入侧跳零**为唯一真实主力（省 73–88%）。
-- [ ] Codex#5（8 subagent，prompt 已发 `V2C_Codex审查_PPA创新调研.md`）回贴 → 两方汇总（我 20+ 路 + Codex 8 路）定最终创新点。
-- [ ] **输入跳零进 RTL**：事件行串行（only 非零输入行 + per-bitplane），对现有 golden bit-exact parity（功能不变）；**必报 worst-case cycle**（稀疏行负载不均）。
+## L. ★★ Codex#5 汇报核查 + 双方独立收敛（2026-06-06）
+> 用户喂出 Codex#5（8 subagent 独立调研）。我对照仓库实际独立核查（不盲从 Codex、也不盲从"它没结合仓库"的直觉）。
+
+### L0. ★ 双盲独立收敛（最强信号）
+Codex 8 路 + 我 20+ 路 + §K 实测，**各自独立都收敛到同一结论**：输入 bit-event 跳零是唯一真实大杠杆，第一层 25088→3–7k cycle。**Codex 的输入 bit density 与我 §K 实测高度吻合**（铁证它核了仓库，非泛泛调研）：
+| | Codex | 我 §K |
+|---|---|---|
+| Fashion | 26.4%→6632 | 26.5%→6640 |
+| KMNIST | 18.5%→4636 | 18.5%→4644 |
+| MNIST | 13.2%→3320 | 12.1%→3028 |
+
+### L1. Codex 结合仓库实际之处（确认）
+gate-init 公式（2-bit 只需 levels_in=3 重标定）、E10 实验、P_READ_BITS=128、KMNIST ~10pp 余量、CSD 4-bit 1.2–1.5× 不适配 0T1R（与 §I 一致）、time-domain/stochastic/LUT 降级（与 §G/§I/§J 一致）。
+
+### L2. Codex 盲区 / 需修正（独立判定）
+1. **落后于 §K**：让"先做 cycle oracle"，但 mean 我们已做（§K），仅缺 **p95/worst-case**（采纳、补）。
+2. **未区分"无损只-RTL（输入跳零）vs 改功能要重训（2-bit / K-mask / block pruning）"**——混为一个主线；落地风险不同（前者零风险、后者要先 Python 验精度）。
+3. block pruning / K-mask 当主线但要重训 + 精度未验；codebook LUT Codex 自承"先做账别写 RTL"。
+
+### L3. 采纳 / 警惕
+- ✅ 采纳：报 **p95/worst-case** cycle；**2-bit 输入**高 EV（KMNIST 有余量、不破坏 gate-init、配跳零可能再 2×）——属"改功能"，先 Python 验精度守 80%（跑 in_bits=2 需小改 experiments.py，当前 E10/E11 硬编码 in_bits=4）。
+- ⚠ 警惕：block pruning / K-mask / codebook 不当无损主线（要重训 + 验精度）。
+- Codex novelty 写法可参考：**"read-width-aligned bit-event sparse dataflow for exact digital binary 0T1R RRAM-CIM TTFS inference, co-designed with analytic ANN-to-TTFS gate init"**。
+
+### L4. ★ 双方汇总后的最终主线（拍板候选，待用户确认）
+- **无损头号（先做、只 RTL、零精度风险）**：输入 bit-event 跳零（事件行串行 only-nonzero rows，对现有 golden bit-exact），第一层 25088→3–7k，报 mean+p95+worst。
+- **改功能增强（次做、要 Python 重训验精度）**：2-bit 输入（+KD 守 80%）→ 可能再 2×。
+- **输出层**：event-driven + early-exit + clock-gating，定位能耗/SOP/TTFS 语义，非总 latency 主杠杆。
+- **论文 novelty**：全数字无 ADC 0T1R + TTFS 上 read-width-aligned 输入跳零极简数据通路 + 鲁棒性 + 硅化。
+
+## D. 待办（双方汇总后）
+- [x] 三轮调研（§G–§J）+ 实测拍板（§K）+ Codex#5 核查与双方收敛（§L）：钉死**输入 bit-event 跳零**为唯一真实主力。
+- [ ] 补 **p95/worst-case** cycle（Codex 采纳；§K 只报了 mean）。
+- [ ] **输入跳零进 RTL**：事件行串行（only 非零输入行 + per-bitplane），对现有 golden bit-exact parity（功能不变）；报 mean+p95+worst。
+- [ ] **2-bit 输入实测**（改功能增强）：小改 experiments.py 支持 in_bits=2 → 全量复测 + KD 守 KMNIST 80%。
 - [ ] 模块4 多层 top（ramp→output 全链 parity vs eval_ttfs_ramp）。
-- [ ] （可选低优先）若要精度换 PPA：单轴降维 or 降比特 + 蒸馏，先 Python 重训守 KMNIST 80%。
 - [ ] 每落地一项回填本文档（真实实测 PPA + novelty + 论文角度）。
