@@ -206,10 +206,31 @@ arxiv **2605.20717 确认存在**（不再"待核"）：「E-ReCON: Energy- and 
 ### J3. 来源（第三轮新增）
 BBS 双向 https://arxiv.org/html/2409.05227 · BitWave https://arxiv.org/abs/2507.12444 · 2512.18459 bit-sliced crossbar weight transform · SnaPEA https://cseweb.ucsd.edu/~vakhlagh/ISCA18-SnaPEA.pdf · LeOPArd https://arxiv.org/pdf/2204.03227 · SpiDR https://arxiv.org/abs/2411.02854 · IMPULSE https://arxiv.org/abs/2105.08217 · SpikeCP https://arxiv.org/abs/2305.11322 · sorted weight sectioning https://arxiv.org/html/2410.11298v1
 
-## D. 待办（第三轮后更新）
-- [x] Codex#4 判定 + 可行性 §F + 调研 §G/§H + cross-check §I + 第三轮 §J（含真实权重实测颠覆"列对齐整列零打包"）。
-- [ ] **Python 实测拍板（go/no-go，类比 §F、不改 golden）**：① 权重各 bit-plane 零率（3 数据集，验位平面 skip 收益）② BBS 双向能否钉 worst-case 列下界 ≥50%（各 bitplane 列零率/一率直方图）③（低优先）保序早停在输出 argmin 真实翻转率。
-- [ ] Codex#5（8 subagent，prompt 已发 `V2C_Codex审查_PPA创新调研.md`）回贴 → 两方汇总定创新点。
-- [ ] 收敛后：**无损优化（输入零 + 位平面 skip + BBS）进 RTL，对现有 golden parity**；**改功能（降维/降比特/蒸馏，单轴守 80%）先 Python 重训 + 新 golden**。
-- [ ] 异构数据通路 + 模块4 多层 top。
+## K. ★★ 实测拍板（2026-06-06，真实主网 gate-init 权重 + 三数据集，go/no-go）— 收敛到"输入侧跳零"单一主力
+> 三轮调研后进实测拍板。脚本 `/tmp/feas3.py`（gate-init SNN 真实权重 + Fashion/KMNIST/MNIST，纯统计不改 golden，类比 §F）。**结论极简：唯一真实 cycle 杠杆 = 输入侧跳零（省 73–88%）；权重侧零、BBS 双向在我们 bit-parallel popcount 架构上都不是杠杆。**
+
+### K0. 实测数据（三数据集一致）
+| 数据集 | Q1 输入跳零 dense→skip / 省 | Q2 cell零 / 整列零 / 各bit列零 | Q3 weight列可跳(max 0/1) |
+|---|---|---|---|
+| Fashion | 25088→6640 / **73.5%** | 0.530 / **0.0000** / 全 0 | mean 0.54, min 0.50 |
+| KMNIST | 25088→4644 / **81.5%** | 0.531 / **0.0000** / 全 0 | mean 0.54, min 0.50 |
+| MNIST | 25088→3028 / **87.9%** | 0.534 / **0.0000** / 全 0 | mean 0.54, min 0.50 |
+
+### K1. ★ 拍板结论
+1. ✅ **输入侧跳零 = 唯一真实大杠杆**：三数据集第一层 25088 cycle → **3028–6640（省 73.5–87.9%）**。全数字、不伤鲁棒卖点、真实数据撑（每图非零行 379–830 / 3136）。**这是头号、也基本是全部。**
+2. ❌ **权重侧零不是 cycle 杠杆**：cell 零率 53%（复核 D2 一致），但 **整列零率 = 0.0000、各 weight-bit 列零率 = 0**（输入维 784 太长）。"一次读整列 popcount"无法跳单个零 cell；兑现需 bit-serial/行分块 → 砸 bit-parallel 优势。**权重 cell 零是 popcount 免费的、不额外省 cycle。** §J1"权重位平面 skip"在当前 bit-parallel 架构否决。
+3. ❌ **BBS 双向不适用**：weight 列 0/1 ≈50/50（min 可跳=0.50，一次读整列跳不了）；input bitplane 已全是 0 多（one-frac 0.12–0.32，直接跳零即可、无需"跳 1"）。BBS 是 bit-serial PE 的招，我们 bit-parallel 用不上。
+
+### K2. ★ 最终收敛（三轮调研 + 实测）
+**真正的 PPA 主力 = 输入侧跳零（省 73–88%），把 dense 第一层从 25088 砍到 3000–6600。** 三轮挖出的其余招（列对齐打包 / 权重位平面 skip / BBS / 保序早停 / 低秩 / CSD / LUT-GEMM / time-domain popcount）在真实数据或架构约束下**全部不是杠杆或被否**。
+- **诚实大结论**：20+ subagent 调研最大价值 = **排除花招**，收敛到一招朴素"输入跳零"。论文卖点 = **"全数字无 ADC 0T1R + TTFS 上输入跳零的极简数据通路 + 鲁棒性 + 硅化"**，不是某个花哨技巧。
+- ⚠ 输入跳零的真实代价（要 RTL 量）：稀疏行索引 / 负载不均（每图非零行数不同 → 变长延迟，**必报 worst-case**）；非零行地址生成逻辑面积。
+- ⚠ 跳零的功能是无损的（跳的是加 0）→ **只 RTL（事件行串行 only-nonzero-rows）、对现有 golden bit-exact parity，不改 Python 数值 golden**。
+
+## D. 待办（实测拍板后）
+- [x] 三轮调研（§G–§J）+ 实测拍板（§K）：收敛到**输入侧跳零**为唯一真实主力（省 73–88%）。
+- [ ] Codex#5（8 subagent，prompt 已发 `V2C_Codex审查_PPA创新调研.md`）回贴 → 两方汇总（我 20+ 路 + Codex 8 路）定最终创新点。
+- [ ] **输入跳零进 RTL**：事件行串行（only 非零输入行 + per-bitplane），对现有 golden bit-exact parity（功能不变）；**必报 worst-case cycle**（稀疏行负载不均）。
+- [ ] 模块4 多层 top（ramp→output 全链 parity vs eval_ttfs_ramp）。
+- [ ] （可选低优先）若要精度换 PPA：单轴降维 or 降比特 + 蒸馏，先 Python 重训守 KMNIST 80%。
 - [ ] 每落地一项回填本文档（真实实测 PPA + novelty + 论文角度）。
