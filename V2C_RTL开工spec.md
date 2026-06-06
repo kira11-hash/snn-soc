@@ -1,13 +1,13 @@
-# V2C RTL 开工 spec（草案 v0.1 — Claude 8-subagent 收敛；待与 Codex 8 路汇总定稿）
+# V2C RTL 开工 spec（v1.0 两方汇总定稿 — Claude 8 + Codex 8 收敛）
 
-> 用户指令的 RTL 设计流程：Claude 多 subagent（4 方面×2 cross-check，**本草案=已完成**）‖ Codex 多 subagent（prompt `V2C_Codex_RTL设计.md`，用户喂、待回）→ 两方汇总 + 多方审核 + 参考 `plan-v1.md` → 本 spec 定稿 → 开工。创新点同步记 `V2C_极致PPA创新点.md §M`。**4 方面各 2 agent 高度收敛。**
+> RTL 设计流程：Claude 8 subagent（§1-4）‖ Codex 8 subagent → **两方汇总定稿（§8/§9）** + 参考 `plan-v1.md`；创新点记 `V2C_极致PPA创新点.md §M`。**最终开工以 §9 为准；§1-7 是推导/分析过程。** ★ 读出 1-10μs 的重大影响见 §9.9（待澄清"1-bit sense 是否也慢"，不挡开工）。
 
 ## 0. 设计总纲（4 方面咬合成一条数据通路）
 **A 喂（只送非零输入行）→ B 算（popcount-free 行流 MAC）→ C 决策（融进累积尾 + 门控）→ D 编排（单宏跨层 sequencer 全链 parity）。** 全程对现有 Python golden bit-exact（跳零无损=加 0）；全数字不伤抗 PVT；worst-case 必报（best+honest 双版本，见 §K0b）。
 
 ## 1. 方面 B（地基）：popcount-free 1-hot 行流 MAC
 **两 agent 强收敛**：消除 per-output 784-bit popcount 树，改 **row-serial column-parallel**——每来 1 个非零输入行，读 128-bit（32 输出×4 bitplane），每输出做 **4-bit two's-comp 解码（MSB 取负 = 解码符号位，无独立减法器）→ 单累加器 +Δ**；shift-add 跨 4 bitplane + 跨 in_bits 相位用移位（wire）；**唯一算术树（carry-save 合成）摊到 stripe 边界**（每 784 行付一次 32×4 项，占比 ~4%）。
-- 关键路径：784-树（~10 级）→ **~14-bit CPA**，fmax 与 IN_DIM 解耦（Colonnade 范式）；50MHz 极宽裕。
+- 关键路径：784-树（~10 级）→ **~14-bit CPA**，fmax 与 IN_DIM 解耦（Colonnade 范式）；50MHz 极宽裕。⚠ **fmax 提升的价值取决于 §9.9**：若读 1-10μs 且数字 sense 也慢→读是瓶颈、提 fmax 无意义→本模块改取"最省面积"实现（功能不变）。
 - **严禁近似截断**（§I0 实测丢 1 LSB 翻 9%，保序雷区）；行流下精确反而更小。
 - **novelty B-N1**：数字二值 0T1R + TTFS bit-parallel-weight 上的 popcount-free 行流 MAC（消树，非优化树）；**B-N2**：shift-add 与膜累积同址融合（不落地 z1 再搬运）。
 - **先做**：`v2c_mac_lane`（单输出解码+累加）×32 = `v2c_mac_array32`，替 `v2c_cim_mac` 接口，对 `encoding.mac` bit-exact（含乱序行 parity 证交换律）。
@@ -31,13 +31,8 @@
 - **novelty D-N1**：单宏跨层列段常驻零重编程 + TTFS inter-layer spike streaming on 0T1R（对标 OpenSpike/SpiDR/FlexSpIM/E-ReCON 差异化）；**D-N2**：层间桥不物化 [T,in]。
 - **先做**（两 agent 一致）：**最简 sequencer 骨架**——用现有 3 个 bit-exact 模块串成 784→246→10，先**不带跳零/streaming**，对 `eval_ttfs_ramp` 全链 parity（填 plan 剩余模块4）；再增量叠 A 跳零 + D streaming（功能无损、复跑同 parity）。
 
-## 5. 落地优先级路线（8 agent "最该先做"收敛）
-1. **D 最简 sequencer 骨架 → 模块4 全链 parity**（风险最低、解锁端到端 + DC/FPGA）。
-2. **B popcount-free 行流 MAC 原语**（PPA 拐点：fmax + 面积）。
-3. **A 非零行索引压缩器 + FIFO**（头号 PPA 杠杆，无损增量，复跑 parity）。
-4. **C 决策融合单元**（输出层 novelty + tie-break 命门）。
-5. 增量：A 列广播（若读端口支持）、D inter-layer streaming、全局门控。
-- 每步对现有 golden bit-exact parity；每落地一项回填 §M + commit。
+## 5. 落地优先级路线（草案；**定稿顺序以 §9.2 为准**）
+⚠ 本节是 Claude 8 路初始顺序（D 骨架先）；两方汇总后**统一为 §9.2**（B 地基 mac_array32 → A → hidden → C → top/D → P&V）。其中 D 的"最简 sequencer 骨架（旧模块串全链 parity、填模块4）"作为 **top 步骤的第一子步**先跑通端到端基线，再确认新模块替换不回归。每步对 golden bit-exact + 回填 §M + commit。
 
 ## 6. 共识风险 / 命门
 - ★ **RRAM 行随机寻址 / 跨-stripe 宽读端口**（A 列广播依赖）：最大落地不确定性，**需器件方/读外围确认**；不支持则 A 退稳妥版（仍 73-88%）。
@@ -49,7 +44,7 @@
 ## 7. 待汇总 / 待确认（已更新）
 - [x] Codex 8 路回 → 两方交叉 → 定稿（见 §8/§9）。**高度收敛**，cycle 模型一致（C_z1=8×N_evt=§K0b）。
 - [x] 读端口：用户定"**正常做我们自己的阵列**"，不追跨-stripe 宽读 → 首版逐 stripe row-event（列广播作 future）。
-- [ ] **问老师（唯一）**：我们自己 0T1R 的**读延迟 + 读能耗**（IEDM/NC 现成数）→ 桶② 能效估算。
+- [ ] **问老师（两项，不挡开工）**：① ★ **1-bit 数字 sense（判 LRS/HRS）要多久**（老师给的 1-10μs 是否为模拟 ADC 读？决定读是否瓶颈，见 §9.9）② 读能耗 → 桶② 能效。
 - 阵列/对照已定：阵列用 plan 自己的（同学 SOW 是另一款芯片，排除，见 `V2C_器件与SOW参考.md`）；数字 vs 模拟对照用**文献现成数**。
 
 ## 8. ★★ 两方汇总（Claude 8 路 §1-4 + Codex 8 路，2026-06-06）— 高度收敛
