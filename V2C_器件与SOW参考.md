@@ -13,3 +13,9 @@
 
 ## 3. 仍有效的通用认知（与具体芯片无关，写 novelty 用文献坐实）
 数字 CIM（1-bit sense、无 ADC、popcount、two's-comp）vs 模拟 CIM（TIA+ADC、电流累加、并行度受 ADC 动态范围限）的**定性对照**成立：数字侧**并行度不被 ADC 卡**、**无 ADC 量化/无器件电导 variation 暴露** = 鲁棒性卖点 + 面积/能耗（省 ADC）。论文用**文献数**坐实"模拟崩、数字稳"。
+
+## 4. 器件组原版模型 `memristor_plugin.py` + `I-V.xlsx`（2026-06-06）— 模拟 CIM 模型，不用于我们数字 RTL
+- `memristor_plugin.py` = **模拟 CIM 的器件级仿真**（电导 G=I/V、离散电导电平、模拟 MVM、8-bit ADC、IR-drop、读噪声、漂移、D2D 5%/C2C 3%、阵列 128×256）。是**模拟那条线**的抽象。
+- **不影响我们数字 CIM 的 RTL RRAM 模型**：我们 RTL 照 `encoding.py`（严格二值 0/1 + popcount，无电导/无 ADC）。**不是"一模一样"——模拟 vs 数字两套完全不同抽象**（这正是我们的差异化）。
+- **对我们有用的是器件物理参数**（I-V ~pA-16nA@2V、g_min/g_max、on/off ratio、读噪声、D2D/C2C/漂移）→ ① **校准我们 `robustness.read_ber_from_device` 的 μ/σ**（用真实 I-V/读噪声，更真实）② 鲁棒性论证 ③ 桶② 器件数据/能耗。**计算路径绝不用它**（用了就变模拟）。
+- **读出时间 1-10μs**：见 `V2C_RTL开工spec.md §9.9`（★ 待澄清：我们 1-bit 数字 sense 是否也这么慢 → 决定延迟/能效 headline）。
