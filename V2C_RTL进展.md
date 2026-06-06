@@ -51,7 +51,10 @@
 
 ## ★ PPA 架构说明（DC 阶段关键，Codex 待审）
 当前 3 个 compute 模块**功能 bit-exact 对齐 Python**（理想模式 RTL==golden），数据通路是 **1 输出/cycle 时分复用单 MAC**（面积小、单份），但每 cycle 一个 **IN_DIM 位全 popcount** → **关键路径长（fmax 受限）+ 延迟=OUT×(T 或 in_bits) cycle**。
-**plan-v1.md 的 PPA-最优架构 = 事件行串行 + 列并行单bit累加**：激活的 spiking 行串行（事件驱动，稀疏→cycle 少）、每次读 128-bit 读宽（W=4→32 输出×4 bitplane 的列并行），每 active row 对各输出做 **单 bit 累加**（无每输出全 popcount 树）→ **关键路径短(fmax 高)、面积省(无大 popcount 树)、延迟随有效 spike + 早停**。
-→ **下一 RTL 增量 = 把数据通路改成 row-serial column-parallel（功能 parity 不变，只变 cycle/时序/面积）**；这是"时序最优延迟最低"的主架构，建议 Codex 审 + DC 量化。cost.py 已给 projected_cycles 公式。
-**★ 极致 PPA 创新（论文 contribution 候选）专门记在 `V2C_极致PPA创新点.md`**——当前 3 模块是基线（非 novelty），论文级 PPA 创新（C1 事件行串行列并行、C2 决策藏进累积/ITA 式 fusion、C3 流水重叠…）在接下来的 RTL，Codex#4 prompt 已要求深挖。
+**★ Codex#4 审 + 可行性分析后修订（2026-06-06，详见 `V2C_极致PPA创新点.md §F`）**：实测 gate-init SNN（Fashion 真权重）定下**异构**架构——
+- **输入层 = dense（绝对瓶颈，25088 cyc 占 99.8%）**：保持 plan **bit-parallel weight**（既定决策实证正确）；bit-serial MSB-first 推测**否决**（best-case avg 14.49/16 bit-plane 才判定、0% 在 4 项内、差 bit-parallel 3.6×）。减 cycle 唯一大杠杆 = **skip-zero**（零行省 52.8%、零位上限 73.5%）。
+- **输出层 = sparse（仅 54 cyc）**：event-driven row-serial（active rows ~54/246，fire-rate 22%）+ 首-spike 早停 + 决策融进累积尾（ITA 式）。
+- **★ 选定 novelty = 异构 TTFS-aware 数字二值 0T1R CIM 数据流 co-design**（dense-input bit-parallel+skip-zero ‖ sparse-output event-driven），**取代**旧"双单调 bit-serial 推测"主线（被实测否决）。**诚实：RTL 延迟抓手是输入 skip-zero、非 TTFS 早停（后者只省输出 <1%）；TTFS 稀疏价值在能耗/SOP + 延迟确定性（输入 dense 主导→worst≈mean）。**
+- **Codex#4 P1/P2 已落地**：cost.py read_bits=128 + event-driven output cycle（P1#3/#4）、production-dim parity 784→246/246→10（P2#5）、read-BER device 锚点 + analog calib 独立化（P1#1/#2，见 git `6f6ca67`）。
+**★ 极致 PPA 创新（论文 contribution 候选）专门记在 `V2C_极致PPA创新点.md`**（§F 为当前主线，§E 保留作研究轨迹）。
 **剩余模块**：多层 top（ramp→ttfs 链，parity vs eval_ttfs_ramp 全程）、非理想注入（LFSR/ROM）、P&V FSM、snn_soc_v2c_top、DC/FPGA 脚本（用户跑）。
