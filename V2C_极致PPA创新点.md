@@ -267,8 +267,21 @@ gate-init 公式（2-bit 只需 levels_in=3 重标定）、E10 实验、P_READ_B
 - **输出层**：event-driven + early-exit + clock-gating，定位能耗/SOP/TTFS 语义，非总 latency 主杠杆。
 - **论文 novelty**：全数字无 ADC 0T1R + TTFS 上 read-width-aligned 输入跳零极简数据通路 + 鲁棒性 + 硅化。
 
-## D. 待办（双方汇总后）
-- [x] 三轮调研（§G–§J）+ 实测拍板（§K）+ Codex#5 核查与双方收敛（§L）：钉死**输入 bit-event 跳零**为唯一真实主力。
+## M. ★★ RTL 设计 — Claude 8-subagent 收敛（2026-06-06，4 方面×2 cross-check）→ 详见 `V2C_RTL开工spec.md`
+> 用户指令 RTL 设计流程：Claude 多 subagent（本节，已完成）‖ Codex 多 subagent（`V2C_Codex_RTL设计.md`，待回）→ 两方汇总 → 最终开工 spec。**4 方面各 2 agent 高度收敛**，咬合成一条数据通路（A 喂→B 算→C 判→D 编排）。
+- **B 地基（B-N1/N2）**：popcount-free 1-hot 行流 MAC（消 per-output 784-popcount 树 → ~14b CPA、fmax 与 IN_DIM 解耦；shift-add 摊 stripe 边界 + 与膜累积同址融合；严禁近似截断=保序雷区）。
+- **A 头号 PPA（A-N1/N2）**：read-width-aligned 输入 bit-event 行串行跳零（喂图建非零行索引 FIFO、跨 stripe 复用；worst 有界=dense 永不变慢）；激进增量=位平面并集事件 + 列广播（需宽读端口确认）。
+- **C 输出层（C-N1/N2）**：决策融进累积尾零周期 argmin（ITA 式）+ 首脉冲全局门控；命门=tie-break + 行序累积带 (row,t_fire) 保序。
+- **D 编排（D-N1/N2）**：单宏跨层列段常驻零重编程 + TTFS inter-layer spike streaming + 层间桥不物化 [T,in] + P&V write-once 互斥。
+- **落地路线**：① D 最简 sequencer 骨架→模块4 全链 parity ② B 行流 MAC 原语 ③ A 非零行索引压缩器 ④ C 决策融合 ⑤ 增量（列广播/streaming/门控）。每步对现有 golden bit-exact。
+- **共识命门/风险**：RRAM 行随机寻址/跨-stripe 宽读端口（**需器件方确认**）、spike-time 保序、严禁近似截断。
+- 待 Codex 8 路回 → 两方汇总定稿 → 开工。详见 `V2C_RTL开工spec.md §1–7`。
+
+## D. 待办（RTL 设计阶段）
+- [x] 三轮调研（§G–§J）+ 实测拍板（§K + §K0b p95/worst）+ Codex#5 核查与双方收敛（§L）+ RTL 设计 Claude 8-subagent 收敛（§M / `V2C_RTL开工spec.md`）：钉死**输入 bit-event 跳零**为唯一真实主力。
+- [ ] **Codex RTL 8 路（`V2C_Codex_RTL设计.md`）回 → 两方汇总 + 多方审核 → spec 定稿**。
+- [ ] 器件方确认 RRAM 读端口（顺序 128b/stripe vs 跨-stripe 单行宽读）→ 定 A 稳妥/激进。
+- [ ] 按 §5 路线开工：D 骨架→模块4 parity → B 行流 MAC → A 跳零 → C 决策融合（每步 bit-exact + best/honest）。
 - [ ] 补 **p95/worst-case** cycle（Codex 采纳；§K 只报了 mean）。
 - [ ] **输入跳零进 RTL**：事件行串行（only 非零输入行 + per-bitplane），对现有 golden bit-exact parity（功能不变）；报 mean+p95+worst。
 - [ ] **2-bit 输入实测**（改功能增强）：小改 experiments.py 支持 in_bits=2 → 全量复测 + KD 守 KMNIST 80%。
