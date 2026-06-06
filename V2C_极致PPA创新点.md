@@ -183,12 +183,33 @@ arxiv **2605.20717 确认存在**（不再"待核"）：「E-ReCON: Energy- and 
 ### I3. 来源（cross-check 新增）
 列对齐 bit 重排 https://arxiv.org/html/2511.14202 · TD 计算定量劣势 https://arxiv.org/html/2403.18367v1 · 剪枝+量化超线性 https://arxiv.org/html/2509.04244v1 · 低秩+低精度动态范围 LPLR https://arxiv.org/pdf/2310.11028 · SVDQuant https://arxiv.org/html/2411.05007v3 · 全数字 LUT-MAC https://arxiv.org/pdf/2506.16800 · LUT-DLA https://arxiv.org/pdf/2501.10658 · MVQ https://arxiv.org/html/2412.10261 · 分离卷积二值首级 https://arxiv.org/pdf/1707.04693 · BiMLP https://arxiv.org/pdf/2212.14158
 
-## D. 待办（cross-check 后更新）
-- [x] Codex#4 判定 + 可行性（§F）+ 4 路调研（§G/§H）+ 4 路 cross-check（§I）。
-- [ ] **主线①bit 级零跳过**：Python 实测 (a) 输入 skip-zero (b) 高 bitplane 零 bit 稀疏率 (c) 列对齐 bit 重排可制造的零列比例（真实权重，类比 §F）→ 真实收益。
-- [ ] **主线②KD 蒸馏**：FP teacher→1-bit student 找回精度，量化"能多砍多少 PPA 而守 KMNIST 80%"。
-- [ ] **主线③像素 codebook LUT**：实测 246 输出下输入端复用真实收益。
-- [ ] 单轴降维 or 降比特（+蒸馏）精度代价实测（3 数据集，守 80% 底线）。
-- [ ] 异构数据通路 RTL（skip-zero + bit-级跳零 + event-driven 输出），parity 不变；模块4 多层 top。
-- [ ] **Codex#5（8 subagent 独立调研）回贴 → 综合 → 定创新点 → 做实验验证。**
+## J. ★★ 第三轮 cross-check（2026-06-06，8 subagent：稀疏数据流硬件·神经形态·保序近似·离线mapping 各2）+ 真实权重实测颠覆
+> 用户要求"每领域≥2 subagent cross-check、Claude 自己收敛"。8 subagent + 我用 §F 真实实测校验 → **几个 §I 主线被真实数据修正**。
+
+### J0. ★ 决定性发现（真实权重实测 > 文献乐观）
+- **"列对齐整列零打包"在真实权重上≈无效**（方向D-agent2 实测仓库真实首层权重）：**整列零率=0.00%**（two's & sign-mag），最稀疏列仍 292/784 个 1、中位 387，bit-flip 救不动。根因：输入维 784 太长、popcount 一次读全列 → 无短列可对齐成零。2511.14202 为短 OU（ADC 分块）设计，我们无 ADC 读全 784 行 → 不适用。**→ §I1 把"列对齐 bit-零打包"列头号是错的，降级。**
+- **但 cell 级权重零率真实高：two's-comp 51.6% / sign-magnitude 59.3%**（与 BitWave 一致）。兑现需 **per-bitplane skip**（不能整列跳）。sign-mag 重编码离线零成本 +7.7pp。
+- **输入侧零（§F 已实测，校正 subagent 乐观）**：方向B-agent1 称"输入 98% 零、省 10-50×"——**被我 §F 实测打假**：Fashion 真实 47% 非零像素（省 ~53%）、input-bit density 26.5%（bit-plane 73.5% 零，省 ~2-4×）。B1 的 1-2% 是 N-MNIST(DVS 事件)非灰度图。**用真实数据校正文献乐观 = cross-check 的价值。**
+
+### J1. 真正收敛的 PPA 主力（三轮 + 实测校验后）
+1. **输入侧零跳过（实测主力）**：像素零 ~53% + 输入 bit-plane 零 ~73%（§F 数据支撑）。全数字、稳。
+2. **权重位平面 skip（cell 零 51-59%，sign-mag 重编码 +7.7pp）**：兑现需 per-bitplane skip。
+3. **BBS 双向位稀疏 + 负载均衡兜底**（方向A 两 agent 收敛）：high-bitplane 全一时"跳一代替跳零"把有效列下界钉 ≥50%，解 dense worst-case 退化；Dyn-Bitpool 跨-lane 均衡解负载不均。**列粒度（非 bit 粒度）保 bit-parallel 读宽。**
+4. TTFS 早终止 = 全局时钟门控（输出侧小优化）。
+
+### J2. 降级/警惕（诚实留痕）
+- ❌ **列对齐整列零打包**：真实整列零率 0%，降级（仅 OU-H≤8 行分块 marginal 7-15%，但要放弃单发全列 popcount → go/no-go 偏 no）。
+- ⚠ **保序早停/anytime MSB-first（方向C 两 agent 高度收敛：MCBP/SnaPEA/LeOPArd，可证零翻转）= 第一轮"双单调推测"换皮**：用在【输入层发火判定】已被 §F 否决（best-case 14.49/16 bitplane、0% 在 4 项内）；用在【输出层 argmin】可能可行但输出层仅 0.2% cycle、收益绝对值小。**别第三次入坑**；若做只在输出层试、先用真实数据测翻转率。
+- ⚠ **novelty 被占**：2511.14202 / 2512.18459（2025）已覆盖"离线 bit-flip+sign-mag+permutation 制造可跳零 slice、write-once 友好"。纯 mapping 创新空间小。真实空白 = **"全数字二值无-ADC 0T1R + TTFS 上的输入侧+位平面双零跳过 + 鲁棒性"组合叙事 + 硅化**。
+- ❌ 打假（多 agent 一致）：SCNN/Cambricon-X/SparTen/Eyeriss-v2（值级双边稀疏+复杂索引，batch=1 dense write-once 净负担）；AER 路由（单芯小网纯开销）；逐 bit 跳零 Bitlet/Pragmatic（负载不均砸 bit-parallel）；rate/burst/log 编码（第一层 dense 代价与编码无关）；sorted weight sectioning（收益全在 ADC）。
+
+### J3. 来源（第三轮新增）
+BBS 双向 https://arxiv.org/html/2409.05227 · BitWave https://arxiv.org/abs/2507.12444 · 2512.18459 bit-sliced crossbar weight transform · SnaPEA https://cseweb.ucsd.edu/~vakhlagh/ISCA18-SnaPEA.pdf · LeOPArd https://arxiv.org/pdf/2204.03227 · SpiDR https://arxiv.org/abs/2411.02854 · IMPULSE https://arxiv.org/abs/2105.08217 · SpikeCP https://arxiv.org/abs/2305.11322 · sorted weight sectioning https://arxiv.org/html/2410.11298v1
+
+## D. 待办（第三轮后更新）
+- [x] Codex#4 判定 + 可行性 §F + 调研 §G/§H + cross-check §I + 第三轮 §J（含真实权重实测颠覆"列对齐整列零打包"）。
+- [ ] **Python 实测拍板（go/no-go，类比 §F、不改 golden）**：① 权重各 bit-plane 零率（3 数据集，验位平面 skip 收益）② BBS 双向能否钉 worst-case 列下界 ≥50%（各 bitplane 列零率/一率直方图）③（低优先）保序早停在输出 argmin 真实翻转率。
+- [ ] Codex#5（8 subagent，prompt 已发 `V2C_Codex审查_PPA创新调研.md`）回贴 → 两方汇总定创新点。
+- [ ] 收敛后：**无损优化（输入零 + 位平面 skip + BBS）进 RTL，对现有 golden parity**；**改功能（降维/降比特/蒸馏，单轴守 80%）先 Python 重训 + 新 golden**。
+- [ ] 异构数据通路 + 模块4 多层 top。
 - [ ] 每落地一项回填本文档（真实实测 PPA + novelty + 论文角度）。
