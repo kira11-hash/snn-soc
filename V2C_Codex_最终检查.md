@@ -14,7 +14,7 @@
 ## 2. 重点检查（多 subagent 分工，每方面 ≥2）
 1. **逻辑/方案自洽**：A 喂→B 算→C 决策→D 编排 数据流咬合对吗？§9.2 开工顺序合理吗？§9.7 bit-exact 契约覆盖全吗？文档间有无残留矛盾（我刚修过状态/顺序/读延迟，复核）？
 2. **bit-exact 风险（最关键，开工会崩 parity 的坑）**：① `mac_array32` 三套编码（W1 BNN / W2 ternary 含 (1,1) illegal 计数 / W≥4 two's-comp MSB 取负）逐一对 `encoding.mac` 对吗？② output bucket 的 **tie-break（首脉冲那拍膜 max→min idx）/ (row,t_fire) 保序 / fallback** 对 `forward.ttfs_classify`+`convert.strict_decode_from_traj` 吗？③ **lane-offset-22 未对齐 mapping**（output 落 block 7 lane 22-31）④ 末 stripe mask（246%32=22）⑤ dense_bypass 边界。
-3. **PPA 遗漏 / 更极致**：有没有更省的招没挖到（不拘泥）？**读 1-10μs（§9.9 待澄清"1-bit sense 是否也慢"）** 的两情形方案对吗？读慢时"一次多读/读-算流水"评估对吗？counters（§9.3）够支撑论文 PPA 吗？
+3. **PPA 遗漏 / 更极致**：有没有更省的招没挖到（不拘泥）？**读 1-10μs（§9.9 是待澄清 flag：1-bit sense 是否也慢未定，spec 只留 flag、未展开方案）——请独立评估其影响**：若数字 sense 也慢，读慢时的优化重定向（减读次数/一次多读/读-算流水/fmax 降权）该怎么排？counters（§9.3）够支撑论文 PPA 吗？
 4. **novelty**：read-width-aligned bit-event 跳零 + popcount-free 行流 + 决策融进累积尾 + 单宏跨层，组合在数字二值 0T1R+TTFS 上，对标 E-ReCON/SpiDR/FlexSpIM 站得住吗？有无更强角度？
 5. **评估口径**：三桶（数字 DC 实测 / 阵列器件数据 / 模拟外围 estimate）+ best/honest + worst-case，诚实吗？有无会被审稿人挑的？
 
