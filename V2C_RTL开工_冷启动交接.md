@@ -1,6 +1,6 @@
 # V2C RTL 开工 — 冷启动超级详细交接文档（2026-06-06）
 
-> ⚠ **草稿 v0 — 待 Codex 最终检查（`V2C_Codex_最终检查.md`）+ 综合研判后定稿**。本会话末抢先起草；Codex 反馈逐条落地 + 老师两项澄清（1-bit sense 时间/读能耗）回来后，更新为定稿再用。
+> ✅ **定稿 v1.0**（Codex 最终检查已做 + P0/P1 逐条落地，commit `81994a8`；技术细节以 `V2C_RTL开工spec.md` §9 为准）。**待老师 2 项澄清（1-bit sense 时间 / 读能耗）回来后只微调 headline——功能 bit-exact 不依赖，可直接开工。**
 >
 > **新对话第一步**：Read 本文件 → Read §1 核心文档 → 跑 §2 确认环境 → 按 §6 顺序开工写 RTL（严格守 §7 bit-exact 契约）。本文件是「RTL 开工」专用冷启动入口（比旧的 `V2C_接力文档_PhaseABC-RTL.md` 更新、更聚焦开工）。**自动记忆**（从 ~/Desktop/soc 启动会加载）覆盖协作风格/工作规则，本文件再内联一遍以防万一。
 
@@ -37,15 +37,18 @@
 - Python golden 全绿（167 测试）、3 RTL 模块 bit-exact、鲁棒性曲线完成（数字优雅降级 vs 模拟崩，对照用文献）。
 - 三轮 20+ subagent 调研 + Codex 8 路 + 真实权重实测，**双盲收敛：输入跳零是唯一真实 PPA 主力**。其余花招——列对齐打包（真实整列零率=0）/ 权重位平面 skip（bit-parallel 下整块零=0）/ BBS 双向（bit-serial PE 招）/ 保序早停（=被否的双单调换皮）/ 低秩/CSD（4-bit 收益小）/ LUT-GEMM（batch-1 净负）/ time-domain popcount（砸数字卖点）——**全被真实数据或架构约束否决**（留痕 §G–§L）。
 - **RTL spec v1.0 两方汇总定稿**（`V2C_RTL开工spec.md` §8/§9 + 创新点 §M）。
+- **Codex 最终检查已做 + P0/P1 逐条落地（commit `81994a8`）**：event 三口径钉死（`cost.input_skip_cycles` + test）、fault_injector 移 read 端 sideband、z1 parity 对 Σ2^k·mac、counters 扩、fault 静态 mask 合约、value-event 候选、W8 reject、output 出 pred/fallback。bit-exact 命门见 §8。
+- P2 文档清理（plan:24/31 旧描述同步 4-bit ramp、`V2C_RTL进展.md` 加 pre-§9 baseline banner、`V2C_极致PPA创新点.md` "只报 mean" 已被 §K0b 取代）**可选、不挡开工**。
 
 ## 5. ★ RTL 数据通路精要（详见 spec §9）
 **A 喂（只送非零输入行）→ B 算（popcount-free 行流 MAC）→ C 决策（融进累积尾+门控）→ D 编排（单宏跨层 sequencer 全链 parity）。** 全数字、对现有 golden bit-exact（跳零无损=加 0）。
-**模块（`v2c_top_core`）**：`input_event_builder`（{row,bitmask[3:0]} list + dense_bypass：8·N_evt+overhead≥25088 走 dense，对抗最坏不比 dense 慢）→ `read_scheduler`（128b 对齐，出 {aligned_col_base, lane_offset, valid_lanes}）→ `mac_array32`（32 lane int4 解码加：`w=b0+2b1+4b2−8b3`；输入层 `z1+=w<<k`、输出层 `mem+=w`）→ `hidden_timegen_bucket_writer`（z1→spike_time→bucket[t]，**无 hidden early-exit**）→ `output_bucket_engine`（桶累积+融合决策，**禁 row 内提前比**）→ `fault_injector`（ideal bypass）→ `pv_fsm/arbiter`（frame-level lock，P&V 与 compute 互斥）→ `counters/CSR`。
-- cycle 模型：`C_z1 = 8 × N_evt`（N_evt=Σpopcount(vq)）；实测（§K0b 全测试集 best/mean/worst）Fashion 1208/6632/15784、KMNIST 712/4636/13416、MNIST 776/3320/8272（dense=25088；worst 仍省 37-67%）。
+**模块（`v2c_top_core`，详见 spec §9.1 定稿）**：input_event_builder（{row,bitmask}+dense_bypass）→ read_scheduler（128b 对齐 {aligned_col_base,lane_offset,valid_lanes}）→ **fault_injector（read 端 sideband、取数前注入、理想 bypass）** → mac_array32（int4 解码 + W1/W2 码本 + **ternary (1,1)→0 且计 illegal**；输入 `z1+=w<<k`；**W8 单宏 reject→双宏**）→ hidden_timegen_bucket_writer（无 early-exit）→ output_bucket_engine（禁 row 内提前比、**出 pred/fallback/t_exit**）→ pv_fsm / counters（**sideband**）。
+- ★ **event 口径（钉死，`cost.input_skip_cycles`，spec §9.1）**：`row_event`=nnz / `bit_event`=Σpopcount(=§K0b、首版) / `value_event`=fused(~½、DC A/B 候选 spec §9.8)。**spec/RTL/cost/论文同口径**。
+- cycle（bit-event，§K0b 全测试集 best/mean/worst）：Fashion 1208/6632/15784、KMNIST 712/4636/13416、MNIST 776/3320/8272（dense=25088；worst 仍省 37-67%）。
 
 ## 6. ★ 开工顺序（spec §9.2，每步对 golden bit-exact）
 1. **`layer_map` + `mac_array32`**（地基）→ exhaustive parity vs `encoding.mac`（W=1/2/4/8 + 乱序行证交换律）。
-2. `input_event_builder` + `ramp_z1_rowstream` → `event_count==Σpopcount(vq)`、`z1==convert._ramp_hidden_times`。
+2. `input_event_builder` + `ramp_z1_rowstream` → event_count 对三口径（`cost.input_skip_cycles`）、**`z1 == Σ_k 2^k·encoding.mac(bitplane_k)`**（⚠ `_ramp_hidden_times` 返回 spike time、**不返回 z1**）。
 3. `hidden_timegen_bucket_writer` → spike_time vs `_ramp_hidden_times`。
 4. `output_bucket_engine` → vs `forward.ttfs_layer_forward(early_exit=True)`（重点防 row 内提前比）。
 5. `v2c_top_core` + counters → full top vs `convert.eval_ttfs_ramp`（pred/fallback/membrane/spike/counters）。**先用现有 3 模块串"最简 sequencer 骨架"跑通全链 parity（填 plan 剩余模块4），再换新模块、复跑同 parity 防回归。**
