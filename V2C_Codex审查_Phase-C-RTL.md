@@ -40,6 +40,19 @@ V2C = 数字二值 0T1R RRAM-CIM + TTFS 加速器（cell 二值、W=4 跨 cell�
 4. **取舍**：保留现功能版作 golden 参考 + 新建优化版（都 parity），还是重构？风险？给个粗 fmax/面积/延迟/能效 量级（SMIC55nm，784→246→10，W4，T16），对标 22nm TTFS ASIC（F-MNIST 95.67µJ/30FPS）。
 > 把第 1、3 点当**重头**做——用户明确要"充分调研、搜索、思索为极致 PPA 怎么做创新，且是能写进论文的 idea"。结论凡值得写论文的，我会回填 `V2C_极致PPA创新点.md`。
 
+### 3a. 我（Claude）已做的多-subagent 大调研综合（给你做参考；全文见 `V2C_极致PPA创新点.md §E`）
+我分 **4 路独立并行 subagent**（数据流融合/延迟隐藏 · 事件驱动-TTFS 稀疏 · 数字二值 CIM-MAC 微架构 · 精度可伸缩-推测早停）做了带引用的调研，**四路高度收敛**到一个核心创新：
+- **★ 核心：双单调 MSB-first 推测首-spike 提交**——利用 V2C 两重单调性（ramp `membrane(t)=(t+1)·z` 对 t 单调 + bit-serial 部分 popcount 对 slice 单调），每输出一对廉价 `z_lo/z_hi` 上下界，在 full ramp / full bit-serial MAC 跑完前就 **provably 提交赢家或淘汰输者**（lossless），停剩余 slice/相位 + 门控阵列。先验：BitSET/SnaPEA/ComPEND（MSB-first 单调界）、TFSRAM/TQ-TTFS（TTFS 阈值/首-spike）、ITA（fusion）——**单点全已发表，但"双单调+TTFS 首-spike on 数字二值 0T1R RRAM-CIM"的组合未见发表**。
+- 支撑：TTFS fire-once 单调行压缩、row-serial column-parallel bit-serial 累加（解 784-popcount 关键路径，Colonnade 式）、阈值/早停融进累积尾（ITA 式）、TTFS-spike-order 误差界定的近似 compressor 树、bit-plane 跳零、流水重叠+ping-pong。
+- 必报 worst-case cycle（数据相关延迟→workload 不均，Skydiver 利用率掉到 ~59%）。最该对标的最近 prior art：**E-ReCON**（3T1R ReRAM spiking 数字 CIM, 419 TOPS/W@65nm，arxiv ID 待核）。
+
+### 3b. ★ 要求你（Codex）也独立做极致调研——不许只看我的综合
+用户明确要求：**你必须自己也分多个独立 subagent 做"极致大调研 + 独立思考"，不能光看 Claude 的综合就附和**（单源/单视角会偏）。请你：
+1. **派多个独立 subagent**（各攻不同轴：数据流/调度、事件驱动-TTFS、CIM-MAC 微架构、精度-推测早停，或你认为更好的切分），各自**独立检索文献 + 给 PPA novelty**，再交叉综合（指出 agent 间分歧）。
+2. **独立验证或驳斥我上面 §3a 的核心创新**：双单调推测首-spike 提交真的 lossless 吗？真的未发表吗（找反例/最近前作，尤其核 E-ReCON 的 arxiv ID 与做法）？worst-case 延迟/面积开销会不会吃掉收益？
+3. **补我漏掉的、更强的、可发表的极致-PPA idea**（架构/数据流/调度/编码/近阈值/数据相关时钟…），每条标 novelty(vs 文献) + PPA 量级 + 写论文角度 + 落到 V2C RTL 的微架构。
+4. 给一个**带优先级的 RTL 落地路线**：哪个创新先做、怎么 parity 保功能、怎么对 DC 量化。
+
 ## 4. (A) 检查（P0/P1/P2）
 1. **RTL 正确性/可综合**：parity 是理想模式 bit-exact，但请审 FSM 边界、signed/位宽（PSUM_W/MEM_W/Z_W 够不够，溢出？）、reset/start 握手、行为级 memory→宏/BRAM 映射的隐患、`always @*` 组合 popcount 的可综合性。
 2. **deployed robustness 方法学**：冻结 λ=0.5 标定 θ_out 在故障下 strict 解码——这个"部署鲁棒性"口径对吗？故障率该不该从器件参数映射（已做 read_ber_from_device）？还缺什么。
