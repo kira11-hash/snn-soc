@@ -155,13 +155,40 @@ arxiv **2605.20717 确认存在**（不再"待核"）：「E-ReCON: Energy- and 
 - 频域 DCT https://openaccess.thecvf.com/content_CVPR_2020/papers/Xu_Learning_in_the_Frequency_Domain_CVPR_2020_paper.pdf · Monarch 结构化矩阵 https://proceedings.mlr.press/v162/dao22a/dao22a.pdf
 - （CIM 范式那路 time-domain popcount / CREW / Catwalk 见 §G5）
 
-## D. 待办
-- [x] Codex#4 回贴 → 逐条独立判定（采纳/驳回/降级），见 git + §F。
-- [x] 可行性分析选最优方案 → §F：否决 bit-serial 推测，选定异构 co-design + skip-zero。
-- [x] 多领域 subagent 调研 → §G（CIM 范式）+ §H（4 面综合框架）。
-- [ ] **面③（最稳先做）**：Python 验输入降维(28²→14²)+降比特(4→2)+低秩(784→r→246) 精度代价（3 数据集，≤2–3pp），定 PPA 收益。
-- [ ] **面②（headline novelty）**：实测 CSD/signed-digit 权重 bit-稀疏率 + 冗余复用率（真实权重，类比 §F），定收益 + 落 RTL。
-- [ ] **面①+异构数据通路**：skip-zero RTL 微架构 + event-driven 输出 row-serial，parity 不变。
-- [ ] **面④（激进 novelty）**：评 time-domain popcount 的 PVT vs 鲁棒卖点（数字计数器折中）。
-- [ ] 模块4 多层 top（ramp→output 全链 vs eval_ttfs_ramp）作优化数据通路 parity 基线。
-- [ ] 每落地一项回填本文档（PPA 量级 + novelty 判断 + 写论文角度）。
+## I. ★★ Cross-check 二轮（2026-06-06，4 路新 subagent 独立验证/挑战 §G/§H）— 多个 headline 被实测推翻
+> 用户要求对 §G/§H 做 cross-check。4 路新 subagent 各拿上一轮该路结论、独立查证+挑战+补漏（不附和）。**结果：第一轮多个"最强招"被修正/推翻**——体现"不拘泥旧结论、用证据该改就改"。
+
+### I0. 被推翻/降级（诚实留痕）
+| 第一轮结论 | cross-check 裁决 | 关键证据 | 路 |
+|---|---|---|---|
+| CSD 砍 33% 权重位（headline）| **降级** | 4-bit 下只 ~28%（NAF 1.44/2.00 精确枚举）；DB-PIM 7.69× 是 **8-bit SRAM 组合数**、单 bit 稀疏 5.2×、迁 4-bit 二值 RRAM 现实 ~1.3-1.5×；三值 {-1,0,+1} 不适配 write-once 二值 cell | 1 |
+| 截断/近似加法树"对 TTFS 免费" | **推翻** | 仿真丢 1 LSB plane 翻 top-1 ~9%、2 planes ~20%（TTFS 比谁先发，近平局被误差翻序）→ 必须 per-output 有界 | 1 |
+| LUT-GEMM/BiQGEMM 最强 | **推翻（净负）** | 它复用**激活跨 batch**、假设 FP 激活+亿级矩阵+大 batch；我们 batch=1/4-bit 激活/246 小矩阵 → 建表一次用一次、build 开销主导；"权重跨 246 列复现"说反了 | 2 |
+| time-domain popcount 最强 | **推翻（砸卖点）** | delay-chain 本质模拟时序，砸"全数字抗 PVT"核心卖点；arXiv 2403.18367 定量证严格精度下纯数字全面胜 TD；数字计数器折中后收益归零；延迟单元 300-615 ppm/°C | 4 |
+| 降维 1-2% + 降比特 <1%，叠加~2% | **修正（过度乐观）** | 1-2% 是 CNN(LeNet) 数；1-bit 隐层 dense MLP 真实 **3-6pp**；叠加**超线性** → 总代价 **5-9pp**，KMNIST 可能破 80% 底线 | 3 |
+| 低秩 784→r→246 作 novelty 头条 | **降级为高风险赌注** | 第二段 factor 动态范围宽（文献都保高精度/残差），强塞双 1-bit=双倍信息损失；"插 ReLU1 保单调"未证、累积 TTFS 误差 | 3 |
+| 冗余复用 CREW 98%/Transitive 7.46× | **推翻（机理讲反）** | CREW 复用**权重重复**、FC 层每输入对应 unique 权重列（784×246 无重复）、CREW 论文点名"对 FC 失效"；像素 16 值是输入端复用但 246 输出权重各异、省不掉乘加列；7.46× 是 LLM+弱基线不可移植 | 4 |
+
+### I1. ★ Cross-check 后收敛的真正主线（多路独立指向，全数字/有硅证/不伤鲁棒卖点）
+1. **bit 级零跳过（最稳主线，路1+路4 收敛）**：skip-zero（输入零，已选定）+ **bit-level sparsity skip**（4-bit bit-serial 高 bitplane 2³/2² 天然稀疏→跳零 bit；硅证 38.21 TOPS/W 数字 CIM）+ **离线列对齐 bit-零打包**（权重 bit 重排+flip 制造可跳零列，arxiv 2511.14202，一次性离线、零 RRAM 重写、crossbar 原生）。全数字、零 PVT 代价、与 skip-zero 叠加。**两轮调研收敛的 PPA 头条候选。**
+2. **KD 蒸馏找回精度（路3 力荐）**：FP teacher→1-bit student，纯训练侧、推理免费、最可靠找回 1-bit 隐层损失 → 让我们能更激进砍 PPA 而守 accuracy 底线。
+3. **像素 codebook LUT（输入端复用，路2+路4 收敛）**：MADDNESS/LUT-DLA/TLMAC，像素 16 值做首层激活 codebook、查表+移位加替代乘加，全数字无乘法。⚠ 需实测真实收益（246 输出权重各异）。
+4. **降维 or 降比特（单轴+蒸馏，路3）**：代价比想象大（叠加 5-9pp），**只选一个轴+蒸馏**，守 KMNIST 80% 底线。
+
+### I2. ★ 红线更新
+- 别再吹 CSD 33% / DB-PIM 7.69× / LUT-GEMM / time-domain popcount / CREW 复用 —— 已被 cross-check 修正或推翻（理由见 I0）。
+- 任何"砍 PPA"招都要：① **全数字、不伤抗 PVT 鲁棒卖点**；② **真实权重/数据实测收益**（别引文献量级）；③ **parity 保功能**；④ **守 KMNIST 80% 底线**（TTFS 比谁先发、近平局对误差敏感）。
+- novelty 排序：bit 级零跳过（含列对齐打包）> KD+单轴降维/降比特 > 像素 codebook LUT >（低秩/time-domain/CSD 降为研究赌注或弃）。
+
+### I3. 来源（cross-check 新增）
+列对齐 bit 重排 https://arxiv.org/html/2511.14202 · TD 计算定量劣势 https://arxiv.org/html/2403.18367v1 · 剪枝+量化超线性 https://arxiv.org/html/2509.04244v1 · 低秩+低精度动态范围 LPLR https://arxiv.org/pdf/2310.11028 · SVDQuant https://arxiv.org/html/2411.05007v3 · 全数字 LUT-MAC https://arxiv.org/pdf/2506.16800 · LUT-DLA https://arxiv.org/pdf/2501.10658 · MVQ https://arxiv.org/html/2412.10261 · 分离卷积二值首级 https://arxiv.org/pdf/1707.04693 · BiMLP https://arxiv.org/pdf/2212.14158
+
+## D. 待办（cross-check 后更新）
+- [x] Codex#4 判定 + 可行性（§F）+ 4 路调研（§G/§H）+ 4 路 cross-check（§I）。
+- [ ] **主线①bit 级零跳过**：Python 实测 (a) 输入 skip-zero (b) 高 bitplane 零 bit 稀疏率 (c) 列对齐 bit 重排可制造的零列比例（真实权重，类比 §F）→ 真实收益。
+- [ ] **主线②KD 蒸馏**：FP teacher→1-bit student 找回精度，量化"能多砍多少 PPA 而守 KMNIST 80%"。
+- [ ] **主线③像素 codebook LUT**：实测 246 输出下输入端复用真实收益。
+- [ ] 单轴降维 or 降比特（+蒸馏）精度代价实测（3 数据集，守 80% 底线）。
+- [ ] 异构数据通路 RTL（skip-zero + bit-级跳零 + event-driven 输出），parity 不变；模块4 多层 top。
+- [ ] **Codex#5（8 subagent 独立调研）回贴 → 综合 → 定创新点 → 做实验验证。**
+- [ ] 每落地一项回填本文档（真实实测 PPA + novelty + 论文角度）。
